@@ -15,21 +15,27 @@ jobs:
       - name: 下载并检测更新
         run: |
           while IFS=" " read -r filename url; do
-            if [ -n "$filename" ] && [ -n "$url" ]; then
-              echo "正在下载 $filename 来自 $url ..."
-              curl -f -H "Cache-Control: no-cache" -o "$filename" "$url" || { echo "下载 $filename 失败，跳过"; continue; }
+            if [ -z "$filename" ] || [ -z "$url" ]; then
+              echo "跳过空行或格式错误：$filename $url"
+              continue
+            fi
 
-              if ! git ls-files --error-unmatch "$filename" >/dev/null 2>&1; then
-                # 新文件：仓库里没有
-                git add "$filename"
-                git commit -m "新增同步文件 $filename"
-              elif ! git diff --quiet "$filename"; then
-                # 已有文件且有变化
-                git add "$filename"
-                git commit -m "自动同步 $filename 文件"
-              else
-                echo "$filename 没有变化，跳过提交"
-              fi
+            echo "正在下载 $filename 来自 $url ..."
+            if ! curl -fsSL -H "Cache-Control: no-cache" -o "$filename" "$url"; then
+              echo "❌ 下载失败：$filename"
+              continue
+            fi
+
+            if ! git ls-files --error-unmatch "$filename" >/dev/null 2>&1; then
+              echo "📁 新文件：$filename"
+              git add "$filename"
+              git commit -m "新增同步文件 $filename"
+            elif ! git diff --quiet "$filename"; then
+              echo "🔄 文件有变化：$filename"
+              git add "$filename"
+              git commit -m "自动同步 $filename 文件"
+            else
+              echo "✅ 文件无变化：$filename"
             fi
           done < files.txt
 
