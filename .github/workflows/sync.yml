@@ -12,7 +12,12 @@ jobs:
       - name: 检出仓库代码（完整克隆）
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0   # 确保能识别新文件
+          fetch-depth: 0
+
+      - name: 配置 Git 用户信息
+        run: |
+          git config --global user.name "sync-bot"
+          git config --global user.email "sync-bot@example.com"
 
       - name: 下载并检测更新
         run: |
