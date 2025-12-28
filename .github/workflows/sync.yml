@@ -9,18 +9,20 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出仓库代码
+      - name: 检出仓库代码（完整克隆）
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0   # 确保能识别新文件
 
       - name: 下载并检测更新
         run: |
           while IFS=" " read -r filename url; do
             if [ -z "$filename" ] || [ -z "$url" ]; then
-              echo "跳过空行或格式错误：$filename $url"
+              echo "⚠️ 跳过空行或格式错误：$filename $url"
               continue
             fi
 
-            echo "正在下载 $filename 来自 $url ..."
+            echo "📥 下载 $filename 来自 $url ..."
             if ! curl -fsSL -H "Cache-Control: no-cache" -o "$filename" "$url"; then
               echo "❌ 下载失败：$filename"
               continue
