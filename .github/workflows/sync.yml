@@ -1,9 +1,9 @@
 name: 同步多个文件（支持新文件提交）
 
 on:
-  workflow_dispatch:         # 手动触发
+  workflow_dispatch:
   schedule:
-    - cron: "0 */12 * * *"   # 每12小时运行一次
+    - cron: "0 */12 * * *"
 
 jobs:
   sync:
@@ -17,10 +17,10 @@ jobs:
           while IFS=" " read -r filename url; do
             if [ -n "$filename" ] && [ -n "$url" ]; then
               echo "正在下载 $filename 来自 $url ..."
-              curl -H "Cache-Control: no-cache" -o "$filename" "$url"
+              curl -f -H "Cache-Control: no-cache" -o "$filename" "$url" || { echo "下载 $filename 失败，跳过"; continue; }
 
-              if [ ! -f ".git/$filename" ] && [ -f "$filename" ]; then
-                # 新文件：仓库里没有，但下载成功
+              if ! git ls-files --error-unmatch "$filename" >/dev/null 2>&1; then
+                # 新文件：仓库里没有
                 git add "$filename"
                 git commit -m "新增同步文件 $filename"
               elif ! git diff --quiet "$filename"; then
@@ -34,5 +34,4 @@ jobs:
           done < files.txt
 
       - name: 推送更新
-        run: |
-          git push
+        run: git push
