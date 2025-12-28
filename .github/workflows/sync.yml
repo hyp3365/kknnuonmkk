@@ -1,4 +1,4 @@
-name: 同步多个文件（支持新文件提交）
+name: 同步多个文件（最终优化版）
 
 on:
   workflow_dispatch:
@@ -21,30 +21,67 @@ jobs:
 
       - name: 下载并检测更新
         run: |
-          while IFS=" " read -r filename url; do
-            if [ -z "$filename" ] || [ -z "$url" ]; then
-              echo "⚠️ 跳过空行或格式错误：$filename $url"
+          新增=0
+          更新=0
+          跳过=0
+          失败=0
+          日志文件="sync.log"
+
+          echo "==== 同步运行开始 $(date '+%Y-%m-%d %H:%M:%S') ====" >> $日志文件
+
+          while IFS=" " read -r 文件名 链接; do
+            if [ -z "$文件名" ] || [ -z "$链接" ]; then
+              echo "⚠️ 跳过空行或格式错误：$文件名 $链接"
+              echo "⚠️ 跳过空行或格式错误：$文件名 $链接" >> $日志文件
+              跳过=$((跳过+1))
               continue
             fi
 
-            echo "📥 下载 $filename 来自 $url ..."
-            if ! curl -fsSL -H "Cache-Control: no-cache" -o "$filename" "$url"; then
-              echo "❌ 下载失败：$filename"
+            echo "📥 正在下载 $文件名 来自 $链接 ..."
+            if ! curl -fsSL -H "Cache-Control: no-cache" -o "$文件名" "$链接"; then
+              echo "❌ 下载失败：$文件名"
+              echo "❌ 下载失败：$文件名" >> $日志文件
+              失败=$((失败+1))
               continue
             fi
 
-            if ! git ls-files --error-unmatch "$filename" >/dev/null 2>&1; then
-              echo "📁 新文件：$filename"
-              git add "$filename"
-              git commit -m "新增同步文件 $filename"
-            elif ! git diff --quiet "$filename"; then
-              echo "🔄 文件有变化：$filename"
-              git add "$filename"
-              git commit -m "自动同步 $filename 文件"
+            # 文件校验：大小是否为0
+            if [ ! -s "$文件名" ]; then
+              echo "⚠️ 文件为空，跳过：$文件名"
+              echo "⚠️ 文件为空，跳过：$文件名" >> $日志文件
+              跳过=$((跳过+1))
+              rm -f "$文件名"
+              continue
+            fi
+
+            if ! git ls-files --error-unmatch "$文件名" >/dev/null 2>&1; then
+              echo "📁 新文件：$文件名"
+              echo "📁 新文件：$文件名" >> $日志文件
+              git add "$文件名"
+              git commit -m "新增同步文件 $文件名"
+              新增=$((新增+1))
+            elif ! git diff --quiet "$文件名"; then
+              echo "🔄 文件有变化：$文件名"
+              echo "🔄 文件有变化：$文件名" >> $日志文件
+              git add "$文件名"
+              git commit -m "自动同步 $文件名 文件"
+              更新=$((更新+1))
             else
-              echo "✅ 文件无变化：$filename"
+              echo "✅ 文件无变化：$文件名"
+              echo "✅ 文件无变化：$文件名" >> $日志文件
+              跳过=$((跳过+1))
             fi
           done < files.txt
+
+          echo "📊 同步统计结果：" | tee -a $日志文件
+          echo "新增文件：$新增 个" | tee -a $日志文件
+          echo "更新文件：$更新 个" | tee -a $日志文件
+          echo "跳过文件：$跳过 个" | tee -a $日志文件
+          echo "下载失败：$失败 个" | tee -a $日志文件
+          echo "==== 同步运行结束 ====" >> $日志文件
+
+          git add $日志文件
+          git commit -m "更新同步日志 $(date '+%Y-%m-%d %H:%M:%S')" || echo "没有日志更新需要提交"
 
       - name: 推送更新
         run: git push
