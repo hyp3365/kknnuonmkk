@@ -1,9 +1,9 @@
-name: 同步多个文件（文件名+链接配置）
+name: 同步多个文件（支持无后缀）
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */12 * * *"   # 每12小时运行一次
+    - cron: "0 */12 * * *"
 
 jobs:
   sync:
