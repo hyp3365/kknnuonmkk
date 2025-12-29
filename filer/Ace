@@ -1,5 +1,5 @@
 {
-    "spider": "./bzc1227.png",
+    "spider": "./zc1227.png",
     "wallpaper": "https://t.alcy.cc/pc",
     "logo": "https://img.sobot.com/56b093dec73c42dca06a96734ffa6258/chatres/56b093dec73c42dca06a96734ffa6258/msg/20241204/a1563905111d66f5033927df2f544f83/877590248a3e4fad90fb5f9faa52e70f.gif",
     "warningText": "资源来自网络，无任何盈利纯学习技术！[所有内容仅供学习使用，请勿用于违法及商业用途，请勿付费购买]",
@@ -74,6 +74,132 @@
                 "json": "./lib/B站.png",
                 "cookie": "http://127.0.0.1:9978/file/TVBox/bili_cookie.txt"
             }
+        },
+         {
+            "key": "tjKK",
+            "name": "🔍4K_夸克✨网盘搜索",
+            "type": 3,
+            "api": "csp_TGSouKK",
+            "searchable": 1,
+            "changeable": 0
+        },
+        {
+            "key": "tjBD",
+            "name": "🔍4K_百度✨网盘搜索",
+            "type": 3,
+            "api": "csp_TGSouBD",
+            "searchable": 1,
+            "changeable": 0
+        },
+        {
+            "key": "tjUC",
+            "name": "🔍4K_UC✨网盘搜索",
+            "type": 3,
+            "api": "csp_TGSouUC",
+            "searchable": 1,
+            "changeable": 0
+        },
+         {
+            "key": "tjTY",
+            "name": "🔍4K_天翼✨网盘搜索",
+            "type": 3,
+            "api": "csp_TGSouTY",
+            "searchable": 1,
+            "changeable": 0
+        },
+        {
+            "key": "tj综合",
+            "name": "🔍TJ_综合✨网盘搜索",
+            "type": 3,
+            "api": "csp_TGSou",
+            "searchable": 1,
+            "changeable": 0
+        },
+        {
+            "key": "玩偶哥哥",
+            "name": "💯4K玩偶✨极致臻享🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "ext": "./json/wogg.json"
+        },
+        {
+            "key": "木偶",
+            "name": "💯4K木偶✨极致画质🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "ext": "./json/mogg.json"
+        },
+        {
+            "key": "蜡笔",
+            "name": "💯4K蜡笔✨极致画质🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/lb.json"
+        },
+        {
+            "key": "虎斑",
+            "name": "💯4K虎斑✨极致画质🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/huban.json"
+        },
+        {
+            "key": "至臻",
+            "name": "💯4K至臻✨极致HDR🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/zz.json"
+        },
+        {
+            "key": "多多",
+            "name": "💯4K多多✨极致HDR🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/yyds.json"
+        },
+        {
+            "key": "欧哥",
+            "name": "💯4K欧哥✨极致HDR🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/og.json"
+        },
+        {
+            "key": "二小",
+            "name": "💯4K二小✨极致HDR🔰",
+            "type": 3,
+            "api": "csp_PanWebShare",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "changeable": 1,
+            "ext": "./json/ex.json"
         },
         {
             "key": "移动",
@@ -419,47 +545,6 @@
             "ext": "http://114.66.55.28:4816/api.php/app/"
         },
         {
-            "key": "tjKK",
-            "name": "🔍4K_夸克✨网盘搜索",
-            "type": 3,
-            "api": "csp_TGSouKK",
-            "searchable": 1,
-            "changeable": 0
-        },
-        {
-            "key": "tjBD",
-            "name": "🔍4K_百度✨网盘搜索",
-            "type": 3,
-            "api": "csp_TGSouBD",
-            "searchable": 1,
-            "changeable": 0
-        },
-        {
-            "key": "tjUC",
-            "name": "🔍4K_UC✨网盘搜索",
-            "type": 3,
-            "api": "csp_TGSouUC",
-            "searchable": 1,
-            "changeable": 0
-        },
-        
-        {
-            "key": "tjTY",
-            "name": "🔍4K_天翼✨网盘搜索",
-            "type": 3,
-            "api": "csp_TGSouTY",
-            "searchable": 1,
-            "changeable": 0
-        },
-        {
-            "key": "tj综合",
-            "name": "🔍TJ_综合✨网盘搜索",
-            "type": 3,
-            "api": "csp_TGSou",
-            "searchable": 1,
-            "changeable": 0
-        },
-        {
             "key": "小斑快映",
             "name": "💯4K小斑✨网盘合集🔰",
             "type": 3,
@@ -470,92 +555,7 @@
             "changeable": 1,
             "ext": "./json/xbky.json"
         },
-        {
-            "key": "玩偶哥哥",
-            "name": "💯4K玩偶✨极致臻享🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "ext": "./json/wogg.json"
-        },
-        {
-            "key": "木偶",
-            "name": "💯4K木偶✨极致画质🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "ext": "./json/mogg.json"
-        },
-        {
-            "key": "蜡笔",
-            "name": "💯4K蜡笔✨极致画质🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/lb.json"
-        },
-        {
-            "key": "虎斑",
-            "name": "💯4K虎斑✨极致画质🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/huban.json"
-        },
-        {
-            "key": "至臻",
-            "name": "💯4K至臻✨极致HDR🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/zz.json"
-        },
-        {
-            "key": "多多",
-            "name": "💯4K多多✨极致HDR🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/yyds.json"
-        },
-        {
-            "key": "欧哥",
-            "name": "💯4K欧哥✨极致HDR🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/og.json"
-        },
-        {
-            "key": "二小",
-            "name": "💯4K二小✨极致HDR🔰",
-            "type": 3,
-            "api": "csp_PanWebShare",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "changeable": 1,
-            "ext": "./json/ex.json"
-        },
+        
         {
             "key": "团长",
             "name": "💯4K团长✨极致HDR🔰",
