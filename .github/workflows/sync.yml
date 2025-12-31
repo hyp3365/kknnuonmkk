@@ -128,10 +128,21 @@ jobs:
               continue
             fi
 
+            # ⭐⭐⭐ 新增：计算文件大小 ⭐⭐⭐
+            size_bytes=$(stat -c%s "$tmp")
+            if [ "$size_bytes" -lt 1024 ]; then
+              size="${size_bytes} B"
+            elif [ "$size_bytes" -lt 1048576 ]; then
+              size="$(awk "BEGIN {printf \"%.2f KB\", $size_bytes/1024}")"
+            else
+              size="$(awk "BEGIN {printf \"%.2f MB\", $size_bytes/1048576}")"
+            fi
+            desc_with_size="${desc}（${size}）"
+
             if ! git ls-files --error-unmatch "$target" >/dev/null 2>&1; then
               mv "$tmp" "$target"
               echo "📁 新文件：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | $desc | 🆕 新增 |" >> "$report"
+              echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🆕 新增 |" >> "$report"
               git add "$target"
               git commit -m "新增同步文件 $target（$desc）"
               added=$((added+1))
@@ -141,13 +152,13 @@ jobs:
             if ! diff -q "$tmp" "$target" >/dev/null 2>&1; then
               mv "$tmp" "$target"
               echo "🔄 文件更新：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | $desc | 🔄 更新 |" >> "$report"
+              echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🔄 更新 |" >> "$report"
               git add "$target"
               git commit -m "自动同步更新 $target（$desc）"
               updated=$((updated+1))
             else
               echo "✅ 无变化：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | $desc | ✅ 无变化 |" >> "$report"
+              echo "| ${final_name}.${final_ext} | ${desc_with_size} | ✅ 无变化 |" >> "$report"
               skipped=$((skipped+1))
               rm -f "$tmp"
             fi
