@@ -1,3 +1,4 @@
 # SYNC_CRON=0 0 * * *
 # 自定义名字   自定义格式   描述           URL  不自定义名字用-代替
 Ace        json        不错的接口       https://8815.kstore.vip/tvbox/Ace
+-           -            潇洒          https://9877.kstore.space/AnotherD/api.json
