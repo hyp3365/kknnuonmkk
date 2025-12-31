@@ -102,12 +102,38 @@ jobs:
             url="$(echo "$url" | tr -d '\r' | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')"
             echo "📥 正在下载：$url" | tee -a "$logfile"
 
+
+            # URL 健康状态目录
+            mkdir -p .url_status
+            status_file=".url_status/${final_name}.fail"
+
+            # 下载失败处理
             if ! retry_download "$url" "$tmp"; then
-              echo "❌ 下载失败：$url" | tee -a "$logfile"
-              echo "| - | $desc | ❌ 下载失败 |" >> "$report"
-              failed=$((failed+1))
-              continue
-            fi
+            echo "❌ 下载失败：$url" | tee -a "$logfile"
+ 
+            # 记录失败次数
+            if [ -f "$status_file" ]; then
+            fails=$(cat "$status_file")
+            fails=$((fails+1))
+          else
+            fails=1
+          fi
+          echo "$fails" > "$status_file"
+
+  # 连续七天失败标记
+  if [ "$fails" -ge 7 ]; then
+    echo "⚠️ URL 已连续 $fails 天无法访问：$url" | tee -a "$logfile"
+    echo "| ${final_name}.${final_ext} | $desc | ⚠️ 连续 ${fails} 天失败 |" >> "$report"
+  else
+    echo "| ${final_name}.${final_ext} | $desc | ❌ 下载失败（累计 ${fails} 次） |" >> "$report"
+  fi
+
+  failed=$((failed+1))
+  continue
+fi
+
+# 如果成功下载 → 清除失败记录
+rm -f "$status_file"
 
             # 原始文件名和格式
             basename=$(basename "$url")
