@@ -98,6 +98,8 @@ jobs:
             [[ "$desc" == "-" ]] && desc=""
 
             tmp="filer/tmpfile"
+            # 清洗 URL
+            url="$(echo "$url" | tr -d '\r' | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')"
             echo "📥 正在下载：$url" | tee -a "$logfile"
 
             if ! retry_download "$url" "$tmp"; then
