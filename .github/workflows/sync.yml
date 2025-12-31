@@ -26,6 +26,7 @@ jobs:
 
       - name: 下载并同步文件（增强版）
         run: |
+          export TZ="Asia/Shanghai"
           set -e
           mkdir -p filer .url_status
 
