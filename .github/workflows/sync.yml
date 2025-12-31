@@ -102,6 +102,19 @@ jobs:
             url="$(echo "$url" | tr -d '\r' | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')"
             echo "📥 正在下载：$url" | tee -a "$logfile"
             # URL 健康状态目录
+
+            # 原始文件名和格式
+            basename=$(basename "$url")
+            orig_name="${basename%.*}"
+            orig_ext="${basename##*.}"
+
+            # 最终名字
+            final_name="${outname:-$orig_name}"
+
+            # 最终格式
+            final_ext="${outformat:-$orig_ext}"
+
+            # URL 健康状态目录
 mkdir -p .url_status
 status_file=".url_status/${final_name}.fail"
 
@@ -132,17 +145,6 @@ fi
 
 # 如果成功下载 → 清除失败记录
 rm -f "$status_file"
-
-            # 原始文件名和格式
-            basename=$(basename "$url")
-            orig_name="${basename%.*}"
-            orig_ext="${basename##*.}"
-
-            # 最终名字
-            final_name="${outname:-$orig_name}"
-
-            # 最终格式
-            final_ext="${outformat:-$orig_ext}"
 
             # 最终输出路径
             target="filer/${final_name}.${final_ext}"
