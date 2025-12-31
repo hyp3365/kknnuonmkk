@@ -144,7 +144,7 @@ jobs:
               echo "📁 新文件：$target" | tee -a "$logfile"
               echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🆕 新增 |" >> "$report"
               git add "$target"
-              git commit -m "新增同步文件 $target（$desc）"
+              git commit -m "新增同步文件 $target（$desc_with_size）"
               added=$((added+1))
               continue
             fi
@@ -154,7 +154,7 @@ jobs:
               echo "🔄 文件更新：$target" | tee -a "$logfile"
               echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🔄 更新 |" >> "$report"
               git add "$target"
-              git commit -m "自动同步更新 $target（$desc）"
+              git commit -m "自动同步更新 $target（$desc_with_size）"
               updated=$((updated+1))
             else
               echo "✅ 无变化：$target" | tee -a "$logfile"
