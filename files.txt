@@ -1,3 +1,3 @@
 # SYNC_CRON=0 0 * * *
 # 自定义名字   自定义格式    描述         url
-Ace     json     不错的接口     https://8815.kstore.vip/tvbox/Ace
+Ace json 不错的接口 https://8815.kstore.vip/tvbox/Ace
