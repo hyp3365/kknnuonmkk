@@ -1,132 +1,141 @@
-name: 同步多个文件（增强版，无推送）
+set -e
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 */12 * * *"
+mkdir -p filer
 
-# 🔒 并发锁：避免重复运行
-concurrency:
-  group: sync-files
-  cancel-in-progress: false
+added=0
+updated=0
+skipped=0
+failed=0
+logfile="sync.log"
+report="sync_report.md"
 
-jobs:
-  sync:
-    runs-on: ubuntu-latest
+echo "==== 同步运行开始 $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$logfile"
 
-    steps:
-      - name: 检出仓库代码（完整克隆）
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+# 读取 files.txt 顶部的 SYNC_CRON 配置
+SYNC_CRON=""
+while read -r line; do
+    line="$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')"
+    [[ -z "$line" ]] && continue
 
-      - name: 配置 Git 用户信息
-        run: |
-          git config --global user.name "sync-bot"
-          git config --global user.email "sync-bot@example.com"
+    if [[ "$line" =~ ^#\ *SYNC_CRON= ]]; then
+        SYNC_CRON=$(echo "$line" | sed 's/^#\ *SYNC_CRON=//')
+        break
+    fi
 
-      - name: 下载并同步文件
-        id: sync
-        run: |
-          set -e
+    [[ ! "$line" =~ ^# ]] && break
+done < files.txt
 
-          mkdir -p filer
+echo "📅 当前同步时间配置：${SYNC_CRON:-未设置}" | tee -a "$logfile"
 
-          added=0
-          updated=0
-          skipped=0
-          failed=0
-          logfile="sync.log"
-          report="sync_report.md"
+# Markdown 报告头部
+echo "# 同步报告" > "$report"
+echo "运行时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$report"
+echo "" >> "$report"
+echo "| 文件 | 描述 | 状态 |" >> "$report"
+echo "|------|------|------|" >> "$report"
 
-          echo "==== 同步运行开始 $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$logfile"
+retry_download() {
+  url="$1"
+  out="$2"
+  for i in 1 2 3; do
+    if curl -fsSL -H "Cache-Control: no-cache" -o "$out" "$url"; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
 
-          # Markdown 报告头部
-          echo "# 同步报告" > "$report"
-          echo "运行时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$report"
-          echo "" >> "$report"
-          echo "| 文件 | 状态 |" >> "$report"
-          echo "|------|------|" >> "$report"
+while read -r line; do
+  # 去掉首尾空白
+  line="$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')"
 
-          retry_download() {
-            url="$1"
-            out="$2"
-            for i in 1 2 3; do
-              if curl -fsSL -H "Cache-Control: no-cache" -o "$out" "$url"; then
-                return 0
-              fi
-              sleep 2
-            done
-            return 1
-          }
+  # 跳过空行和注释
+  [[ -z "$line" || "$line" =~ ^# ]] && continue
 
-          while IFS=" " read -r filename url; do
-            if [[ -z "$filename" || -z "$url" || "$filename" =~ ^# ]]; then
-              echo "⚠️ 跳过空行或注释：$filename $url" | tee -a "$logfile"
-              skipped=$((skipped+1))
-              echo "| $filename | ⚠️ 跳过 |" >> "$report"
-              continue
-            fi
+  # 压缩多个空白为一个空格
+  line="$(echo "$line" | tr -s '[:space:]' ' ')"
 
-            target="filer/$filename"
+  # 解析字段：name format desc url
+  outname=$(echo "$line" | cut -d ' ' -f1)
+  outformat=$(echo "$line" | cut -d ' ' -f2)
+  desc=$(echo "$line" | cut -d ' ' -f3)
+  url=$(echo "$line" | cut -d ' ' -f4-)
 
-            echo "📥 正在下载 $filename 来自 $url ..." | tee -a "$logfile"
+  # 默认值处理
+  [[ "$outname" == "-" ]] && outname=""
+  [[ "$outformat" == "-" ]] && outformat=""
+  [[ "$desc" == "-" ]] && desc=""
 
-            if ! retry_download "$url" "$target.tmp"; then
-              echo "❌ 下载失败：$filename" | tee -a "$logfile"
-              echo "| $filename | ❌ 下载失败 |" >> "$report"
-              failed=$((failed+1))
-              rm -f "$target.tmp"
-              continue
-            fi
+  tmp="filer/tmpfile"
+  echo "📥 正在下载：$url" | tee -a "$logfile"
 
-            if [ ! -s "$target.tmp" ]; then
-              echo "⚠️ 文件为空，跳过：$filename" | tee -a "$logfile"
-              echo "| $filename | ⚠️ 空文件 |" >> "$report"
-              skipped=$((skipped+1))
-              rm -f "$target.tmp"
-              continue
-            fi
+  if ! retry_download "$url" "$tmp"; then
+    echo "❌ 下载失败：$url" | tee -a "$logfile"
+    echo "| - | $desc | ❌ 下载失败 |" >> "$report"
+    failed=$((failed+1))
+    continue
+  fi
 
-            if ! git ls-files --error-unmatch "$target" >/dev/null 2>&1; then
-              mv "$target.tmp" "$target"
-              echo "📁 新文件：$filename" | tee -a "$logfile"
-              echo "| $filename | 🆕 新增 |" >> "$report"
-              git add "$target"
-              git commit -m "新增同步文件 $target"
-              added=$((added+1))
-              continue
-            fi
+  # 原始文件名和格式
+  basename=$(basename "$url")
+  orig_name="${basename%.*}"
+  orig_ext="${basename##*.}"
 
-            if ! diff -q "$target.tmp" "$target" >/dev/null 2>&1; then
-              mv "$target.tmp" "$target"
-              echo "🔄 文件有变化：$filename" | tee -a "$logfile"
-              echo "| $filename | 🔄 更新 |" >> "$report"
-              git add "$target"
-              git commit -m "自动同步更新 $target"
-              updated=$((updated+1))
-            else
-              echo "✅ 文件无变化：$filename" | tee -a "$logfile"
-              echo "| $filename | ✅ 无变化 |" >> "$report"
-              skipped=$((skipped+1))
-              rm -f "$target.tmp"
-            fi
+  # 最终名字
+  final_name="${outname:-$orig_name}"
 
-          done < files.txt
+  # 最终格式
+  final_ext="${outformat:-$orig_ext}"
 
-          echo "" >> "$report"
-          echo "## 统计" >> "$report"
-          echo "- 新增：$added" >> "$report"
-          echo "- 更新：$updated" >> "$report"
-          echo "- 跳过：$skipped" >> "$report"
-          echo "- 失败：$failed" >> "$report"
+  # 最终输出路径
+  target="filer/${final_name}.${final_ext}"
 
-          echo "==== 同步运行结束 ====" >> "$logfile"
+  # 空文件检查
+  if [ ! -s "$tmp" ]; then
+    echo "⚠️ 文件为空：$url" | tee -a "$logfile"
+    echo "| ${final_name}.${final_ext} | $desc | ⚠️ 空文件 |" >> "$report"
+    skipped=$((skipped+1))
+    rm -f "$tmp"
+    continue
+  fi
 
-          git add "$logfile" "$report"
-          git commit -m "更新同步日志与报告 $(date '+%Y-%m-%d %H:%M:%S')" || true
+  # 判断是否为新文件
+  if ! git ls-files --error-unmatch "$target" >/dev/null 2>&1; then
+    mv "$tmp" "$target"
+    echo "📁 新文件：$target" | tee -a "$logfile"
+    echo "| ${final_name}.${final_ext} | $desc | 🆕 新增 |" >> "$report"
+    git add "$target"
+    git commit -m "新增同步文件 $target（$desc）"
+    added=$((added+1))
+    continue
+  fi
 
-      - name: 推送更新
-        run: |
-          git pull --rebase --autostash || true
-          git push
+  # 判断是否有变化
+  if ! diff -q "$tmp" "$target" >/dev/null 2>&1; then
+    mv "$tmp" "$target"
+    echo "🔄 文件更新：$target" | tee -a "$logfile"
+    echo "| ${final_name}.${final_ext} | $desc | 🔄 更新 |" >> "$report"
+    git add "$target"
+    git commit -m "自动同步更新 $target（$desc）"
+    updated=$((updated+1))
+  else
+    echo "✅ 无变化：$target" | tee -a "$logfile"
+    echo "| ${final_name}.${final_ext} | $desc | ✅ 无变化 |" >> "$report"
+    skipped=$((skipped+1))
+    rm -f "$tmp"
+  fi
+
+done < files.txt
+
+echo "" >> "$report"
+echo "## 统计" >> "$report"
+echo "- 新增：$added" >> "$report"
+echo "- 更新：$updated" >> "$report"
+echo "- 跳过：$skipped" >> "$report"
+echo "- 失败：$failed" >> "$report"
+
+echo "==== 同步运行结束 ====" >> "$logfile"
+
+git add "$logfile" "$report"
+git commit -m "更新同步日志与报告 $(date '+%Y-%m-%d %H:%M:%S')" || true
