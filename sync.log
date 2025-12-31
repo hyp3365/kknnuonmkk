@@ -29,3 +29,8 @@
 📥 正在下载：https://example.com/data 
 ❌ 下载失败：https://example.com/data 
 ==== 同步运行结束 ====
+==== 同步运行开始 2025-12-31 08:32:33 ====
+📅 当前同步时间配置：0 0 * * *
+📥 正在下载：https://8815.kstore.vip/tvbox/Ace 
+❌ 下载失败：https://8815.kstore.vip/tvbox/Ace 
+==== 同步运行结束 ====
