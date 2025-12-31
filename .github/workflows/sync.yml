@@ -101,8 +101,6 @@ jobs:
             # 清洗 URL
             url="$(echo "$url" | tr -d '\r' | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')"
             echo "📥 正在下载：$url" | tee -a "$logfile"
-
-
             # URL 健康状态目录
 mkdir -p .url_status
 status_file=".url_status/${final_name}.fail"
