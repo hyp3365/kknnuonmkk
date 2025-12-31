@@ -1,8 +1,0 @@
-# SYNC_CRON=0 0 * * *
-# 自定义名字   自定义格式   描述           URL
-# 不自定义的字段写 "-"，URL 必填
-
-Ace        json        不错的接口       https://8815.kstore.vip/tvbox/Ace
--          -           默认示例         https://example.com/file.txt
-MyConfig   -           配置文件         https://example.com/config.json
--          txt         文本格式         https://example.com/data
