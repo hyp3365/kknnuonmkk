@@ -1,183 +1,92 @@
-name: 同步多个文件（增强版，无推送）
+name: Sync Files
 
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
 
-concurrency:
-  group: sync-files
-  cancel-in-progress: false
-
 jobs:
   sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出仓库代码（完整克隆）
+      - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: 配置 Git 用户信息
+      - name: Set up Git
         run: |
-          git config --global user.name "sync-bot"
-          git config --global user.email "sync-bot@example.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 下载并同步文件（增强版）
+      - name: Run sync script
         run: |
-          export TZ="Asia/Shanghai"
           set -e
-          mkdir -p filer .url_status
 
-          added=0
-          updated=0
-          skipped=0
-          failed=0
-          logfile="sync.log"
-          report="sync_report.md"
+          mkdir -p filer
+          mkdir -p .url_status
 
-          echo "==== 同步运行开始 $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$logfile"
+          REPORT="sync_report.md"
+          echo "# Sync Report" > "$REPORT"
+          echo "" >> "$REPORT"
+          echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$REPORT"
+          echo "" >> "$REPORT"
 
-          SYNC_CRON=""
-          while read -r line; do
-            line="$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')"
-            [[ -z "$line" ]] && continue
-            if [[ "$line" =~ ^#\ *SYNC_CRON= ]]; then
-              SYNC_CRON=$(echo "$line" | sed 's/^#\ *SYNC_CRON=//')
-              break
-            fi
-            [[ ! "$line" =~ ^# ]] && break
-          done < files.txt
-
-          echo "📅 当前同步时间配置：${SYNC_CRON:-未设置}" | tee -a "$logfile"
-
-          echo "# 同步报告" > "$report"
-          echo "运行时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$report"
-          echo "" >> "$report"
-          echo "| 文件 | 描述 | 状态 |" >> "$report"
-          echo "|------|------|------|" >> "$report"
-
-          retry_download() {
-            url="$1"
-            out="$2"
-            for i in 1 2 3; do
-              if curl -fsSL -A "Mozilla/5.0" -H "Cache-Control: no-cache" -o "$out" "$url"; then
-                return 0
-              fi
-              sleep 2
-            done
-            return 1
-          }
-
-          while read -r line; do
-            line="$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')"
+          while IFS= read -r line; do
             [[ -z "$line" || "$line" =~ ^# ]] && continue
-            line="$(echo "$line" | tr -s '[:space:]' ' ')"
 
-            outname=$(echo "$line" | cut -d ' ' -f1)
-            outformat=$(echo "$line" | cut -d ' ' -f2)
-            desc=$(echo "$line" | cut -d ' ' -f3)
-            url=$(echo "$line" | cut -d ' ' -f4-)
+            filename=$(echo "$line" | awk '{print $1}')
+            ext=$(echo "$line" | awk '{print $2}')
+            desc=$(echo "$line" | awk '{print $3}')
+            url=$(echo "$line" | awk '{print $4}')
 
-            [[ "$outname" == "-" ]] && outname=""
-            [[ "$outformat" == "-" ]] && outformat=""
-            [[ "$desc" == "-" ]] && desc=""
+            filepath="filer/${filename}.${ext}"
+            status_file=".url_status/${filename}.fail"
 
-            tmp="filer/tmpfile"
-            url="$(echo "$url" | tr -d '\r\n' | sed 's/^[ \t]*//;s/[ \t]*$//')"
-            echo "📥 正在下载：$url" | tee -a "$logfile"
+            retry_download() {
+              for i in {1..3}; do
+                if curl -fsSL "$url" -o "$filepath.tmp"; then
+                  return 0
+                fi
+                sleep 2
+              done
+              return 1
+            }
 
-            basename=$(basename "$url")
-            orig_name="${basename%.*}"
-            orig_ext="${basename##*.}"
-            final_name="${outname:-$orig_name}"
-            final_ext="${outformat:-$orig_ext}"
-            target="filer/${final_name}.${final_ext}"
-            status_file=".url_status/${final_name}.fail"
+            if retry_download; then
+              new_size=$(stat -c%s "$filepath.tmp")
+              size_human=$(numfmt --to=iec "$new_size")
 
-            if ! retry_download "$url" "$tmp"; then
-              echo "❌ 下载失败：$url" | tee -a "$logfile"
-
-              if [ -f "$status_file" ]; then
-                fails=$(cat "$status_file")
-                fails=$((fails+1))
+              if [[ ! -f "$filepath" ]] || ! cmp -s "$filepath" "$filepath.tmp"; then
+                mv "$filepath.tmp" "$filepath"
+                echo "$filename | $desc | Updated ($size_human)" >> "$REPORT"
               else
-                fails=1
-              fi
-              echo "$fails" > "$status_file"
-
-              if [ "$fails" -ge 7 ]; then
-                echo "⚠️ URL 已连续 $fails 天无法访问：$url" | tee -a "$logfile"
-                echo "| ${final_name}.${final_ext} | $desc | ⚠️ 连续 ${fails} 天失败 |" >> "$report"
-              else
-                echo "| ${final_name}.${final_ext} | $desc | ❌ 下载失败（累计 ${fails} 次） |" >> "$report"
+                rm -f "$filepath.tmp"
+                echo "$filename | $desc | No change" >> "$REPORT"
               fi
 
-              failed=$((failed+1))
-              continue
-            fi
+              rm -f "$status_file"
 
-            rm -f "$status_file"
-
-            if [ ! -s "$tmp" ]; then
-              echo "⚠️ 文件为空：$url" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | $desc | ⚠️ 空文件 |" >> "$report"
-              skipped=$((skipped+1))
-              rm -f "$tmp"
-              continue
-            fi
-
-            # ⭐⭐⭐ 新增：计算文件大小 ⭐⭐⭐
-            size_bytes=$(stat -c%s "$tmp")
-            if [ "$size_bytes" -lt 1024 ]; then
-              size="${size_bytes} B"
-            elif [ "$size_bytes" -lt 1048576 ]; then
-              size="$(awk "BEGIN {printf \"%.2f KB\", $size_bytes/1024}")"
             else
-              size="$(awk "BEGIN {printf \"%.2f MB\", $size_bytes/1048576}")"
-            fi
-            desc_with_size="${desc}（${size}）"
+              fail_count=0
+              [[ -f "$status_file" ]] && fail_count=$(cat "$status_file")
+              fail_count=$((fail_count + 1))
+              echo "$fail_count" > "$status_file"
 
-            if ! git ls-files --error-unmatch "$target" >/dev/null 2>&1; then
-              mv "$tmp" "$target"
-              echo "📁 新文件：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🆕 新增 |" >> "$report"
-              git add "$target"
-              git commit -m "新增同步文件 $target（$desc_with_size）"
-              added=$((added+1))
-              continue
-            fi
-
-            if ! diff -q "$tmp" "$target" >/dev/null 2>&1; then
-              mv "$tmp" "$target"
-              echo "🔄 文件更新：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | ${desc_with_size} | 🔄 更新 |" >> "$report"
-              git add "$target"
-              git commit -m "自动同步更新 $target（$desc_with_size）"
-              updated=$((updated+1))
-            else
-              echo "✅ 无变化：$target" | tee -a "$logfile"
-              echo "| ${final_name}.${final_ext} | ${desc_with_size} | ✅ 无变化 |" >> "$report"
-              skipped=$((skipped+1))
-              rm -f "$tmp"
+              echo "$filename | $desc | FAILED ($fail_count times)" >> "$REPORT"
             fi
 
           done < files.txt
 
-          echo "" >> "$report"
-          echo "## 统计" >> "$report"
-          echo "- 新增：$added" >> "$report"
-          echo "- 更新：$updated" >> "$report"
-          echo "- 跳过：$skipped" >> "$report"
-          echo "- 失败：$failed" >> "$report"
-
-          echo "==== 同步运行结束 ====" >> "$logfile"
-
-          git add "$logfile" "$report"
-          git commit -m "更新同步日志与报告 $(date '+%Y-%m-%d %H:%M:%S')" || true
-
-      - name: 推送更新
+      - name: Commit and push changes
         run: |
-          git pull --rebase --autostash || true
-          git push
+          git add filer .url_status sync_report.md
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto sync: $(date '+%Y-%m-%d %H:%M:%S')"
+            git pull --rebase --autostash || true
+            git push
+          else
+            echo "No changes to commit."
+          fi
