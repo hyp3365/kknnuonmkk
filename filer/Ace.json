@@ -1,5 +1,5 @@
 {
-    "spider": "./bzc0104.png",
+    "spider": "./zc0104.png",
     "wallpaper": "https://t.alcy.cc/pc",
     "logo": "https://img.sobot.com/56b093dec73c42dca06a96734ffa6258/chatres/56b093dec73c42dca06a96734ffa6258/msg/20241204/a1563905111d66f5033927df2f544f83/877590248a3e4fad90fb5f9faa52e70f.gif",
     "warningText": "资源来自网络，无任何盈利纯学习技术！[所有内容仅供学习使用，请勿用于违法及商业用途，请勿付费购买]",
@@ -116,6 +116,17 @@
             "ext": {
                 "url": "http://v.rbotv.cn"
             }
+        },
+        {
+            "key": "巧技1",
+            "name": "🌾qiao记线路✨蓝光秒播",
+            "type": 3,
+            "searchable": 1,
+            "quickSearch": 1,
+            "api": "csp_qiao2",
+            "playerType": 2,
+            "jar": "https://cik07-cos.7moor-fs2.com/im/4d2c3f00-7d4c-11e5-af15-41bf63ae4ea0/6a1bc5995387e053/qij.png;md5;eb1ed5578b0a9ac5f3e6c6ee04b813e6",
+            "ext": "7lj763gg402i7942412h849jg1558j9jl8g19213il86316k465719lik158491h179312hk935886ig2l05g9"
         },
         {
             "key": "驿站2",
