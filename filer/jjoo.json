@@ -13,13 +13,6 @@
       "changeable": 0
     },
     {
-      "key": "皮皮",
-      "name": "🦐皮皮虾✨资源秒播",
-      "type": 3,
-      "api": "./py/Applzxw.py",
-      "ext": "http://38.55.237.41:8762"
-    },
-    {
       "key": "电影天堂",
       "name": "电影天堂",
       "type": 0,
@@ -669,62 +662,6 @@
       "quickSearch": 0,
       "filterable": 0,
       "changeable": 0
-    },
-    {
-      "key": "py_BadNews",
-      "name": "✨🔞BadNews(T4)✨",
-      "type": 4,
-      "api": "https://py.doube.eu.org/spider?site=BadNews",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0,
-      "changeable": 0,
-      "style": {
-        "type": "rect",
-        "ratio": 1.5
-      },
-      "jar": "https://hub.gitmirror.com/raw.githubusercontent.com/leexuben/TV-BOX/refs/heads/main/PG/pg.jar"
-    },
-    {
-      "key": "py_Miss",
-      "name": "✨🔞MissAV(T4)✨",
-      "type": 4,
-      "api": "https://py.doube.eu.org/spider?site=Miss",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0,
-      "changeable": 0,
-      "jar": "https://hub.gitmirror.com/raw.githubusercontent.com/leexuben/TV-BOX/refs/heads/main/PG/pg.jar"
-    },
-    {
-      "key": "py_AiDou",
-      "name": "✨🔞AiDou(T4)✨",
-      "type": 4,
-      "api": "https://py.doube.eu.org/spider?site=AiDou",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0,
-      "changeable": 0,
-      "style": {
-        "type": "rect",
-        "ratio": 1.5
-      },
-      "jar": "https://hub.gitmirror.com/raw.githubusercontent.com/leexuben/TV-BOX/refs/heads/main/PG/pg.jar"
-    },
-    {
-      "key": "py_MrJav",
-      "name": "✨🔞MRJav(T4)✨",
-      "type": 4,
-      "api": "https://py.doube.eu.org/spider?site=MrJav",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0,
-      "changeable": 0,
-      "style": {
-        "type": "rect",
-        "ratio": 1.5
-      },
-      "jar": "https://hub.gitmirror.com/raw.githubusercontent.com/leexuben/TV-BOX/refs/heads/main/PG/pg.jar"
     },
     {
       "key": "py_madou",
