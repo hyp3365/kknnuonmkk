@@ -1,5 +1,5 @@
 {
-    "spider": "./bzc0116.png",
+    "spider": "./zc0116.png",
     "wallpaper": "https://t.alcy.cc/pc",
     "logo": "https://img.sobot.com/56b093dec73c42dca06a96734ffa6258/chatres/56b093dec73c42dca06a96734ffa6258/msg/20241204/a1563905111d66f5033927df2f544f83/877590248a3e4fad90fb5f9faa52e70f.gif",
     "warningText": "资源来自网络，无任何盈利纯学习技术！[所有内容仅供学习使用，请勿用于违法及商业用途，请勿付费购买]",
@@ -215,7 +215,20 @@
                 "dataIv": "VwsHxkCViDXEExWa"
             }
         },
-     
+        {
+            "key": "仓鼠",
+            "name": "🐹仓鼠影视✨资源秒播",
+            "type": 3,
+            "quickSearch": 1,
+            "api": "csp_lzxw2",
+            "ext": {
+                "url": "https://hk440cms.cs4k.top",
+                "dataKey": "fL7sY4zN4kB3pG4p",
+                "dataIv": "fL7sY4zN4kB3pG4p",
+                "init": "initV122",
+                "ua": "okhttp/3.10.0"
+            }
+        },
         {
             "key": "小猪",
             "name": "🐖小猪视频✨蓝光资源",
@@ -922,11 +935,12 @@
             "logo": "https://live.fanmingming.com/tv/{name}.png"
         },
         {
-            "name": "🥂咪咕🥂",
-            "type": 0,
-            "url": "https://down.nigx.cn/raw.githubusercontent.com/develop202/migu_video/refs/heads/main/interface.txt",
-            "playerType": 2
-        },
+      "name": "🎁Live",
+      "type": 0,
+      "url": "http://zyck.xyz:9925/5483/7888/",
+      "playerType": 2,
+      "timeout": 10
+    },
         {
             "name": "🥃聚合直播🥃",
             "type": 0,
