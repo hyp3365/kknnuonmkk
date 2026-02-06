@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260204/0RYX/02041426.png;md5;8c7baac63f5bba802217cf3db1130425",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260205/vQlE/02052024.png;md5;ad48b2d244d7a6bdb33cbadece6db000",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -927,7 +927,7 @@
             "name": "云播｜影视",
             "type": 3,
             "api": "csp_Tvyb",
-            "ext": "http://www.viptv05.com"
+            "ext": "http://www.tvyb03.com"
         },
         {
             "key": "苹果影视",
