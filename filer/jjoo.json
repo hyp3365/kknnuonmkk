@@ -26,7 +26,6 @@
         "科幻片",
         "恐怖片",
         "剧情片",
-        "伦理片",
         "战争片",
         "国产剧",
         "香港剧",
@@ -52,13 +51,13 @@
       "playurl": "json:https://vip.dyttzyplay.com/?url="
     },
     {
-      "key": "奇异",
-      "name": "奇异",
-      "type": 0,
-      "api": "https://iqiyizyapi.com/api.php/provide/vod/at/xml/",
+      "key": "豆瓣资源",
+      "name": "豆瓣资源",
+      "type": 1,
+      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/",
       "searchable": 1,
-      "changeable": 1,
-      "playurl": "json:https://www.iqiyizyjx.com/?url="
+      "quickSearch": 1,
+      "filterable": 0
     },
     {
       "key": "牛Y",
@@ -459,11 +458,48 @@
     },
     {
       "key": "茅台",
-      "name": "茅台",
+      "name": "茅台资源",
       "type": 0,
       "api": "https://caiji.maotaizy.cc/api.php/provide/vod/from/mtm3u8/at/xml/",
       "searchable": 1,
       "changeable": 1,
+      "categories": [
+        "古装仙侠",
+        "穿越现代",
+        "反转爽剧",
+        "言情总裁",
+        "现代都市",
+        "悬疑烧脑",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "伦理片",
+        "战争片",
+        "纪录片",
+        "动漫电影",
+        "国产剧",
+        "香港剧",
+        "韩剧",
+        "欧美剧",
+        "台湾剧",
+        "日本剧",
+        "海外剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "演唱会",
+        "国产动漫",
+        "日本动漫",
+        "欧美动漫",
+        "海外动漫",
+        "伦理片",
+        "体育赛事"
+      ],
       "playurl": "json:https://mtjiexi.cc:966/?url="
     },
     {
@@ -617,7 +653,6 @@
       "searchable": 1,
       "quickSearch": 1
     },
-    
     {
       "key": "醒吧",
       "name": "🔞杏吧",
