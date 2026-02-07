@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260205/vQlE/02052024.png;md5;ad48b2d244d7a6bdb33cbadece6db000",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260206/eoq3/02062329.png;md5;53c30ceb2a8d99dd960f2954c5da0a4b",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -1632,6 +1632,16 @@
                 "type": "rect",
                 "ratio": 1.597
             }
+        },
+        {
+            "key": "应用商店",
+            "name": "应用｜商店",
+            "type": 3,
+            "api": "csp_Market",
+            "searchable": 0,
+            "changeable": 0,
+            "indexs": 0,
+            "ext": "https://pizazz.s3.bitiful.net/market.json"
         },
         {
             "key": "push_agent",
