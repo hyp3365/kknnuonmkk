@@ -639,6 +639,14 @@
       "filterable": 0
     },
     {
+      "key": "fh资源",
+      "name": "🔞FH采集",
+      "type": 1,
+      "api": "http://fhapi9.com/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1
+    },
+    {
       "key": "精品资源站",
       "name": "🔞精品资源",
       "type": 1,
@@ -821,14 +829,7 @@
       "searchable": 0,
       "changeable": 0
     },
-    {
-      "key": "fh资源",
-      "name": "🔞FH采集",
-      "type": 1,
-      "api": "http://fhapi9.com/api.php/provide/vod/",
-      "searchable": 1,
-      "quickSearch": 1
-    },
+    
     {
       "key": "番茄资源",
       "name": "🔞番茄资源",
