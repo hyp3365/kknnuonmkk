@@ -1,5 +1,5 @@
 {
-    "spider": "./bzc0202.png",
+    "spider": "./zc0202.png",
     "wallpaper": "https://t.alcy.cc/pc",
     "logo": "https://img.sobot.com/56b093dec73c42dca06a96734ffa6258/chatres/56b093dec73c42dca06a96734ffa6258/msg/20241204/a1563905111d66f5033927df2f544f83/877590248a3e4fad90fb5f9faa52e70f.gif",
     "warningText": "资源来自网络，无任何盈利纯学习技术！[所有内容仅供学习使用，请勿用于违法及商业用途，请勿付费购买]",
@@ -228,7 +228,34 @@
                 "ua": "okhttp/3.10.0"
             }
         },
-        
+         {
+            "key": "小猪",
+            "name": "🐷小猪视频✨资源秒播",
+            "type": 3,
+            "api": "csp_lzxw2",
+            "searchable": 1,
+            "changeable": 1,
+            "ext": {
+                "site": "https://tiantangwulu.oss-cn-shanghai.aliyuncs.com/zhuzhuxia.txt",
+                "dataKey": "j8sr6d93yp49db3p",
+                "dataIv": "j8sr6d93yp49db3p",
+                "init": "initV122",
+                "ua": "okhttp/3.10.0"
+            }
+        },
+        {
+            "key": "缘梦",
+            "name": "⭐谁有梦想✨蓝光资源",
+            "type": 3,
+            "searchable": 1,
+            "changeable": 1,
+            "api": "csp_lzxw",
+            "ext": {
+                "url": "http://165.99.42.137:5432",
+                "dataKey": "1234567890987654",
+                "dataIv": "1234567890987654"
+            }
+        },
         {
             "key": "闪影",
             "name": "🎇闪影视频✨蓝光秒播",
@@ -282,17 +309,7 @@
             "filterable": 1,
             "ext": "./json/4kvm.json"
         },
-        {
-            "key": "新韩剧网",
-            "name": "🧐新韩剧网✨韩剧资源",
-            "type": 3,
-            "api": "./py/新韩剧网.py",
-            "searchable": 1,
-            "quickSearch": 0,
-            "filterable": 0,
-            "changeable": 0,
-            "ext": {}
-        },
+        
         {
             "key": "🅱️哔哩视频",
             "name": "🅱️哔哩影视✨哔哩合集",
