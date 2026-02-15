@@ -1,11 +1,11 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260213/ppkb/02132159.png;md5;2e6217078b52c4ed45abc0434b7df539",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260214/Zmtn/02141448.png;md5;3ce4500f6473ada1e43e32edd482d478",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
         {
             "key": "豆瓣",
-            "name": "豆瓣｜首页",
+            "name": "灵蛇辞岁去｜金马踏春来",
             "type": 3,
             "api": "csp_Douban",
             "searchable": 0
