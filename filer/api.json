@@ -452,28 +452,28 @@
             "key": "腾腾视频",
             "name": "腾腾｜视频",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/js/TXSP.js"
         },
         {
             "key": "酷酷视频",
             "name": "酷酷｜视频",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/js/YKSP.js"
         },
         {
             "key": "果果视频",
             "name": "果果｜视频",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/js/MGSP.js"
         },
         {
             "key": "奇奇视频",
             "name": "奇奇｜视频",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/js/AQY.js"
         },
         {
@@ -1005,7 +1005,7 @@
             "key": "采集之王",
             "name": "采集｜合集",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/js/CJZW.js?type=url&params=https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/movie/json/CJJT.json$1$1"
         },
         {
@@ -1031,14 +1031,14 @@
             "key": "Anime1",
             "name": "A1｜动漫",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/Anime1.js"
         },
         {
             "key": "NT动漫",
             "name": "NT｜动漫",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/NTDM.js"
         },
         {
@@ -1192,7 +1192,7 @@
             "key": "花子动漫",
             "name": "花子｜动漫",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/HZDM.js"
         },
         {
@@ -1206,14 +1206,14 @@
             "key": "路漫漫",
             "name": "路漫漫｜动漫",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/LMM.js"
         },
         {
             "key": "去看吧",
             "name": "去看吧｜动漫",
             "type": 3,
-            "api": "https://file.zhangyichi.dev/uploads/695cb6347d0b1_1767683636.js",
+            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/QKB.js"
         },
         {
