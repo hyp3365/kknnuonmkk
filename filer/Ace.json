@@ -1,5 +1,5 @@
 {
-    "spider": "./zc0218.png",
+    "spider": "./bzc0218.png",
     "wallpaper": "https://t.alcy.cc/pc",
     "logo": "https://img.sobot.com/56b093dec73c42dca06a96734ffa6258/chatres/56b093dec73c42dca06a96734ffa6258/msg/20241204/a1563905111d66f5033927df2f544f83/877590248a3e4fad90fb5f9faa52e70f.gif",
     "warningText": "资源来自网络，无任何盈利纯学习技术！[所有内容仅供学习使用，请勿用于违法及商业用途，请勿付费购买]",
@@ -160,7 +160,7 @@
             "api": "./js/聚合短剧1.js",
             "changeable": 1
         },
-         {
+        {
             "key": "独播库",
             "name": "🦢独播库✨蓝光秒播",
             "type": 3,
@@ -206,7 +206,6 @@
             "type": 3,
             "ext": "https://api.ztcgi.com"
         },
-     
         {
             "key": "金牌影视",
             "name": "🥇金牌影视✨蓝光秒播",
@@ -238,7 +237,8 @@
                 "dataKey": "88689667dce61725",
                 "dataIv": "88689667dce61725"
             }
-        },{
+        },
+        {
             "key": "魔方",
             "name": "🧊魔方影视✨蓝光秒播",
             "type": 3,
@@ -251,7 +251,7 @@
                 "dataIv": "1234567887654321"
             }
         },
-         {
+        {
             "key": "王子",
             "name": "🤴白马王子✨蓝光秒播",
             "type": 3,
@@ -264,7 +264,7 @@
                 "dataIv": "5a9w6x58dsq6z3a6"
             }
         },
-      {
+        {
             "key": "爱盈",
             "name": "🚗奇迹影视✨蓝光秒播",
             "type": 3,
@@ -293,7 +293,7 @@
                 "ua": "okhttp/3.10.0"
             }
         },
-         {
+        {
             "key": "小猪",
             "name": "🐷小猪视频✨资源秒播",
             "type": 3,
@@ -354,7 +354,6 @@
                 "ua": ""
             }
         },
-      
         {
             "key": "瓜子影视",
             "name": "🍉瓜子影视✨蓝光秒播",
@@ -374,7 +373,6 @@
             "filterable": 1,
             "ext": "./json/4kvm.json"
         },
-        
         {
             "key": "🅱️哔哩视频",
             "name": "🅱️哔哩影视✨哔哩合集",
@@ -670,7 +668,6 @@
                 "version": "120"
             }
         },
-      
         {
             "key": "骚火",
             "name": "🔥骚火视频✨资源秒播",
@@ -688,7 +685,6 @@
             "filterable": 1,
             "ext": "./json/人人.png"
         },
-      
         {
             "key": "星芽短剧",
             "name": "🌱星芽短剧✨资源秒播",
@@ -709,7 +705,6 @@
             "quickSearch": 1,
             "filterable": 1
         },
-       
         {
             "key": "番薯动漫",
             "name": "🍠番薯动漫✨资源秒播",
@@ -729,7 +724,6 @@
             "api": "csp_XYQHiker",
             "ext": "./json/巴士动漫.json"
         },
-       
         {
             "key": "我的夸克",
             "name": "🌐我的垮克✨网盘资源",
@@ -824,8 +818,6 @@
             "filterable": 1,
             "ext": "./json/书音.json"
         },
-       
-      
         {
             "key": "梨园春",
             "name": "🎡梨园戏曲✨戏曲合集",
@@ -1001,12 +993,12 @@
             "logo": "https://live.fanmingming.com/tv/{name}.png"
         },
         {
-      "name": "🎁Live",
-      "type": 0,
-      "url": "http://zyck.xyz:9925/5483/7888/",
-      "playerType": 2,
-      "timeout": 10
-    },
+            "name": "🎁Live",
+            "type": 0,
+            "url": "http://zyck.xyz:9925/5483/7888/",
+            "playerType": 2,
+            "timeout": 10
+        },
         {
             "name": "🥃聚合直播🥃",
             "type": 0,
