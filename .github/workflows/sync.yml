@@ -1,4 +1,4 @@
-name: 同步多个文件（增强版，含失败计数持久化）
+name: 同步多个文件
 
 on:
   workflow_dispatch:
