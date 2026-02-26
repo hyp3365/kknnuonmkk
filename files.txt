@@ -3,3 +3,4 @@
 Ace        json        不错的接口       https://8815.kstore.vip/tvbox/Ace
 -           -            潇洒          https://9877.kstore.space/AnotherD/api.json
 jjoo       json          自用          https://16441.kstore.space/jjoo.json
+-          -          一键梭哈脚本      https://suoha.psai.eu.org/suoha.sh
