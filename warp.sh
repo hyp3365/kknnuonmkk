@@ -1,21 +1,15 @@
 #!/bin/bash
 
 # ====================================================
-# 项目: WARP 快捷管理助手 (v1.3.4)
-# 功能: 自动安装、参数直达、深度换IP、彻底卸载
+# 项目: WARP安装
 # ====================================================
-
-# 颜色定义
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
-
-# 权限检查
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须以 root 权限运行!${NC}" && exit 1
 
-# --- 汉化状态函数 ---
 translate_status() {
     case "$1" in
         "Connected") echo -e "${GREEN}已连接 (正常)${NC}" ;;
@@ -24,8 +18,6 @@ translate_status() {
         *) echo -e "${YELLOW}${1:-未知}${NC}" ;;
     esac
 }
-
-# --- 获取状态与 IP ---
 show_status() {
     echo -e "${BLUE}--- 当前网络状态 ---${NC}"
     if ! command -v warp-cli &> /dev/null; then
@@ -33,12 +25,11 @@ show_status() {
         return
     fi
     
-    # 屏蔽 stderr 避免看到 Rust 报错
     raw_status=$(warp-cli --accept-tos status 2>/dev/null | grep "Status update" | awk '{print $NF}')
     
     if [[ "$raw_status" == "Connected" ]]; then
-        # 仅在连接时尝试获取 IP，设置 3 秒超时
-        ip_info=$(curl -s --max-time 3 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace)
+        
+        ip_info=$(curl -s --max-time 5 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace)
         ip=$(echo "$ip_info" | grep "ip=" | cut -d= -f2)
         loc=$(echo "$ip_info" | grep "loc=" | cut -d= -f2)
         
@@ -68,7 +59,7 @@ install_warp() {
     warp-cli --accept-tos mode proxy
     warp-cli --accept-tos proxy port 40000
     warp-cli --accept-tos connect
-    echo -e "${GREEN}WARP 安装并初始化完成！${NC}"
+    echo -e "${GREEN}WARP 安装完成 快捷命令warp${NC}"
 }
 
 # --- 深度换 IP 函数 ---
@@ -96,7 +87,7 @@ change_ip() {
 
 # --- 彻底卸载 ---
 uninstall_warp() {
-    echo -e "${RED}正在启动深度卸载...${NC}"
+    echo -e "${RED}正在启动卸载...${NC}"
     warp-cli --accept-tos disconnect >/dev/null 2>&1
     warp-cli --accept-tos registration delete >/dev/null 2>&1
     apt-get purge -y cloudflare-warp >/dev/null 2>&1
@@ -121,13 +112,13 @@ fi
 # 常规交互菜单
 clear
 echo -e "${BLUE}====================================${NC}"
-echo -e "${BLUE}      WARP 快捷管理助手 (v1.3.4)     ${NC}"
+echo -e "${BLUE}      WARP     ${NC}"
 echo -e "${BLUE}====================================${NC}"
 show_status
-echo -e "${YELLOW}1.${NC} 安装 / 更新官方最新版"
-echo -e "${YELLOW}2.${NC} 更换 IP (深度重置身份)"
-echo -e "${YELLOW}3.${NC} 刷新当前状态"
-echo -e "${YELLOW}4.${NC} 彻底卸载"
+echo -e "${YELLOW}1.${NC} 安装/更新"
+echo -e "${YELLOW}2.${NC} 更换IP"
+echo -e "${YELLOW}3.${NC} 刷新"
+echo -e "${YELLOW}4.${NC} 卸载"
 echo -e "${YELLOW}0.${NC} 退出"
 echo -e "${BLUE}====================================${NC}"
 read -p "选择操作: " choice
