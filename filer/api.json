@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260225/fj55/02252135.png;md5;b0d474e0fccf3b40c5394d72dbbdf7d4",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260228/bawx/02280827.png;md5;e3213f6e152ef8ddeba79bd9a54aec53",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -100,6 +100,35 @@
             "ext": "https://www.zjcvod.com"
         },
         {
+            "key": "奇奇",
+            "name": "奇奇｜APP",
+            "type": 3,
+            "api": "csp_AppQi",
+            "searchable": 1,
+            "changeable": 1,
+            "ext": {
+                "url": "http://110.42.67.221:8009",
+                "dataKey": "123456789abcdefg",
+                "dataIv": "123456789abcdefg",
+                "init": "initV122",
+                "ua": "okhttp/3.10.0"
+            }
+        },
+        {
+            "key": "老鹰",
+            "name": "老鹰｜APP",
+            "type": 3,
+            "api": "csp_AppQi",
+            "searchable": 1,
+            "changeable": 1,
+            "ext": {
+                "site": "https://maotouyinghubei.oss-cn-wuhan-lr.aliyuncs.com/maotouyinghb.txt",
+                "dataKey": "zxPtEUDGVllIUhDB",
+                "dataIv": "zxPtEUDGVllIUhDB",
+                "ua": "okhttp/3.10.0"
+            }
+        },
+        {
             "key": "顾我",
             "name": "顾我｜APP",
             "type": 3,
@@ -186,10 +215,9 @@
             "searchable": 1,
             "changeable": 1,
             "ext": {
-                "site": "https://aysappto.oss-cn-chengdu.aliyuncs.com/q16.txt",
-                "dataKey": "dj382hsyqp98kqn8",
-                "dataIv": "dj382hsyqp98kqn8",
-                "search": "mineInfo"
+                "site": "https://aysappto.oss-cn-chengdu.aliyuncs.com/q18.txt",
+                "dataKey": "fff32466kkf87666",
+                "dataIv": "fff32466kkf87666"
             }
         },
         {
@@ -1091,13 +1119,6 @@
             "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/Anime1.js"
         },
         {
-            "key": "NT动漫",
-            "name": "NT｜动漫",
-            "type": 3,
-            "api": "https://pan.vma.cc/pan/down.php/ec67b9045d393737f073d2c9365533f0.js",
-            "ext": "https://git.yylx.win/raw.githubusercontent.com/PizazzGY/NewTVBox/main/anime/js/NTDM.js"
-        },
-        {
             "key": "漫国动漫",
             "name": "漫国丨动漫",
             "type": 3,
@@ -1111,30 +1132,6 @@
             }
         },
         {
-            "key": "云屋动漫",
-            "name": "云屋｜动漫",
-            "type": 3,
-            "searchable": 1,
-            "api": "csp_AppGet",
-            "ext": {
-                "url": "https://www.yunwuee.icu",
-                "dataKey": "ygcnb9bdcmb8aeiw",
-                "dataIv": "ygcnb9bdcmb8aeiw"
-            }
-        },
-        {
-            "key": "卡卡动漫",
-            "name": "卡卡｜动漫",
-            "type": 3,
-            "searchable": 1,
-            "api": "csp_AppGet",
-            "ext": {
-                "url": "http://154.201.90.53:8002",
-                "dataKey": "123456789abcdefg",
-                "dataIv": "123456789abcdefg"
-            }
-        },
-        {
             "key": "丫丫动漫",
             "name": "丫丫｜动漫",
             "type": 3,
@@ -1144,18 +1141,6 @@
                 "url": "http://tv.yy-fun.cc",
                 "dataKey": "qkxnwkfjwpcnwycl",
                 "dataIv": "qkxnwkfjwpcnwycl"
-            }
-        },
-        {
-            "key": "冬日动漫",
-            "name": "冬日丨动漫",
-            "type": 3,
-            "searchable": 1,
-            "api": "csp_AppGet",
-            "ext": {
-                "url": "http://www.drdm.fun",
-                "dataKey": "qE2nD0rL1lH4uP9r",
-                "dataIv": "qE2nD0rL1lH4uP9r"
             }
         },
         {
@@ -1283,7 +1268,7 @@
             "name": "修罗｜磁力",
             "api": "csp_Xlys",
             "type": 3,
-            "ext": "https://xl01.com.de"
+            "ext": "https://www.xlys02.com"
         },
         {
             "key": "七味",
