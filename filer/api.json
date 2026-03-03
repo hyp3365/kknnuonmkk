@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260301/jrNW/03010824.png;md5;153f5b4b9a8ad6115afc4de1bdc3569c",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260302/2Mam/03021648.png;md5;2e03fbf2eadb577e25a1b6a1f4b9a0a7",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -64,6 +64,16 @@
             "quickSearch": 1,
             "filterable": 1,
             "ext": "https://www.nntv.in/api.php/v1.vod"
+        },
+        {
+            "key": "闪影",
+            "name": "闪影｜APP",
+            "type": 3,
+            "api": "csp_AppYsV2",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "ext": "http://38.47.213.61:41271/mogai_api.php/v1.vod"
         },
         {
             "key": "奇奇",
