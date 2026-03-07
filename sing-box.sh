@@ -242,6 +242,7 @@ install_singbox() {
     allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
 
     # 生成自签名证书
+	touch "${work_dir}/99.key" "${work_dir}/99.pem"
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
     
@@ -551,6 +552,8 @@ vmess://$(echo "$VMESS" | base64 -w0)
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}
 
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}
+
+vless://${uuid}@${server_ip}:40005?encryption=none&security=tls&sni=ui.990093.xyz&type=ws&path=/sjsjxnbhhggg-85ugg&host=ui.990093.xyz#${isp}
 EOF
 echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
