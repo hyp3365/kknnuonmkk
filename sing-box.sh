@@ -257,7 +257,6 @@ cat > "${config_dir}" << EOF
     "output": "$work_dir/sb.log",
     "timestamp": true
   },
-  {
     "dns":{
         "servers":[
             {
