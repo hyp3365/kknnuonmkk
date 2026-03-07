@@ -217,7 +217,7 @@ install_singbox() {
 
     # 下载sing-box,cloudflared
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}"
-    #latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
+    latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
     curl -sLo "${work_dir}/${server_name}.tar.gz" "https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/sing-box-${latest_version}-linux-${ARCH}.tar.gz"
     #curl -sLo "${work_dir}/qrencode" "https://github.com/eooce/test/releases/download/${ARCH}/qrencode-linux-${ARCH}"
     curl -sLo "${work_dir}/qrencode" "https://$ARCH.ssss.nyc.mn/qrencode"
@@ -257,15 +257,16 @@ cat > "${config_dir}" << EOF
     "output": "$work_dir/sb.log",
     "timestamp": true
   },
-  "dns": {
-    "servers": [
-      {
-        "tag": "local",
-        "address": "local",
-        "strategy": "$dns_strategy"
-      }
-    ]
-  },
+  {
+    "dns":{
+        "servers":[
+            {
+                "type":"local"
+            }
+        ],
+        "strategy": "prefer_ipv4"
+    }
+},
   "inbounds": [
     {
       "type": "vless",
@@ -419,13 +420,15 @@ Description=sing-box service
 Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
 
+
 [Service]
 User=root
+Type=simple
+NoNewPrivileges=yes
+TimeoutStartSec=0
 WorkingDirectory=/etc/sing-box
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-ExecStart=/etc/sing-box/sing-box run -c /etc/sing-box/config.json
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=infinity
