@@ -346,6 +346,30 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
+    },
+	{
+      "type": "vless",
+      "tag": "vless-ws-tls",
+      "listen": "::",
+      "listen_port": 40005,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+       "transport": {
+        "type": "ws",
+        "path": "/sjsjxnbhhggg-85ugg",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      },
+      "tls":{
+                "enabled":true,
+                "server_name":"ui.990093.xyz",
+                "min_version":"1.3",
+                "max_version":"1.3",
+                "certificate_path":"$work_dir/99.pem",
+                "key_path":"$work_dir/99.key"
+            }
     }
   ],
   "endpoints": [
