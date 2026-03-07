@@ -264,7 +264,6 @@ cat > "${config_dir}" << EOF
             }
         ],
         "strategy": "prefer_ipv4"
-    }
 },
   "inbounds": [
     {
