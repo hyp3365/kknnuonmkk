@@ -579,9 +579,6 @@ add_nginx_conf() {
     if ! command_exists nginx; then
         red "nginx未安装,无法配置订阅服务"
         return 1
-    else
-        manage_service "nginx" "stop" > /dev/null 2>&1
-        pkill nginx  > /dev/null 2>&1
     fi
 
     mkdir -p /etc/nginx/conf.d
@@ -620,6 +617,20 @@ server {
     }
 }
 EOF
+
+    # 校验并平滑重载 nginx（不停止服务）
+    if nginx -t >/dev/null 2>&1; then
+        if command_exists rc-service 2>/dev/null; then
+            rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
+        else
+            systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null
+        fi
+        green "nginx 配置已写入并重载（未停止 nginx）"
+    else
+        red "nginx 配置校验失败，请检查 /etc/nginx/conf.d/sing-box.conf"
+        return 1
+    fi
+}
 
     # 检查主配置文件是否存在
     if [ -f "/etc/nginx/nginx.conf" ]; then
