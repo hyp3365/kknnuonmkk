@@ -364,7 +364,7 @@ cat > "${config_dir}" << EOF
         "early_data_header_name": "Sec-WebSocket-Protocol"
       },
       "tls":{
-                "enabled":true,
+                "enabled":true,#就行了吗
                 "server_name":"ui.990093.xyz",
                 "min_version":"1.3",
                 "max_version":"1.3",
