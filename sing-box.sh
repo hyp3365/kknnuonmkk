@@ -406,6 +406,12 @@ cat > "${config_dir}" << EOF
       "tag": "direct"
     }
   ],
+ "ntp": {
+        "enabled": true,
+        "server": "time.apple.com",
+        "server_port": 123,
+        "interval": "60m"
+},
   "route": {
     "rule_set": [
       {
