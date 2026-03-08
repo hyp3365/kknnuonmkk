@@ -289,7 +289,16 @@ cat > "${config_dir}" << EOF
           "private_key": "$private_key",
           "short_id": [""]
         }
-      }
+      },
+  "multiplex": {
+    "enabled": true,
+    "padding": true,
+    "brutal": {
+        "enabled": true,
+        "up_mbps": 100,
+        "down_mbps": 300
+        }
+     }
     },
     {
       "type": "vmess",
@@ -326,7 +335,16 @@ cat > "${config_dir}" << EOF
         "max_version": "1.3",
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
-      }
+      },
+  "multiplex": {
+    "enabled": true,
+    "padding": true,
+    "brutal": {
+        "enabled": true,
+        "up_mbps": 100,
+        "down_mbps": 300
+       }
+     }
     },
     {
       "type": "tuic",
