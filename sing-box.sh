@@ -1175,44 +1175,38 @@ disable_open_sub() {
     fi
     ;;
 		2)
-    if command -v nginx &>/dev/null; then
-        conf="/etc/nginx/conf.d/sing-box.conf"
-        disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
-        # 如果之前被移走则恢复
-        if [ -f "$disabled_conf" ]; then
-            mv "$disabled_conf" "$conf"
-        fi
+    conf="/etc/nginx/conf.d/sing-box.conf"
+    disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
 
-        if [ -f "$conf" ]; then
-            green "\n已开启节点订阅\n"
-            server_ip=$(get_realip)
-            password=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
-            sed -i "s|\(location = /\)[^ ]*|\1$password|" "$conf"
+    # 如果之前关闭订阅，把文件名恢复回来
+    [ -f "$disabled_conf" ] && mv "$disabled_conf" "$conf"
 
-            # 启动或平滑重载 nginx（优先使用脚本内 start_nginx）
-            if command -v start_nginx >/dev/null 2>&1; then
-                start_nginx
-            else
-                if command -v systemctl >/dev/null 2>&1; then
-                    systemctl reload nginx 2>/dev/null || systemctl start nginx 2>/dev/null
-                else
-                    rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
-                fi
-            fi
+    green "\n已开启节点订阅\n"
 
-            port=$(grep -E 'listen [0-9]+;' "$conf" | awk '{print $2}' | sed 's/;//' | head -n1)
-            if [ -z "$port" ] || [ "$port" -eq 80 ] 2>/dev/null; then
-                link="http://$server_ip/$password"
-            else
-                link="http://$server_ip:$port/$password"
-            fi
-            green "新的节点订阅链接：$link\n"
-        else
-            red "找不到配置文件：$conf"
-        fi
+    server_ip=$(get_realip)
+    password=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 32)
+
+    # 更新订阅路径
+    sed -i "s|\(location = /\)[^ ]*|\1$password|" "$conf"
+
+    # 启动或重载 nginx
+    if command_exists rc-service 2>/dev/null; then
+        rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
     else
-        yellow "Nginx is not installed"
+        systemctl reload nginx 2>/dev/null || systemctl start nginx 2>/dev/null
     fi
+
+    # 获取端口
+    port=$(grep -E 'listen [0-9]+;' "$conf" | awk '{print $2}' | sed 's/;//' | head -n1)
+
+    # 拼接订阅链接
+    if [ -z "$port" ] || [ "$port" -eq 80 ] 2>/dev/null; then
+        link="http://$server_ip/$password"
+    else
+        link="http://$server_ip:$port/$password"
+    fi
+
+    green "新的节点订阅链接：$link\n"
     ;;
 
         3)
