@@ -1153,28 +1153,67 @@ disable_open_sub() {
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-        1)
-            if command -v nginx &>/dev/null; then
-                if command_exists rc-service 2>/dev/null; then
-                    rc-service nginx status | grep -q "started" && rc-service nginx stop || red "nginx not running"
-                else 
-                    [ "$(systemctl is-active nginx)" = "active" ] && systemctl stop nginx || red "ngixn not running"
-                fi
+		1)
+    if command -v nginx &>/dev/null; then
+        conf="/etc/nginx/conf.d/sing-box.conf"
+        disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
+        if [ -f "$conf" ]; then
+            mv "$conf" "$disabled_conf"
+            if command_exists rc-service 2>/dev/null; then
+                rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
             else
-                yellow "Nginx is not installed"
+                systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null
             fi
+            green "\n已关闭节点订阅\n"
+        elif [ -f "$disabled_conf" ]; then
+            yellow "订阅已处于关闭状态"
+        else
+            red "找不到配置文件：$conf"
+        fi
+    else
+        yellow "Nginx is not installed"
+    fi
+    ;;
+		2)
+    if command -v nginx &>/dev/null; then
+        conf="/etc/nginx/conf.d/sing-box.conf"
+        disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
+        # 如果之前被移走则恢复
+        if [ -f "$disabled_conf" ]; then
+            mv "$disabled_conf" "$conf"
+        fi
 
-            green "\n已关闭节点订阅\n"     
-            ;; 
-        2)
+        if [ -f "$conf" ]; then
             green "\n已开启节点订阅\n"
             server_ip=$(get_realip)
-            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-            sed -i "s|\(location = /\)[^ ]*|\1$password|" /etc/nginx/conf.d/sing-box.conf
-	    sub_port=$(port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
-            start_nginx
-            (port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); green "\n新的节点订阅链接：$link\n"
-            ;; 
+            password=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
+            sed -i "s|\(location = /\)[^ ]*|\1$password|" "$conf"
+
+            # 启动或平滑重载 nginx（优先使用脚本内 start_nginx）
+            if command -v start_nginx >/dev/null 2>&1; then
+                start_nginx
+            else
+                if command -v systemctl >/dev/null 2>&1; then
+                    systemctl reload nginx 2>/dev/null || systemctl start nginx 2>/dev/null
+                else
+                    rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
+                fi
+            fi
+
+            port=$(grep -E 'listen [0-9]+;' "$conf" | awk '{print $2}' | sed 's/;//' | head -n1)
+            if [ -z "$port" ] || [ "$port" -eq 80 ] 2>/dev/null; then
+                link="http://$server_ip/$password"
+            else
+                link="http://$server_ip:$port/$password"
+            fi
+            green "新的节点订阅链接：$link\n"
+        else
+            red "找不到配置文件：$conf"
+        fi
+    else
+        yellow "Nginx is not installed"
+    fi
+    ;;
 
         3)
             reading "请输入新的订阅端口(1-65535):" sub_port
