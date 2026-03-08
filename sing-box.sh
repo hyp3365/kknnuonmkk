@@ -1153,47 +1153,42 @@ disable_open_sub() {
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-		1)
-    if command -v nginx &>/dev/null; then
-        conf="/etc/nginx/conf.d/sing-box.conf"
-        disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
-        if [ -f "$conf" ]; then
-            mv "$conf" "$disabled_conf"
-            if command_exists rc-service 2>/dev/null; then
-                rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
-            else
-                systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null
-            fi
-            green "\n已关闭节点订阅\n"
-        elif [ -f "$disabled_conf" ]; then
-            yellow "订阅已处于关闭状态"
-        else
-            red "找不到配置文件：$conf"
-        fi
-    else
-        yellow "Nginx is not installed"
-    fi
-    ;;
-		2)
+	   1)
     conf="/etc/nginx/conf.d/sing-box.conf"
-    disabled_conf="/etc/nginx/conf.d/sing-box.conf.disabled"
 
-    # 如果之前关闭订阅，把文件名恢复回来
-    [ -f "$disabled_conf" ] && mv "$disabled_conf" "$conf"
+    # 注释掉订阅 location
+    sed -i 's|^\s*location\s\+=\s*/|#location = /|' "$conf"
+
+    # reload nginx
+    if command_exists rc-service 2>/dev/null; then
+        rc-service nginx reload
+    else
+        systemctl reload nginx
+    fi
+
+    green "\n已关闭节点订阅（Nginx 未停止）\n"
+    ;;
+	
+    2)
+    conf="/etc/nginx/conf.d/sing-box.conf"
 
     green "\n已开启节点订阅\n"
 
     server_ip=$(get_realip)
     password=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 32)
 
-    # 更新订阅路径
-    sed -i "s|\(location = /\)[^ ]*|\1$password|" "$conf"
-
-    # 启动或重载 nginx
-    if command_exists rc-service 2>/dev/null; then
-        rc-service nginx reload 2>/dev/null || rc-service nginx restart 2>/dev/null
+    # 恢复 location（把注释去掉并更新密码）
+    if grep -q "^#location = /" "$conf"; then
+        sed -i "s|^#location = /.*|location = /$password|" "$conf"
     else
-        systemctl reload nginx 2>/dev/null || systemctl start nginx 2>/dev/null
+        sed -i "s|\(location = /\)[^ ]*|\1$password|" "$conf"
+    fi
+
+    # reload nginx
+    if command_exists rc-service 2>/dev/null; then
+        rc-service nginx reload
+    else
+        systemctl reload nginx
     fi
 
     # 获取端口
