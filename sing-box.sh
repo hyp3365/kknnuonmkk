@@ -263,7 +263,7 @@ cat > "${config_dir}" << EOF
                 "type":"local"
             }
         ],
-        "strategy": "prefer_ipv4"
+        "strategy": "$dns_strategy"
 },
   "inbounds": [
     {
