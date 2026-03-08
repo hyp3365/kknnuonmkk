@@ -364,12 +364,12 @@ cat > "${config_dir}" << EOF
         "early_data_header_name": "Sec-WebSocket-Protocol"
       },
       "tls":{
-                "enabled":true,
-                "server_name":"ui.990093.xyz",
+				"enabled":false,#启用tls 改为true
+                "server_name":"ui.990093.xyz",#域名
                 "min_version":"1.3",
                 "max_version":"1.3",
-                "certificate_path":"$work_dir/99.pem",
-                "key_path":"$work_dir/99.key"
+                "certificate_path":"$work_dir/99.pem",#域名源证书
+                "key_path":"$work_dir/99.key"#私钥
             }
     }
   ],
