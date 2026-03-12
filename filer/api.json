@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260311/RqaQ/0X0/03110843.png;md5;d9e527b876650920830487f6d27d0e10",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260311/EiY8/0X0/03111334.png;md5;ce3cf9bf979ac2e635ae21ef3d830cdf",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -1008,7 +1008,7 @@
             "searchable": 1,
             "api": "csp_AppGet",
             "ext": {
-                "url": "https://www.cyfz.vip",
+                "url": "https://www.cyfz.top",
                 "dataKey": "e72cdfd629e8895d",
                 "dataIv": "e72cdfd629e8895d"
             }
