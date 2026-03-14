@@ -165,29 +165,50 @@ def get_geo_info():
 
 def get_cpu_info():
     """
-    获取 CPU 型号、核心数、主频
+    获取 CPU 型号、核心数、主频（适配所有 VPS）
     """
     model = "未知"
     freq = "未知"
     cores = psutil.cpu_count(logical=False) or 1
 
+    # 1) 从 /proc/cpuinfo 读取（最常见）
     try:
         with open("/proc/cpuinfo") as f:
-            text = f.read()
-
-        # CPU 型号
-        m = re.search(r"model name\s+:\s+(.+)", text)
-        if m:
-            model = m.group(1).strip()
-
-        # 主频
-        m = re.search(r"cpu MHz\s+:\s+([\d\.]+)", text)
-        if m:
-            mhz = float(m.group(1))
-            freq = f"{mhz/1000:.2f} GHz" if mhz > 1000 else f"{mhz:.0f} MHz"
-
+            for line in f:
+                if "model name" in line:
+                    model = line.split(":", 1)[1].strip()
+                if "Hardware" in line:  # ARM VPS
+                    model = line.split(":", 1)[1].strip()
+                if "cpu MHz" in line:
+                    mhz = float(line.split(":", 1)[1].strip())
+                    freq = f"{mhz/1000:.2f} GHz" if mhz > 1000 else f"{mhz:.0f} MHz"
     except:
         pass
+
+    # 2) 如果型号仍未知，尝试 lscpu
+    if model == "未知":
+        try:
+            import subprocess
+            out = subprocess.check_output("lscpu", shell=True).decode()
+            for line in out.splitlines():
+                if "Model name" in line:
+                    model = line.split(":", 1)[1].strip()
+                if "CPU max MHz" in line:
+                    mhz = float(line.split(":", 1)[1].strip())
+                    freq = f"{mhz/1000:.2f} GHz"
+        except:
+            pass
+
+    # 3) 如果还是未知，尝试 dmidecode（部分商家隐藏型号）
+    if model == "未知":
+        try:
+            import subprocess
+            out = subprocess.check_output("dmidecode -t processor", shell=True).decode()
+            for line in out.splitlines():
+                if "Version:" in line:
+                    model = line.split(":", 1)[1].strip()
+        except:
+            pass
 
     return model, cores, freq
 
