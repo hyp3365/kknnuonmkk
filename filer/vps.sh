@@ -163,6 +163,34 @@ def get_geo_info():
 
     return info
 
+def get_cpu_info():
+    """
+    获取 CPU 型号、核心数、主频
+    """
+    model = "未知"
+    freq = "未知"
+    cores = psutil.cpu_count(logical=False) or 1
+
+    try:
+        with open("/proc/cpuinfo") as f:
+            text = f.read()
+
+        # CPU 型号
+        m = re.search(r"model name\s+:\s+(.+)", text)
+        if m:
+            model = m.group(1).strip()
+
+        # 主频
+        m = re.search(r"cpu MHz\s+:\s+([\d\.]+)", text)
+        if m:
+            mhz = float(m.group(1))
+            freq = f"{mhz/1000:.2f} GHz" if mhz > 1000 else f"{mhz:.0f} MHz"
+
+    except:
+        pass
+
+    return model, cores, freq
+
 def get_status():
     cpu = psutil.cpu_percent(interval=1)
     mem = psutil.virtual_memory()
@@ -179,6 +207,8 @@ def get_status():
     region = geo["region"]
     city = geo["city"]
 
+    cpu_model, cpu_cores, cpu_freq = get_cpu_info()
+
     text = f"""
 📡 VPS 状态报告
 
@@ -188,6 +218,10 @@ def get_status():
 🌐 IPv6：{ipv6}
 
 📍 地区：{country} {region} {city}
+
+🧠 CPU 型号：{cpu_model}
+🔢 核心数：{cpu_cores} 核
+⏱ 主频：{cpu_freq}
 
 🔥 CPU：{cpu}%
 📦 内存：{mem.percent}%（{mem.used//1024**2}MB / {mem.total//1024**2}MB）
