@@ -115,69 +115,32 @@ def format_uptime():
     minutes = (uptime_seconds % 3600) // 60
     return f"{hours} 小时 {minutes} 分钟"
 
-# 国家代码 → 中文映射
-COUNTRY_CN = {
-    "CN":"中国","US":"美国","JP":"日本","KR":"韩国","GB":"英国","DE":"德国","FR":"法国",
-    "RU":"俄罗斯","IN":"印度","BR":"巴西","CA":"加拿大","AU":"澳大利亚","SG":"新加坡",
-    "HK":"中国香港","TW":"中国台湾","NL":"荷兰","SE":"瑞典","CH":"瑞士","IT":"意大利",
-    "ES":"西班牙","MX":"墨西哥","TR":"土耳其","ZA":"南非","AE":"阿联酋"
-}
-
-def safe_json(resp):
-    try:
-        return resp.json()
-    except:
-        try:
-            import json
-            return json.loads(resp.text)
-        except:
-            return {}
-
-def get_ip_info():
+def get_geo_info():
     """
-    返回：
-    {
-        "ipv4": "",
-        "ipv6": "",
-        "country": "",
-        "region": "",
-        "city": ""
-    }
+    最稳定的中文地区 + IPv4 + IPv6
     """
     info = {"ipv4":"", "ipv6":"", "country":"", "region":"", "city":""}
 
     # IPv4
     try:
         r = requests.get("https://api.ipify.org?format=json", timeout=5)
-        info["ipv4"] = safe_json(r).get("ip", "")
+        info["ipv4"] = r.json().get("ip", "")
     except:
         pass
 
     # IPv6
     try:
         r = requests.get("https://api64.ipify.org?format=json", timeout=5)
-        info["ipv6"] = safe_json(r).get("ip", "")
+        info["ipv6"] = r.json().get("ip", "")
     except:
         pass
 
-    # 中文地区（优先 ipapi）
+    # 中文地区（最稳定）
     try:
-        r = requests.get("https://ipapi.co/json?lang=zh-CN", timeout=6)
-        data = safe_json(r)
-        info["country"] = data.get("country_name", "")
-        info["region"] = data.get("region", "")
-        info["city"] = data.get("city", "")
-        return info
-    except:
-        pass
-
-    # 备用接口 ipinfo
-    try:
-        r = requests.get("https://ipinfo.io/json", timeout=6)
-        data = safe_json(r)
-        code = data.get("country", "")
-        info["country"] = COUNTRY_CN.get(code, code)
-        info["region"] = data.get("region", "")
+        r = requests.get("http://ip-api.com/json/?lang=zh-CN", timeout=6)
+        data = r.json()
+        info["country"] = data.get("country", "")
+        info["region"] = data.get("regionName", "")
         info["city"] = data.get("city", "")
     except:
         pass
@@ -193,7 +156,7 @@ def get_status():
     recv = net.bytes_recv / 1024**3
     uptime = format_uptime()
 
-    geo = get_ip_info()
+    geo = get_geo_info()
     ipv4 = geo["ipv4"]
     ipv6 = geo["ipv6"]
     country = geo["country"]
