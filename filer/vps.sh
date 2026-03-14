@@ -115,9 +115,29 @@ def format_uptime():
     minutes = (uptime_seconds % 3600) // 60
     return f"{hours} 小时 {minutes} 分钟"
 
+def get_real_ipv6():
+    """
+    获取真实 IPv6（不会被 NAT64 映射）
+    """
+    urls = [
+        "https://v6.ident.me",
+        "https://api6.ipify.org",
+        "https://ipv6.icanhazip.com",
+        "https://ifconfig.co/ip"
+    ]
+    for u in urls:
+        try:
+            r = requests.get(u, timeout=5)
+            ip = r.text.strip()
+            if ":" in ip:  # IPv6 一定包含冒号
+                return ip
+        except:
+            continue
+    return ""
+
 def get_geo_info():
     """
-    最稳定的中文地区 + IPv4 + IPv6
+    获取 IPv4 / IPv6 + 中文地区
     """
     info = {"ipv4":"", "ipv6":"", "country":"", "region":"", "city":""}
 
@@ -128,12 +148,8 @@ def get_geo_info():
     except:
         pass
 
-    # IPv6
-    try:
-        r = requests.get("https://api64.ipify.org?format=json", timeout=5)
-        info["ipv6"] = r.json().get("ip", "")
-    except:
-        pass
+    # 真实 IPv6
+    info["ipv6"] = get_real_ipv6()
 
     # 中文地区（最稳定）
     try:
