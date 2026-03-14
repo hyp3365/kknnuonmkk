@@ -1,0 +1,64 @@
+(async function() {
+    // === 配置区域 ===
+    const orderId = 'heyuping369@outlook.com';
+    const maxDaysPerRequest = 84; // 服务器允许的最大天数
+    const targetLoopCount = 11;   // 你想循环多少次？ (12次 * 84天 ≈ 1008天)
+    const delayMs = 1500;
+    // ================
+
+    const input = document.getElementById('renew-presets-input-' + orderId);
+    if (!input) return console.error('❌ 找不到输入框');
+    const form = input.closest('form');
+
+    // 延时函数
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    console.log(`🚀 准备开始！计划执行 ${targetLoopCount} 次续费，每次 ${maxDaysPerRequest} 天。`);
+
+    for (let i = 1; i <= targetLoopCount; i++) {
+        console.log(`\n--- 正在执行第 ${i} / ${targetLoopCount} 次请求 ---`);
+
+        // 每次都需要重新构建 FormData，以防 token 过期或状态变化
+        const formData = new FormData(form);
+        formData.set('days', maxDaysPerRequest.toString());
+        formData.delete('custom_date');
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            const text = await response.text();
+            console.log(`📡 第 ${i} 次状态码: ${response.status}`);
+
+            // 尝试解析结果
+            try {
+                const json = JSON.parse(text);
+                if (response.ok) {
+                    console.log(`✅ 第 ${i} 次成功！`);
+                } else {
+                    console.error(`❌ 第 ${i} 次失败:`, json.message || json.errors);
+                    // 如果遇到错误（比如余额不足），通常应该停止脚本
+                    if (response.status === 422 || response.status === 403) {
+                        console.error('🛑 遇到严重错误，脚本停止执行。');
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.log('📄 服务器响应:', text.substring(0, 50) + '...');
+            }
+
+        } catch (err) {
+            console.error(`❌ 网络请求出错:`, err);
+        }
+
+        if (i < targetLoopCount) {
+            console.log(`⏳ 等待 ${delayMs}ms ...`);
+            await sleep(delayMs);
+        }
+    }
+
+    console.log('\n🎉 所有任务执行完毕！去支付账单。');
+})();
