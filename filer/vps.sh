@@ -115,32 +115,74 @@ def format_uptime():
     minutes = (uptime_seconds % 3600) // 60
     return f"{hours} 小时 {minutes} 分钟"
 
-def get_geo_info():
-    urls = [
-        "https://ipinfo.io/json",
-        "https://ipapi.co/json",
-        "https://ipwhois.app/json/",
-        "https://api.ipify.org?format=json"
-    ]
-    geo = {"ip": "", "country": "", "region": "", "city": ""}
-    for u in urls:
+# 国家代码 → 中文映射
+COUNTRY_CN = {
+    "CN":"中国","US":"美国","JP":"日本","KR":"韩国","GB":"英国","DE":"德国","FR":"法国",
+    "RU":"俄罗斯","IN":"印度","BR":"巴西","CA":"加拿大","AU":"澳大利亚","SG":"新加坡",
+    "HK":"中国香港","TW":"中国台湾","NL":"荷兰","SE":"瑞典","CH":"瑞士","IT":"意大利",
+    "ES":"西班牙","MX":"墨西哥","TR":"土耳其","ZA":"南非","AE":"阿联酋"
+}
+
+def safe_json(resp):
+    try:
+        return resp.json()
+    except:
         try:
-            r = requests.get(u, timeout=6)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            if "ip" in data:
-                geo["ip"] = data.get("ip", geo["ip"])
-            else:
-                geo["ip"] = data.get("ip", geo["ip"])
-            geo["country"] = data.get("country", data.get("country_name", data.get("countryCode", geo["country"])))
-            geo["region"] = data.get("region", data.get("regionName", ""))
-            geo["city"] = data.get("city", "")
-            if geo["ip"] or geo["country"]:
-                break
-        except Exception:
-            continue
-    return geo
+            import json
+            return json.loads(resp.text)
+        except:
+            return {}
+
+def get_ip_info():
+    """
+    返回：
+    {
+        "ipv4": "",
+        "ipv6": "",
+        "country": "",
+        "region": "",
+        "city": ""
+    }
+    """
+    info = {"ipv4":"", "ipv6":"", "country":"", "region":"", "city":""}
+
+    # IPv4
+    try:
+        r = requests.get("https://api.ipify.org?format=json", timeout=5)
+        info["ipv4"] = safe_json(r).get("ip", "")
+    except:
+        pass
+
+    # IPv6
+    try:
+        r = requests.get("https://api64.ipify.org?format=json", timeout=5)
+        info["ipv6"] = safe_json(r).get("ip", "")
+    except:
+        pass
+
+    # 中文地区（优先 ipapi）
+    try:
+        r = requests.get("https://ipapi.co/json?lang=zh-CN", timeout=6)
+        data = safe_json(r)
+        info["country"] = data.get("country_name", "")
+        info["region"] = data.get("region", "")
+        info["city"] = data.get("city", "")
+        return info
+    except:
+        pass
+
+    # 备用接口 ipinfo
+    try:
+        r = requests.get("https://ipinfo.io/json", timeout=6)
+        data = safe_json(r)
+        code = data.get("country", "")
+        info["country"] = COUNTRY_CN.get(code, code)
+        info["region"] = data.get("region", "")
+        info["city"] = data.get("city", "")
+    except:
+        pass
+
+    return info
 
 def get_status():
     cpu = psutil.cpu_percent(interval=1)
@@ -150,17 +192,22 @@ def get_status():
     sent = net.bytes_sent / 1024**3
     recv = net.bytes_recv / 1024**3
     uptime = format_uptime()
-    geo = get_geo_info()
-    ip = geo.get("ip", "")
-    country = geo.get("country", "")
-    region = geo.get("region", "")
-    city = geo.get("city", "")
+
+    geo = get_ip_info()
+    ipv4 = geo["ipv4"]
+    ipv6 = geo["ipv6"]
+    country = geo["country"]
+    region = geo["region"]
+    city = geo["city"]
 
     text = f"""
 📡 VPS 状态报告
 
 🖥 主机名：{HOSTNAME}
-🌐 公网 IP：{ip}
+
+🌐 IPv4：{ipv4}
+🌐 IPv6：{ipv6}
+
 📍 地区：{country} {region} {city}
 
 🔥 CPU：{cpu}%
@@ -183,7 +230,7 @@ def send_tg(text):
     data = {"chat_id": CHAT_ID, "text": text}
     try:
         requests.post(url, data=data, timeout=10)
-    except Exception:
+    except:
         pass
 
 if __name__ == "__main__":
