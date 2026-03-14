@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # =========================
 # 老王sing-box四合一安装脚本
 # vless-version-reality|vmess-ws-tls(tunnel)|hysteria2|tuic5
