@@ -410,6 +410,129 @@ EOF
 systemctl daemon-reload
 systemctl enable --now vps_ultra_noaio.service
 
+# -------------------------
+# t 菜单（含 CPU 信息/CPU 使用率分离）
+# -------------------------
+cat > /usr/local/bin/t <<'EOF'
+#!/bin/bash
+CONFIG="/root/vps_config.conf"
+SERVICE="/etc/systemd/system/vps_ultra_noaio.service"
+
+green(){ echo -e "\033[32m$1\033[0m"; }
+red(){ echo -e "\033[31m$1\033[0m"; }
+
+load_cfg(){ . "$CONFIG"; }
+
+save_cfg(){
+cat > "$CONFIG" <<EOF2
+BOT_TOKEN="$BOT_TOKEN"
+CHAT_ID="$CHAT_ID"
+INTERVAL="$INTERVAL"
+HOSTNAME="$HOSTNAME"
+PUSH_IP="$PUSH_IP"
+PUSH_CPU_INFO="$PUSH_CPU_INFO"
+PUSH_CPU_USAGE="$PUSH_CPU_USAGE"
+EOF2
+chmod 600 "$CONFIG"
+}
+
+restart_service(){
+    systemctl daemon-reload
+    systemctl restart vps_ultra_noaio.service
+}
+
+menu(){
+    while true; do
+        load_cfg
+        echo
+        green "====== VPS 超轻量版管理菜单 (t) ======"
+        echo "主机名：$HOSTNAME"
+        echo "推送间隔：$INTERVAL 秒"
+        echo "IP 推送：$( [ "$PUSH_IP" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "CPU 信息：$( [ "$PUSH_CPU_INFO" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "CPU 使用率：$( [ "$PUSH_CPU_USAGE" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "--------------------------------------"
+        echo "1) 开关 IP 推送"
+        echo "2) 开关 CPU 信息（型号/核心/主频）"
+        echo "3) 开关 CPU 使用率"
+        echo "4) 修改推送间隔"
+        echo "5) 修改主机名"
+        echo "6) 重启服务"
+        echo "7) 卸载"
+        echo "q) 退出"
+        read -rp "请选择: " c
+
+        case "$c" in
+            1)
+                load_cfg
+                [ "$PUSH_IP" = "1" ] && PUSH_IP=0 || PUSH_IP=1
+                save_cfg
+                restart_service
+                ;;
+            2)
+                load_cfg
+                [ "$PUSH_CPU_INFO" = "1" ] && PUSH_CPU_INFO=0 || PUSH_CPU_INFO=1
+                save_cfg
+                restart_service
+                ;;
+            3)
+                load_cfg
+                [ "$PUSH_CPU_USAGE" = "1" ] && PUSH_CPU_USAGE=0 || PUSH_CPU_USAGE=1
+                save_cfg
+                restart_service
+                ;;
+            4)
+                read -rp "请输入新的推送间隔（>=60）： " new
+                if [[ "$new" =~ ^[0-9]+$ ]] && [ "$new" -ge 60 ]; then
+                    INTERVAL="$new"
+                    save_cfg
+                    restart_service
+                else
+                    red "无效输入"
+                fi
+                ;;
+            5)
+                read -rp "请输入新的主机名： " new
+                if [ -n "$new" ]; then
+                    HOSTNAME="$new"
+                    save_cfg
+                    restart_service
+                else
+                    red "主机名不能为空"
+                fi
+                ;;
+            6)
+                restart_service
+                green "服务已重启"
+                ;;
+            7)
+                read -rp "确认卸载？输入 yes： " ans
+                if [ "$ans" = "yes" ]; then
+                    systemctl disable --now vps_ultra_noaio.service
+                    rm -f "$SERVICE"
+                    rm -f "$CONFIG"
+                    rm -f /root/vps_ultra_noaio.py
+                    rm -f /usr/local/bin/t
+                    systemctl daemon-reload
+                    green "卸载完成"
+                    exit 0
+                fi
+                ;;
+            q|Q)
+                exit 0
+                ;;
+            *)
+                red "无效选项"
+                ;;
+        esac
+    done
+}
+
+menu
+EOF
+
+chmod +x /usr/local/bin/t
+
 green "安装完成！"
 green "机器人已运行：vps_ultra_noaio.service"
 green "Telegram 命令：/${HOSTNAME} /status /ip /cpu /help"
