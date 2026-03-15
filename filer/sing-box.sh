@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.4 (2026.02.08)'
+VERSION='v1.3.5 (2026.03.14)'
 
-# Github 反代加速代理，第一个为空相当于直连
-GITHUB_PROXY=('' 'https://v6.gh-proxy.org/' 'https://gh-proxy.com/' 'https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/' 'https://ghproxy.lvedong.eu.org/')
+# Github 反代加速代理
+GITHUB_PROXY=('https://v6.gh-proxy.org/' 'https://gh-proxy.com/' 'https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/' 'https://ghproxy.lvedong.eu.org/')
 
 # 各变量默认值
 TEMP_DIR='/tmp/sing-box'
@@ -24,14 +24,14 @@ DEFAULT_NEWEST_VERSION='1.13.0-rc.4'
 
 export DEBIAN_FRONTEND=noninteractive
 
-trap "rm -rf $TEMP_DIR >/dev/null 2>&1 ; echo -e '\n' ;exit" INT QUIT TERM EXIT
+trap "wait 2>/dev/null; rm -rf $TEMP_DIR >/dev/null 2>&1; echo -e '\n'; exit" INT QUIT TERM EXIT
 
 mkdir -p $TEMP_DIR
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. Chore: upgrade SS encryption method to SS-2022 spec 2. Security: Add pinnedPeerCertSha256 for Hysteria2/Trojan in v2rayN to prevent MITM (replaces AllowInsecure); 3. Compatibility: Refactor SFM/SFI/SFA configs for sing-box v1.13.0+."
-C[1]="1. 新装的 Shadowsocks 协议加密方式从 aes-128-gcm 改为 2022-blake3-aes-128-gcm; 2. 安全增强：v2rayN 的 Hysteria2/Trojan 支持 pinnedPeerCertSha256 替代 跳过证书验证，防御 MITM 攻击; 3. 适配更新：重构 SFM/SFI/SFA 配置，支持 sing-box v1.13.0+"
+E[1]="1. Chore: upgrade SS encryption method to SS-2022 spec; 2. Security: Add pinnedPeerCertSha256 for Hysteria2/Trojan in v2rayN to prevent MITM (replaces AllowInsecure); 3. Compatibility: Refactor SFM/SFI/SFA configs for sing-box v1.13.0+; 4. Performance: Optimize concurrent process execution to significantly accelerate script installation."
+C[1]="1. 新装的 Shadowsocks 协议加密方式从 aes-128-gcm 改为 2022-blake3-aes-128-gcm; 2. 安全增强：v2rayN 的 Hysteria2/Trojan 支持 pinnedPeerCertSha256 替代 跳过证书验证，防御 MITM 攻击; 3. 适配更新：重构 SFM/SFI/SFA 配置，支持 sing-box v1.13.0+; 4. 性能优化：优化并发进程执行，大幅提升脚本安装速度。"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -293,11 +293,26 @@ text() { grep -q '\$' <<< "${E[$*]}" && eval echo "\$(eval echo "\${${L}[$*]}")"
 
 # 检测是否需要启用 Github CDN，如能直接连通，则不使用
 check_cdn() {
-  # GITHUB_PROXY 数组第一个元素为空，相当于直连
-  for PROXY_URL in "${GITHUB_PROXY[@]}"; do
-    local PROXY_STATUS_CODE=$(wget --server-response --spider --quiet --timeout=3 --tries=1 ${PROXY_URL}https://api.github.com/repos/SagerNet/sing-box/releases 2>&1 | awk '/HTTP\//{last_field = $2} END {print last_field}')
-    [ "$PROXY_STATUS_CODE" = "200" ] && GH_PROXY="$PROXY_URL" && break
+  local URL="https://raw.githubusercontent.com/"
+  local PROXY
+
+  for PROXY in "" "${GITHUB_PROXY[@]}"; do
+    {
+      local CODE=$(wget -qT3 --spider --server-response "${PROXY}${URL}" 2>&1 | awk '/HTTP\//{code=$2} END{print code}')
+      [ "$CODE" = "200" ] && [ ! -s "${TEMP_DIR}/cdn_proxy" ] && echo "$PROXY" > "${TEMP_DIR}/cdn_proxy"
+    } &
   done
+
+  # 等第一个成功
+  while [ ! -s "${TEMP_DIR}/cdn_proxy" ]; do
+    sleep 0.05
+  done
+
+  GH_PROXY=$(cat "${TEMP_DIR}/cdn_proxy")
+
+  # 清理后台任务和临时文件
+  rm -rf "${TEMP_DIR}/cdn_proxy"
+  wait 2>/dev/null
 }
 
 # 检测是否解锁 chatGPT，以决定是否使用 warp 链式代理或者是 direct out，此处判断改编自 https://github.com/lmc999/RegionRestrictionCheck
@@ -332,7 +347,7 @@ check_chatgpt() {
 }
 
 # 脚本当天及累计运行次数统计
-statistics_of_run-times() {
+statistics_of_run_times() {
   local UPDATE_OR_GET=$1
   local SCRIPT=$2
   if grep -q 'update' <<< "$UPDATE_OR_GET"; then
@@ -647,9 +662,9 @@ input_hopping_port() {
       PORT_HOPPING_RANGE=${PORT_HOPPING_RANGE//-/:}
       PORT_HOPPING_START=${PORT_HOPPING_RANGE%:*}
       PORT_HOPPING_END=${PORT_HOPPING_RANGE#*:}
-      [[ "$PORT_HOPPING_START" < "$PORT_HOPPING_END" && "$PORT_HOPPING_START" -ge "$MIN_HOPPING_PORT" && "$PORT_HOPPING_END" -le "$MAX_HOPPING_PORT" ]] && IS_HOPPING=is_hopping || warning "\n $(text 36) "
+      [[ "$PORT_HOPPING_START" -lt "$PORT_HOPPING_END" && "$PORT_HOPPING_START" -ge "$MIN_HOPPING_PORT" && "$PORT_HOPPING_END" -le "$MAX_HOPPING_PORT" ]] && IS_HOPPING=is_hopping || warning "\n $(text 36) "
     elif [[ -z "$PORT_HOPPING_RANGE" || "${PORT_HOPPING_RANGE,,}" =~ ^(n|no)$ ]]; then
-      IS_HOPPING=no_hoppinng
+      IS_HOPPING=no_hopping
     else
       warning "\n $(text 36) "
     fi
@@ -691,7 +706,7 @@ input_argo_auth() {
     ARGO_DOMAIN=$(sed 's/[ ]*//g; s/:[ ]*//' <<< "$ARGO_DOMAIN")
   fi
 
-  if [[ -z "$ARGO_DOMAIN" && ( "$ARGO_DOMAIN" =~ trycloudflare\.com$ || "$IS_CHANGE_ARGO" = 'is_add_protocols' || "$IS_CHANGE_ARGO" = 'is_install' || "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ) ]]; then
+  if [[ ( -z "$ARGO_DOMAIN" || "$ARGO_DOMAIN" =~ trycloudflare\.com$ ) && ( "$IS_CHANGE_ARGO" = 'is_add_protocols' || "$IS_CHANGE_ARGO" = 'is_install' || "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ) ]]; then
     ARGO_RUNS="${WORK_DIR}/cloudflared tunnel --edge-ip-version auto --no-autoupdate --url http://localhost:$PORT_NGINX"
   elif [ -n "${ARGO_DOMAIN}" ]; then
     if [ -z "${ARGO_AUTH}" ]; then
@@ -859,7 +874,7 @@ check_install() {
     if [ -s ${SINGBOX_DAEMON_FILE} ]; then
       SYSTEMD_EXECSTART=$(grep '^ExecStart=' ${SINGBOX_DAEMON_FILE})
       case "$SYSTEMD_EXECSTART" in
-        'ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf/' | 'ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf' )
+        "ExecStart=${WORK_DIR}/sing-box run -C ${WORK_DIR}/conf/" | "ExecStart=${WORK_DIR}/sing-box run -C ${WORK_DIR}/conf" )
           [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           ;;
         'ExecStart=/etc/v2ray-agent/sing-box/sing-box run -c /etc/v2ray-agent/sing-box/conf/config.json' )
@@ -876,7 +891,7 @@ check_install() {
           ;;
         * )
           # 检查是否是自己的脚本安装的，但路径略有不同
-          if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=/etc/sing-box/sing-box run" ]]; then
+          if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=${WORK_DIR}/sing-box run" ]]; then
             [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           else
             SING_BOX_SCRIPT='Unknown or customized sing-box' && error "\n $(text 99) \n"
@@ -890,7 +905,7 @@ check_install() {
           ;;
         * )
           # 检查是否是自己的脚本安装的，但路径略有不同
-          if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=/etc/sing-box/sing-box run" ]]; then
+          if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=${WORK_DIR}/sing-box run" ]]; then
             [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           else
             SING_BOX_SCRIPT='Unknown or customized sing-box' && error "\n $(text 99) \n"
@@ -903,14 +918,31 @@ check_install() {
 
   # 如果有需要，后台静默下载 sing-box
   if [ "${STATUS[0]}" = "$(text 26)" ] && [ ! -s ${WORK_DIR}/sing-box ]; then
+    # 任务1: 下载 sing-box
     {
-      # 获取需要下载的 sing-box 版本
       local ONLINE=$(get_sing_box_version)
-      wget --no-check-certificate --continue ${GH_PROXY}https://github.com/SagerNet/sing-box/releases/download/v$ONLINE/sing-box-$ONLINE-linux-$SING_BOX_ARCH.tar.gz -qO- | tar xz -C $TEMP_DIR sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box >/dev/null 2>&1
-      [ -s $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box ] && mv $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box $TEMP_DIR
-      wget --no-check-certificate --continue -qO $TEMP_DIR/jq ${GH_PROXY}https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$JQ_ARCH >/dev/null 2>&1 && chmod +x $TEMP_DIR/jq >/dev/null 2>&1
-      wget --no-check-certificate --continue -qO $TEMP_DIR/qrencode ${GH_PROXY}https://github.com/fscarmen/client_template/raw/main/qrencode-go/qrencode-go-linux-$QRENCODE_ARCH >/dev/null 2>&1 && chmod +x $TEMP_DIR/qrencode >/dev/null 2>&1
-    }&
+      local SB_DIR="$TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH"
+      local SB_BIN="$SB_DIR/sing-box"
+      wget --no-check-certificate --continue \
+        ${GH_PROXY}https://github.com/SagerNet/sing-box/releases/download/v$ONLINE/sing-box-$ONLINE-linux-$SING_BOX_ARCH.tar.gz \
+        -qO- | tar xz -C $TEMP_DIR 2>/dev/null
+      [ -s "$SB_BIN" ] && [ -x "$SB_BIN" ] && mv "$SB_BIN" "$TEMP_DIR/sing-box"
+    } &
+
+    # 任务2: 下载 jq
+    {
+      wget --no-check-certificate --continue -qO $TEMP_DIR/jq \
+        ${GH_PROXY}https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$JQ_ARCH 2>/dev/null \
+        && chmod +x $TEMP_DIR/jq
+    } &
+
+    # 任务3: 下载 qrencode
+    {
+      wget --no-check-certificate --continue -qO $TEMP_DIR/qrencode \
+        ${GH_PROXY}https://github.com/fscarmen/client_template/raw/main/qrencode-go/qrencode-go-linux-$QRENCODE_ARCH 2>/dev/null \
+        && chmod +x $TEMP_DIR/qrencode
+    } &
+
   elif [ "${STATUS[0]}" != "$(text 26)" ]; then
     # 查 sing-box 进程号，运行时长和内存占用，占用的端口
     SING_BOX_VERSION="Version: $(${WORK_DIR}/sing-box version | awk '/version/{print $NF}')"
@@ -1208,17 +1240,34 @@ check_system_ip() {
     [ -n "$DEFAULT_LOCAL_IP6" ] && local BIND_ADDRESS6="--bind-address=$DEFAULT_LOCAL_IP6"
   fi
 
-  local IP4_JSON=$(wget $BIND_ADDRESS4 -4 -qO- --no-check-certificate --tries=2 --timeout=2 https://ip.cloudflare.now.cc${IS_CHINESE}) &&
+  # 并行检测 IPv4 和 IPv6 信息
+  {
+    local CHECK_IP4=$(wget $BIND_ADDRESS4 -4 -qO- --no-check-certificate --tries=2 --timeout=2 https://ip.cloudflare.now.cc${IS_CHINESE})
+    grep -q '.' <<< "$CHECK_IP4" && echo "$CHECK_IP4" > $TEMP_DIR/ip4.json
+  }&
+
+  {
+    local CHECK_IP6=$(wget $BIND_ADDRESS6 -6 -qO- --no-check-certificate --tries=2 --timeout=2 https://ip.cloudflare.now.cc${IS_CHINESE})
+    grep -q '.' <<< "$CHECK_IP6" && echo "$CHECK_IP6" > $TEMP_DIR/ip6.json
+  }&
+
+  wait
+
+  [ -s $TEMP_DIR/ip4.json ] &&
+  local IP4_JSON=$(cat $TEMP_DIR/ip4.json) &&
   WAN4=$(awk -F '"' '/"ip"/{print $4}' <<< "$IP4_JSON") &&
   COUNTRY4=$(awk -F '"' '/"country"/{print $4}' <<< "$IP4_JSON") &&
   EMOJI4=$(awk -F '"' '/"emoji"/{print $4}' <<< "$IP4_JSON") &&
-  ASNORG4=$(awk -F '"' '/"isp"/{print $4}' <<< "$IP4_JSON")
+  ASNORG4=$(awk -F '"' '/"isp"/{print $4}' <<< "$IP4_JSON") &&
+  rm -f $TEMP_DIR/ip4.json
 
-  local IP6_JSON=$(wget $BIND_ADDRESS6 -6 -qO- --no-check-certificate --tries=2 --timeout=2 https://ip.cloudflare.now.cc${IS_CHINESE}) &&
+  [ -s $TEMP_DIR/ip6.json ] &&
+  local IP6_JSON=$(cat $TEMP_DIR/ip6.json) &&
   WAN6=$(awk -F '"' '/"ip"/{print $4}' <<< "$IP6_JSON") &&
   COUNTRY6=$(awk -F '"' '/"country"/{print $4}' <<< "$IP6_JSON") &&
   EMOJI6=$(awk -F '"' '/"emoji"/{print $4}' <<< "$IP6_JSON") &&
-  ASNORG6=$(awk -F '"' '/"isp"/{print $4}' <<< "$IP6_JSON")
+  ASNORG6=$(awk -F '"' '/"isp"/{print $4}' <<< "$IP6_JSON") &&
+  rm -f $TEMP_DIR/ip6.json
 }
 
 # 输入起始 port 函数
@@ -2567,8 +2616,13 @@ fetch_quicktunnel_domain() {
     local CLOUDFLARED_PID=$(ps -eo pid,args | awk -v work_dir="$WORK_DIR" '$0~(work_dir"/cloudflared"){print $1;exit}')
     [[ -z "$METRICS_ADDRESS" && "$CLOUDFLARED_PID" =~ ^[0-9]+$ ]] && local METRICS_ADDRESS=$(ss -nltp | grep "pid=$CLOUDFLARED_PID" | awk '{print $4}')
     [ -n "$METRICS_ADDRESS" ] && ARGO_DOMAIN=$(wget -qO- http://$METRICS_ADDRESS/quicktunnel | awk -F '"' '{print $4}')
-    [[ ! "$ARGO_DOMAIN" =~ trycloudflare\.com$ ]] && (( QUICKTUNNEL_ERROR_TIME-- )) && sleep 2 || break
-    [ "$QUICKTUNNEL_ERROR_TIME" = '0' ] && error " $(text 93) "
+    if [[ ! "$ARGO_DOMAIN" =~ trycloudflare\.com$ ]]; then
+      (( QUICKTUNNEL_ERROR_TIME-- )) || true
+      [ "$QUICKTUNNEL_ERROR_TIME" = '0' ] && error " $(text 93) "
+      sleep 2
+    else
+      break
+    fi
   done
 
   # 把临时隧道写到 Sing-box 相应的 ws inbounds 文件
@@ -2933,7 +2987,7 @@ trojan://$TROJAN_PASSWORD@${SERVER_IP_1}:$PORT_TROJAN?security=tls&insecure=1&al
      if [[ "${STATUS[1]}" =~ $(text 27)|$(text 28) ]] || [[ "$IS_ARGO" = 'is_argo' && "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]]; then
       local V2RAYN_SUBSCRIBE+="
 ----------------------------
-vmess://$(echo -n "{ \"v\": \"2\", \"ps\": \"${NODE_NAME[17]} ${NODE_TAG[6]}\", \"add\": \"${CDN[18]}\", \"port\": \"80\", \"id\": \"${UUID[18]}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"$ARGO_DOMAIN\", \"path\": \"/$VMESS_WS_PATH\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\" }" | base64 -w0)"
+vmess://$(echo -n "{ \"v\": \"2\", \"ps\": \"${NODE_NAME[17]} ${NODE_TAG[6]}\", \"add\": \"${CDN[17]}\", \"port\": \"80\", \"id\": \"${UUID[17]}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"$ARGO_DOMAIN\", \"path\": \"/$VMESS_WS_PATH\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\" }" | base64 -w0)"
       [ "$ARGO_TYPE" = 'is_token_argo' ] && V2RAYN_SUBSCRIBE+="
 
   # $(text 94)
@@ -2941,7 +2995,7 @@ vmess://$(echo -n "{ \"v\": \"2\", \"ps\": \"${NODE_NAME[17]} ${NODE_TAG[6]}\", 
     else
       WS_SERVER_IP_SHOW=${WS_SERVER_IP[17]} && TYPE_HOST_DOMAIN=$VMESS_HOST_DOMAIN && TYPE_PORT_WS=$PORT_VMESS_WS && local V2RAYN_SUBSCRIBE+="
 ----------------------------
-vmess://$(echo -n "{ \"v\": \"2\", \"ps\": \"${NODE_NAME[17]} ${NODE_TAG[6]}\", \"add\": \"${CDN[18]}\", \"port\": \"80\", \"id\": \"${UUID[18]}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"$VMESS_HOST_DOMAIN\", \"path\": \"/$VMESS_WS_PATH\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\" }" | base64 -w0)
+vmess://$(echo -n "{ \"v\": \"2\", \"ps\": \"${NODE_NAME[17]} ${NODE_TAG[6]}\", \"add\": \"${CDN[17]}\", \"port\": \"80\", \"id\": \"${UUID[17]}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"$VMESS_HOST_DOMAIN\", \"path\": \"/$VMESS_WS_PATH\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\" }" | base64 -w0)
 
 # $(text 52)"
     fi
@@ -3268,7 +3322,7 @@ $(${WORK_DIR}/qrencode $SUBSCRIBE_ADDRESS/${UUID_CONFIRM}/auto2)
   cat ${WORK_DIR}/list
 
   # 显示脚本使用情况数据
-  statistics_of_run-times get
+  statistics_of_run_times get
 }
 
 # 创建快捷方式
@@ -3841,7 +3895,7 @@ menu() {
 }
 
 check_cdn
-statistics_of_run-times update sing-box.sh 2>/dev/null
+statistics_of_run_times update sing-box.sh 2>/dev/null
 
 # 传参
 [[ "${*^^}" =~ '-E'|'-K' ]] && L=E
