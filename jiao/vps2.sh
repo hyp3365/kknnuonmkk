@@ -533,6 +533,6 @@ EOF
 
 chmod +x /usr/local/bin/t
 
-green "安装完成！"
+green "安装完成 快捷命令t"
 green "机器人已运行：vps_ultra_noaio.service"
 green "Telegram 命令：/${HOSTNAME} /status /ip /cpu /help"
