@@ -574,11 +574,11 @@ _uninstall(){
 menu(){
   while true; do
     echo
-    echo "====== VPS 推送 管理 (t) ======"
-    echo "1) 开启/关闭 IP 地址 推送"
-    echo "2) 开启/关闭 CPU 型号/核心 推送"
+    echo "====== VPS推送管理 (快捷命令t) ======"
+    echo "1) 开启/关闭 IP地址 推送"
+    echo "2) 开启/关闭 CPU型号/核心 推送"
     echo "3) 修改推送时间（秒）"
-    echo "4) 一键卸载脚本（删除所有安装内容）"
+    echo "4) 卸载"
     echo "q) 退出"
     echo "================================"
     read -rp "请选择 (1/2/3/4/q): " choice
