@@ -1,6 +1,5 @@
 #!/bin/bash
-# 超轻量版（无 aiohttp）：仅依赖 python3 + curl
-# 内存占用：10–12MB，功能完整
+# VPS向电报推送运行消息
 
 CONFIG_FILE="/root/vps_config.conf"
 SCRIPT_FILE="/root/vps_ultra_noaio.py"
@@ -10,7 +9,7 @@ green(){ echo -e "\033[32m$1\033[0m"; }
 red(){ echo -e "\033[31m$1\033[0m"; }
 
 echo
-green "=== VPS 超轻量版（无 aiohttp）安装器 ==="
+green "=== 轻量版"
 echo
 
 # -------------------------
@@ -39,7 +38,6 @@ read -r CHAT_ID
 
 green "请输入推送间隔（秒，>=60）："
 read -r INTERVAL
-
 [ -z "$INTERVAL" ] && INTERVAL=600
 
 green "请输入主机名（用于 /主机名 命令）："
@@ -63,7 +61,7 @@ chmod 600 "$CONFIG_FILE"
 green "配置已写入：$CONFIG_FILE"
 
 # -------------------------
-# Python 主程序（无 aiohttp）
+# Python 主程序（无 aiohttp + offset 自动修复）
 # -------------------------
 cat > "$SCRIPT_FILE" <<'PYEOF'
 #!/usr/bin/env python3
@@ -81,7 +79,7 @@ def get(cmd):
     try:
         return subprocess.check_output(cmd, shell=True, timeout=5).decode().strip()
     except:
-        return "获取失败"
+        return ""
 
 def get_ipv4():
     for u in ["https://api.ipify.org", "https://ifconfig.me/ip"]:
@@ -129,7 +127,7 @@ def get_mem():
             v=line.split()[1]
             d[k]=int(v)
     total=d["MemTotal"]//1024
-    free=d.get("MemAvailable", d["MemFree"])//1024
+    free=d.get("MemAvailable", d.get("MemFree"))//1024
     used=total-free
     pct=used*100//total
     return used,total,pct
@@ -191,24 +189,38 @@ def bot_loop():
 
     last=0
     offset=0
+    empty_count=0
 
     while True:
         now=int(time.time())
 
-        # 定时推送
         if now-last>=interval:
             send(token, chat, build(cfg))
             last=now
 
-        # 轮询消息
         r=get(f"curl -s 'https://api.telegram.org/bot{token}/getUpdates?timeout=20&offset={offset}'")
+
         try:
             j=json.loads(r)
         except:
+            offset=0
+            empty_count=0
             time.sleep(1)
             continue
 
-        for item in j.get("result",[]):
+        result=j.get("result",[])
+
+        if not result:
+            empty_count+=1
+            if empty_count>=10:
+                offset=0
+                empty_count=0
+            time.sleep(1)
+            continue
+
+        empty_count=0
+
+        for item in result:
             offset=item["update_id"]+1
             msg=item.get("message",{})
             text=msg.get("text","")
@@ -216,13 +228,21 @@ def bot_loop():
 
             if text in (f"/{hostname}", "/status"):
                 send(token,cid,build(cfg))
+
             elif text=="/ip":
                 send(token,cid,f"IPv4：{get_ipv4()}\nIPv6：{get_ipv6()}")
+
             elif text=="/cpu":
                 m,c,fq=get_cpu()
                 send(token,cid,f"CPU：{m}\n核心：{c}\n主频：{fq}")
+
             elif text=="/help":
-                send(token,cid,f"/{hostname} - 查看状态\n/status - 查看状态\n/ip - 查看 IP\n/cpu - 查看 CPU")
+                send(token,cid,
+                     f"/{hostname} - 查看状态\n"
+                     "/status - 查看状态\n"
+                     "/ip - 查看 IP\n"
+                     "/cpu - 查看 CPU\n"
+                )
 
         time.sleep(1)
 
@@ -253,6 +273,121 @@ EOF
 systemctl daemon-reload
 systemctl enable --now vps_ultra_noaio.service
 
+# -------------------------
+# t 菜单
+# -------------------------
+cat > /usr/local/bin/t <<'EOF'
+#!/bin/bash
+CONFIG="/root/vps_config.conf"
+SERVICE="/etc/systemd/system/vps_ultra_noaio.service"
+
+green(){ echo -e "\033[32m$1\033[0m"; }
+red(){ echo -e "\033[31m$1\033[0m"; }
+
+load_cfg(){ . "$CONFIG"; }
+
+save_cfg(){
+cat > "$CONFIG" <<EOF2
+BOT_TOKEN="$BOT_TOKEN"
+CHAT_ID="$CHAT_ID"
+INTERVAL="$INTERVAL"
+HOSTNAME="$HOSTNAME"
+PUSH_IP="$PUSH_IP"
+PUSH_CPU="$PUSH_CPU"
+EOF2
+chmod 600 "$CONFIG"
+}
+
+restart_service(){
+    systemctl daemon-reload
+    systemctl restart vps_ultra_noaio.service
+}
+
+menu(){
+    while true; do
+        load_cfg
+        echo
+        green "====== VPS 超轻量版管理菜单 (t) ======"
+        echo "主机名：$HOSTNAME"
+        echo "推送间隔：$INTERVAL 秒"
+        echo "IP 推送：$( [ "$PUSH_IP" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "CPU 推送：$( [ "$PUSH_CPU" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "--------------------------------------"
+        echo "1) 开关 IP 推送"
+        echo "2) 开关 CPU 推送"
+        echo "3) 修改推送间隔"
+        echo "4) 修改主机名"
+        echo "5) 重启服务"
+        echo "6) 卸载"
+        echo "q) 退出"
+        read -rp "请选择: " c
+
+        case "$c" in
+            1)
+                load_cfg
+                [ "$PUSH_IP" = "1" ] && PUSH_IP=0 || PUSH_IP=1
+                save_cfg
+                restart_service
+                ;;
+            2)
+                load_cfg
+                [ "$PUSH_CPU" = "1" ] && PUSH_CPU=0 || PUSH_CPU=1
+                save_cfg
+                restart_service
+                ;;
+            3)
+                read -rp "请输入新的推送间隔（>=60）： " new
+                if [[ "$new" =~ ^[0-9]+$ ]] && [ "$new" -ge 60 ]; then
+                    INTERVAL="$new"
+                    save_cfg
+                    restart_service
+                else
+                    red "无效输入"
+                fi
+                ;;
+            4)
+                read -rp "请输入新的主机名： " new
+                if [ -n "$new" ]; then
+                    HOSTNAME="$new"
+                    save_cfg
+                    restart_service
+                else
+                    red "主机名不能为空"
+                fi
+                ;;
+            5)
+                restart_service
+                green "服务已重启"
+                ;;
+            6)
+                read -rp "确认卸载？输入 yes： " ans
+                if [ "$ans" = "yes" ]; then
+                    systemctl disable --now vps_ultra_noaio.service
+                    rm -f "$SERVICE"
+                    rm -f "$CONFIG"
+                    rm -f /root/vps_ultra_noaio.py
+                    rm -f /usr/local/bin/t
+                    systemctl daemon-reload
+                    green "卸载完成"
+                    exit 0
+                fi
+                ;;
+            q|Q)
+                exit 0
+                ;;
+            *)
+                red "无效选项"
+                ;;
+        esac
+    done
+}
+
+menu
+EOF
+
+chmod +x /usr/local/bin/t
+
 green "安装完成！"
 green "机器人已运行：vps_ultra_noaio.service"
-green "管理命令：/${HOSTNAME} /status /ip /cpu /help"
+green "管理命令：t"
+green "Telegram 命令：/${HOSTNAME} /status /ip /cpu /help"
