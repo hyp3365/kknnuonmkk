@@ -638,45 +638,42 @@ set_hostname(){
 }
 
 _uninstall(){
-  echo "即将卸载：将删除脚本、配置、systemd 定时器/cron 条目、别名，并尝试卸载安装器安装的软件包。"
+  echo "即将卸载：将删除脚本、配置、systemd 定时器/cron 条目、别名，但不会删除 curl/python3/pip。"
   read -rp "确认要卸载并删除所有内容吗？输入 yes 确认： " ans
   if [ "$ans" != "yes" ]; then
     echo "已取消卸载。"
     return 0
   fi
 
-  if _has_systemd; then
+  echo "正在停止并删除 systemd 服务（如果存在）..."
+
+  if pidof systemd >/dev/null 2>&1 || [ -d /run/systemd/system ]; then
     systemctl disable --now vps_report.timer 2>/dev/null || true
-    systemctl stop vps_report.timer 2>/dev/null || true
     systemctl disable --now vps_report.service 2>/dev/null || true
     systemctl disable --now vps_bot.service 2>/dev/null || true
-    systemctl stop vps_bot.service 2>/dev/null || true
-    rm -f "$SERVICE_FILE" "$TIMER_FILE" "$BOT_SERVICE_FILE"
+
+    rm -f /etc/systemd/system/vps_report.service
+    rm -f /etc/systemd/system/vps_report.timer
+    rm -f /etc/systemd/system/vps_bot.service
+
     systemctl daemon-reload
-    echo "systemd 定时器/服务已移除（如存在）"
+    echo "systemd 服务与定时器已清理"
   else
-    crontab -l 2>/dev/null | sed "/${CRON_MARK}/d" | crontab - 2>/dev/null || true
-    echo "crontab 条目已移除（如存在）"
+    echo "未检测到 systemd，跳过 systemd 清理"
   fi
 
-  rm -f "$SCRIPT" "$CONFIG" "$BOT" /usr/local/bin/t "$PROFILE_FILE"
-  echo "脚本与配置已删除：$SCRIPT, $CONFIG, $BOT, /usr/local/bin/t, $PROFILE_FILE"
+  echo "正在清理 crontab（如果存在）..."
+  crontab -l 2>/dev/null | sed '/vps_report_cron_job/d' | crontab - 2>/dev/null || true
 
-  PKG=$(detect_pkgmgr)
-  if [ -n "$PKG" ]; then
-    echo "检测到包管理器： $PKG，尝试卸载安装器可能安装的软件（若存在）..."
-    if [ "$PKG" = "apk" ]; then
-      apk del --no-network py3-psutil py3-requests python3 py3-pip curl 2>/dev/null || true
-    else
-      apt remove -y python3-psutil python3-requests python3 python3-pip curl 2>/dev/null || true
-      apt autoremove -y 2>/dev/null || true
-    fi
-    echo "卸载尝试完成（若包存在则已移除）"
-  else
-    echo "未检测到受支持的包管理器，跳过包卸载"
-  fi
+  echo "正在删除脚本与配置文件..."
+  rm -f /root/vps_report.py
+  rm -f /root/bot.py
+  rm -f /root/vps_config.conf
 
-  echo "卸载完成。若需要彻底清理，请手动检查 /etc/systemd/system/ 与 crontab。"
+  echo "正在删除命令与环境文件..."
+  rm -f /usr/local/bin/t
+  rm -f /etc/profile.d/vpsctl.sh
+  echo "卸载完成"
 }
 
 menu(){
