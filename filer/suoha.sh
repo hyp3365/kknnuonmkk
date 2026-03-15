@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash 
 # onekey suoha
 linux_os=("Debian" "Ubuntu" "CentOS" "Fedora" "Alpine")
 linux_update=("apt update" "apt update" "yum -y update" "yum -y update" "apk update")
