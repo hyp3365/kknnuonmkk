@@ -1,5 +1,4 @@
 #!/bin/bash
-# VPS向电报推送运行消息
 
 CONFIG_FILE="/root/vps_config.conf"
 SCRIPT_FILE="/root/vps_ultra_noaio.py"
@@ -9,7 +8,7 @@ green(){ echo -e "\033[32m$1\033[0m"; }
 red(){ echo -e "\033[31m$1\033[0m"; }
 
 echo
-green "=== 轻量版"
+green "=== VPS向电报推送运行信息脚本ai版 ==="
 echo
 
 # -------------------------
@@ -53,7 +52,8 @@ CHAT_ID="$CHAT_ID"
 INTERVAL="$INTERVAL"
 HOSTNAME="$HOSTNAME"
 PUSH_IP="1"
-PUSH_CPU="1"
+PUSH_CPU_INFO="1"
+PUSH_CPU_USAGE="1"
 EOF
 
 chmod 600 "$CONFIG_FILE"
@@ -61,11 +61,11 @@ chmod 600 "$CONFIG_FILE"
 green "配置已写入：$CONFIG_FILE"
 
 # -------------------------
-# Python 主程序（无 aiohttp + offset 自动修复）
+# Python 主程序（无 aiohttp + offset 自动修复 + CPU 分离）
 # -------------------------
 cat > "$SCRIPT_FILE" <<'PYEOF'
 #!/usr/bin/env python3
-import time, os, json, subprocess, socket
+import time, os, json, subprocess
 
 CONFIG="/root/vps_config.conf"
 
@@ -103,7 +103,7 @@ def get_geo():
     except:
         return "","",""
 
-def get_cpu():
+def get_cpu_info():
     model="未知"; cores="未知"; freq="未知"
     try:
         with open("/proc/cpuinfo") as f:
@@ -118,6 +118,10 @@ def get_cpu():
     except:
         pass
     return model, cores, freq
+
+def get_cpu_usage():
+    usage = get("top -bn1 | grep 'Cpu(s)' | awk '{print $2}'")
+    return usage + "%" if usage else "获取失败"
 
 def get_mem():
     d={}
@@ -154,7 +158,8 @@ def build(cfg):
     ipv4=get_ipv4()
     ipv6=get_ipv6()
     country,region,city=get_geo()
-    cpu_model, cpu_cores, cpu_freq=get_cpu()
+    cpu_model, cpu_cores, cpu_freq=get_cpu_info()
+    cpu_usage=get_cpu_usage()
     mem_used, mem_total, mem_pct=get_mem()
     disk_used, disk_total, disk_pct=get_disk()
     up=uptime()
@@ -169,10 +174,13 @@ def build(cfg):
 
     t.append(f"\n📍 地区：{country} {region} {city}\n")
 
-    if cfg["PUSH_CPU"]=="1":
+    if cfg["PUSH_CPU_INFO"]=="1":
         t.append(f"\n🧠 CPU 型号：{cpu_model}\n")
         t.append(f"🔢 核心数：{cpu_cores}\n")
         t.append(f"⏱ 主频：{cpu_freq}\n")
+
+    if cfg["PUSH_CPU_USAGE"]=="1":
+        t.append(f"🔥 CPU 使用率：{cpu_usage}\n")
 
     t.append(f"\n📦 内存：{mem_pct}%（{mem_used}MB / {mem_total}MB）\n")
     t.append(f"💾 硬盘：{disk_pct}%（{disk_used}GB / {disk_total}GB）\n")
@@ -233,8 +241,8 @@ def bot_loop():
                 send(token,cid,f"IPv4：{get_ipv4()}\nIPv6：{get_ipv6()}")
 
             elif text=="/cpu":
-                m,c,fq=get_cpu()
-                send(token,cid,f"CPU：{m}\n核心：{c}\n主频：{fq}")
+                cpu_model, cpu_cores, cpu_freq=get_cpu_info()
+                send(token,cid,f"CPU：{cpu_model}\n核心：{cpu_cores}\n主频：{cpu_freq}")
 
             elif text=="/help":
                 send(token,cid,
@@ -274,7 +282,7 @@ systemctl daemon-reload
 systemctl enable --now vps_ultra_noaio.service
 
 # -------------------------
-# t 菜单
+# t 菜单（含 CPU 信息/CPU 使用率分离）
 # -------------------------
 cat > /usr/local/bin/t <<'EOF'
 #!/bin/bash
@@ -293,7 +301,8 @@ CHAT_ID="$CHAT_ID"
 INTERVAL="$INTERVAL"
 HOSTNAME="$HOSTNAME"
 PUSH_IP="$PUSH_IP"
-PUSH_CPU="$PUSH_CPU"
+PUSH_CPU_INFO="$PUSH_CPU_INFO"
+PUSH_CPU_USAGE="$PUSH_CPU_USAGE"
 EOF2
 chmod 600 "$CONFIG"
 }
@@ -311,14 +320,16 @@ menu(){
         echo "主机名：$HOSTNAME"
         echo "推送间隔：$INTERVAL 秒"
         echo "IP 推送：$( [ "$PUSH_IP" = "1" ] && echo 开启 || echo 关闭 )"
-        echo "CPU 推送：$( [ "$PUSH_CPU" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "CPU 信息：$( [ "$PUSH_CPU_INFO" = "1" ] && echo 开启 || echo 关闭 )"
+        echo "CPU 使用率：$( [ "$PUSH_CPU_USAGE" = "1" ] && echo 开启 || echo 关闭 )"
         echo "--------------------------------------"
         echo "1) 开关 IP 推送"
-        echo "2) 开关 CPU 推送"
-        echo "3) 修改推送间隔"
-        echo "4) 修改主机名"
-        echo "5) 重启服务"
-        echo "6) 卸载"
+        echo "2) 开关 CPU 信息（型号/核心/主频）"
+        echo "3) 开关 CPU 使用率"
+        echo "4) 修改推送间隔"
+        echo "5) 修改主机名"
+        echo "6) 重启服务"
+        echo "7) 卸载"
         echo "q) 退出"
         read -rp "请选择: " c
 
@@ -331,11 +342,17 @@ menu(){
                 ;;
             2)
                 load_cfg
-                [ "$PUSH_CPU" = "1" ] && PUSH_CPU=0 || PUSH_CPU=1
+                [ "$PUSH_CPU_INFO" = "1" ] && PUSH_CPU_INFO=0 || PUSH_CPU_INFO=1
                 save_cfg
                 restart_service
                 ;;
             3)
+                load_cfg
+                [ "$PUSH_CPU_USAGE" = "1" ] && PUSH_CPU_USAGE=0 || PUSH_CPU_USAGE=1
+                save_cfg
+                restart_service
+                ;;
+            4)
                 read -rp "请输入新的推送间隔（>=60）： " new
                 if [[ "$new" =~ ^[0-9]+$ ]] && [ "$new" -ge 60 ]; then
                     INTERVAL="$new"
@@ -345,7 +362,7 @@ menu(){
                     red "无效输入"
                 fi
                 ;;
-            4)
+            5)
                 read -rp "请输入新的主机名： " new
                 if [ -n "$new" ]; then
                     HOSTNAME="$new"
@@ -355,11 +372,11 @@ menu(){
                     red "主机名不能为空"
                 fi
                 ;;
-            5)
+            6)
                 restart_service
                 green "服务已重启"
                 ;;
-            6)
+            7)
                 read -rp "确认卸载？输入 yes： " ans
                 if [ "$ans" = "yes" ]; then
                     systemctl disable --now vps_ultra_noaio.service
