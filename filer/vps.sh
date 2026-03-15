@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash 
 # /root/vps_monitor.sh
 # 兼容 Alpine / Debian 的一键安装器（绿色提示、可选主机名、自动检测公网 IP 与国家）
 # 安装完成后可输入 1 立即测试（无需手动输入命令）
