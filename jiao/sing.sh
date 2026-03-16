@@ -29,11 +29,23 @@ scan_bins() {
         name=$(basename "$f")
 
         case "$name" in
-            *sing*|*Sing*|*SING*)
+            # sing-box
+            sing-box|sing-box-*|*sing-box*)
                 SB_BIN="$f"
                 ;;
-            *argo*|*cloudflared*|*Argo*|*ARGO*)
+
+            # Cloudflare Tunnel 官方二进制名
+            cloudflared|cloudflared-linux|cloudflared-linux-amd64|cloudflared-linux-arm64)
                 ARGO_BIN="$f"
+                ;;
+
+            # Cloudflare Tunnel 其他常见命名
+            cloudflare-tunnel|argo|argo-linux-amd64)
+                ARGO_BIN="$f"
+                ;;
+
+        
+            cf|CF|Cf|cF)
                 ;;
         esac
     done
