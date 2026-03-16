@@ -20,6 +20,12 @@ scan_bins() {
         [ -f "$f" ] || continue
         [ -x "$f" ] || continue
 
+        case "$f" in
+            *.bak|*.old|*.backup)
+                continue
+                ;;
+        esac
+
         name=$(basename "$f")
 
         case "$name" in
