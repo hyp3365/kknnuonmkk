@@ -293,12 +293,11 @@ text() { grep -q '\$' <<< "${E[$*]}" && eval echo "\$(eval echo "\${${L}[$*]}")"
 
 # 检测是否需要启用 Github CDN，如能直接连通，则不使用
 check_cdn() {
-  local URL="https://raw.githubusercontent.com/"
   local PROXY
 
   for PROXY in "" "${GITHUB_PROXY[@]}"; do
     {
-      local CODE=$(wget -qT3 --spider --server-response "${PROXY}${URL}" 2>&1 | awk '/HTTP\//{code=$2} END{print code}')
+      local CODE=$(wget -qT3 --spider --server-response "${PROXY}https://raw.githubusercontent.com/" 2>&1 | awk '/HTTP\//{code=$2} END{print code}')
       [ "$CODE" = "200" ] && [ ! -s "${TEMP_DIR}/cdn_proxy" ] && echo "$PROXY" > "${TEMP_DIR}/cdn_proxy"
     } &
   done
@@ -373,7 +372,7 @@ select_language() {
 # 字母与数字的 ASCII 码值转换
 asc() {
   if [[ "$1" = [a-z] ]]; then
-    [ "$2" = '++' ] && printf "\\$(printf '%03o' "$[ $(printf "%d" "'$1'") + 1 ]")" || printf "%d" "'$1'"
+    [ "$2" = '++' ] && printf "\\$(printf '%03o' "$(( $(printf "%d" "'$1'") + 1 ))")" || printf "%d" "'$1'"
   else
     [[ "$1" =~ ^[0-9]+$ ]] && printf "\\$(printf '%03o' "$1")"
   fi
@@ -383,7 +382,7 @@ asc() {
 input_cdn() {
   echo ""
   for c in "${!CDN_DOMAIN[@]}"; do
-    hint " $[c+1]. ${CDN_DOMAIN[c]} "
+    hint " $(( c+1 )). ${CDN_DOMAIN[c]} "
   done
 
   reading "\n $(text 53) " CUSTOM_CDN
@@ -410,7 +409,7 @@ change_cdn() {
   # 提示当前使用的 CDN 并让用户选择或输入新的 CDN
   hint "\n $(text 109) \n"
   for ((c=0; c<${#CDN_DOMAIN[@]}; c++)); do
-    hint " $[c+1]. ${CDN_DOMAIN[c]} "
+    hint " $(( c+1 )). ${CDN_DOMAIN[c]} "
   done
   reading "\n $(text 111) " CDN_CHOOSE
 
@@ -916,6 +915,14 @@ check_install() {
     fi
   fi
 
+  # 并发下载订阅模板 (clash, clash2, sing-box)，在新安装和更换协议时会用到
+  {
+    wget --no-check-certificate --continue -qO $TEMP_DIR/clash ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash 2>/dev/null &
+    wget --no-check-certificate --continue -qO $TEMP_DIR/clash2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2 2>/dev/null &
+    wget --no-check-certificate --continue -qO $TEMP_DIR/sing-box ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box 2>/dev/null &
+    wait
+  } &
+
   # 如果有需要，后台静默下载 sing-box
   if [ "${STATUS[0]}" = "$(text 26)" ] && [ ! -s ${WORK_DIR}/sing-box ]; then
     # 任务1: 下载 sing-box
@@ -1314,11 +1321,11 @@ sing-box_variables() {
   fi
 
   # 选择安装的协议，由于选项 a 为全部协议，所以选项数不是从 a 开始，而是从 b 开始，处理输入：把大写全部变为小写，把不符合的选项去掉，把重复的选项合并
-  MAX_CHOOSE_PROTOCOLS=$(asc $[CONSECUTIVE_PORTS+96+1])
+  MAX_CHOOSE_PROTOCOLS=$(asc $(( CONSECUTIVE_PORTS+96+1 )))
   if [ -z "$CHOOSE_PROTOCOLS" ]; then
     hint "\n (1/6) $(text 49) "
     for e in "${!PROTOCOL_LIST[@]}"; do
-      [[ "$e" =~ '6'|'7' ]] && hint " $(asc $[e+98]). ${PROTOCOL_LIST[e]} " || hint " $(asc $[e+98]). ${PROTOCOL_LIST[e]} "
+      hint " $(asc $(( e+98 ))). ${PROTOCOL_LIST[e]} "
     done
     reading "\n $(text 24) " CHOOSE_PROTOCOLS
   fi
@@ -1330,7 +1337,7 @@ sing-box_variables() {
   if [ -z "$START_PORT" ]; then
     hint "\n $(text 60) "
     for w in "${!INSTALL_PROTOCOLS[@]}"; do
-      [ "$w" -ge 9 ] && hint " $[w+1]. ${PROTOCOL_LIST[$(($(asc ${INSTALL_PROTOCOLS[w]}) - 98))]} " || hint " $[w+1] . ${PROTOCOL_LIST[$(($(asc ${INSTALL_PROTOCOLS[w]}) - 98))]} "
+      [ "$w" -ge 9 ] && hint " $(( w+1 )). ${PROTOCOL_LIST[$(($(asc ${INSTALL_PROTOCOLS[w]}) - 98))]} " || hint " $(( w+1 )) . ${PROTOCOL_LIST[$(($(asc ${INSTALL_PROTOCOLS[w]}) - 98))]} "
     done
     input_start_port ${#INSTALL_PROTOCOLS[@]}
   fi
@@ -1930,7 +1937,7 @@ EOF
   # 第1个协议为 b  (a为全部)，生成 XTLS + Reality 配置
   CHECK_PROTOCOLS=b
   if [[ "${INSTALL_PROTOCOLS[@]}" =~ "$CHECK_PROTOCOLS" ]]; then
-    [ -z "$PORT_XTLS_REALITY" ] && PORT_XTLS_REALITY=$[START_PORT+$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}")]
+    [ -z "$PORT_XTLS_REALITY" ] && PORT_XTLS_REALITY=$(( START_PORT+$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}") ))
     NODE_NAME[11]=${NODE_NAME[11]:-"$NODE_NAME_CONFIRM"} && UUID[11]=${UUID[11]:-"$UUID_CONFIRM"} && TLS_SERVER[11]=${TLS_SERVER[11]:-"$TLS_SERVER"} && REALITY_PRIVATE[11]=${REALITY_PRIVATE[11]:-"$REALITY_PRIVATE"} && REALITY_PUBLIC[11]=${REALITY_PUBLIC[11]:-"$REALITY_PUBLIC"} &&
     cat > ${WORK_DIR}/conf/11_${NODE_TAG[0]}_inbounds.json << EOF
 //  "public_key":"${REALITY_PUBLIC[11]}"
@@ -2825,18 +2832,20 @@ export_list() {
   # 后台生成 clash 订阅配置文件
   {
     # 模板1: 使用 proxy providers
-    wget --no-check-certificate -qO- --tries=3 --timeout=2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash | sed "s#NODE_NAME#${NODE_NAME_CONFIRM}#g; s#PROXY_PROVIDERS_URL#$SUBSCRIBE_ADDRESS/${UUID_CONFIRM}/proxies#" > ${WORK_DIR}/subscribe/clash
+    cat ${TEMP_DIR}/clash | sed "s#NODE_NAME#${NODE_NAME_CONFIRM}#g; s#PROXY_PROVIDERS_URL#$SUBSCRIBE_ADDRESS/${UUID_CONFIRM}/proxies#" > ${WORK_DIR}/subscribe/clash
 
     # 模板2: 不使用 proxy providers
     CLASH2_PORT=("$PORT_XTLS_REALITY" "$PORT_HYSTERIA2" "$PORT_TUIC" "$PORT_SHADOWTLS" "$PORT_SHADOWSOCKS" "$PORT_TROJAN" "$PORT_VMESS_WS" "$PORT_VLESS_WS" "$PORT_GRPC_REALITY" "$PORT_ANYTLS")
     CLASH2_PROXY_INSERT=("$CLASH_XTLS_REALITY" "$CLASH_HYSTERIA2" "$CLASH_TUIC" "$CLASH_SHADOWTLS" "$CLASH_SHADOWSOCKS" "$CLASH_TROJAN" "$CLASH_VMESS_WS" "$CLASH_VLESS_WS" "$CLASH_GRPC_REALITY" "$CLASH_ANYTLS")
     CLASH2_PROXY_GROUPS_INSERT=("- ${NODE_NAME[11]} ${NODE_TAG[0]}" "- ${NODE_NAME[12]} ${NODE_TAG[1]}" "- ${NODE_NAME[13]} ${NODE_TAG[2]}" "- ${NODE_NAME[14]} ${NODE_TAG[3]}" "- ${NODE_NAME[15]} ${NODE_TAG[4]}" "- ${NODE_NAME[16]} ${NODE_TAG[5]}" "- ${NODE_NAME[17]} ${NODE_TAG[6]}" "- ${NODE_NAME[18]} ${NODE_TAG[7]}" "- ${NODE_NAME[20]} ${NODE_TAG[9]}" "- ${NODE_NAME[21]} ${NODE_TAG[10]}")
 
-    CLASH2_YAML=$(wget --no-check-certificate -qO- --tries=3 --timeout=2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2)
+    CLASH2_YAML=$(cat ${TEMP_DIR}/clash2)
     for x in ${!CLASH2_PORT[@]}; do
       [[ ${CLASH2_PORT[x]} =~ [0-9]+ ]] && { CLASH2_YAML=$(sed "/proxy-groups:/i\  ${CLASH2_PROXY_INSERT[x]}" <<< "$CLASH2_YAML"); CLASH2_YAML=$(sed -E "/- name: (♻️ 自动选择|📲 电报消息|💬 OpenAi|📹 油管视频|🎥 奈飞视频|📺 巴哈姆特|📺 哔哩哔哩|🌍 国外媒体|🌏 国内媒体|📢 谷歌FCM|Ⓜ️ 微软Bing|Ⓜ️ 微软云盘|Ⓜ️ 微软服务|🍎 苹果服务|🎮 游戏平台|🎶 网易音乐|🎯 全球直连)|^rules:$/i\      ${CLASH2_PROXY_GROUPS_INSERT[x]}" <<< "$CLASH2_YAML"); }
     done
     echo "$CLASH2_YAML" > ${WORK_DIR}/subscribe/clash2
+
+    rm -f ${TEMP_DIR}/clash{,2}
   } &>/dev/null
 
   # 生成 ShadowRocket 订阅配置文件
@@ -3189,9 +3198,9 @@ anytls://${UUID[21]}@${SERVER_IP_1}:${PORT_ANYTLS}?security=tls&sni=${TLS_SERVER
   local NODE_REPLACE+="\"${NODE_NAME[21]} ${NODE_TAG[10]}\","
 
   {
-    # sing-box SFM SFA 模板
-    local SING_BOX_JSON=$(wget --no-check-certificate -qO- --tries=3 --timeout=2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box)
-    echo $SING_BOX_JSON | sed "s#\"<OUTBOUND_REPLACE>\",#$OUTBOUND_REPLACE#; s#\"<NODE_REPLACE>\"#${NODE_REPLACE%,}#g" | ${WORK_DIR}/jq > ${WORK_DIR}/subscribe/sing-box
+    # 生成 sing-box SFM SFA SFI 订阅文件
+    cat $TEMP_DIR/sing-box | sed "s#\"<OUTBOUND_REPLACE>\",#$OUTBOUND_REPLACE#; s#\"<NODE_REPLACE>\"#${NODE_REPLACE%,}#g" | ${WORK_DIR}/jq > ${WORK_DIR}/subscribe/sing-box
+    rm -f $TEMP_DIR/sing-box
   } &>/dev/null
 
   # 生成二维码 url 文件
@@ -3371,16 +3380,16 @@ change_protocols() {
   # 列出已安装协议
   hint "\n $(text 63) (${#EXISTED_PROTOCOLS[@]})"
   for h in "${!EXISTED_PROTOCOLS[@]}"; do
-    hint " $(asc $[h+97]). ${EXISTED_PROTOCOLS[h]} "
+    hint " $(asc $(( h+97 ))). ${EXISTED_PROTOCOLS[h]} "
   done
 
   # 从已安装的协议中选择需要删除的协议名，并存放在 REMOVE_PROTOCOLS，把保存的协议的协议存放在 KEEP_PROTOCOLS
   reading "\n $(text 64) " REMOVE_SELECT
   # 统一为小写，去掉重复选项，处理不在可选列表里的选项，把特殊符号处理
-  REMOVE_SELECT=$(sed "s/[^a-$(asc $[${#EXISTED_PROTOCOLS[@]} + 96])]//g" <<< "${REMOVE_SELECT,,}" | awk 'BEGIN{RS=""; FS=""}{delete seen; output=""; for(i=1; i<=NF; i++){ if(!seen[$i]++){ output=output $i } } print output}')
+  REMOVE_SELECT=$(sed "s/[^a-$(asc $(( ${#EXISTED_PROTOCOLS[@]} + 96 )))]//g" <<< "${REMOVE_SELECT,,}" | awk 'BEGIN{RS=""; FS=""}{delete seen; output=""; for(i=1; i<=NF; i++){ if(!seen[$i]++){ output=output $i } } print output}')
 
   for ((j=0; j<${#REMOVE_SELECT}; j++)); do
-    REMOVE_PROTOCOLS+=("${EXISTED_PROTOCOLS[$[$(asc "$(awk "NR==$[j+1] {print}" <<< "$(grep -o . <<< "$REMOVE_SELECT")")") - 97]]}")
+    REMOVE_PROTOCOLS+=("${EXISTED_PROTOCOLS[$(( $(asc "$(awk "NR==$[j+1] {print}" <<< "$(grep -o . <<< "$REMOVE_SELECT")")") - 97 ))]}")
   done
 
   for k in "${EXISTED_PROTOCOLS[@]}"; do
@@ -3391,14 +3400,14 @@ change_protocols() {
   if [ "${#NOT_EXISTED_PROTOCOLS[@]}" -gt 0 ]; then
     hint "\n $(text 65) (${#NOT_EXISTED_PROTOCOLS[@]}) "
     for i in "${!NOT_EXISTED_PROTOCOLS[@]}"; do
-      hint " $(asc $[i+97]). ${NOT_EXISTED_PROTOCOLS[i]} "
+      hint " $(asc $(( i+97 ))). ${NOT_EXISTED_PROTOCOLS[i]} "
     done
     reading "\n $(text 66) " ADD_SELECT
     # 统一为小写，去掉重复选项，处理不在可选列表里的选项，把特殊符号处理
-    ADD_SELECT=$(sed "s/[^a-$(asc $[${#NOT_EXISTED_PROTOCOLS[@]} + 96])]//g" <<< "${ADD_SELECT,,}" | awk 'BEGIN{RS=""; FS=""}{delete seen; output=""; for(i=1; i<=NF; i++){ if(!seen[$i]++){ output=output $i } } print output}')
+    ADD_SELECT=$(sed "s/[^a-$(asc $(( ${#NOT_EXISTED_PROTOCOLS[@]} + 96 )))]//g" <<< "${ADD_SELECT,,}" | awk 'BEGIN{RS=""; FS=""}{delete seen; output=""; for(i=1; i<=NF; i++){ if(!seen[$i]++){ output=output $i } } print output}')
 
     for ((l=0; l<${#ADD_SELECT}; l++)); do
-      ADD_PROTOCOLS+=("${NOT_EXISTED_PROTOCOLS[$[$(asc "$(awk "NR==$[l+1] {print}" <<< "$(grep -o . <<< "$ADD_SELECT")")") - 97]]}")
+      ADD_PROTOCOLS+=("${NOT_EXISTED_PROTOCOLS[$(( $(asc "$(awk "NR==$[l+1] {print}" <<< "$(grep -o . <<< "$ADD_SELECT")")") - 97 ))]}")
     done
   fi
 
@@ -3808,7 +3817,7 @@ menu_setting() {
     OPTION[6]="6 .  $(text 31)"
     OPTION[7]="7 .  $(text 32)"
     OPTION[8]="8 .  $(text 62)"
-    OPTION[9]="9.   $(text 121)"
+    OPTION[9]="9 .   $(text 121)"
     OPTION[10]="10.  $(text 33)"
     OPTION[11]="11.  $(text 59)"
     OPTION[12]="12.  $(text 69)"
