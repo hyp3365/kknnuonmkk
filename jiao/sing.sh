@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash 
 
 BASE_DIR="/etc/sing-box"
 SB_BIN=""
