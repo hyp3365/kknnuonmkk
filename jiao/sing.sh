@@ -16,38 +16,47 @@ scan_bins() {
     SB_BIN=""
     ARGO_BIN=""
 
-    for f in "$BASE_DIR"/*; do
-        [ -f "$f" ] || continue
-        [ -x "$f" ] || continue
+    SEARCH_DIRS=(
+        "/etc"
+        "/root"
+    )
 
-        case "$f" in
-            *.bak|*.old|*.backup)
-                continue
-                ;;
-        esac
+    for dir in "${SEARCH_DIRS[@]}"; do
+        [ -d "$dir" ] || continue
 
-        name=$(basename "$f")
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            [ -x "$f" ] || continue
 
-        case "$name" in
-            # sing-box
-            sing-box|sing-box-*|*sing-box*)
-                SB_BIN="$f"
-                ;;
+            case "$f" in
+                *.bak|*.old|*.backup)
+                    continue
+                    ;;
+            esac
 
-            # Cloudflare Tunnel 官方二进制名
-            cloudflared|cloudflared-linux|cloudflared-linux-amd64|cloudflared-linux-arm64)
-                ARGO_BIN="$f"
-                ;;
+            name=$(basename "$f")
 
-            # Cloudflare Tunnel 其他常见命名
-            cloudflare-tunnel|argo|argo-linux-amd64)
-                ARGO_BIN="$f"
-                ;;
+            case "$name" in
+                # sing-box
+                sing-box|sing-box-*|*sing-box*)
+                    SB_BIN="$f"
+                    ;;
 
-        
-            cf|CF|Cf|cF)
-                ;;
-        esac
+                # Cloudflare Tunnel 官方二进制名
+                cloudflared|cloudflared-linux|cloudflared-linux-amd64|cloudflared-linux-arm64)
+                    ARGO_BIN="$f"
+                    ;;
+
+                
+                cloudflare-tunnel|argo|argo-linux-amd64)
+                    ARGO_BIN="$f"
+                    ;;
+
+                
+                cf|CF|Cf|cF)
+                    ;;
+            esac
+        done
     done
 }
 
