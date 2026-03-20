@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Freezehost  v19.0
+// @name         Freezehost 极致拟人稳定版 v20.0
 // @namespace    http://tampermonkey.net/
-// @version      19.0
-// @description  Randomized delays and refined freeze detection for human-like behavior.
+// @version      20.0
+// @description  Pure logic, no comments, strictly following user delay and detection rules.
 // @author       Gemini
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
@@ -11,90 +11,84 @@
 (function() {
     'use strict';
 
-    let lastT = "";
-    let sCount = 0;
-    let isAct = false;
+    let lT = "";
+    let sC = 0;
+    let bL = false;
 
-    function hC(e) {
+    function mC(e) {
         if (!e) return;
         const r = e.getBoundingClientRect();
-        const x = r.left + 5 + Math.random() * (r.width - 10);
-        const y = r.top + 5 + Math.random() * (r.height - 10);
+        const x = r.left + r.width / 2 + (Math.random() - 0.5) * 10;
+        const y = r.top + r.height / 2 + (Math.random() - 0.5) * 10;
         ['mouseenter', 'mousedown', 'mouseup', 'click'].forEach(t => {
             e.dispatchEvent(new MouseEvent(t, {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                clientX: x,
-                clientY: y
+                bubbles: true, cancelable: true, view: window, clientX: x, clientY: y
             }));
         });
     }
 
-    function cA() {
+    function fA() {
         const k = ["CLOSE", "DISMISS", "关闭", "×", "X"];
         document.querySelectorAll('button, a, div, span, i').forEach(e => {
             const t = e.innerText.trim().toUpperCase();
-            const s = window.getComputedStyle(e);
-            if (e.offsetWidth > 0 && e.offsetWidth < 90 && (k.includes(t) || (e.offsetWidth < 40 && (t === "X" || t === "×")))) {
+            if (e.offsetWidth > 0 && e.offsetWidth < 100 && k.includes(t)) {
+                const s = window.getComputedStyle(e);
                 if (parseInt(s.zIndex) > 10 || s.position === 'fixed') {
-                    hC(e);
+                    mC(e);
                 }
             }
         });
     }
 
-    function run() {
-        if (isAct) return;
+    function p() {
+        if (bL) return;
 
-        cA();
+        fA();
 
         const b = document.body.innerText;
-        const actD = Math.floor(Math.random() * 20001) + 10000;
-        const nxtD = Math.floor(Math.random() * 15001) + 15000;
+        const aD = Math.floor(Math.random() * 20001) + 10000;
+        const nD = Math.floor(Math.random() * 15001) + 15000;
 
-        if (b.includes("Session Time Remaining") && b.includes("0:00")) {
-            isAct = true;
-            setTimeout(() => {
-                location.reload();
-            }, actD);
+        const iZ = /Session Time Remaining\s+0:00/i.test(b);
+        if (iZ) {
+            bL = true;
+            setTimeout(() => { location.reload(); }, aD);
             return;
         }
 
-        const m = b.match(/(\d+)\s+seconds/);
-        if (m) {
-            if (m[0] === lastT) {
-                sCount++;
+        const mT = b.match(/(\d+)\s+seconds/i);
+        if (mT) {
+            const cT = mT[0];
+            if (cT === lT) {
+                sC++;
             } else {
-                sCount = 0;
-                lastT = m[0];
+                sC = 0;
+                lT = cT;
             }
 
-            if (sCount >= 2) {
-                isAct = true;
-                setTimeout(() => {
-                    location.reload();
-                }, actD);
+            if (sC >= 2) {
+                bL = true;
+                setTimeout(() => { location.reload(); }, aD);
                 return;
             }
         } else {
-            const btn = Array.from(document.querySelectorAll('button, a, .btn, [role="button"]'))
+            const btn = Array.from(document.querySelectorAll('button, a, .btn'))
                              .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
             if (btn) {
-                isAct = true;
+                bL = true;
                 setTimeout(() => {
-                    hC(btn);
-                    isAct = false;
-                    setTimeout(run, nxtD);
-                }, actD);
+                    mC(btn);
+                    bL = false;
+                    setTimeout(p, nD);
+                }, aD);
                 return;
             }
         }
 
-        setTimeout(run, nxtD);
+        setTimeout(p, nD);
     }
 
-    const initD = Math.floor(Math.random() * 20001) + 10000;
-    setTimeout(run, initD);
+    const sD = Math.floor(Math.random() * 20001) + 10000;
+    setTimeout(p, sD);
 
 })();
