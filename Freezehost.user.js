@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 极致拟人稳定版 v27.0
+// @name         Freezehost 极致拟人稳定版 v28.0
 // @namespace    http://tampermonkey.net/
-// @version      27.0
+// @version      28.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -9,130 +9,105 @@
 (function() {
     'use strict';
 
-    let lT = "";
-    let sC = 0;
-    let bL = false;
-    let cC = 0;
-    let nS = Math.floor(Math.random() * 6) + 5;
-    let aC = 0;
-    let wA = false;
+    let lastTimeText = "";
+    let freezeCounter = 0;
+    let busyLock = false;
+    let scrollCounter = 0;
+    let nextScrollAt = Math.floor(Math.random() * 6) + 5;
 
-    function mC(e) {
-        if (!e) return;
-        const r = e.getBoundingClientRect();
-        const x = r.left + 5 + Math.random() * (r.width - 10);
-        const y = r.top + 5 + Math.random() * (r.height - 10);
+    function mouseClick(el) {
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + 5 + Math.random() * (rect.width - 10);
+        const y = rect.top + 5 + Math.random() * (rect.height - 10);
         ['mouseenter', 'mousedown', 'mouseup', 'click'].forEach(t => {
-            e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }));
         });
     }
 
-    function fA() {
-        if (wA) return true;
-
-        const k = ["CLOSE", "DISMISS", "关闭", "×", "X"];
-        document.querySelectorAll('button, a, div, span, i').forEach(e => {
-            const t = e.innerText.trim().toUpperCase();
-            if (e.offsetWidth > 0 && e.offsetWidth < 100 && k.includes(t)) {
-                const s = window.getComputedStyle(e);
-                if (parseInt(s.zIndex) > 10 || s.position === 'fixed') mC(e);
-            }
-        });
+    function handleAds() {
+        const closeSelectors = [
+            'button[aria-label*="Close"]', 
+            '#dismiss-button', 
+            'div[role="button"][aria-label*="close"]',
+            '.close-button',
+            'span[class*="close"]'
+        ];
         
-        document.querySelectorAll('#dismiss-button, [aria-label*="Close"], [aria-label*="close"]').forEach(e => {
-            if (e.offsetWidth > 0) mC(e);
-        });
-
-        const b = document.body.innerText.toUpperCase();
-        if (b.includes("UNLOCK MORE CONTENT") || b.includes("VIEW A SHORT AD")) {
-            aC++;
-            if (aC >= 2) {
-                bL = true;
-                wA = true;
-                let tgt = Array.from(document.querySelectorAll('div, span')).find(e => e.innerText && e.innerText.trim().toUpperCase() === "VIEW A SHORT AD");
-                if (tgt && tgt.parentElement) {
-                    mC(tgt.parentElement);
-                } else {
-                    tgt = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.toUpperCase().includes("VIEW A SHORT AD") && e.children.length < 3);
-                    if (tgt) mC(tgt);
-                }
-                
-                setTimeout(() => {
-                    wA = false;
-                    bL = false;
-                    aC = 0;
-                    p(); 
-                }, 60000);
+        for (let sel of closeSelectors) {
+            const btn = document.querySelector(sel);
+            if (btn && btn.offsetWidth > 0) {
+                mouseClick(btn);
                 return true;
             }
-        } else {
-            aC = 0;
+        }
+
+        const bText = document.body.innerText.toUpperCase();
+        if (bText.includes("UNLOCK MORE CONTENT") || bText.includes("VIEW A SHORT AD")) {
+            const adBtn = Array.from(document.querySelectorAll('*'))
+                               .find(e => e.innerText && e.innerText.toUpperCase().includes("VIEW A SHORT AD") && e.offsetWidth > 0);
+            if (adBtn) {
+                busyLock = true;
+                mouseClick(adBtn);
+                setTimeout(() => { location.reload(); }, 60000);
+                return true;
+            }
         }
         return false;
     }
 
-    function p() {
-        if (bL || wA) return;
+    function process() {
+        if (busyLock) return;
 
-        if (fA()) return;
+        if (handleAds()) return;
 
-        const b = document.body.innerText;
-        const rD = Math.floor(Math.random() * 2001) + 3000;
-        const cD = Math.floor(Math.random() * 5001) + 10000;
-        const nD = Math.floor(Math.random() * 5001) + 10000;
+        const bodyText = document.body.innerText;
+        const actionDelay = Math.floor(Math.random() * 2001) + 3000;
+        const checkInterval = Math.floor(Math.random() * 5001) + 10000;
 
-        if (cC >= nS) {
-            const sD = Math.floor(Math.random() * 41) + 10;
-            const dir = Math.random() > 0.5 ? 1 : -1;
-            const sV = sD * dir;
-            window.scrollBy({ top: sV, behavior: 'smooth' });
-            setTimeout(() => { window.scrollBy({ top: -sV, behavior: 'smooth' }); }, 600);
-            cC = 0;
-            nS = Math.floor(Math.random() * 6) + 5;
+        if (scrollCounter >= nextScrollAt) {
+            const dist = (Math.floor(Math.random() * 41) + 10) * (Math.random() > 0.5 ? 1 : -1);
+            window.scrollBy({ top: dist, behavior: 'smooth' });
+            setTimeout(() => { window.scrollBy({ top: -dist, behavior: 'smooth' }); }, 600);
+            scrollCounter = 0;
+            nextScrollAt = Math.floor(Math.random() * 6) + 5;
         } else {
-            cC++;
+            scrollCounter++;
         }
 
-        if (/Session Time Remaining\s*0:00/i.test(b)) {
-            bL = true;
-            setTimeout(() => { location.reload(); }, rD);
-            return;
-        }
-
-        const tm = b.match(/(\d{1,2}:\d{2})/);
-        if (tm) {
-            const cT = tm[1];
-            if (cT === lT) {
-                sC++;
+        const timeMatch = bodyText.match(/(\d{1,2}:\d{2})/) || bodyText.match(/(\d+)\s+seconds/i);
+        if (timeMatch) {
+            const currentTime = timeMatch[0];
+            if (currentTime === lastTimeText) {
+                freezeCounter++;
             } else {
-                sC = 0;
-                lT = cT;
+                freezeCounter = 0;
+                lastTimeText = currentTime;
             }
 
-            if (sC >= 3) {
-                bL = true;
-                setTimeout(() => { location.reload(); }, rD);
+            if (freezeCounter >= 3) {
+                busyLock = true;
+                setTimeout(() => { location.reload(); }, actionDelay);
                 return;
             }
         } else {
-            const btn = Array.from(document.querySelectorAll('button, a, .btn'))
-                             .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
-            if (btn) {
-                bL = true;
+            const afkBtn = Array.from(document.querySelectorAll('button, a, .btn'))
+                                .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
+            if (afkBtn) {
+                busyLock = true;
                 setTimeout(() => {
-                    mC(btn);
-                    bL = false;
-                    lT = "";
-                    sC = 0;
-                    setTimeout(p, nD);
-                }, cD);
+                    mouseClick(afkBtn);
+                    busyLock = false;
+                    lastTimeText = "";
+                    freezeCounter = 0;
+                    setTimeout(process, checkInterval);
+                }, Math.floor(Math.random() * 5001) + 10000);
                 return;
             }
         }
 
-        setTimeout(p, nD);
+        setTimeout(process, checkInterval);
     }
 
-    setTimeout(p, Math.floor(Math.random() * 5001) + 10000);
-
+    setTimeout(process, 5000);
 })();
