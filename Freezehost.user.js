@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost
+// @name         Freezehost 
 // @namespace    http://tampermonkey.net/
-// @version      24.0
+// @version      26.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -13,7 +13,8 @@
     let sC = 0;
     let bL = false;
     let cC = 0;
-    let nS = 0;
+    let nS = Math.floor(Math.random() * 6) + 5;
+    let aC = 0;
 
     function mC(e) {
         if (!e) return;
@@ -27,6 +28,19 @@
 
     function fA() {
         const k = ["CLOSE", "DISMISS", "关闭", "×", "X"];
+        const b = document.body.innerText.toUpperCase();
+
+        if (b.includes("UNLOCK MORE CONTENT") || b.includes("VIEW A SHORT AD")) {
+            aC++;
+            if (aC >= 3) {
+                bL = true;
+                setTimeout(() => { location.reload(); }, Math.floor(Math.random() * 2001) + 3000);
+                return true;
+            }
+        } else {
+            aC = 0;
+        }
+
         document.querySelectorAll('button, a, div, span, i').forEach(e => {
             const t = e.innerText.trim().toUpperCase();
             if (e.offsetWidth > 0 && e.offsetWidth < 100 && k.includes(t)) {
@@ -34,12 +48,13 @@
                 if (parseInt(s.zIndex) > 10 || s.position === 'fixed') mC(e);
             }
         });
+        return false;
     }
 
     function p() {
         if (bL) return;
 
-        fA();
+        if (fA()) return;
 
         const b = document.body.innerText;
         const rD = Math.floor(Math.random() * 2001) + 3000;
