@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 
+// @name         Freezehost
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      24.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -12,6 +12,8 @@
     let lT = "";
     let sC = 0;
     let bL = false;
+    let cC = 0;
+    let nS = 0;
 
     function mC(e) {
         if (!e) return;
@@ -40,12 +42,21 @@
         fA();
 
         const b = document.body.innerText;
-        const rD = Math.floor(Math.random() * 2001) + 3000; 
-        const cD = Math.floor(Math.random() * 5001) + 10000; 
-        const nD = Math.floor(Math.random() * 5001) + 10000; 
+        const rD = Math.floor(Math.random() * 2001) + 3000;
+        const cD = Math.floor(Math.random() * 5001) + 10000;
+        const nD = Math.floor(Math.random() * 5001) + 10000;
 
-        window.scrollBy({ top: 15, behavior: 'smooth' });
-        setTimeout(() => { window.scrollBy({ top: -15, behavior: 'smooth' }); }, 600);
+        if (cC >= nS) {
+            const sD = Math.floor(Math.random() * 41) + 10;
+            const dir = Math.random() > 0.5 ? 1 : -1;
+            const sV = sD * dir;
+            window.scrollBy({ top: sV, behavior: 'smooth' });
+            setTimeout(() => { window.scrollBy({ top: -sV, behavior: 'smooth' }); }, 600);
+            cC = 0;
+            nS = Math.floor(Math.random() * 6) + 5;
+        } else {
+            cC++;
+        }
 
         if (/Session Time Remaining\s*0:00/i.test(b)) {
             bL = true;
