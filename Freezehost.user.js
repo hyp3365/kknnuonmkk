@@ -1,9 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 极致拟人稳定版 v20.0
+// @name         Freezehost 
 // @namespace    http://tampermonkey.net/
-// @version      20.0
-// @description  Pure logic, no comments, strictly following user delay and detection rules.
-// @author       Gemini
+// @version      23.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -18,12 +16,10 @@
     function mC(e) {
         if (!e) return;
         const r = e.getBoundingClientRect();
-        const x = r.left + r.width / 2 + (Math.random() - 0.5) * 10;
-        const y = r.top + r.height / 2 + (Math.random() - 0.5) * 10;
+        const x = r.left + 5 + Math.random() * (r.width - 10);
+        const y = r.top + 5 + Math.random() * (r.height - 10);
         ['mouseenter', 'mousedown', 'mouseup', 'click'].forEach(t => {
-            e.dispatchEvent(new MouseEvent(t, {
-                bubbles: true, cancelable: true, view: window, clientX: x, clientY: y
-            }));
+            e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }));
         });
     }
 
@@ -33,9 +29,7 @@
             const t = e.innerText.trim().toUpperCase();
             if (e.offsetWidth > 0 && e.offsetWidth < 100 && k.includes(t)) {
                 const s = window.getComputedStyle(e);
-                if (parseInt(s.zIndex) > 10 || s.position === 'fixed') {
-                    mC(e);
-                }
+                if (parseInt(s.zIndex) > 10 || s.position === 'fixed') mC(e);
             }
         });
     }
@@ -46,19 +40,22 @@
         fA();
 
         const b = document.body.innerText;
-        const aD = Math.floor(Math.random() * 20001) + 10000;
-        const nD = Math.floor(Math.random() * 15001) + 15000;
+        const rD = Math.floor(Math.random() * 2001) + 3000; 
+        const cD = Math.floor(Math.random() * 5001) + 10000; 
+        const nD = Math.floor(Math.random() * 5001) + 10000; 
 
-        const iZ = /Session Time Remaining\s+0:00/i.test(b);
-        if (iZ) {
+        window.scrollBy({ top: 15, behavior: 'smooth' });
+        setTimeout(() => { window.scrollBy({ top: -15, behavior: 'smooth' }); }, 600);
+
+        if (/Session Time Remaining\s*0:00/i.test(b)) {
             bL = true;
-            setTimeout(() => { location.reload(); }, aD);
+            setTimeout(() => { location.reload(); }, rD);
             return;
         }
 
-        const mT = b.match(/(\d+)\s+seconds/i);
-        if (mT) {
-            const cT = mT[0];
+        const tm = b.match(/(\d{1,2}:\d{2})/);
+        if (tm) {
+            const cT = tm[1];
             if (cT === lT) {
                 sC++;
             } else {
@@ -66,9 +63,9 @@
                 lT = cT;
             }
 
-            if (sC >= 2) {
+            if (sC >= 3) {
                 bL = true;
-                setTimeout(() => { location.reload(); }, aD);
+                setTimeout(() => { location.reload(); }, rD);
                 return;
             }
         } else {
@@ -79,8 +76,10 @@
                 setTimeout(() => {
                     mC(btn);
                     bL = false;
+                    lT = "";
+                    sC = 0;
                     setTimeout(p, nD);
-                }, aD);
+                }, cD);
                 return;
             }
         }
@@ -88,7 +87,6 @@
         setTimeout(p, nD);
     }
 
-    const sD = Math.floor(Math.random() * 20001) + 10000;
-    setTimeout(p, sD);
+    setTimeout(p, Math.floor(Math.random() * 5001) + 10000);
 
 })();
