@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 极致拟人稳定版 v35.0
+// @name         Freezehost 极致拟人稳定版 v37.0
 // @namespace    http://tampermonkey.net/
-// @version      35.0
+// @version      37.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -14,119 +14,95 @@
     let busyLock = false;
     let scrollCounter = 0;
     let nextScrollAt = Math.floor(Math.random() * 6) + 5;
-    let clickingLock = false;
 
-    // 连点函数：在指定位置高速点 5 次
-    function fastClick(x, y) {
+    // 模拟点击函数：在指定位置点 1 次（左右各点一次）
+    function singleClick(x, y) {
         const events = ['mouseenter', 'mousedown', 'mouseup', 'click'];
-        for (let i = 0; i < 5; i++) {
-            setTimeout(() => {
-                const curX = x + (Math.random() - 0.5) * 5;
-                const curY = y + (Math.random() - 0.5) * 5;
-                events.forEach(type => {
-                    document.documentElement.dispatchEvent(new MouseEvent(type, {
-                        bubbles: true, cancelable: true, view: window, clientX: curX, clientY: curY
-                    }));
-                });
-            }, i * 20);
-        }
+        const evObj = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        events.forEach(type => {
+            document.documentElement.dispatchEvent(new MouseEvent(type, evObj));
+        });
     }
 
-    // 执行左右两侧空白区域（间隙中点）的点击
-    function clickSideGaps() {
-        if (clickingLock) return;
-        clickingLock = true;
+    // 执行你要求的：网页中间到边缘的左右点击
+    function clickGaps() {
+        // 计算点击位置：网页左边缘到网页中心的中间点，以及网页中心到右边缘的中间点
+        const leftTargetX = window.innerWidth * 0.25;  // 左侧 1/4 处
+        const rightTargetX = window.innerWidth * 0.75; // 右侧 3/4 处
+        const targetY = window.innerHeight * 0.5;      // 垂直中心
 
-        // 核心：直接寻找广告特征元素，不再依赖网址检测
-        const adModal = document.querySelector('ins.adsbygoogle iframe') || 
-                        document.querySelector('div[role="dialog"]') ||
-                        document.querySelector('.google-vignette-container') ||
-                        document.querySelector('#google_ads_iframe_');
-
-        if (adModal || window.location.href.includes("#goog")) {
-            let leftGapCenter, rightGapCenter, targetY;
-
-            if (adModal && adModal.offsetWidth > 0) {
-                const rect = adModal.getBoundingClientRect();
-                // 点击位置：弹窗边缘到页面边缘的中心点
-                leftGapCenter = rect.left / 2;
-                rightGapCenter = rect.right + (window.innerWidth - rect.right) / 2;
-                targetY = rect.top + (rect.height / 2);
-                console.log("【特征识别】发现广告实体，点击两侧空白带中点...");
-            } else {
-                // 兜底：如果网址变了但找不到实体，点击预估位置
-                leftGapCenter = window.innerWidth * 0.1;
-                rightGapCenter = window.innerWidth * 0.9;
-                targetY = window.innerHeight * 0.5;
-                console.log("【网址触发】未发现实体，点击默认边缘位置...");
-            }
-            
-            fastClick(leftGapCenter, targetY);
-            setTimeout(() => { fastClick(rightGapCenter, targetY); }, 200);
-        }
-
-        setTimeout(() => { clickingLock = false; }, 1000);
+        console.log(`【常规点击】执行边缘间隙点击: Left(${leftTargetX}), Right(${rightTargetX})`);
+        
+        // 立即点左边
+        singleClick(leftTargetX, targetY);
+        
+        // 300毫秒后点右边
+        setTimeout(() => {
+            singleClick(rightTargetX, targetY);
+        }, 300);
     }
 
     function process() {
         if (busyLock) return;
 
-        // 1. 每轮检测都尝试清理广告（不再依赖 URL 变化通知）
-        clickSideGaps();
+        // --- 第一步：不管广告在不在，先执行左右点击 ---
+        clickGaps();
 
-        const bodyText = document.body.innerText;
-        const actionDelay = Math.floor(Math.random() * 2001) + 3000;
-        const checkInterval = Math.floor(Math.random() * 5001) + 10000;
+        // 稍微等待点击生效后再读取页面内容
+        setTimeout(() => {
+            const bodyText = document.body.innerText;
+            const checkInterval = Math.floor(Math.random() * 5001) + 10000;
 
-        // 随机滚动
-        if (scrollCounter >= nextScrollAt) {
-            const dist = (Math.floor(Math.random() * 41) + 10) * (Math.random() > 0.5 ? 1 : -1);
-            window.scrollBy({ top: dist, behavior: 'smooth' });
-            setTimeout(() => { window.scrollBy({ top: -dist, behavior: 'smooth' }); }, 600);
-            scrollCounter = 0;
-            nextScrollAt = Math.floor(Math.random() * 6) + 5;
-        } else {
-            scrollCounter++;
-        }
-
-        // 2. 核心时间检测（3次卡死刷新）
-        const timeMatch = bodyText.match(/(\d{1,2}:\d{2})/) || bodyText.match(/(\d+)\s+seconds/i);
-        if (timeMatch) {
-            const currentTime = timeMatch[0];
-            if (currentTime === lastTimeText) {
-                freezeCounter++;
+            // 随机滚动
+            if (scrollCounter >= nextScrollAt) {
+                const dist = (Math.floor(Math.random() * 41) + 10) * (Math.random() > 0.5 ? 1 : -1);
+                window.scrollBy({ top: dist, behavior: 'smooth' });
+                setTimeout(() => { window.scrollBy({ top: -dist, behavior: 'smooth' }); }, 600);
+                scrollCounter = 0;
+                nextScrollAt = Math.floor(Math.random() * 6) + 5;
             } else {
-                freezeCounter = 0;
-                lastTimeText = currentTime;
+                scrollCounter++;
             }
-            if (freezeCounter >= 3) {
-                busyLock = true;
-                setTimeout(() => { location.reload(); }, actionDelay);
-                return;
-            }
-        } else {
-            const afkBtn = Array.from(document.querySelectorAll('button, a, .btn'))
-                                .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
-            if (afkBtn) {
-                busyLock = true;
-                setTimeout(() => {
+
+            // --- 第二步：检测时间 ---
+            const timeMatch = bodyText.match(/(\d{1,2}:\d{2})/) || bodyText.match(/(\d+)\s+seconds/i);
+            
+            if (timeMatch) {
+                const currentTime = timeMatch[0];
+                if (currentTime === lastTimeText) {
+                    freezeCounter++;
+                } else {
+                    freezeCounter = 0;
+                    lastTimeText = currentTime;
+                }
+                // 时间 3 次不动（约 45 秒）就刷新
+                if (freezeCounter >= 3) {
+                    location.reload();
+                    return;
+                }
+            } else {
+                // 如果读不到时间，可能是广告还没关掉或者网页卡了，尝试找 AFK 按钮
+                const afkBtn = Array.from(document.querySelectorAll('button, a, .btn'))
+                                    .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
+                if (afkBtn) {
                     const r = afkBtn.getBoundingClientRect();
-                    const bx = r.left + r.width/2;
-                    const by = r.top + r.height/2;
-                    ['mouseenter', 'mousedown', 'mouseup', 'click'].forEach(t => {
-                        afkBtn.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window, clientX: bx, clientY: by }));
-                    });
-                    busyLock = false;
+                    singleClick(r.left + r.width/2, r.top + r.height/2);
                     lastTimeText = "";
                     freezeCounter = 0;
-                    setTimeout(process, checkInterval);
-                }, Math.floor(Math.random() * 5001) + 10000);
-                return;
+                } else {
+                    // 既没时间也没AFK，增加判定，连续3轮这样就强制刷新
+                    freezeCounter++;
+                    if (freezeCounter >= 3) {
+                        location.reload();
+                        return;
+                    }
+                }
             }
-        }
-        setTimeout(process, checkInterval);
+
+            setTimeout(process, checkInterval);
+        }, 1000); // 给点击留 1 秒的反应时间
     }
 
-    // 启动检查
-    setTimeout(process, 5000);
+    // 启动
+    setTimeout(process, 3000);
 })();
