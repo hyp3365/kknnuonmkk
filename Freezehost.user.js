@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 极致拟人稳定版 v34.0
+// @name         Freezehost 极致拟人稳定版 v35.0
 // @namespace    http://tampermonkey.net/
-// @version      34.0
+// @version      35.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -32,39 +32,38 @@
         }
     }
 
-    // 执行左右两侧空白区域的点击
+    // 执行左右两侧空白区域（间隙中点）的点击
     function clickSideGaps() {
         if (clickingLock) return;
         clickingLock = true;
 
-        // 尝试定位弹窗元素（Google插页广告通常带有这些特征）
+        // 核心：直接寻找广告特征元素，不再依赖网址检测
         const adModal = document.querySelector('ins.adsbygoogle iframe') || 
                         document.querySelector('div[role="dialog"]') ||
-                        document.querySelector('.google-vignette-container');
+                        document.querySelector('.google-vignette-container') ||
+                        document.querySelector('#google_ads_iframe_');
 
-        let leftGapCenter, rightGapCenter, targetY;
+        if (adModal || window.location.href.includes("#goog")) {
+            let leftGapCenter, rightGapCenter, targetY;
 
-        if (adModal) {
-            const rect = adModal.getBoundingClientRect();
-            // 左侧空隙中心 = 弹窗左边缘 / 2
-            leftGapCenter = rect.left / 2;
-            // 右侧空隙中心 = 弹窗右边缘 + (页面总宽 - 弹窗右边缘) / 2
-            rightGapCenter = rect.right + (window.innerWidth - rect.right) / 2;
-            // 点击高度取弹窗垂直中心
-            targetY = rect.top + (rect.height / 2);
-        } else {
-            // 如果抓不到弹窗实体，预估弹窗占中间 60%，默认点左右 15% 处
-            leftGapCenter = window.innerWidth * 0.15;
-            rightGapCenter = window.innerWidth * 0.85;
-            targetY = window.innerHeight * 0.5;
+            if (adModal && adModal.offsetWidth > 0) {
+                const rect = adModal.getBoundingClientRect();
+                // 点击位置：弹窗边缘到页面边缘的中心点
+                leftGapCenter = rect.left / 2;
+                rightGapCenter = rect.right + (window.innerWidth - rect.right) / 2;
+                targetY = rect.top + (rect.height / 2);
+                console.log("【特征识别】发现广告实体，点击两侧空白带中点...");
+            } else {
+                // 兜底：如果网址变了但找不到实体，点击预估位置
+                leftGapCenter = window.innerWidth * 0.1;
+                rightGapCenter = window.innerWidth * 0.9;
+                targetY = window.innerHeight * 0.5;
+                console.log("【网址触发】未发现实体，点击默认边缘位置...");
+            }
+            
+            fastClick(leftGapCenter, targetY);
+            setTimeout(() => { fastClick(rightGapCenter, targetY); }, 200);
         }
-
-        console.log(`【网址触发】点击左侧间隙: ${leftGapCenter.toFixed(0)}, 右侧间隙: ${rightGapCenter.toFixed(0)}`);
-        
-        fastClick(leftGapCenter, targetY); // 点左边
-        setTimeout(() => {
-            fastClick(rightGapCenter, targetY); // 200ms 后点右边
-        }, 200);
 
         setTimeout(() => { clickingLock = false; }, 1000);
     }
@@ -72,10 +71,8 @@
     function process() {
         if (busyLock) return;
 
-        // 1. 网址识别：发现 #goog 后缀，执行间隙点击
-        if (window.location.href.includes("#goog")) {
-            clickSideGaps();
-        }
+        // 1. 每轮检测都尝试清理广告（不再依赖 URL 变化通知）
+        clickSideGaps();
 
         const bodyText = document.body.innerText;
         const actionDelay = Math.floor(Math.random() * 2001) + 3000;
@@ -92,7 +89,7 @@
             scrollCounter++;
         }
 
-        // 2. 核心时间检测 (检测 3 次不变就刷新)
+        // 2. 核心时间检测（3次卡死刷新）
         const timeMatch = bodyText.match(/(\d{1,2}:\d{2})/) || bodyText.match(/(\d+)\s+seconds/i);
         if (timeMatch) {
             const currentTime = timeMatch[0];
@@ -130,5 +127,6 @@
         setTimeout(process, checkInterval);
     }
 
+    // 启动检查
     setTimeout(process, 5000);
 })();
