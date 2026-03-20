@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260318/s4KJ/0X0/03181331.png;md5;a1f38b1eda3471f9329b822e36f49d6b",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260319/fIxM/0X0/03191158.png;md5;8a541dc0b43e92e12b8dbb1fc4d94ead",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -106,7 +106,33 @@
             "searchable": 1,
             "changeable": 1,
             "api": "csp_AppFox",
-            "ext": "http://app.hktvyb.cc"
+            "ext": {
+                "host": "http://app.hktvyb.cc"
+            }
+        },
+        {
+            "key": "火猫",
+            "name": "火猫｜APP",
+            "type": 3,
+            "searchable": 1,
+            "changeable": 1,
+            "api": "csp_AppFox",
+            "ext": {
+                "host": "https://cunchu8.obs.cn-north-4.myhuaweicloud.com/fox.json"
+            }
+        },
+        {
+            "key": "云朵",
+            "name": "云朵｜APP",
+            "type": 3,
+            "api": "csp_AppGet",
+            "searchable": 1,
+            "changeable": 1,
+            "ext": {
+                "url": "https://yd4kcms.yd4k.top",
+                "dataKey": "Tpmm9FD99lJ8Dexa",
+                "dataIv": "Tpmm9FD99lJ8Dexa"
+            }
         },
         {
             "key": "爱影",
@@ -267,6 +293,19 @@
                 "url": "https://qjappcms410.xy4k.com",
                 "dataKey": "mC6kG4mI1uM8tS4o",
                 "dataIv": "mC6kG4mI1uM8tS4o"
+            }
+        },
+        {
+            "key": "不错",
+            "name": "不错｜APP",
+            "type": 3,
+            "searchable": 1,
+            "changeable": 1,
+            "api": "csp_AppGet",
+            "ext": {
+                "url": "https://zbc4kmcs.zbc4k.app",
+                "dataKey": "vE4kR7cF6jS6jH7a",
+                "dataIv": "vE4kR7cF6jS6jH7a"
             }
         },
         {
