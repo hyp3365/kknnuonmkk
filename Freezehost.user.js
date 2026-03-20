@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Freezehost 
+// @name         Freezehost 极致拟人稳定版 v27.0
 // @namespace    http://tampermonkey.net/
-// @version      26.0
+// @version      27.0
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -15,6 +15,7 @@
     let cC = 0;
     let nS = Math.floor(Math.random() * 6) + 5;
     let aC = 0;
+    let wA = false;
 
     function mC(e) {
         if (!e) return;
@@ -27,20 +28,9 @@
     }
 
     function fA() {
+        if (wA) return true;
+
         const k = ["CLOSE", "DISMISS", "关闭", "×", "X"];
-        const b = document.body.innerText.toUpperCase();
-
-        if (b.includes("UNLOCK MORE CONTENT") || b.includes("VIEW A SHORT AD")) {
-            aC++;
-            if (aC >= 3) {
-                bL = true;
-                setTimeout(() => { location.reload(); }, Math.floor(Math.random() * 2001) + 3000);
-                return true;
-            }
-        } else {
-            aC = 0;
-        }
-
         document.querySelectorAll('button, a, div, span, i').forEach(e => {
             const t = e.innerText.trim().toUpperCase();
             if (e.offsetWidth > 0 && e.offsetWidth < 100 && k.includes(t)) {
@@ -48,11 +38,41 @@
                 if (parseInt(s.zIndex) > 10 || s.position === 'fixed') mC(e);
             }
         });
+        
+        document.querySelectorAll('#dismiss-button, [aria-label*="Close"], [aria-label*="close"]').forEach(e => {
+            if (e.offsetWidth > 0) mC(e);
+        });
+
+        const b = document.body.innerText.toUpperCase();
+        if (b.includes("UNLOCK MORE CONTENT") || b.includes("VIEW A SHORT AD")) {
+            aC++;
+            if (aC >= 2) {
+                bL = true;
+                wA = true;
+                let tgt = Array.from(document.querySelectorAll('div, span')).find(e => e.innerText && e.innerText.trim().toUpperCase() === "VIEW A SHORT AD");
+                if (tgt && tgt.parentElement) {
+                    mC(tgt.parentElement);
+                } else {
+                    tgt = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.toUpperCase().includes("VIEW A SHORT AD") && e.children.length < 3);
+                    if (tgt) mC(tgt);
+                }
+                
+                setTimeout(() => {
+                    wA = false;
+                    bL = false;
+                    aC = 0;
+                    p(); 
+                }, 60000);
+                return true;
+            }
+        } else {
+            aC = 0;
+        }
         return false;
     }
 
     function p() {
-        if (bL) return;
+        if (bL || wA) return;
 
         if (fA()) return;
 
