@@ -32,24 +32,25 @@ export CFPORT=${CFPORT:-'443'}
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
 
-# 检查命令是否存在函数
+# 检查命令是否存在
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# 检查服务状态通用函数
 check_service() {
     local service_name=$1
     local service_file=$2
-    
-    [[ ! -f "${service_file}" ]] && { red "not installed"; return 2; }
-        
-    if command_exists apk; then
-        rc-service "${service_name}" status | grep -q "started" && green "running" || yellow "not running"
+
+    [[ -n "${service_file}" && ! -f "${service_file}" ]] && { red "not installed"; return 2; }
+
+    if command_exists rc-service; then
+        rc-service "${service_name}" status 2>&1 | grep -qE "started|running" && { green "running"; return 0; } || { yellow "not running"; return 1; }
+    elif command_exists systemctl; then
+        systemctl is-active --quiet "${service_name}" && { green "running"; return 0; } || { yellow "not running"; return 1; }
     else
-        systemctl is-active "${service_name}" | grep -q "^active$" && green "running" || yellow "not running"
+        yellow "service manager not found"
+        return 2
     fi
-    return $?
 }
 
 # 检查sing-box状态
@@ -70,52 +71,114 @@ check_nginx() {
 
 #根据系统类型安装、卸载依赖
 manage_packages() {
+    # 参数检查
     if [ $# -lt 2 ]; then
-        red "Unspecified package name or action" 
+        red "Unspecified package name or action"
         return 1
     fi
+
+    # 先检测包管理器（优先检测存在的命令）
+    detect_pkg_manager() {
+        if command -v apt >/dev/null 2>&1; then
+            PKG_MGR="apt"
+        elif command -v dnf >/dev/null 2>&1; then
+            PKG_MGR="dnf"
+        elif command -v yum >/dev/null 2>&1; then
+            PKG_MGR="yum"
+        elif command -v apk >/dev/null 2>&1; then
+            PKG_MGR="apk"
+        else
+            PKG_MGR=""
+        fi
+    }
+
+    # 检测 libc 类型（musl 或 glibc），结果写入全局 LIBC
+    detect_libc() {
+        if command -v ldd >/dev/null 2>&1; then
+            if ldd --version 2>&1 | grep -qi musl; then
+                LIBC="musl"
+            else
+                LIBC="glibc"
+            fi
+        else
+            # 没有 ldd 时尝试 /lib/ld-musl 或 /lib64/ld-linux 判断
+            if [ -f /lib/ld-musl-x86_64.so.1 ] || [ -f /lib/ld-musl.so.1 ]; then
+                LIBC="musl"
+            else
+                LIBC="glibc"
+            fi
+        fi
+    }
+
+    detect_pkg_manager
+    detect_libc
 
     action=$1
     shift
 
     for package in "$@"; do
-        if [ "$action" == "install" ]; then
+        if [ "$action" = "install" ]; then
             if command_exists "$package"; then
                 green "${package} already installed"
                 continue
             fi
             yellow "正在安装 ${package}..."
-            if command_exists apt; then
-                DEBIAN_FRONTEND=noninteractive apt install -y "$package"
-            elif command_exists dnf; then
-                dnf install -y "$package"
-            elif command_exists yum; then
-                yum install -y "$package"
-            elif command_exists apk; then
-                apk update
-                apk add "$package"
-            else
-                red "Unknown system!"
-                return 1
-            fi
-        elif [ "$action" == "uninstall" ]; then
+            case "$PKG_MGR" in
+                apt)
+                    DEBIAN_FRONTEND=noninteractive apt update -y >/dev/null 2>&1
+                    DEBIAN_FRONTEND=noninteractive apt install -y "$package"
+                    ;;
+                dnf)
+                    dnf install -y "$package"
+                    ;;
+                yum)
+                    yum install -y "$package"
+                    ;;
+                apk)
+                    # 区分 OpenWrt 与 Alpine（OpenWrt 的 apk 可能缺少某些包）
+                    if [ -f /etc/openwrt_release ]; then
+                        # OpenWrt: 尝试安装，若失败提示用户
+                        apk update >/dev/null 2>&1 || true
+                        if ! apk add "$package"; then
+                            yellow "OpenWrt: package ${package} may not be available in default repos"
+                        fi
+                    else
+                        # Alpine
+                        apk update
+                        apk add "$package"
+                    fi
+                    ;;
+                *)
+                    red "Unknown system or package manager!"
+                    return 1
+                    ;;
+            esac
+
+        elif [ "$action" = "uninstall" ]; then
             if ! command_exists "$package"; then
                 yellow "${package} is not installed"
                 continue
             fi
             yellow "正在卸载 ${package}..."
-            if command_exists apt; then
-                apt remove -y "$package" && apt autoremove -y
-            elif command_exists dnf; then
-                dnf remove -y "$package" && dnf autoremove -y
-            elif command_exists yum; then
-                yum remove -y "$package" && yum autoremove -y
-            elif command_exists apk; then
-                apk del "$package"
-            else
-                red "Unknown system!"
-                return 1
-            fi
+            case "$PKG_MGR" in
+                apt)
+                    apt remove -y "$package" && apt autoremove -y
+                    ;;
+                dnf)
+                    dnf remove -y "$package" && dnf autoremove -y
+                    ;;
+                yum)
+                    yum remove -y "$package" && yum autoremove -y
+                    ;;
+                apk)
+                    apk del "$package"
+                    ;;
+                *)
+                    red "Unknown system or package manager!"
+                    return 1
+                    ;;
+            esac
+
         else
             red "Unknown action: $action"
             return 1
@@ -217,7 +280,16 @@ install_singbox() {
     # 下载sing-box,cloudflared
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}"
     latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
-    curl -sLo "${work_dir}/${server_name}.tar.gz" "https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/sing-box-${latest_version}-linux-${ARCH}.tar.gz"
+    work_dir=${work_dir:-/etc/sing-box}
+mkdir -p "$work_dir"
+ARCH_RAW=$(uname -m)
+case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
+if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
+latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[]|select(.prerelease==false)][0].tag_name|sub("^v";"")')
+[ -z "$latest_version" ] && latest_version=1.8.10
+TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
+URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
+curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
     #curl -sLo "${work_dir}/qrencode" "https://github.com/eooce/test/releases/download/${ARCH}/qrencode-linux-${ARCH}"
     curl -sLo "${work_dir}/qrencode" "https://$ARCH.ssss.nyc.mn/qrencode"
     #curl -sLo "${work_dir}/sing-box" "https://$ARCH.ssss.nyc.mn/sb"
