@@ -291,16 +291,8 @@ latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/release
 TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
-    
-	ARCH_RAW=$(uname -m)
-case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
-if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
-work_dir=${work_dir:-/etc/sing-box}; mkdir -p "$work_dir"
-URL1="https://github.com/eooce/test/releases/download/${ARCH}-${LIBC}/qrencode-linux-${ARCH}-${LIBC}"
-URL2="https://github.com/eooce/test/releases/download/${ARCH}/qrencode-linux-${ARCH}"
-if curl -fSL -o "${work_dir}/qrencode" "$URL1"; then chmod +x "${work_dir}/qrencode"; elif curl -fSL -o "${work_dir}/qrencode" "$URL2"; then chmod +x "${work_dir}/qrencode"; else echo "qrencode download failed"; fi
-    
-	#curl -sLo "${work_dir}/qrencode" "https://$ARCH.ssss.nyc.mn/qrencode"
+       
+	curl -sLo "${work_dir}/qrencode" "https://$ARCH.ssss.nyc.mn/qrencode"
     #curl -sLo "${work_dir}/sing-box" "https://$ARCH.ssss.nyc.mn/sb"
     CF_ARCH=$(uname -m); case "$CF_ARCH" in x86_64) CF_ARCH=amd64;; aarch64|arm64) CF_ARCH=arm64;; armv7l) CF_ARCH=armv7;; i386|i686) CF_ARCH=386;; esac
     curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
