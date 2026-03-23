@@ -640,7 +640,7 @@ vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
-vmess://$(echo "$VLESS" | base64 -w0)
+vless://$(echo "$VLESS" | base64 -w0)
 
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}
 
