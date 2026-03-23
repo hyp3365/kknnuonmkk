@@ -16,48 +16,36 @@ scan_bins() {
     SB_BIN=""
     ARGO_BIN=""
 
-    SEARCH_DIRS=(
-        "/etc"
-        "/root"
-    )
+    SB_BIN=$(which sing-box 2>/dev/null)
+    ARGO_BIN=$(which cloudflared 2>/dev/null)
+    
+    if [ -z "$SB_BIN" ] || [ -z "$ARGO_BIN" ]; then
+        SEARCH_DIRS=(
+            "/usr/bin"
+            "/usr/local/bin"
+            "/etc/sing-box"
+            "/root"
+            "/etc"
+        )
 
-    for dir in "${SEARCH_DIRS[@]}"; do
-        [ -d "$dir" ] || continue
-
-        for f in "$dir"/*; do
-            [ -f "$f" ] || continue
-            [ -x "$f" ] || continue
-
-            case "$f" in
-                *.bak|*.old|*.backup)
-                    continue
-                    ;;
-            esac
-
-            name=$(basename "$f")
-
-            case "$name" in
-                # sing-box
-                sing-box|sing-box-*|*sing-box*)
-                    SB_BIN="$f"
-                    ;;
-
-                # Cloudflare Tunnel 官方二进制名
-                cloudflared|cloudflared-linux|cloudflared-linux-amd64|cloudflared-linux-arm64)
-                    ARGO_BIN="$f"
-                    ;;
-
+        for dir in "${SEARCH_DIRS[@]}"; do
+            [ -d "$dir" ] || continue
+            
+            # --- 寻找 sing-box ---
+            if [ -z "$SB_BIN" ]; then
                 
-                cloudflare-tunnel|argo|argo-linux-amd64)
-                    ARGO_BIN="$f"
-                    ;;
+                found=$(find "$dir" -maxdepth 2 -type f -executable -name "sing-box*" ! -name "*.bak" ! -name "*.old" ! -name "*.backup" | head -n 1)
+                [ -n "$found" ] && SB_BIN="$found"
+            fi
 
-                
-                cf|CF|Cf|cF)
-                    ;;
-            esac
+            # --- 寻找 argo (cloudflared) ---
+            if [ -z "$ARGO_BIN" ]; then
+               
+                found=$(find "$dir" -maxdepth 2 -type f -executable \( -name "cloudflared*" -o -name "argo*" \) | head -n 1)
+                [ -n "$found" ] && ARGO_BIN="$found"
+            fi
         done
-    done
+    fi
 }
 
 detect_arch() {
