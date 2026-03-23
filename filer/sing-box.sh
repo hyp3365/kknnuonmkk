@@ -30,8 +30,8 @@ mkdir -p $TEMP_DIR
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="Refactor: Support modification after installation (CDN, Reality SNI, node name, UUID/password, server IP)"
-C[1]="重构：支持安装后多项修改（CDN、Reality SNI、节点名、UUID/密码、服务器 IP）"
+E[1]="1. Refactor: Support modification after installation (CDN, Reality SNI, node name, UUID/password, server IP); 2. Perf: Rewrite text(), significantly reducing repeated string-lookup overhead"
+C[1]="1. 重构：支持安装后多项修改（CDN、Reality SNI、节点名、UUID/密码、服务器 IP）；2. 性能优化：重写 text() 函数，大幅降低字符串查找开销"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -307,7 +307,23 @@ error() { echo -e "\033[31m\033[01m$*\033[0m" && exit 1; } # 红色
 info() { echo -e "\033[32m\033[01m$*\033[0m"; }   # 绿色
 hint() { echo -e "\033[33m\033[01m$*\033[0m"; }   # 黄色
 reading() { read -rp "$(info "$1")" "$2"; }
-text() { grep -q '\$' <<< "${E[$*]}" && eval echo "\$(eval echo "\${${L}[$*]}")" || eval echo "\${${L}[$*]}"; }
+# 预处理：扫描 E/C 数组，把含 $ 的条目下标记录到关联数组，避免 text() 每次调用都启动 grep 子进程
+declare -A TEXT_NEEDS_EVAL
+for _text_i in "${!E[@]}"; do
+  [[ "${E[${_text_i}]}" == *'$'* || "${C[${_text_i}]}" == *'$'* ]] && TEXT_NEEDS_EVAL[${_text_i}]=1
+done
+unset _text_i
+
+# text <index>：输出当前语言对应的字符串，含 $ 变量的条目用 eval 展开，其余直接 printf
+text() {
+  local -n _text_arr="${L}"        # nameref 指向 E 或 C，零子进程
+  local _text_val="${_text_arr[$*]}"
+  if [[ -n "${TEXT_NEEDS_EVAL[$*]}" ]]; then
+    eval "printf '%s' \"${_text_val}\""
+  else
+    printf '%s' "${_text_val}"
+  fi
+}
 
 # 检测是否需要启用 Github CDN，如能直接连通，则不使用
 check_cdn() {
@@ -420,40 +436,24 @@ input_cdn() {
 change_config() {
   [ ! -d "${WORK_DIR}" ] && error " $(text 107) "
 
-  fetch_nodes_value
-
   local MENU_IDX=() MENU_KEY=() MENU_VAL=()
-  local CDN_NOW='' SNI_NOW='' NAME_NOW='' UUID_NOW='' SERVER_IP_NOW=''
 
   # 优选 CDN
-  if ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1; then
-    CDN_NOW=$(awk -F '"' '/"CDN"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json)
-    [ -n "$CDN_NOW" ] && MENU_IDX+=(128) && MENU_KEY+=(cdn) && MENU_VAL+=("$CDN_NOW")
-  fi
+  ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1 && local CDN_NOW=$(awk -F '"' '/"CDN"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json) && MENU_IDX+=(128) && MENU_KEY+=(cdn) && MENU_VAL+=("$CDN_NOW")
 
   # Reality SNI
-  for _f in ${WORK_DIR}/conf/*_inbounds.json; do
-    grep -q '"reality"' "$_f" 2>/dev/null || continue
-    SNI_NOW=$(awk -F '"' '/"server_name"/{print $4; exit}' "$_f")
-    [ -n "$SNI_NOW" ] && break
-  done
-  [ -n "$SNI_NOW" ] && MENU_IDX+=(129) && MENU_KEY+=(sni) && MENU_VAL+=("$SNI_NOW")
+  ls ${WORK_DIR}/conf/*reality_inbounds.json >/dev/null 2>&1 && local SNI_NOW=$(awk 'match($0, /"server_name"[[:space:]]*:[[:space:]]*"[^"]+"/){gsub(/.*: *"/,""); gsub(/".*/,""); print; exit}' ${WORK_DIR}/conf/*reality_inbounds.json) && MENU_IDX+=(129) && MENU_KEY+=(sni) && MENU_VAL+=("$SNI_NOW")
 
   # 节点名
-  for _n in "${NODE_NAME[@]}"; do
-    [ -n "$_n" ] && NAME_NOW="$_n" && break
-  done
+  local NAME_NOW=$(awk '/"tag"/{gsub(/^.*"tag": *"/,""); gsub(/".*/,""); sub(/ [^ ]*$/,""); print; exit}' ${WORK_DIR}/conf/*_inbounds.json)
   [ -n "$NAME_NOW" ] && MENU_IDX+=(130) && MENU_KEY+=(name) && MENU_VAL+=("$NAME_NOW")
 
   # UUID / Password
-  for _u in "${UUID[@]}"; do
-    [ -n "$_u" ] && UUID_NOW="$_u" && break
-  done
-  [ -z "$UUID_NOW" ] && UUID_NOW="${SHADOWSOCKS_PASSWORD:-$TROJAN_PASSWORD}"
+  local UUID_NOW="$(awk -F'"' '/"uuid"[[:space:]]*:[[:space:]]*"/ || /"id"[[:space:]]*:[[:space:]]*"/ {print $4; exit}' ${WORK_DIR}/conf/*_inbounds.json)"
   [ -n "$UUID_NOW" ] && MENU_IDX+=(131) && MENU_KEY+=(uuid) && MENU_VAL+=("$UUID_NOW")
 
   # 服务器 IP
-  SERVER_IP_NOW="$SERVER_IP"
+  ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1 && local SERVER_IP_NOW=$(awk -F '"' '/"WS_SERVER_IP_SHOW"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json) || local SERVER_IP_NOW=$(grep -A1 '"tag"' ${WORK_DIR}/list | sed -E '/-ws(-tls)*",$/{N;d}' | awk -F '"' '/"server"/{count++; if (count == 1) {print $4; exit}}')
   [ -n "$SERVER_IP_NOW" ] && MENU_IDX+=(132) && MENU_KEY+=(serverip) && MENU_VAL+=("$SERVER_IP_NOW")
 
   [ "${#MENU_IDX[@]}" -eq 0 ] && error " $(text 110) "
