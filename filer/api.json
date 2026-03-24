@@ -1,5 +1,5 @@
 {
-    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260321/v8AQ/0X0/03210723.png;md5;fb511a92bfde394d1535a73b801b932f",
+    "spider": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20260324/O9Yn/0X0/03240849.png;md5;60dd5c932c91cba13847fde32a57989d",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
     "logo": "https://pic7.fukit.cn/autoupload/gE6Y0Af2tjXBCNig6CtNDI12_FRYNb81z6UPhMWD8iI/20251224/dJkT/1080X1080/logo.jpg/webp",
     "sites": [
@@ -86,6 +86,37 @@
             "quickSearch": 1,
             "filterable": 1,
             "ext": "http://38.47.213.61:41271/mogai_api.php/v1.vod"
+        },
+        {
+            "key": "极影",
+            "name": "极影｜APP",
+            "type": 3,
+            "api": "csp_AppYsV2",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "ext": "http://101.201.171.207:802/api.php/app/"
+        },
+        {
+            "key": "晓米",
+            "name": "晓米丨APP",
+            "type": 3,
+            "api": "csp_AppYsV2",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "ext": "http://111.170.58.23:802/api.php/app/"
+        },
+        {
+            "key": "超前",
+            "name": "超前丨APP",
+            "type": 3,
+            "api": "csp_AppYsV2",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 1,
+            "playerType": 2,
+            "ext": "http://chaoqianys.top:91/api.php/app/"
         },
         {
             "key": "恋鱼",
@@ -261,9 +292,9 @@
             "searchable": 1,
             "changeable": 1,
             "ext": {
-                "site": "https://tiantangyoulu.oss-cn-beijing.aliyuncs.com/wenxintishi.txt",
-                "dataKey": "h2t8fjo964j2sl6a",
-                "dataIv": "h2t8fjo964j2sl6a",
+                "site": "https://tiantangwulu.oss-cn-shanghai.aliyuncs.com/axiba.txt",
+                "dataKey": "h5w3d6g1j9s2h3f6",
+                "dataIv": "h5w3d6g1j9s2h3f6",
                 "ua": "okhttp/3.10.0"
             }
         },
@@ -885,32 +916,10 @@
             "genre": "shortdrama"
         },
         {
-            "key": "锦鲤短剧",
-            "name": "锦鲤｜短剧",
-            "type": 3,
-            "api": "csp_JinliDJ",
-            "searchable": 1,
-            "changeable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "genre": "shortdrama"
-        },
-        {
             "key": "星阁短剧",
             "name": "星阁｜短剧",
             "type": 3,
             "api": "csp_XinggeDJ",
-            "searchable": 1,
-            "changeable": 1,
-            "quickSearch": 1,
-            "filterable": 1,
-            "genre": "shortdrama"
-        },
-        {
-            "key": "碎片短剧",
-            "name": "碎片｜短剧",
-            "type": 3,
-            "api": "csp_SuipianDJ",
             "searchable": 1,
             "changeable": 1,
             "quickSearch": 1,
@@ -1776,7 +1785,17 @@
             "url": "https://jx.xmflv.com/?url=",
             "ext": {
                 "header": {
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.57"
+                    "user-agent": "Mozilla/5.0 (Linux; Android 13; V2049A Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36"
+                }
+            }
+        },
+        {
+            "name": "云解",
+            "type": 0,
+            "url": "https://yparse.ik9.cc/index.php?url=",
+            "ext": {
+                "header": {
+                    "user-agent": "Mozilla/5.0 (Linux; Android 13; V2049A Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36"
                 }
             }
         },
@@ -1786,7 +1805,7 @@
             "url": "https://jx.xymp4.cc/?url=",
             "ext": {
                 "header": {
-                    "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.3124.68"
+                    "user-agent": "Mozilla/5.0 (Linux; Android 13; V2049A Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36"
                 }
             }
         },
