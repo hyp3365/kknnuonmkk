@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         视频快进快退4.3
+// @name         视频快进快退4.4
 // @namespace    http://tampermonkey.net/
-// @version      4.3
-// @description  优化全屏布局修复，修复部分网站双击全屏后视频位移问题
+// @version      4.4
+// @description  专项优化 XVideos 全屏位移问题，修复绝对定位导致的布局异常
 // @author       Gemini & 哈哈 & 编码助手
 // @match        *://*/*
 // @grant        GM_registerMenuCommand
@@ -14,23 +14,37 @@
 (function() {
     'use strict';
 
-    // --- 样式修复：解决全屏偏移问题 ---
+    // --- 样式修复：针对 XVideos 等站点的专项补丁 ---
     const fixStyle = document.createElement('style');
     fixStyle.innerHTML = `
-        /* 强制全屏容器内的视频居中且铺满 */
-        :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
-            width: 100% !important;
-            height: 100% !important;
-            max-height: 100vh !important;
-            object-fit: contain !important;
-            margin: 0 auto !important;
-        }
-        /* 修复容器全屏后的黑色背景和对齐 */
+        /* 1. 强制全屏容器布局 */
         :fullscreen, :-webkit-full-screen, :-moz-full-screen {
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             background-color: #000 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+        }
+
+        /* 2. 核心：重置视频定位。防止 XVideos 的 absolute 定位导致视频跑偏 */
+        :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
+            position: relative !important; /* 关键：覆盖掉原本的 absolute */
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            object-fit: contain !important;
+            margin: auto !important;
+        }
+
+        /* 3. 针对 XVideos 特有的播放器容器覆盖 */
+        #video-player-bg:fullscreen, .video-bg:fullscreen {
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
         }
     `;
     document.head.appendChild(fixStyle);
@@ -79,54 +93,55 @@
 
     function findVideo(target) {
         const getLargestVideo = (container) => {
+            if (!container) return null;
             const videos = Array.from(container.querySelectorAll('video'));
-            if (videos.length === 0) return null;
             const visibleVideos = videos.filter(v => v.offsetWidth > 0 && v.offsetHeight > 0);
-            if (visibleVideos.length === 0) return null;
             return visibleVideos.sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight))[0];
         };
+
+        // 1. 正在播放的优先
         const allVideos = Array.from(document.querySelectorAll('video'));
-        const playingVideo = allVideos.find(v => !v.paused && v.currentTime > 0 && v.offsetWidth > 0);
+        const playingVideo = allVideos.find(v => !v.paused && v.currentTime > 0);
         if (playingVideo) return playingVideo;
-        const fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
-        if (fsElement) {
-            if (fsElement.tagName === 'VIDEO') return fsElement;
-            const fsVideo = getLargestVideo(fsElement);
-            if (fsVideo) return fsVideo;
-        }
-        if (target && target.tagName === 'VIDEO') return target;
-        const container = target ? target.closest('.video-js, .player, #player, .video-container, [class*="player"], [class*="video"], div[id*="player"]') : null;
-        if (container) {
+
+        // 2. 目标元素所在的容器优先
+        if (target) {
+            if (target.tagName === 'VIDEO') return target;
+            const container = target.closest('.video-js, .player, #player, .video-bg, [class*="player"]');
             const v = getLargestVideo(container);
             if (v) return v;
         }
+        
         return getLargestVideo(document);
     }
 
     function toggleFullScreen(video) {
         if (!video) return;
-        // 尝试寻找最合适的包装容器，避免只放大视频而丢失进度条
-        const playerContainer = video.closest('.video-js, .player, [class*="player"], .video-container') || video.parentElement;
+
+        // XVideos 专项：它的外层容器 ID 通常是 video-player-bg
+        const xVideosContainer = video.closest('#video-player-bg');
+        const normalContainer = video.closest('.video-js, .player, [class*="player"], .video-container');
+        const target = xVideosContainer || normalContainer || video.parentElement || video;
+
         const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
 
         if (!isFS) {
-            const requestFS = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen || playerContainer.mozRequestFullScreen || playerContainer.msRequestFullscreen;
+            const requestFS = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen || target.msRequestFullscreen;
             if (requestFS) {
-                requestFS.call(playerContainer).catch(() => {
-                    // 如果容器全屏失败，尝试直接全屏视频
-                    if (video.requestFullscreen) video.requestFullscreen();
-                    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+                requestFS.call(target).catch(() => {
+                    // 保底方案：直接全屏 Video
+                    video.requestFullscreen ? video.requestFullscreen() : video.webkitEnterFullscreen();
                 });
             } else if (video.webkitEnterFullscreen) {
                 video.webkitEnterFullscreen();
             }
         } else {
-            const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
             if (exitFS) exitFS.call(document);
         }
     }
 
-    // --- 自动播放逻辑 ---
+    // --- 自动播放 ---
     function tryAutoPlay() {
         let attempts = 0;
         const playInterval = setInterval(() => {
@@ -140,10 +155,8 @@
                     });
                 }
                 clearInterval(playInterval);
-            } else if (attempts >= 20) {
-                clearInterval(playInterval);
-            }
-        }, 500);
+            } else if (attempts >= 20) clearInterval(playInterval);
+        }, 800);
     }
     tryAutoPlay();
 
@@ -167,47 +180,25 @@
                 font-weight: bold !important;
                 display: none;
                 text-align: center !important;
-                box-shadow: 0 0 20px rgba(0,0,0,0.5) !important;
                 transition: opacity 0.15s !important;
-                font-family: sans-serif !important;
-                line-height: 1.2 !important;
             `;
         }
         let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
-        let targetParent = fsElement;
-        if (targetParent && ['VIDEO', 'IMG', 'IFRAME'].includes(targetParent.tagName)) {
-            targetParent = targetParent.parentElement;
-        }
-        if (!targetParent) targetParent = document.body || document.documentElement;
+        let targetParent = (fsElement && fsElement.tagName !== 'VIDEO') ? fsElement : (document.body || document.documentElement);
         if (div.parentElement !== targetParent) {
-            try { targetParent.appendChild(div); }
-            catch (e) { if (document.body) document.body.appendChild(div); }
+            try { targetParent.appendChild(div); } catch (e) {}
         }
         return div;
     }
 
-    const stopEvent = (e) => {
-        if (blockClick) {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-        }
-    };
-
+    // 阻止点击穿透
+    const stopEvent = (e) => { if (blockClick) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } };
     window.addEventListener('click', stopEvent, { capture: true });
     window.addEventListener('mouseup', stopEvent, { capture: true });
-    window.addEventListener('pointerup', stopEvent, { capture: true });
 
     window.addEventListener('touchstart', function(e) {
-        if (e.target) {
-            const cls = (typeof e.target.className === 'string') ? e.target.className.toLowerCase() : '';
-            const idName = (typeof e.target.id === 'string') ? e.target.id.toLowerCase() : '';
-            if (
-                cls.includes('progress') || cls.includes('slider') || cls.includes('thumb') || cls.includes('bar') ||
-                idName.includes('progress') || idName.includes('slider') || idName.includes('thumb') || idName.includes('bar') ||
-                e.target.tagName === 'INPUT'
-            ) return;
-        }
+        if (e.target && e.target.tagName === 'INPUT') return;
+        
         currentVideo = findVideo(e.target);
         if (!currentVideo) return;
 
@@ -215,7 +206,6 @@
         startY = e.touches[0].clientY;
         baseTime = currentVideo.currentTime;
         isSliding = false;
-        seekAmount = 0;
 
         const now = Date.now();
         if (config.enableDoubleClick && (now - lastTapTime < tapDelay)) {
@@ -228,9 +218,7 @@
     }, { passive: false, capture: true });
 
     window.addEventListener('touchmove', function(e) {
-        if (!config.enableSlide || !currentVideo) return;
-        if (currentVideo.duration === Infinity || isNaN(currentVideo.duration)) return;
-
+        if (!config.enableSlide || !currentVideo || isNaN(currentVideo.duration)) return;
         const moveX = e.touches[0].clientX - startX;
         const moveY = e.touches[0].clientY - startY;
 
@@ -241,39 +229,27 @@
         if (isSliding) {
             if (e.cancelable) e.preventDefault();
             seekAmount = Math.floor(moveX / sensitivity);
-            let targetTime = baseTime + seekAmount;
-            targetTime = Math.max(0, Math.min(targetTime, currentVideo.duration));
+            let targetTime = Math.max(0, Math.min(baseTime + seekAmount, currentVideo.duration));
             const actualSeek = Math.floor(targetTime - baseTime);
-            const sign = actualSeek >= 0 ? "⏩" : "⏪";
-
+            
             const notice = getNoticeElement();
-            notice.innerHTML = `
-                <div style="font-size: 32px !important; margin-bottom: 8px !important;">${sign} ${Math.abs(actualSeek)}s</div>
-                <div style="font-size: 18px !important;">${formatTime(targetTime)} / ${formatTime(currentVideo.duration)}</div>
-            `;
+            notice.innerHTML = `<div style="font-size:32px;">${actualSeek >= 0 ? "⏩" : "⏪"} ${Math.abs(actualSeek)}s</div>
+                                <div style="font-size:18px;">${formatTime(targetTime)} / ${formatTime(currentVideo.duration)}</div>`;
             notice.style.display = 'block';
             notice.style.opacity = '1';
         }
     }, { passive: false, capture: true });
 
     window.addEventListener('touchend', function(e) {
-        if (isSliding && currentVideo && currentVideo.duration !== Infinity && !isNaN(currentVideo.duration)) {
+        if (isSliding && currentVideo) {
             if (e.cancelable) e.preventDefault();
-            e.stopImmediatePropagation();
             blockClick = true;
             clearTimeout(blockTimeout);
             blockTimeout = setTimeout(() => { blockClick = false; }, 400);
-            let targetTime = currentVideo.currentTime + seekAmount;
-            currentVideo.currentTime = Math.max(0, Math.min(targetTime, currentVideo.duration));
+            currentVideo.currentTime = Math.max(0, Math.min(currentVideo.currentTime + seekAmount, currentVideo.duration));
         }
-
         const div = document.getElementById('slid-notice-v3');
-        if (div) {
-            div.style.opacity = '0';
-            setTimeout(() => {
-                if(!isSliding && div) div.style.display = 'none';
-            }, 200);
-        }
+        if (div) { div.style.opacity = '0'; setTimeout(() => { if(!isSliding) div.style.display = 'none'; }, 200); }
         isSliding = false;
     }, { capture: true });
 })();
