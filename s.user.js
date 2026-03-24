@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         视频快进快退4.3 (YouTube 终极修复版)
+// @name         视频快进快退4.3
 // @namespace    http://tampermonkey.net/
 // @version      4.3
-// @description  彻底重构定位逻辑，解决YouTube等复杂播放器提示框不可见问题
+// @description  优化全屏布局修复，修复部分网站双击全屏后视频位移问题
 // @author       Gemini & 哈哈 & 编码助手
 // @match        *://*/*
 // @grant        GM_registerMenuCommand
@@ -13,6 +13,27 @@
 
 (function() {
     'use strict';
+
+    // --- 样式修复：解决全屏偏移问题 ---
+    const fixStyle = document.createElement('style');
+    fixStyle.innerHTML = `
+        /* 强制全屏容器内的视频居中且铺满 */
+        :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100vh !important;
+            object-fit: contain !important;
+            margin: 0 auto !important;
+        }
+        /* 修复容器全屏后的黑色背景和对齐 */
+        :fullscreen, :-webkit-full-screen, :-moz-full-screen {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background-color: #000 !important;
+        }
+    `;
+    document.head.appendChild(fixStyle);
 
     const host = location.hostname;
     const SLIDE_KEY = 'enableSlide_' + host;
@@ -82,64 +103,85 @@
         return getLargestVideo(document);
     }
 
-    // 核心修改区：重构弹窗元素获取与定位逻辑
-    function getNoticeElement(videoElement) {
-        // 升级 ID 防止被旧版脚本缓存干扰
-        let div = document.getElementById('slid-notice-v4');
+    function toggleFullScreen(video) {
+        if (!video) return;
+        // 尝试寻找最合适的包装容器，避免只放大视频而丢失进度条
+        const playerContainer = video.closest('.video-js, .player, [class*="player"], .video-container') || video.parentElement;
+        const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+
+        if (!isFS) {
+            const requestFS = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen || playerContainer.mozRequestFullScreen || playerContainer.msRequestFullscreen;
+            if (requestFS) {
+                requestFS.call(playerContainer).catch(() => {
+                    // 如果容器全屏失败，尝试直接全屏视频
+                    if (video.requestFullscreen) video.requestFullscreen();
+                    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+                });
+            } else if (video.webkitEnterFullscreen) {
+                video.webkitEnterFullscreen();
+            }
+        } else {
+            const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            if (exitFS) exitFS.call(document);
+        }
+    }
+
+    // --- 自动播放逻辑 ---
+    function tryAutoPlay() {
+        let attempts = 0;
+        const playInterval = setInterval(() => {
+            attempts++;
+            const video = findVideo(null);
+            if (video && video.readyState >= 1) {
+                if (video.paused) {
+                    video.play().catch(() => {
+                        video.muted = true;
+                        video.play().catch(() => {});
+                    });
+                }
+                clearInterval(playInterval);
+            } else if (attempts >= 20) {
+                clearInterval(playInterval);
+            }
+        }, 500);
+    }
+    tryAutoPlay();
+
+    function getNoticeElement() {
+        let div = document.getElementById('slid-notice-v3');
         if (!div) {
             div = document.createElement('div');
-            div.id = 'slid-notice-v4';
-            // 改用 position: absolute 并调整样式，适应相对定位
+            div.id = 'slid-notice-v3';
             div.style.cssText = `
-                position: absolute !important; 
+                position: fixed !important;
                 top: 25% !important;
                 left: 50% !important;
                 transform: translate(-50%, -50%) !important;
-                background-color: rgba(0, 0, 0, 0.75) !important;
-                color: #FFF !important;
-                padding: 12px 24px !important;
-                border-radius: 12px !important;
+                background-color: rgba(0, 0, 0, 0.85) !important;
+                color: #FFD700 !important;
+                padding: 15px 30px !important;
+                border-radius: 20px !important;
                 z-index: 2147483647 !important;
                 pointer-events: none !important;
-                font-family: Arial, sans-serif !important;
+                font-size: 24px !important;
+                font-weight: bold !important;
                 display: none;
                 text-align: center !important;
-                text-shadow: 1px 1px 2px #000 !important;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+                box-shadow: 0 0 20px rgba(0,0,0,0.5) !important;
                 transition: opacity 0.15s !important;
-                line-height: 1.5 !important;
-                white-space: nowrap !important;
-                letter-spacing: normal !important;
+                font-family: sans-serif !important;
+                line-height: 1.2 !important;
             `;
         }
-        
-        let targetParent = null;
-        const fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
-        
-        // 1. 如果在全屏下，优先挂载到全屏容器
-        if (fsElement) {
-            targetParent = ['VIDEO', 'IMG', 'IFRAME'].includes(fsElement.tagName) ? fsElement.parentElement : fsElement;
-        } 
-        // 2. 否则，精准狙击 YouTube 等网站的播放器主容器
-        else if (videoElement) {
-            targetParent = videoElement.closest('.html5-video-player, #movie_player, #player-container-inner, .video-js, .player') || videoElement.parentElement;
+        let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+        let targetParent = fsElement;
+        if (targetParent && ['VIDEO', 'IMG', 'IFRAME'].includes(targetParent.tagName)) {
+            targetParent = targetParent.parentElement;
         }
-
-        // 3. 终极保底
-        if (!targetParent) targetParent = document.body;
-
-        // 强制确保父容器具备定位上下文，否则 absolute 定位会乱飞
-        if (targetParent !== document.body) {
-            const parentPosition = window.getComputedStyle(targetParent).position;
-            if (parentPosition === 'static') {
-                targetParent.style.setProperty('position', 'relative', 'important');
-            }
-        }
-
-        // 插入节点
+        if (!targetParent) targetParent = document.body || document.documentElement;
         if (div.parentElement !== targetParent) {
             try { targetParent.appendChild(div); }
-            catch (e) { document.body.appendChild(div); }
+            catch (e) { if (document.body) document.body.appendChild(div); }
         }
         return div;
     }
@@ -204,13 +246,13 @@
             const actualSeek = Math.floor(targetTime - baseTime);
             const sign = actualSeek >= 0 ? "⏩" : "⏪";
 
-            const notice = getNoticeElement(currentVideo);
+            const notice = getNoticeElement();
             notice.innerHTML = `
-                <div style="font-size: 28px !important; font-weight: bold !important; margin-bottom: 5px !important; color: #FFD700 !important;">${sign} ${Math.abs(actualSeek)}s</div>
-                <div style="font-size: 16px !important; font-weight: normal !important; color: #FFFFFF !important;">${formatTime(targetTime)} / ${formatTime(currentVideo.duration)}</div>
+                <div style="font-size: 32px !important; margin-bottom: 8px !important;">${sign} ${Math.abs(actualSeek)}s</div>
+                <div style="font-size: 18px !important;">${formatTime(targetTime)} / ${formatTime(currentVideo.duration)}</div>
             `;
-            notice.style.setProperty('display', 'block', 'important');
-            notice.style.setProperty('opacity', '1', 'important');
+            notice.style.display = 'block';
+            notice.style.opacity = '1';
         }
     }, { passive: false, capture: true });
 
@@ -225,25 +267,13 @@
             currentVideo.currentTime = Math.max(0, Math.min(targetTime, currentVideo.duration));
         }
 
-        const div = document.getElementById('slid-notice-v4');
+        const div = document.getElementById('slid-notice-v3');
         if (div) {
-            div.style.setProperty('opacity', '0', 'important');
+            div.style.opacity = '0';
             setTimeout(() => {
-                if(!isSliding && div) div.style.setProperty('display', 'none', 'important');
-            }, 150);
+                if(!isSliding && div) div.style.display = 'none';
+            }, 200);
         }
         isSliding = false;
     }, { capture: true });
-
-    function toggleFullScreen(video) {
-        const playerContainer = video.closest('.video-js, .player, [class*="player"]') || video.parentElement;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
-            if (playerContainer.requestFullscreen) playerContainer.requestFullscreen();
-            else if (playerContainer.webkitRequestFullscreen) playerContainer.webkitRequestFullscreen();
-            else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-        } else {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-        }
-    }
 })();
