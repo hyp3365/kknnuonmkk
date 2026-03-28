@@ -1,7 +1,9 @@
 // ==UserScript==
-// @name         Freezehost 极致拟人稳定版 v37.0
+// @name         Freezehost 智能挂机 - 倒计时监控版
 // @namespace    http://tampermonkey.net/
-// @version      37.0
+// @version      11.0
+// @description  监控倒计时状态，仅在结束或卡死时触发，支持 Discord 自动跳转回正轨
+// @author       Gemini
 // @match        *://*.freezehost.pro/earn*
 // @grant        none
 // ==/UserScript==
@@ -9,100 +11,68 @@
 (function() {
     'use strict';
 
-    let lastTimeText = "";
-    let freezeCounter = 0;
-    let busyLock = false;
-    let scrollCounter = 0;
-    let nextScrollAt = Math.floor(Math.random() * 6) + 5;
+    console.log("【挂机助手】监控已启动。");
 
-    // 模拟点击函数：在指定位置点 1 次（左右各点一次）
-    function singleClick(x, y) {
-        const events = ['mouseenter', 'mousedown', 'mouseup', 'click'];
-        const evObj = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-        events.forEach(type => {
-            document.documentElement.dispatchEvent(new MouseEvent(type, evObj));
-        });
-    }
+    // 产生随机数
+    const getRandom = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    // 执行你要求的：网页中间到边缘的左右点击
-    function clickGaps() {
-        // 计算点击位置：网页左边缘到网页中心的中间点，以及网页中心到右边缘的中间点
-        const leftTargetX = window.innerWidth * 0.25;  // 左侧 1/4 处
-        const rightTargetX = window.innerWidth * 0.75; // 右侧 3/4 处
-        const targetY = window.innerHeight * 0.5;      // 垂直中心
-
-        console.log(`【常规点击】执行边缘间隙点击: Left(${leftTargetX}), Right(${rightTargetX})`);
+    function checkAFKStatus() {
+        const bodyText = document.body.innerText;
         
-        // 立即点左边
-        singleClick(leftTargetX, targetY);
+        // 1. 查找倒计时（格式如 18:09）
+        const timerMatch = bodyText.match(/(\d{1,2}):(\d{2})/);
         
-        // 300毫秒后点右边
-        setTimeout(() => {
-            singleClick(rightTargetX, targetY);
-        }, 300);
+        if (timerMatch) {
+            const timeLeft = timerMatch[0];
+            // 如果倒计时在跑（不是 00:00），就什么都不做
+            if (timeLeft !== "00:00" && timeLeft !== "0:00") {
+                console.log("【助手】挂机进行中，剩余时间: " + timeLeft);
+                return; 
+            }
+        }
+
+        // 2. 如果没发现倒计时，或者倒计时是 00:00，说明需要启动
+        console.log("【助手】未检测到运行中的倒计时，准备寻找按钮...");
+
+        const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+        
+        // 优先处理广告验证弹窗 (View a short ad)
+        const adBtn = allButtons.find(b => b.innerText.includes('View a short ad') || b.innerText.includes('Unlock'));
+        if (adBtn && adBtn.offsetParent !== null) {
+            console.log("【助手】检测到广告验证弹窗，随机延迟后点击...");
+            setTimeout(() => adBtn.click(), getRandom(3000, 6000));
+            return;
+        }
+
+        // 处理开始/重启按钮
+        const startKeywords = ["Start New Session", "开始新会话", "Start AFK Session", "开始挂机"];
+        const startBtn = allButtons.find(b => startKeywords.some(k => b.innerText.includes(k)));
+
+        if (startBtn && startBtn.offsetParent !== null) {
+            console.log("【助手】发现启动按钮，准备执行点击...");
+            setTimeout(() => {
+                startBtn.click();
+                console.log("【助手】点击已发送。");
+            }, getRandom(4000, 8000));
+        } else {
+            // 3. 兜底逻辑：既没倒计时也没按钮，或者显示“Session Complete”
+            if (bodyText.includes("Session Complete") || bodyText.includes("Session ended")) {
+                console.log("【助手】检测到会话已彻底结束，尝试刷新页面重置状态...");
+                location.href = "https://free.freezehost.pro/earn";
+            }
+        }
     }
 
-    function process() {
-        if (busyLock) return;
+    // 设置扫描频率为 20 秒一次，降低被发现的概率
+    setInterval(checkAFKStatus, 20000);
 
-        // --- 第一步：不管广告在不在，先执行左右点击 ---
-        clickGaps();
+    // 初始延迟启动
+    setTimeout(checkAFKStatus, 5000);
 
-        // 稍微等待点击生效后再读取页面内容
-        setTimeout(() => {
-            const bodyText = document.body.innerText;
-            const checkInterval = Math.floor(Math.random() * 5001) + 10000;
+    // 每 2 分钟模拟一次微小的页面滚动，防止标签页被浏览器“挂起”
+    setInterval(() => {
+        window.scrollBy(0, 1);
+        setTimeout(() => window.scrollBy(0, -1), 200);
+    }, 120000);
 
-            // 随机滚动
-            if (scrollCounter >= nextScrollAt) {
-                const dist = (Math.floor(Math.random() * 41) + 10) * (Math.random() > 0.5 ? 1 : -1);
-                window.scrollBy({ top: dist, behavior: 'smooth' });
-                setTimeout(() => { window.scrollBy({ top: -dist, behavior: 'smooth' }); }, 600);
-                scrollCounter = 0;
-                nextScrollAt = Math.floor(Math.random() * 6) + 5;
-            } else {
-                scrollCounter++;
-            }
-
-            // --- 第二步：检测时间 ---
-            const timeMatch = bodyText.match(/(\d{1,2}:\d{2})/) || bodyText.match(/(\d+)\s+seconds/i);
-            
-            if (timeMatch) {
-                const currentTime = timeMatch[0];
-                if (currentTime === lastTimeText) {
-                    freezeCounter++;
-                } else {
-                    freezeCounter = 0;
-                    lastTimeText = currentTime;
-                }
-                // 时间 3 次不动（约 45 秒）就刷新
-                if (freezeCounter >= 3) {
-                    location.reload();
-                    return;
-                }
-            } else {
-                // 如果读不到时间，可能是广告还没关掉或者网页卡了，尝试找 AFK 按钮
-                const afkBtn = Array.from(document.querySelectorAll('button, a, .btn'))
-                                    .find(el => el.innerText.toUpperCase().includes("AFK") && el.offsetWidth > 0);
-                if (afkBtn) {
-                    const r = afkBtn.getBoundingClientRect();
-                    singleClick(r.left + r.width/2, r.top + r.height/2);
-                    lastTimeText = "";
-                    freezeCounter = 0;
-                } else {
-                    // 既没时间也没AFK，增加判定，连续3轮这样就强制刷新
-                    freezeCounter++;
-                    if (freezeCounter >= 3) {
-                        location.reload();
-                        return;
-                    }
-                }
-            }
-
-            setTimeout(process, checkInterval);
-        }, 1000); // 给点击留 1 秒的反应时间
-    }
-
-    // 启动
-    setTimeout(process, 3000);
 })();
