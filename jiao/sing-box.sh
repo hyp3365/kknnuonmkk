@@ -338,7 +338,13 @@ cat > "${config_dir}" << EOF
             }
         ],
         "strategy": "prefer_ipv4"
-},
+  },
+   "ntp": {
+        "enabled": true,
+        "server": "time.apple.com",
+        "server_port": 123,
+        "interval": "60m"
+   },
   "inbounds": [
     {
       "type": "vless",
