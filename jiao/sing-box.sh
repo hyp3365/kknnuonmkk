@@ -464,6 +464,23 @@ cat > "${config_dir}" << EOF
       "sniff_override_destination": true
     },
 	{
+      "type":"shadowsocks",
+      "tag":"shadowsocks",
+      "listen":"::",
+      "listen_port":$shadowsocks_port,
+      "method":"2022-blake3-aes-128-gcm",
+      "password":"$password",
+      "multiplex":{
+          "enabled":true,
+          "padding":true,
+          "brutal":{
+             "enabled":false,
+             "up_mbps":1000,
+             "down_mbps":1000
+         }
+       }
+     },	
+	 {
        "type": "socks",
        "tag": "socks",
        "listen": "::",
