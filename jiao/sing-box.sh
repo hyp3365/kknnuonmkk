@@ -306,7 +306,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
-	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 8)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
@@ -457,7 +457,7 @@ cat > "${config_dir}" << EOF
        "type": "socks",
        "tag": "socks",
        "listen": "::",
-       "listen_port": 8080,
+       "listen_port": 49371,
        "users": [
          {
            "username": "$username",
