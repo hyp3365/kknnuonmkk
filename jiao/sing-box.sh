@@ -451,6 +451,18 @@ cat > "${config_dir}" << EOF
                 "certificate_path":"$work_dir/99.pem",#域名源证书
                 "key_path":"$work_dir/99.key"#私钥
             }
+    },
+	{
+       "type": "socks",
+       "tag": "socks",
+       "listen": "::",
+       "listen_port": 8080,
+       "users": [
+         {
+           "username": "$username",
+           "password": "$password"
+         }
+       ]
     }
   ],
   "endpoints": [
@@ -466,6 +478,7 @@ cat > "${config_dir}" << EOF
       "peers": [
         {
           "address": "engage.cloudflareclient.com",
+		  #洛杉矶备有il  2606:4700:d0::a29f:c001 油管看视频免登录
           "port": 2408,
           "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
           "allowed_ips": [
@@ -482,6 +495,27 @@ cat > "${config_dir}" << EOF
     }
   ],
   "outbounds": [
+   {
+      "type": "direct",
+      "tag": "native-out",
+      "bind_interface": "eth0"#vps原生网卡
+   },
+   {
+     "type": "direct",
+     "tag": "he-out",
+     "bind_interface": "he-ipv6"#he隧道网卡 没啥用的
+	 #在/etc/network/interfaces 文件最后添加  没什么大用
+    },
+	{
+      "type": "socks",
+      "tag": "socks-out",  
+      "server": "35.212.208.203",    
+      "server_port": 8080,       
+      "version": "5",          
+      "username": "ssaampp",    
+      "password": "semppspsa",
+      "udp_over_tcp": false       
+     },
     {
       "type": "direct",
       "tag": "direct"
@@ -505,6 +539,20 @@ cat > "${config_dir}" << EOF
       }
     ],
     "rules": [
+	  {
+        "inbound": ["tuic"], // 限制只针对这个节点
+        "domain_suffix": [
+          "ping.pe",
+          #"ip.sb",
+          #"youtube.com",
+          #"googlevideo.com",
+          #"ytimg.com",
+          #"ggpht.com",
+          #"youtube-nocookie.com",
+          #"youtu.be"
+          ],
+          "outbound": "socks-out"
+      },
       {
         "rule_set": ["openai", "netflix"],
         "outbound": "wireguard-out"
