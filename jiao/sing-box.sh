@@ -455,15 +455,6 @@ cat > "${config_dir}" << EOF
             }
     },
 	{
-      "type": "shadowsocks",
-      "tag": "shadowsocks",
-      "listen": "::",
-      "listen_port": $shadowsocks_port, 
-      "method": "256-gcm",
-      "password": "$password", 
-      "sniff_override_destination": true
-    },
-	{
       "type":"shadowsocks",
       "tag":"shadowsocks",
       "listen":"::",
