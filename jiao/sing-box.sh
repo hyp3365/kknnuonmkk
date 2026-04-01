@@ -305,6 +305,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
+	shadowsocks_port=$(($vless_port + 4)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -452,6 +453,15 @@ cat > "${config_dir}" << EOF
                 "certificate_path":"$work_dir/99.pem",#域名源证书
                 "key_path":"$work_dir/99.key"#私钥
             }
+    },
+	{
+      "type": "shadowsocks",
+      "tag": "shadowsocks",
+      "listen": "::",
+      "listen_port": $shadowsocks_port, 
+      "method": "256-gcm",
+      "password": "$password", 
+      "sniff_override_destination": true
     },
 	{
        "type": "socks",
