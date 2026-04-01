@@ -306,6 +306,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 8)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
@@ -478,7 +479,7 @@ cat > "${config_dir}" << EOF
       "peers": [
         {
           "address": "engage.cloudflareclient.com",
-		  #洛杉矶备有il  2606:4700:d0::a29f:c001 油管看视频免登录
+           #洛杉矶ip 2606:4700:d0::a29f:c001 油管看视频免登录
           "port": 2408,
           "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
           "allowed_ips": [
@@ -542,7 +543,7 @@ cat > "${config_dir}" << EOF
 	  {
         "inbound": ["tuic"], // 限制只针对这个节点
         "domain_suffix": [
-          "ping.pe",
+          "ping.pe"
           #"ip.sb",
           #"youtube.com",
           #"googlevideo.com",
