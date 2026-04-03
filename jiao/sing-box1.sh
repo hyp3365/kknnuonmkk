@@ -852,9 +852,7 @@ uninstall_singbox() {
            rm -rf "${work_dir}" || true
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
-           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           
-           
+                     
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
        *)
@@ -1316,10 +1314,6 @@ purple "$new_vmess_url\n"
 check_nodes() {
     while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
     server_ip=$(get_realip)
-    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
-    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf")
-    base64_url="http://${server_ip}:${sub_port}/${lujing}"
-    
 }
 
 change_cfip() {
