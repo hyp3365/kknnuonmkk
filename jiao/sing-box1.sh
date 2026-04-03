@@ -64,12 +64,6 @@ check_argo() {
     check_service "argo" "${work_dir}/argo"
 }
 
-# 检查nginx状态
-check_nginx() {
-    command_exists nginx || { red "not installed"; return 2; }
-    check_service "nginx" "$(command -v nginx)"
-}
-
 #根据系统类型安装、卸载依赖
 manage_packages() {
     # 参数检查
@@ -691,125 +685,6 @@ echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 chmod 644 ${work_dir}/sub.txt
-yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
-green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nClash,Mihomo系列订阅链接：https://sublink.eooce.com/clash?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/clash?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nSing-box订阅链接：https://sublink.eooce.com/singbox?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/singbox?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nSurge订阅链接：https://sublink.eooce.com/surge?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/surge?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n==========================================================================================\n"
-}
-
-# nginx订阅配置
-add_nginx_conf() {
-    if ! command_exists nginx; then
-        red "nginx未安装,无法配置订阅服务"
-        return 1
-    else
-        manage_service "nginx" "stop" > /dev/null 2>&1
-        pkill nginx  > /dev/null 2>&1
-    fi
-
-    mkdir -p /etc/nginx/conf.d
-
-    [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
-
-    cat > /etc/nginx/conf.d/sing-box.conf << EOF
-# sing-box 订阅配置
-server {
-    listen $nginx_port;
-    listen [::]:$nginx_port;
-    server_name _;
-
-    # 安全设置
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-
-    location = /$password {
-        alias /etc/sing-box/sub.txt;
-        default_type 'text/plain; charset=utf-8';
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-        add_header Pragma "no-cache";
-        add_header Expires "0";
-    }
-
-    location / {
-        return 404;
-    }
-
-    # 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF
-
-    # 检查主配置文件是否存在
-    if [ -f "/etc/nginx/nginx.conf" ]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
-        sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
-        # 检查是否已包含配置目录
-        if ! grep -q "include.*conf.d" /etc/nginx/nginx.conf; then
-            http_end_line=$(grep -n "^}" /etc/nginx/nginx.conf | tail -1 | cut -d: -f1)
-            if [ -n "$http_end_line" ]; then
-                sed -i "${http_end_line}i \    include /etc/nginx/conf.d/*.conf;" /etc/nginx/nginx.conf > /dev/null 2>&1
-            fi
-        fi
-    else 
-        cat > /etc/nginx/nginx.conf << EOF
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log;
-pid /run/nginx.pid;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    
-    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-    
-    access_log  /var/log/nginx/access.log  main;
-    sendfile        on;
-    keepalive_timeout  65;
-    
-    include /etc/nginx/conf.d/*.conf;
-}
-EOF
-    fi
-
-    # 检查nginx配置语法
-    if nginx -t > /dev/null 2>&1; then
-    
-        if nginx -s reload > /dev/null 2>&1; then
-            green "nginx订阅配置已加载"
-        else
-            start_nginx  > /dev/null 2>&1
-        fi
-    else
-        yellow "nginx配置失败,订阅不可应,但不影响节点使用, issues反馈: https://github.com/eooce/Sing-box/issues"
-        restart_nginx  > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            green "nginx订阅配置已生效"
-        else
-            [[ -f "/etc/nginx/nginx.conf.bak.sb" ]] && cp "/etc/nginx/nginx.conf.bak.sb" /etc/nginx/nginx.conf > /dev/null 2>&1
-            restart_nginx  > /dev/null 2>&1
-        fi
-    fi
 }
 
 # 通用服务管理函数
@@ -937,15 +812,6 @@ restart_argo() {
     manage_service "argo" "restart"
 }
 
-# 启动 nginx
-start_nginx() {
-    manage_service "nginx" "start"
-}
-
-# 重启 nginx
-restart_nginx() {
-    manage_service "nginx" "restart"
-}
 
 # 卸载 sing-box
 uninstall_singbox() {
@@ -975,17 +841,7 @@ uninstall_singbox() {
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
            rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           
-           # 卸载Nginx
-           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
-            case "${choice}" in
-                y|Y)
-                    manage_packages uninstall nginx
-                    ;;
-                 *) 
-                    yellow "取消卸载Nginx\n\n"
-                    ;;
-            esac
+         
 
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
@@ -1271,95 +1127,7 @@ disable_open_sub() {
         return
     fi
     
-    clear
-    echo ""
-    green "=== 管理节点订阅 ===\n"
-    skyblue "------------"
-    green "1. 关闭节点订阅"
-    skyblue "------------"
-    green "2. 开启节点订阅"
-    skyblue "------------"
-    green "3. 更换订阅端口"
-    skyblue "------------"
-    purple "0. 返回主菜单"
-    skyblue "------------"
-    reading "请输入选择: " choice
-    case "${choice}" in
-        1)
-            if command -v nginx &>/dev/null; then
-                if command_exists rc-service 2>/dev/null; then
-                    rc-service nginx status | grep -q "started" && rc-service nginx stop || red "nginx not running"
-                else 
-                    [ "$(systemctl is-active nginx)" = "active" ] && systemctl stop nginx || red "ngixn not running"
-                fi
-            else
-                yellow "Nginx is not installed"
-            fi
-
-            green "\n已关闭节点订阅\n"     
-            ;; 
-        2)
-            green "\n已开启节点订阅\n"
-            server_ip=$(get_realip)
-            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-            sed -i "s|\(location = /\)[^ ]*|\1$password|" /etc/nginx/conf.d/sing-box.conf
-	    sub_port=$(port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
-            start_nginx
-            (port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); green "\n新的节点订阅链接：$link\n"
-            ;; 
-
-        3)
-            reading "请输入新的订阅端口(1-65535):" sub_port
-            [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
-            
-            # 检查端口是否被占用
-            until [[ -z $(lsof -iTCP:"$sub_port" -sTCP:LISTEN -t) ]]; do
-                if [[ -n $(lsof -iTCP:"$sub_port" -sTCP:LISTEN -t) ]]; then
-                    echo -e "${red}端口 $sub_port 已经被其他程序占用，请更换端口重试${re}"
-                    reading "请输入新的订阅端口(1-65535):" sub_port
-                    [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
-                fi
-            done
-
-            # 备份当前配置
-            if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
-            fi
-            
-            # 更新端口配置
-            sed -i 's/listen [0-9]\+;/listen '$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
-            sed -i 's/listen \[::\]:[0-9]\+;/listen [::]:'$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
-            path=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
-            server_ip=$(get_realip)
-            
-            # 放行新端口
-            allow_port $sub_port/tcp > /dev/null 2>&1
-            
-            # 测试nginx配置
-            if nginx -t > /dev/null 2>&1; then
-                # 尝试重新加载配置
-                if nginx -s reload > /dev/null 2>&1; then
-                    green "nginx配置已重新加载，端口更换成功"
-                else
-                    yellow "配置重新加载失败，尝试重启nginx服务..."
-                    restart_nginx
-                fi
-                green "\n订阅端口更换成功\n"
-                green "新的订阅链接为：http://$server_ip:$sub_port/$path\n"
-            else
-                red "nginx配置测试失败，正在恢复原有配置..."
-                if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
-                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak.* | head -1)
-                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box.conf"
-                    yellow "已恢复原有nginx配置"
-                fi
-                return 1
-            fi
-            ;; 
-        0)  menu ;; 
-        *)  red "无效的选项！" ;;
-    esac
-}
+    
 
 # singbox 管理
 manage_singbox() {
@@ -1551,10 +1319,7 @@ check_nodes() {
     lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
     sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf")
     base64_url="http://${server_ip}:${sub_port}/${lujing}"
-    green "\n\nSurge订阅链接: ${purple}https://sublink.eooce.com/surge?config=${base64_url}${re}\n"
-    green "sing-box订阅链接: ${purple}https://sublink.eooce.com/singbox?config=${base64_url}${purple}\n"
-    green "Mihomo/Clash系列订阅链接: ${purple}https://sublink.eooce.com/clash?config=${base64_url}${re}\n"
-    green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接: ${purple}${base64_url}${re}\n"
+   
 }
 
 change_cfip() {
@@ -1622,7 +1387,6 @@ purple "$new_vmess_url\n"
 # 主菜单
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
-   nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
    
    clear
@@ -1632,7 +1396,6 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
    purple "---Argo 状态: ${argo_status}"   
-   purple "--Nginx 状态: ${nginx_status}"
    purple "singbox 状态: ${singbox_status}\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
@@ -1642,7 +1405,6 @@ menu() {
    echo  "==============="
    green  "5. 查看节点信息"
    green  "6. 修改节点配置"
-   green  "7. 管理节点订阅"
    echo  "==============="
    purple "8. ssh综合工具箱"
    echo  "==============="
@@ -1680,7 +1442,6 @@ while true; do
 
                 sleep 5
                 get_info
-                add_nginx_conf
                 create_shortcut
             fi
            ;;
