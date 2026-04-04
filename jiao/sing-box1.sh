@@ -64,11 +64,6 @@ check_argo() {
     check_service "argo" "${work_dir}/argo"
 }
 
-# 检查nginx状态
-check_nginx() {
-    command_exists nginx || { red "not installed"; return 2; }
-    check_service "nginx" "$(command -v nginx)"
-}
 
 #根据系统类型安装、卸载依赖
 manage_packages() {
@@ -1391,7 +1386,6 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
    purple "---Argo 状态: ${argo_status}"   
-   purple "--Nginx 状态: ${nginx_status}"
    purple "singbox 状态: ${singbox_status}\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
@@ -1422,7 +1416,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages install nginx jq tar openssl lsof coreutils
+                manage_packages install jq tar openssl lsof coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
@@ -1438,7 +1432,6 @@ while true; do
 
                 sleep 5
                 get_info
-                add_nginx_conf
                 create_shortcut
             fi
            ;;
