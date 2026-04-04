@@ -24,6 +24,7 @@ reading() { read -p "$(red "$1")" "$2"; }
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
+export SNI_DOMAIN="bing.com" #可选addons.mozilla.org
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
@@ -310,9 +311,8 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
 
     # 生成自签名证书
-	touch "${work_dir}/99.key" "${work_dir}/99.pem"
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
-    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
+    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=$SNI_DOMAIN"
     
     # 检测网络类型并设置DNS策略
     dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
@@ -394,7 +394,7 @@ cat > "${config_dir}" << EOF
         }
       ],
       "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
+      "masquerade": "https://$SNI_DOMAIN",
       "tls": {
         "enabled": true,
         "alpn": ["h3"],
@@ -422,30 +422,6 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
-    },
-	{
-      "type": "vless",
-      "tag": "vless-ws-tls",
-      "listen": "::",
-      "listen_port": 40005,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-       "transport": {
-        "type": "ws",
-        "path": "/sjsjxnbhhggg-85ugg",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      },
-      "tls":{
-				"enabled":false,#启用tls 改为true
-                "server_name":"ui.990093.xyz",#域名
-                "min_version":"1.3",
-                "max_version":"1.3",
-                "certificate_path":"$work_dir/99.pem",#域名源证书
-                "key_path":"$work_dir/99.key"#私钥
-            }
     },
 	{
        "type": "socks",
@@ -674,11 +650,10 @@ vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
-hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}
+hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=$SNI_DOMAIN&insecure=1&alpn=h3&obfs=none#${isp}
 
-tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}
+tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=$SNI_DOMAIN&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}
 
-vless://${uuid}@${server_ip}:40005?encryption=none&security=tls&sni=ui.990093.xyz&type=ws&path=/sjsjxnbhhggg-85ugg&host=ui.990093.xyz#${isp}
 EOF
 echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
