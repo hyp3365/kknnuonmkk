@@ -298,15 +298,17 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 1))
     hy2_port=$(($vless_port + 2)) 
 	socks_port=$(($vless_port + 3))
+	anytls_port=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
+	short_id=$(/etc/sing-box/sing-box generate rand --hex 4)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp > /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -360,9 +362,34 @@ cat > "${config_dir}" << EOF
             "server_port": 443
           },
           "private_key": "$private_key",
-          "short_id": [""]
+          "short_id": ["$short_id"]
         }
       }
+    },
+	{
+       "type":"anytls",
+       "tag":"any-reality",
+       "listen":"::",
+       "listen_port":$anytls_port,
+          "users":[
+             {
+                "password":"${uuid}"
+             }
+         ],
+       "padding_scheme":[],
+       "tls": {
+          "enabled": true,
+          "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+          "server": "www.iij.ad.jp",
+          "server_port": 443
+           },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+         }
+       }
     },
     {
       "type": "vmess",
@@ -511,9 +538,11 @@ cat > "${config_dir}" << EOF
     ],
     "rules": [
 	  {
-        "inbound": ["tuic"], // 限制只针对这个节点
+        "inbound": [
+		     "tuic"
+		      ], // 限制只针对这个节点 可添加多个节点
         "domain_suffix": [
-          "ping.pe"
+          "ing.pe"
           #"ip.sb",
           #"youtube.com",
           #"googlevideo.com",
@@ -644,7 +673,9 @@ get_info() {
   VMESS="{ \"v\": \"2\", \"ps\": \"${isp}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
 
   cat > ${work_dir}/url.txt <<EOF
-vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&type=tcp&headerType=none#${isp}
+vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${Short_id}&type=tcp&headerType=none#${isp}
+
+anytls://${uuid}@${server_ip}:${anytls_port}?security=reality&sni=www.iij.ad.jp&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#any-reality-${hostname}
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
