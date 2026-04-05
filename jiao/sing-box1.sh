@@ -621,7 +621,7 @@ cat > "${anytls_dir}" << EOF
         "reality": {
           "enabled": true,
           "public_key": "$public_key",
-          "short_id": ["$short_id"]
+          "short_id": "$short_id"
         }
       }
     },
