@@ -595,7 +595,8 @@ cat > "${anytls_dir}" << EOF
         "server": "223.5.5.5"
       }
     ],
-    "strategy": "ipv4_only"
+    "strategy": "ipv4_only",
+	"final": "cloudflare"
   },
   "inbounds": [
     {
