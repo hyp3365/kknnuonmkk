@@ -480,11 +480,11 @@ cat > "${config_dir}" << EOF
 	{
       "type": "socks",
       "tag": "socks-out",  
-      "server": "35.212.208.203",    
+      "server": "35.2.8.3",    
       "server_port": 8080,       
       "version": "5",          
-      "username": "ssaampp",    
-      "password": "semppspsa",
+      "username": "mpp",    
+      "password": "spsa",
       "udp_over_tcp": false       
      },
     {
