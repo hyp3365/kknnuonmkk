@@ -579,6 +579,8 @@ EOF
 
 # 生成anytls节点文件
 cat > "${anytls_dir}" << EOF
+#anytls+reality节点  复制以下代码 到nokebox
+#新建节点 自定义配置 粘贴
 {
   "dns": {
     "servers": [
@@ -625,7 +627,7 @@ cat > "${anytls_dir}" << EOF
         "reality": {
           "enabled": true,
           "public_key": "$public_key",
-          "short_id": ["$short_id"]
+          "short_id": "$short_id"
         }
       }
     },
