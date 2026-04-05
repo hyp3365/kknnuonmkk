@@ -205,6 +205,7 @@ get_realip() {
     fi
 }
 
+
 # 处理防火墙
 allow_port() {
     has_ufw=0
@@ -307,6 +308,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
 	short_id=$(/etc/sing-box/sing-box generate rand --hex 4)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+	server_ip=$(get_realip)
 
     # 放行端口
     allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
@@ -623,7 +625,7 @@ cat > "${anytls_dir}" << EOF
         "reality": {
           "enabled": true,
           "public_key": "$public_key",
-          "short_id": "$short_id"
+          "short_id": ["$short_id"]
         }
       }
     },
