@@ -27,6 +27,7 @@ work_dir="/etc/sing-box"
 export SNI_DOMAIN="bing.com" #可选addons.mozilla.org
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
+anytls_dir="${work_dir}/anytls_client.json"
 export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
@@ -570,6 +571,83 @@ cat > "${config_dir}" << EOF
       }
     ],
     "final": "direct"
+  }
+}
+EOF
+
+# 生成anytls节点文件
+cat > "${anytls_dir}" << EOF
+ {
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "type": "tls",
+        "server": "1.1.1.1"
+      },
+      {
+        "tag": "local",
+        "type": "udp",
+        "server": "223.5.5.5"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "address": "172.19.0.1/30",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "anytls",
+      "tag": "anytls-out",
+      "server": "${server_ip}",
+      "server_port": $anytls_port,
+      "password": "$password",
+      "idle_session_check_interval": "30s",
+      "idle_session_timeout": "30s",
+      "min_idle_session": 5,
+      "tls": {
+        "enabled": true,
+        "disable_sni": false,
+        "server_name": "www.iij.ad.jp",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "$public_key",
+          "short_id": "$short_id"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "default_domain_resolver": "local",
+    "auto_detect_interface": true
   }
 }
 EOF
@@ -1461,80 +1539,3 @@ while true; do
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
 
-
-# 生成anytls节点文件
-cat > "${anytls_dir}" << EOF
- {
-  "dns": {
-    "servers": [
-      {
-        "tag": "google",
-        "type": "tls",
-        "server": "1.1.1.1"
-      },
-      {
-        "tag": "local",
-        "type": "udp",
-        "server": "223.5.5.5"
-      }
-    ],
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "address": "172.19.0.1/30",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "anytls",
-      "tag": "anytls-out",
-      "server": "${server_ip}",
-      "server_port": $anytls_port,
-      "password": "$password",
-      "idle_session_check_interval": "30s",
-      "idle_session_timeout": "30s",
-      "min_idle_session": 5,
-      "tls": {
-        "enabled": true,
-        "disable_sni": false,
-        "server_name": "www.iij.ad.jp",
-        "insecure": false,
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        },
-        "reality": {
-          "enabled": true,
-          "public_key": "$public_key",
-          "short_id": "$short_id"
-        }
-      }
-    },
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ],
-  "route": {
-    "rules": [
-      {
-        "action": "sniff"
-      },
-      {
-        "protocol": "dns",
-        "action": "hijack-dns"
-      },
-      {
-        "ip_is_private": true,
-        "outbound": "direct"
-      }
-    ],
-    "default_domain_resolver": "local",
-    "auto_detect_interface": true
-  }
-}
-EOF
