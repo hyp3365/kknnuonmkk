@@ -298,6 +298,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 1))
     hy2_port=$(($vless_port + 2)) 
 	socks_port=$(($vless_port + 3))
+	anytls_port=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -307,7 +308,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp > /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -365,6 +366,42 @@ cat > "${config_dir}" << EOF
         }
       }
     },
+    {
+       "type": "anytls",
+       "listen": "::",
+       "listen_port": $anytls_port,
+       "users": [
+           {
+              "name": "$username",
+              "password": "$password"
+             }
+          ],
+        "padding_scheme": [
+            "stop=8",
+            "0=30-30",
+            "1=100-400",
+            "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
+            "3=9-9,500-1000",
+            "4=500-1000",
+            "5=500-1000",
+            "6=500-1000",
+            "7=500-1000"
+            ],
+         "tls": {
+            "enabled": true,
+            "server_name": "www.iij.ad.jp",
+            "reality": {
+                "enabled": true,
+                "handshake": {
+                    "server": "www.iij.ad.jp",
+                    "server_port": 443
+                  },
+                "private_key": "$private_key",
+                "short_id": ["$short_id"]
+            }
+         }
+     },
+     
     {
       "type": "vmess",
       "tag": "vmess-ws",
