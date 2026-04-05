@@ -297,9 +297,8 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
    # 生成随机端口和密码
     tuic_port=$(($vless_port + 1))
     hy2_port=$(($vless_port + 2)) 
-	anytls_port=$(($vless_port + 3))
+	socks_port=$(($vless_port + 3))
     uuid=$(cat /proc/sys/kernel/random/uuid)
-    short_id=$(openssl rand -hex 4)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
@@ -307,7 +306,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $anytls_port/tcp> /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -364,43 +363,6 @@ cat > "${config_dir}" << EOF
           "short_id": [""]
         }
       }
-    },
-    {
-      "type": "anytls", 
-      "listen": "::",   
-      "listen_port": $anytls_port, 
-      "users": [
-        {   
-          "password": "$password" 
-        }
-      ],
-      "tls": {
-        "enabled": true,          
-        "server_name": "www.iij.ad.jp", // 伪装域名
-        "reality": {
-          "enabled": true,        
-          "handshake": {
-            "server": "www.iij.ad.jp", 
-            "server_port": 443
-          },
-          // 这里的 Private Key 必须由 sing-box generate reality-keypair 命令生成
-          "private_key": "$private_key",
-          "short_id": [""]
-        }
-      },
-      "padding_scheme": [ 
-        "stop=8",        
-        "0=50-100",      
-        "1=150-500",
-        "2=500-1200,c,500-1200,c,500-1200",
-        "3=20-100,500-1200",
-        "4=600-1100",
-        "5=400-900",
-        "6=700-1300",
-        "7=300-800"
-         ]
-       }
-     ]
     },
     {
       "type": "vmess",
@@ -463,7 +425,7 @@ cat > "${config_dir}" << EOF
        "type": "socks",
        "tag": "socks",
        "listen": "::",
-       "listen_port": 49371,
+       "listen_port": $socks_port,
        "users": [
          {
            "username": "$username",
@@ -683,8 +645,6 @@ get_info() {
 
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&type=tcp&headerType=none#${isp}
-
-anytls://${username}:${password}@${server_ip}:${anytls_port}?security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&padding_scheme=stop%3D8%2C0%3D50-100%2C1%3D150-500%2C2%3D500-1200%2Cc%2C500-1200%2Cc%2C500-1200%2C3%3D20-100%2C500-1200%2C4%3D600-1100%2C5%3D400-900%2C6%3D700-1300%2C7%3D300-800#${node_anytls}
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
