@@ -298,7 +298,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 1))
     hy2_port=$(($vless_port + 2)) 
 	socks_port=$(($vless_port + 3))
-	anytls_port=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -308,7 +307,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -365,31 +364,6 @@ cat > "${config_dir}" << EOF
           "short_id": ["$short_id"]
         }
       }
-    },
-	{
-       "type":"anytls",
-       "tag":"any-reality",
-       "listen":"::",
-       "listen_port":$anytls_port,
-          "users":[
-             {
-                "password":"${uuid}"
-             }
-         ],
-       "padding_scheme":[],
-       "tls": {
-          "enabled": true,
-          "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-          "server": "www.iij.ad.jp",
-          "server_port": 443
-           },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-         }
-       }
     },
     {
       "type": "vmess",
@@ -674,8 +648,6 @@ get_info() {
 
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}
-
-anytls://${uuid}@${server_ip}:${anytls_port}?security=reality&sni=www.iij.ad.jp&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#any-reality-${hostname}
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
