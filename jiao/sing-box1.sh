@@ -607,9 +607,9 @@ cat > "${anytls_dir}" << EOF
     {
       "type": "anytls",
       "tag": "anytls-out",
-      "server": "23.139.252.128",
-      "server_port": 53064,
-      "password": "us4Q1ZIhv5jXdk4YhWJHh1ls",
+      "server": "$server_ip",
+      "server_port": $anytls_port,
+      "password": "$password",
       "idle_session_check_interval": "30s",
       "idle_session_timeout": "30s",
       "min_idle_session": 5,
@@ -624,8 +624,8 @@ cat > "${anytls_dir}" << EOF
         },
         "reality": {
           "enabled": true,
-          "public_key": "vTQ2ltDPBFa7kbeaOZIZs_26yB_D3-kbgUgxVa9QOVY",
-          "short_id": "8d88248d"
+          "public_key": "$public_key",
+          "short_id": ["$short_id"]
         }
       }
     },
