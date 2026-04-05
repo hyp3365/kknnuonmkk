@@ -370,8 +370,7 @@ cat > "${config_dir}" << EOF
       "listen": "::",   
       "listen_port": $anytls_port, 
       "users": [
-        {
-          "name": "$username",      
+        {   
           "password": "$password" 
         }
       ],
@@ -386,7 +385,7 @@ cat > "${config_dir}" << EOF
           },
           // 这里的 Private Key 必须由 sing-box generate reality-keypair 命令生成
           "private_key": "$private_key",
-          "short_id": "$short_id" 
+          "short_id": [""]
         }
       },
       "padding_scheme": [ 
@@ -685,7 +684,7 @@ get_info() {
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&type=tcp&headerType=none#${isp}
 
-anytls://${username}:${password}@${server_ip}:${listen_port}?security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&padding_scheme=stop%3D8%2C0%3D50-100%2C1%3D150-500%2C2%3D500-1200%2Cc%2C500-1200%2Cc%2C500-1200%2C3%3D20-100%2C500-1200%2C4%3D600-1100%2C5%3D400-900%2C6%3D700-1300%2C7%3D300-800#${node_anytls}
+anytls://${username}:${password}@${server_ip}:${anytls_port}?security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&padding_scheme=stop%3D8%2C0%3D50-100%2C1%3D150-500%2C2%3D500-1200%2Cc%2C500-1200%2Cc%2C500-1200%2C3%3D20-100%2C500-1200%2C4%3D600-1100%2C5%3D400-900%2C6%3D700-1300%2C7%3D300-800#${node_anytls}
 
 vmess://$(echo "$VMESS" | base64 -w0)
 
