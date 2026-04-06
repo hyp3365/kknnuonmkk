@@ -833,7 +833,7 @@ upstream vmess_backend {
 }
 
 server {
-    listen 127.0.0.1:8801 so_keepalive=on;
+    listen 127.0.0.1:8001 so_keepalive=on;
     server_name _;
     
     tcp_nodelay on;
