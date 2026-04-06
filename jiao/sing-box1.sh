@@ -304,11 +304,10 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
    # 生成随机端口和密码
-    nginx_port=$(($vless_port + 1)) 
-    tuic_port=$(($vless_port + 2))
-    hy2_port=$(($vless_port + 3)) 
-	socks_port=$(($vless_port + 4))
-	anytls_port=$(($vless_port + 5))
+    tuic_port=$(($vless_port + 1))
+    hy2_port=$(($vless_port + 2)) 
+	socks_port=$(($vless_port + 3))
+	anytls_port=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -319,7 +318,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
 	server_ip=$(get_realip)
 
     # 放行端口
-    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -412,39 +411,39 @@ cat > "${config_dir}" << EOF
             }
          }
      },
-     
-    {
-      "type": "vmess",
-      "tag": "vmess-ws",
-      "listen": "::",
-      "listen_port": 8001,
-      "users": [
-        {
-          "uuid": "$uuid"
+     {
+       "type": "vless",
+       "tag": "vless-ws",
+       "listen": "127.0.0.1",
+       "listen_port": 8002, // 对应 Nginx 里的 proxy_pass 8002
+       "users": [
+          {
+            "uuid": "$uuid"
+          }
+         ],
+       "transport": {
+         "type": "ws",
+         "path": "/lPaxe1996Ko-5203aap",
+         "early_data_header_name": "Sec-WebSocket-Protocol"
         }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/mPaxe1996Ko-5203aap",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    },
-	{
-      "type": "vless",
-      "tag": "vless-ws",
-      "listen": "::",
-      "listen_port": 8002,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/lPaxe1996Ko-5203aap",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    },
+      },
+      {
+         "type": "vmess",
+         "tag": "vmess-ws",
+         "listen": "127.0.0.1",
+         "listen_port": 8003, // 对应 Nginx 里的 proxy_pass 8003
+         "users": [
+           {
+            "uuid": "$uuid"
+           }
+          ],
+        "transport": {
+          "type": "ws",
+          "path": "/mPaxe1996Ko-5203aap",
+          "early_data_header_name": "Sec-WebSocket-Protocol"
+         }
+     },
+
 	
     {
       "type": "hysteria2",
@@ -817,9 +816,57 @@ yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验�
 
 }
 
+# Nginx 路径转发配置
+add_nginx_conf() {
+    if ! command_exists nginx; then
+        red "nginx 未安装, 无法配置路径转发服务"
+        return 1
+    else
+        manage_service "nginx" "stop" > /dev/null 2>&1
+        pkill nginx  > /dev/null 2>&1
+    fi
 
+    mkdir -p /etc/nginx/conf.d
+    cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+	listen 127.0.0.1:8001;
+    server_name _;
 
-    
+    # WebSocket 转发基础设置
+    proxy_redirect off;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+
+    # 1. VLESS 转发 (指向 Sing-box 的新端口 8002)
+    location /lPaxe1996Ko-5203aap {
+        proxy_pass http://127.0.0.1:8002;
+    }
+
+    # 2. VMess 转发 (指向 Sing-box 的新端口 8003)
+    location /mPaxe1996Ko-5203aap {
+        proxy_pass http://127.0.0.1:8003;
+    }
+
+    # 默认返回 404
+    location / {
+        return 404;
+    }
+}
+EOF
+
+    # 检查并重载 Nginx
+    if nginx -t > /dev/null 2>&1; then
+        systemctl restart nginx > /dev/null 2>&1
+        green "开启"
+    else
+        red "错误"
+    fi
+}
+   
 
 # 通用服务管理函数
 manage_service() {
