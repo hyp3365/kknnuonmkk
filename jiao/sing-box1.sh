@@ -1116,23 +1116,22 @@ change_config() {
                     socks_port=$(($vless_port + 3))
                     anytls_port=$(($vless_port + 4))
 
-                    # 修改配置文件
                     sed -i '/"type": "vless"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$vless_port"'/' $config_dir
                     sed -i '/"type": "tuic"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$tuic_port"'/' $config_dir
                     sed -i '/"type": "hysteria2"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$hy2_port"'/' $config_dir
                     sed -i '/"type": "socks"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$socks_port"'/' $config_dir
                     sed -i '/"type": "anytls"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$anytls_port"'/' $config_dir
 
+                    sed -i 's/"server_port": [0-9]\+/"server_port": '"$anytls_port"'/' $anytls_dir
+
                     restart_singbox
 
-                    # 开放防火墙端口
                     allow_port $vless_port/tcp > /dev/null 2>&1
                     allow_port $tuic_port/udp > /dev/null 2>&1
                     allow_port $hy2_port/udp > /dev/null 2>&1
                     allow_port $socks_port/tcp > /dev/null 2>&1
                     allow_port $anytls_port/tcp > /dev/null 2>&1
 
-                    # 修改链接文件
                     sed -i 's/\(vless:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$vless_port"'/' $client_dir
                     sed -i 's/\(tuic:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$tuic_port"'/' $client_dir
                     sed -i 's/\(hysteria2:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$hy2_port"'/' $client_dir
@@ -1140,9 +1139,9 @@ change_config() {
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
                     while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
 
-                    green "\n所有端口已批量修改完成！"
+                    green "\n所有端口已修改完成！"
                     yellow "VLESS: $vless_port | TUIC: $tuic_port | Hy2: $hy2_port | Socks: $socks_port | AnyTLS: $anytls_port"
-                    green "请更新订阅或手动更改对应端口${re}\n"
+                    green "请更新订阅或手动下载最新的 anytls_client.json${re}\n"
                     ;;
 
                 0)  change_config ;;
