@@ -1191,11 +1191,11 @@ change_config() {
                     socks_port=$(($vless_port + 3))
                     anytls_port=$(($vless_port + 4))
 
-                    sed -i '/"type": "vless"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$vless_port"'/' $config_dir
-                    sed -i '/"type": "tuic"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$tuic_port"'/' $config_dir
-                    sed -i '/"type": "hysteria2"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$hy2_port"'/' $config_dir
-                    sed -i '/"type": "socks"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$socks_port"'/' $config_dir
-                    sed -i '/"type": "anytls"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$anytls_port"'/' $config_dir
+                    sed -i '/"tag": "vless-reality"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$vless_port"'/' $config_dir
+                    sed -i '/"tag": "tuic"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$tuic_port"'/' $config_dir
+                    sed -i '/"tag": "hysteria2"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$hy2_port"'/' $config_dir
+                    sed -i '/"tag": "socks"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$socks_port"'/' $config_dir
+                    sed -i '/"tag": "anytls"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$anytls_port"'/' $config_dir
 
                     sed -i 's/"server_port": [0-9]\+/"server_port": '"$anytls_port"'/' $anytls_dir
 
