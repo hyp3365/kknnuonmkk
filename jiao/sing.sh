@@ -11,38 +11,22 @@ GREEN="\033[32m"
 YELLOW="\033[33m"
 RESET="\033[0m"
 
-echo_green() { echo -e "${GREEN}$1${RESET}"; }
-echo_red() { echo -e "${RED}$1${RESET}"; }
-
+# 搜索二进制文件逻辑
 scan_bins() {
     SB_BIN=""
     ARGO_BIN=""
-
-    # 1. 第一优先级：显式检查 /etc/sing-box 目录
+    # 优先找 /etc/sing-box
     if [ -d "$BASE_DIR" ]; then
         [ -x "$BASE_DIR/sing-box" ] && SB_BIN="$BASE_DIR/sing-box"
         [ -x "$BASE_DIR/cloudflared" ] && ARGO_BIN="$BASE_DIR/cloudflared"
         [ -x "$BASE_DIR/argo" ] && ARGO_BIN="$BASE_DIR/argo"
     fi
-
-    # 2. 第二优先级：如果还没找到，扫描系统路径
+    # 找不到再搜系统路径
     if [ -z "$SB_BIN" ] || [ -z "$ARGO_BIN" ]; then
-        SEARCH_DIRS=("/usr/bin" "/usr/local/bin" "/root" "/etc")
-
-        for dir in "${SEARCH_DIRS[@]}"; do
+        for dir in "/usr/bin" "/usr/local/bin" "/root"; do
             [ -d "$dir" ] || continue
-            
-            # 寻找 sing-box
-            if [ -z "$SB_BIN" ]; then
-                found=$(find "$dir" -maxdepth 1 -type f -executable -name "sing-box*" ! -name "*.bak" 2>/dev/null | head -n 1)
-                [ -n "$found" ] && SB_BIN="$found"
-            fi
-
-            # 寻找 argo (cloudflared)
-            if [ -z "$ARGO_BIN" ]; then
-                found=$(find "$dir" -maxdepth 1 -type f -executable \( -name "cloudflared*" -o -name "argo*" \) 2>/dev/null | head -n 1)
-                [ -n "$found" ] && ARGO_BIN="$found"
-            fi
+            [ -z "$SB_BIN" ] && SB_BIN=$(find "$dir" -maxdepth 1 -type f -executable -name "sing-box*" ! -name "*.bak" 2>/dev/null | head -n 1)
+            [ -z "$ARGO_BIN" ] && ARGO_BIN=$(find "$dir" -maxdepth 1 -type f -executable \( -name "cloudflared*" -o -name "argo*" \) 2>/dev/null | head -n 1)
         done
     fi
 }
@@ -51,115 +35,100 @@ detect_arch() {
     case "$(uname -m)" in
         x86_64) ARCH="amd64" ;;
         aarch64|arm64) ARCH="arm64" ;;
-        *) echo_red "不支持的架构"; exit 1 ;;
+        *) echo -e "${RED}不支持的架构${RESET}"; exit 1 ;;
     esac
 }
 
 get_current_version() {
-    if [ -x "$1" ]; then
-        # 提取版本号，过滤掉多余信息
-        "$1" version 2>/dev/null | head -n 1 | awk '{print $3}'
-    else
-        echo "未安装"
-    fi
+    [ -x "$1" ] && "$1" version 2>/dev/null | head -n 1 | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9v]/) {print $i; exit}}' || echo "未安装"
 }
 
+# 增强版版本抓取，解决显示 "eyes" 的问题
 get_latest_stable() {
-    curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name"' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/'
+    curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
 
 get_latest_prerelease() {
-    curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | awk '/"tag_name"/ {gsub(/[",]/, "", $2); tag=$2} /"prerelease": true/ {print tag; exit}'
+    curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep '"tag_name":' | head -n 10 | grep -E "alpha|beta|rc" | head -n 1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
 
 get_latest_argo() {
-    curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name"' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/'
+    curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
 
-update_sing_box() {
-    latest="$1"
-    [ -z "$latest" ] && { echo_red "获取版本失败"; return; }
-    
-    url="https://github.com/SagerNet/sing-box/releases/download/${latest}/sing-box-${latest#v}-linux-${ARCH}.tar.gz"
-    echo_green "正在从 $url 下载..."
-
+update_sb() {
+    tag="$1"
+    [ -z "$tag" ] && return
+    url="https://github.com/SagerNet/sing-box/releases/download/${tag}/sing-box-${tag#v}-linux-${ARCH}.tar.gz"
     tmp=$(mktemp -d)
-    cd "$tmp" || exit 1
-
-    if curl -L -o sb.tar.gz "$url"; then
-        tar -xzf sb.tar.gz
-        cp "$SB_BIN" "$SB_BIN.bak" # 备份
-        mv sing-box*/sing-box "$SB_BIN"
-        chmod +x "$SB_BIN"
+    echo -e "${GREEN}正在下载...${RESET}"
+    if curl -L -o "$tmp/sb.tgz" "$url"; then
+        tar -xzf "$tmp/sb.tgz" -C "$tmp"
+        cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
+        mv "$tmp"/sing-box*/sing-box "$SB_BIN" && chmod +x "$SB_BIN"
         systemctl restart sing-box 2>/dev/null
-        echo_green "✅ 更新成功！当前版本: $(get_current_version "$SB_BIN")"
+        echo -e "${GREEN}✅ 更新成功!${RESET}"
     else
-        echo_red "❌ 下载失败"
+        echo -e "${RED}❌ 下载失败${RESET}"
     fi
-    cd / && rm -rf "$tmp"
+    rm -rf "$tmp"
 }
 
 update_argo() {
-    latest=$(get_latest_argo)
-    url="https://github.com/cloudflare/cloudflared/releases/download/${latest}/cloudflared-linux-${ARCH}"
-    
-    cp "$ARGO_BIN" "$ARGO_BIN.bak"
+    tag=$(get_latest_argo)
+    url="https://github.com/cloudflare/cloudflared/releases/download/${tag}/cloudflared-linux-${ARCH}"
+    echo -e "${GREEN}正在下载...${RESET}"
+    cp "$ARGO_BIN" "$ARGO_BIN.bak" 2>/dev/null
     if curl -L -o "$ARGO_BIN" "$url"; then
         chmod +x "$ARGO_BIN"
         systemctl restart argo 2>/dev/null
-        echo_green "✅ Argo 更新成功！"
+        echo -e "${GREEN}✅ Argo 更新成功!${RESET}"
     else
-        echo_red "❌ 下载失败"
-        mv "$ARGO_BIN.bak" "$ARGO_BIN"
+        echo -e "${RED}❌ 下载失败${RESET}"
+        [ -f "$ARGO_BIN.bak" ] && mv "$ARGO_BIN.bak" "$ARGO_BIN"
     fi
 }
 
-menu() {
+# 主界面
+while true; do
     clear
     scan_bins
     detect_arch
-
-    echo_red "=============================="
-    echo_red "     SING-BOX & ARGO 管理器"
-    echo_red "=============================="
     
+    # 1. 红色段：路径信息
     echo -e "${GREEN}程序路径:${RESET}"
     echo -e "  sing-box: ${RED}${SB_BIN:-未找到}${RESET}"
     echo -e "  argo:     ${RED}${ARGO_BIN:-未找到}${RESET}"
     echo
-    
+
+    # 2. 红色段：当前版本
     echo -e "${GREEN}当前版本信息:${RESET}"
     echo -e "  sing-box: ${RED}$(get_current_version "$SB_BIN")${RESET}"
     echo -e "  argo:     ${RED}$(get_current_version "$ARGO_BIN")${RESET}"
     echo -e "  系统架构: ${RED}$ARCH${RESET}"
     echo
 
-    # 异步获取版本，减少等待感
-    echo_green "检查最新版本中..."
-    latest_sb_stable=$(get_latest_stable)
-    latest_sb_pre=$(get_latest_prerelease)
-    latest_argo=$(get_latest_argo)
+    # 3. 检查云端版本
+    echo -e "${GREEN}检查最新版本中...${RESET}"
+    v_stable=$(get_latest_stable)
+    v_pre=$(get_latest_prerelease)
+    v_argo=$(get_latest_argo)
 
-    echo_green "1) 更新 sing-box [ 稳定版: $latest_sb_stable ]"
-    echo_green "2) 更新 sing-box [ 测试版: $latest_sb_pre ]"
-    echo_green "3) 更新 argo     [ 最新版: $latest_argo ]"
-    echo_red   "4) 退出程序"
+    # 4. 绿色/黄色段：操作菜单
+    echo -e "1) ${GREEN}更新 sing-box${RESET} [ ${YELLOW}稳定版: ${v_stable:-获取中}${RESET} ]"
+    echo -e "2) ${GREEN}更新 sing-box${RESET} [ ${YELLOW}测试版: ${v_pre:-获取中}${RESET} ]"
+    echo -e "3) ${GREEN}更新 argo    ${RESET} [ ${YELLOW}最新版: ${v_argo:-获取中}${RESET} ]"
+    echo -e "4) ${RED}退出程序${RESET}"
     echo
 
-    read -rp "$(echo -e ${YELLOW}请选择序号后回车:${RESET} ) " choice
-
+    read -p "请选择序号后回车: " choice
     case "$choice" in
-        1) update_sing_box "$latest_sb_stable" ;;
-        2) update_sing_box "$latest_sb_pre" ;;
+        1) update_sb "$v_stable" ;;
+        2) update_sb "$v_pre" ;;
         3) update_argo ;;
         4) exit 0 ;;
-        *) echo_red "无效选项" ;;
+        *) echo -e "${RED}输入错误${RESET}" ;;
     esac
-
     echo
-    read -rp "按回车键返回主菜单..."
-}
-
-while true; do
-    menu
+    read -p "按回车继续..."
 done
