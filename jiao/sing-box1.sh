@@ -411,38 +411,38 @@ cat > "${config_dir}" << EOF
             }
          }
      },
-     {
-       "type": "vless",
-       "tag": "vless-ws",
-       "listen": "127.0.0.1",
-       "listen_port": 8002, // 对应 Nginx 里的 proxy_pass 8002
-       "users": [
-          {
-            "uuid": "$uuid"
-          }
-         ],
-       "transport": {
-         "type": "ws",
-         "path": "/lPaxe1996Ko-5203aap",
-         "early_data_header_name": "Sec-WebSocket-Protocol"
+    {
+      "type": "vless",
+      "tag": "vless-ws",
+      "listen": "::",
+      "listen_port": 8001,
+      "users": [
+        {
+          "uuid": "$uuid"
         }
-      },
-      {
-         "type": "vmess",
-         "tag": "vmess-ws",
-         "listen": "127.0.0.1",
-         "listen_port": 8003, // 对应 Nginx 里的 proxy_pass 8003
-         "users": [
-           {
-            "uuid": "$uuid"
-           }
-          ],
-        "transport": {
-          "type": "ws",
-          "path": "/mPaxe1996Ko-5203aap",
-          "early_data_header_name": "Sec-WebSocket-Protocol"
-         }
-     },
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/lPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+	{
+      "type": "vmess",
+      "tag": "vmess-ws",
+      "listen": "::",
+      "listen_port": 8002,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/mPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
 
 	
     {
@@ -814,53 +814,6 @@ base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 chmod 644 ${work_dir}/sub.txt
 yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
 }
-
-# Nginx 纯转发配置 
-add_nginx_conf() {
-    # 1. 确保目录存在
-    mkdir -p /etc/nginx/conf.d
-
-    # 2. 写入转发配置文件
-    cat > /etc/nginx/conf.d/sing-box.conf << 'EOF'
-server {
-    listen 127.0.0.1:8001;
-    server_name _;
-
-    # WebSocket 转发全局基础设置
-    proxy_redirect off;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-    # VLESS 转发 (指向 sing-box 8002)
-    location /lPaxe1996Ko-5203aap {
-        proxy_pass http://127.0.0.1:8002;
-    }
-
-    # VMess 转发 (指向 sing-box 8003)
-    location /mPaxe1996Ko-5203aap {
-        proxy_pass http://127.0.0.1:8003;
-    }
-
-    # 默认拒绝其他所有访问
-    location / {
-        return 404;
-    }
-}
-EOF
-
-    # 3. 检查语法并重启 Nginx
-    if nginx -t > /dev/null 2>&1; then
-        systemctl restart nginx > /dev/null 2>&1
-        echo -e "\033[32mNginx 转发配置创建并启动！\033[0m"
-    else
-        echo -e "\033[31mNginx 配置语法检查失败，请手动检查 /etc/nginx/conf.d/sing-box.conf\033[0m"
-    fi
-}
-
 
 # 通用服务管理函数
 manage_service() {
@@ -1647,7 +1600,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages install nginx jq tar openssl lsof coreutils
+                manage_packages install jq tar openssl lsof coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
@@ -1663,7 +1616,6 @@ while true; do
 
                 sleep 5
                 get_info
-				add_nginx_conf
                 create_shortcut
             fi
            ;;
