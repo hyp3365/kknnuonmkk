@@ -421,6 +421,22 @@ cat > "${config_dir}" << EOF
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     },
+	{
+      "type": "vless",
+      "tag": "vless-ws",
+      "listen": "::",
+      "listen_port": 8002,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/lPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
 	
     {
       "type": "hysteria2",
@@ -777,6 +793,8 @@ get_info() {
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}
 
 vmess://$(echo "$VMESS" | base64 -w0)
+
+vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560&fp=firefox#${isp}
 
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=$SNI_DOMAIN&insecure=1&alpn=h3&obfs=none#${isp}
 
