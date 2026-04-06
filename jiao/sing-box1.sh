@@ -582,12 +582,17 @@ cat > "${anytls_dir}" << EOF
 #anytls+reality节点  复制以下代码 到nokebox
 #新建节点 自定义配置 粘贴
 {
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "dns": {
     "servers": [
       {
         "tag": "google",
         "type": "tls",
-        "server": "1.1.1.1"
+        "server": "8.8.8.8",
+        "detour": "anytls-out"
       },
       {
         "tag": "local",
@@ -596,14 +601,15 @@ cat > "${anytls_dir}" << EOF
       }
     ],
     "strategy": "ipv4_only",
-	"final": "cloudflare"
+    "final": "google"
   },
   "inbounds": [
     {
       "type": "tun",
       "address": "172.19.0.1/30",
       "auto_route": true,
-      "strict_route": true
+      "strict_route": true,
+	  "sniff": true
     }
   ],
   "outbounds": [
@@ -640,19 +646,21 @@ cat > "${anytls_dir}" << EOF
   "route": {
     "rules": [
       {
-        "action": "sniff"
-      },
-      {
         "protocol": "dns",
         "action": "hijack-dns"
       },
       {
         "ip_is_private": true,
+        "action": "route",
         "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "outbound": "anytls-out"
       }
     ],
-    "default_domain_resolver": "local",
-    "auto_detect_interface": true
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
   }
 }
 EOF
