@@ -67,6 +67,13 @@ check_argo() {
 }
 
 
+# 检查nginx状态
+check_nginx() {
+    command_exists nginx || { red "not installed"; return 2; }
+    check_service "nginx" "$(command -v nginx)"
+}
+
+
 #根据系统类型安装、卸载依赖
 manage_packages() {
     # 参数检查
@@ -297,10 +304,11 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
    # 生成随机端口和密码
-    tuic_port=$(($vless_port + 1))
-    hy2_port=$(($vless_port + 2)) 
-	socks_port=$(($vless_port + 3))
-	anytls_port=$(($vless_port + 4))
+    nginx_port=$(($vless_port + 1)) 
+    tuic_port=$(($vless_port + 2))
+    hy2_port=$(($vless_port + 3)) 
+	socks_port=$(($vless_port + 4))
+	anytls_port=$(($vless_port + 5))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -311,7 +319,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
 	server_ip=$(get_realip)
 
     # 放行端口
-    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
+    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp $socks_port/tcp $anytls_port/tcp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -938,6 +946,15 @@ restart_argo() {
     manage_service "argo" "restart"
 }
 
+# 启动 nginx
+start_nginx() {
+    manage_service "nginx" "start"
+}
+
+# 重启 nginx
+restart_nginx() {
+    manage_service "nginx" "restart"
+}
 
 # 卸载 sing-box
 uninstall_singbox() {
@@ -966,7 +983,19 @@ uninstall_singbox() {
            rm -rf "${work_dir}" || true
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
-                     
+           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
+           
+           # 卸载Nginx
+           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
+            case "${choice}" in
+                y|Y)
+                    manage_packages uninstall nginx
+                    ;;
+                 *) 
+                    yellow "取消卸载Nginx\n\n"
+                    ;;
+            esac
+
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
        *)
@@ -1544,6 +1573,7 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
    purple "---Argo 状态: ${argo_status}"   
+   purple "--Nginx 状态: ${nginx_status}"
    purple "singbox 状态: ${singbox_status}\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
@@ -1576,7 +1606,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages install jq tar openssl lsof coreutils
+                manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
