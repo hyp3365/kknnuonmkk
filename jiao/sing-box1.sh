@@ -1140,8 +1140,7 @@ change_config() {
                     while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
 
                     green "\n所有端口已修改完成！"
-                    yellow "VLESS: $vless_port | TUIC: $tuic_port | Hy2: $hy2_port | Socks: $socks_port | AnyTLS: $anytls_port"
-                    green "请更新订阅或手动下载最新的 anytls_client.json${re}\n"
+                    yellow "VLESS: $vless_port | TUIC: $tuic_port | Hy2: $hy2_port | Socks: $socks_port | AnyTLS: $anytls_port\n"
                     ;;
 
                 0)  change_config ;;
