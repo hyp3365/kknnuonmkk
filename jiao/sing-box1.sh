@@ -1726,6 +1726,7 @@ while true; do
 
                 sleep 5
                 get_info
+				add_nginx_conf
                 create_shortcut
             fi
            ;;
