@@ -529,27 +529,18 @@ cat > "${config_dir}" << EOF
       "udp_over_tcp": false       
      },
     {
+    "type": "socks",
+    "tag": "socks-40000",
+    "server": "127.0.0.1",
+    "server_port": 40000
+    },
+    {
       "type": "direct",
       "tag": "direct"
     }
   ],
   "route": {
-    "rule_set": [
-      {
-        "tag": "openai",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs",
-        "download_detour": "direct"
-      },
-      {
-        "tag": "netflix",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/netflix.srs",
-        "download_detour": "direct"
-      }
-    ],
+    "rule_set": [],
     "rules": [
 	  {
         "inbound": [
@@ -566,10 +557,6 @@ cat > "${config_dir}" << EOF
           #"youtu.be"
           ],
           "outbound": "socks-out"
-      },
-      {
-        "rule_set": ["openai", "netflix"],
-        "outbound": "wireguard-out"
       }
     ],
     "final": "direct"
