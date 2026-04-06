@@ -1023,6 +1023,8 @@ change_config() {
             skyblue "------------"
             green "4. 修改vmess-argo端口"
             skyblue "------------"
+			green "5. 修改所有端口"
+            skyblue "------------"
             purple "0. 返回上一级菜单"
             skyblue "------------"
             reading "请输入选择: " choice
@@ -1091,7 +1093,46 @@ change_config() {
 
                     restart_singbox
                     green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
-                    ;;                    
+                    ;;  
+				5)
+                    reading "\n请输入起始端口: " new_port
+                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
+                    
+                    vless_port=$new_port
+                    tuic_port=$(($vless_port + 1))
+                    hy2_port=$(($vless_port + 2))
+                    socks_port=$(($vless_port + 3))
+                    anytls_port=$(($vless_port + 4))
+
+                    # 修改配置文件
+                    sed -i '/"type": "vless"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$vless_port"'/' $config_dir
+                    sed -i '/"type": "tuic"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$tuic_port"'/' $config_dir
+                    sed -i '/"type": "hysteria2"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$hy2_port"'/' $config_dir
+                    sed -i '/"type": "socks"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$socks_port"'/' $config_dir
+                    sed -i '/"type": "anytls"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$anytls_port"'/' $config_dir
+
+                    restart_singbox
+
+                    # 开放防火墙端口
+                    allow_port $vless_port/tcp > /dev/null 2>&1
+                    allow_port $tuic_port/udp > /dev/null 2>&1
+                    allow_port $hy2_port/udp > /dev/null 2>&1
+                    allow_port $socks_port/tcp > /dev/null 2>&1
+                    allow_port $anytls_port/tcp > /dev/null 2>&1
+
+                    # 修改链接文件
+                    sed -i 's/\(vless:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$vless_port"'/' $client_dir
+                    sed -i 's/\(tuic:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$tuic_port"'/' $client_dir
+                    sed -i 's/\(hysteria2:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$hy2_port"'/' $client_dir
+
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+                    while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
+
+                    green "\n所有端口已批量修改完成！"
+                    yellow "VLESS: $vless_port | TUIC: $tuic_port | Hy2: $hy2_port | Socks: $socks_port | AnyTLS: $anytls_port"
+                    green "请更新订阅或手动更改对应端口${re}\n"
+                    ;;
+
                 0)  change_config ;;
                 *)  red "无效的选项，请输入 1 到 4" ;;
             esac
