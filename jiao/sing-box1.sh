@@ -822,27 +822,46 @@ add_nginx_conf() {
 
     # 2. 写入转发配置文件
     cat > /etc/nginx/conf.d/sing-box.conf << 'EOF'
-server {
-    listen 127.0.0.1:8001;
-    server_name _;
+ upstream vless_backend {
+    server 127.0.0.1:8002;
+    keepalive 32; # 维持 32 个空闲长连接
+}
 
-    # WebSocket 转发全局基础设置
-    proxy_redirect off;
+upstream vmess_backend {
+    server 127.0.0.1:8003;
+    keepalive 32;
+}
+
+server {
+    listen 127.0.0.1:8801 so_keepalive=on;
+    server_name _;
+    
+    tcp_nodelay on;
+    tcp_nopush on; 
+
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
+    
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
-    # VLESS 转发 (指向 sing-box 8002)
+    # 代理优化
+    proxy_buffering off;
+    proxy_request_buffering off; 
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_connect_timeout 60s;
+
+    # VLESS 转发
     location /lPaxe1996Ko-5203aap {
-        proxy_pass http://127.0.0.1:8002;
+        proxy_pass http://vless_backend; # 指向 upstream
     }
 
-    # VMess 转发 (指向 sing-box 8003)
+    # VMess 转发
     location /mPaxe1996Ko-5203aap {
-        proxy_pass http://127.0.0.1:8003;
+        proxy_pass http://vmess_backend; # 指向 upstream
     }
 
     # 默认拒绝其他所有访问
