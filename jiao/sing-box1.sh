@@ -1536,7 +1536,7 @@ menu() {
    green  "5. 查看节点信息"
    green  "6. 修改节点配置"
    echo  "==============="
-   purple "7. 更新sing-box"
+   green "7. 更新sing-box"
    echo  "==============="
    purple "8. ssh综合工具箱"
    echo  "==============="
