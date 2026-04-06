@@ -813,116 +813,53 @@ while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 chmod 644 ${work_dir}/sub.txt
 yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
-
 }
 
-# nginx订阅配置
+# Nginx 纯转发配置 
 add_nginx_conf() {
-    if ! command_exists nginx; then
-        red "nginx未安装,无法配置订阅服务"
-        return 1
-    else
-        manage_service "nginx" "stop" > /dev/null 2>&1
-        pkill nginx  > /dev/null 2>&1
-    fi
-
+    # 1. 确保目录存在
     mkdir -p /etc/nginx/conf.d
 
-    [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
-
-    cat > /etc/nginx/conf.d/sing-box.conf << EOF
-# sing-box 订阅配置
+    # 2. 写入转发配置文件
+    cat > /etc/nginx/conf.d/sing-box.conf << 'EOF'
 server {
-    listen $nginx_port;
-    listen [::]:$nginx_port;
+    listen 127.0.0.1:8001;
     server_name _;
 
-    # 安全设置
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
+    # WebSocket 转发全局基础设置
+    proxy_redirect off;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
-    location = /$password {
-        alias /etc/sing-box/sub.txt;
-        default_type 'text/plain; charset=utf-8';
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-        add_header Pragma "no-cache";
-        add_header Expires "0";
+    # VLESS 转发 (指向 sing-box 8002)
+    location /lPaxe1996Ko-5203aap {
+        proxy_pass http://127.0.0.1:8002;
     }
 
+    # VMess 转发 (指向 sing-box 8003)
+    location /mPaxe1996Ko-5203aap {
+        proxy_pass http://127.0.0.1:8003;
+    }
+
+    # 默认拒绝其他所有访问
     location / {
         return 404;
     }
-
-    # 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
 }
 EOF
 
-    # 检查主配置文件是否存在
-    if [ -f "/etc/nginx/nginx.conf" ]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
-        sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
-        # 检查是否已包含配置目录
-        if ! grep -q "include.*conf.d" /etc/nginx/nginx.conf; then
-            http_end_line=$(grep -n "^}" /etc/nginx/nginx.conf | tail -1 | cut -d: -f1)
-            if [ -n "$http_end_line" ]; then
-                sed -i "${http_end_line}i \    include /etc/nginx/conf.d/*.conf;" /etc/nginx/nginx.conf > /dev/null 2>&1
-            fi
-        fi
-    else 
-        cat > /etc/nginx/nginx.conf << EOF
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log;
-pid /run/nginx.pid;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    
-    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-    
-    access_log  /var/log/nginx/access.log  main;
-    sendfile        on;
-    keepalive_timeout  65;
-    
-    include /etc/nginx/conf.d/*.conf;
-}
-EOF
-    fi
-
-    # 检查nginx配置语法
+    # 3. 检查语法并重启 Nginx
     if nginx -t > /dev/null 2>&1; then
-    
-        if nginx -s reload > /dev/null 2>&1; then
-            green "nginx订阅配置已加载"
-        else
-            start_nginx  > /dev/null 2>&1
-        fi
+        systemctl restart nginx > /dev/null 2>&1
+        echo -e "\033[32mNginx 转发配置创建并启动！\033[0m"
     else
-        yellow "nginx配置失败,订阅不可应,但不影响节点使用, issues反馈: https://github.com/eooce/Sing-box/issues"
-        restart_nginx  > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            green "nginx订阅配置已生效"
-        else
-            [[ -f "/etc/nginx/nginx.conf.bak.sb" ]] && cp "/etc/nginx/nginx.conf.bak.sb" /etc/nginx/nginx.conf > /dev/null 2>&1
-            restart_nginx  > /dev/null 2>&1
-        fi
+        echo -e "\033[31mNginx 配置语法检查失败，请手动检查 /etc/nginx/conf.d/sing-box.conf\033[0m"
     fi
 }
-
-
 
 
 # 通用服务管理函数
