@@ -39,9 +39,23 @@ detect_arch() {
     esac
 }
 
+# ----------------- 核心修复：精准抓取版本号 -----------------
 get_current_version() {
-    [ -x "$1" ] && "$1" version 2>/dev/null | head -n 1 | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9v]/) {print $i; exit}}' || echo "未安装"
+    if [ -x "$1" ]; then
+        local first_line=$("$1" version 2>/dev/null | head -n 1)
+        # 使用正则严格匹配数字版本号，忽略前面的文字
+        local ver=$(echo "$first_line" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)?')
+        
+        if [ -n "$ver" ]; then
+            echo "$ver"
+        else
+            echo "$first_line" | awk '{print $1,$2}'
+        fi
+    else
+        echo "未安装"
+    fi
 }
+# ------------------------------------------------------------
 
 # 增强版版本抓取，解决显示 "eyes" 的问题
 get_latest_stable() {
