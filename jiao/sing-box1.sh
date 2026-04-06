@@ -579,6 +579,18 @@ EOF
 
 # 生成anytls节点文件
 cat > "${anytls_dir}" << EOF
+socks5节点配置
+{
+      "type": "socks",
+      "tag": "socks-out",  
+      "server": "$server_ip",    
+      "server_port": $socks_port,       
+      "version": "5",          
+      "username": "$username",    
+      "password": "$password",
+      "udp_over_tcp": false       
+},
+	
 #anytls+reality节点  复制以下代码 到nokebox
 #新建节点 自定义配置 粘贴
 {
