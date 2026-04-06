@@ -1094,7 +1094,7 @@ change_config() {
                     green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
                     ;;  
 				5)
-                    reading "\n请输入起始端口: " new_port
+                    reading "\n请输入起始端口(不会更改vmess+ws端口): " new_port
                     [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
                     
                     vless_port=$new_port
