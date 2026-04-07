@@ -961,7 +961,6 @@ uninstall_singbox() {
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
            rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1      
-            esac
 
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
