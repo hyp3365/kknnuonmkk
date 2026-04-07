@@ -279,39 +279,6 @@ $work_dir/qrencode "http://$IP:$PORT/$password"
 echo ""
 }
 
-
-
-:$PORT {
-    handle /$password {
-        root * /etc/xray
-        try_files /sub.txt
-        file_server browse
-        header Content-Type "text/plain; charset=utf-8"
-    }
-
-    handle {
-        respond "404 Not Found" 404
-    }
-}
-EOF
-
-/usr/bin/caddy validate --config /etc/caddy/Caddyfile > /dev/null 2>&1
-chown caddy:caddy /var/log/caddy/caddy.log > /dev/null 2>&1
-chmod 644 /var/log/caddy/caddy.log > /dev/null 2>&1
-
-if [ $? -eq 0 ]; then
-    if [ -f /etc/alpine-release ]; then
-        rc-service caddy restart
-    else
-        systemctl daemon-reload
-        systemctl restart caddy
-    fi
-else
-    [ -f /etc/alpine-release ] && rc-service caddy restart > /dev/null 2>&1 || red "Caddy 配置文件验证失败，订阅功能可能无法使用，但不影响节点使用\nissues 反馈：https://github.com/eooce/xray-argo/issues\n"
-fi
-}
-
-
 # 启动 xray
 start_xray() {
 if [ ${check_xray} -eq 1 ]; then
