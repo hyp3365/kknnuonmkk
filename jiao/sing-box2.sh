@@ -1491,7 +1491,6 @@ purple "$new_vmess_url\n"
 # 主菜单
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
-   nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
    
    clear
