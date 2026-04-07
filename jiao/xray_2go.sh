@@ -520,6 +520,19 @@ manage_xray() {
         *) red "无效的选项！" ;;
     esac
 }
+# 查看节点信息和订阅链接
+check_nodes() {
+if [ ${check_xray} -eq 0 ]; then
+    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
+    server_ip=$(get_realip)
+    sub_port=$(sed -n 's/.*:\([0-9]\+\).*/\1/p' /etc/caddy/Caddyfile)
+    lujing=$(sed -n 's/.*handle \/\([a-zA-Z0-9]\+\).*/\1/p' /etc/caddy/Caddyfile)
+else 
+    yellow "Xray-2go 尚未安装或未运行,请先安装或启动Xray-2go"
+    sleep 1
+    menu
+fi
+}
              
 # 捕获 Ctrl+C 信号
 trap 'red "已取消操作"; exit' INT
@@ -538,15 +551,14 @@ while true; do
    echo "==============="
    green "3. Xray-2go管理"
    echo  "==============="
-   green  "5. 查看节点信息"
-   green  "6. 修改节点配置"
+   green  "4. 查看节点信息"
+   green  "5. 修改节点配置"
    echo  "==============="
-   purple "8. ssh综合工具箱"
-   purple "9. 安装singbox四合一"
+   purple "6. ssh综合工具箱"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-9): " choice
+   reading "请输入选择(0-6): " choice
    echo ""
    case "${choice}" in
         1)  
@@ -574,12 +586,12 @@ while true; do
            ;;
         2) uninstall_xray ;;
         3) manage_xray ;;
-        5) check_nodes ;;
-        6) change_config ;;
-        8) clear && curl -fsSL https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh -o ssh_tool.sh && chmod +x ssh_tool.sh && ./ssh_tool.sh ;;           
-        9) clear && bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sing-box.sh) ;;
+        4) check_nodes ;;
+        5) change_config ;;
+        6) clear && curl -fsSL https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh -o ssh_tool.sh && chmod +x ssh_tool.sh && ./ssh_tool.sh ;;           
+        
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 9" ;; 
+        *) red "无效的选项，请输入 0 到 6" ;; 
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键继续...\033[0m'
 done
