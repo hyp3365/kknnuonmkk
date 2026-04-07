@@ -1285,35 +1285,27 @@ disable_open_sub() {
             fi
             ;; 
         2)
-            latest_bak=""
-            for f in /etc/nginx/conf.d/sing-box.conf.bak_*; do
-                [ -e "$f" ] && latest_bak=$f
-                break # 因为 ls 默认按名称排序，通常时间戳在后的在前面
-            done
+            actual_bak=$(ls -1 /etc/nginx/conf.d/sing-box.conf.bak_* 2>/dev/null | sort -r | head -n 1)
 
-            if [ -f "$latest_bak" ]; then
-                cp -f "$latest_bak" /etc/nginx/conf.d/sing-box.conf
+            if [ -f "$actual_bak" ]; then
+                # 执行恢复
+                cp -f "$actual_bak" "/etc/nginx/conf.d/sing-box.conf"
                 rm -f /etc/nginx/conf.d/sing-box.conf.bak_*
             else
                 if [ ! -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                     red "错误：未发现备份文件且 /etc/nginx/conf.d/sing-box.conf 不存在！"
                     return 1
+                else
+                    yellow "未发现备份，将直接基于当前配置开启订阅"
                 fi
             fi
             server_ip=$(get_realip)
             password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
             sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf
-            sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//' | head -n 1)
+            sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
             
             start_nginx
             green "\n已开启节点订阅"
-            if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
-                link="http://$server_ip/$password"
-            else
-                green "订阅端口：$sub_port"
-                link="http://$server_ip:$sub_port/$password"
-            fi
-            green "新的节点订阅链接：$link\n"
             ;;
         3)
             reading "请输入新的订阅端口(1-65535):" sub_port
