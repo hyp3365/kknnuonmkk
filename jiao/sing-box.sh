@@ -1271,28 +1271,37 @@ disable_open_sub() {
     reading "请输入选择: " choice
     case "${choice}" in
         1)
-            if command -v nginx &>/dev/null; then
+              if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
+                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
+                rm -f "/etc/nginx/conf.d/sing-box.conf"
                 if command_exists rc-service 2>/dev/null; then
-                    rc-service nginx status | grep -q "started" && rc-service nginx stop || red "nginx not running"
+                    rc-service nginx restart
                 else 
-                    [ "$(systemctl is-active nginx)" = "active" ] && systemctl stop nginx || red "ngixn not running"
+                    systemctl restart nginx
                 fi
+                green "节点订阅已关闭"
             else
-                yellow "Nginx is not installed"
+                yellow "未发现 /etc/nginx/conf.d/sing-box.conf 文件，无需操作"
             fi
-
-            green "\n已关闭节点订阅\n"     
             ;; 
         2)
-            green "\n已开启节点订阅\n"
+            latest_bak=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak_* 2>/dev/null | head -n 1)
+            if [ -n "$latest_bak" ]; then
+                cp "$latest_bak" /etc/nginx/conf.d/sing-box.conf
+                rm -f /etc/nginx/conf.d/sing-box.conf.bak_*
+            else
+                yellow "未发现备份文件，将尝试直接使用现有配置"
+            fi
             server_ip=$(get_realip)
             password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
             sed -i "s|\(location = /\)[^ ]*|\1$password|" /etc/nginx/conf.d/sing-box.conf
-	    sub_port=$(port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
+            sub_port=$(port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
             start_nginx
-            (port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); green "\n新的节点订阅链接：$link\n"
-            ;; 
-
+            green "\n已开启节点订阅"
+            (port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); 
+            link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); 
+            green "新的节点订阅链接：$link\n"
+            ;;
         3)
             reading "请输入新的订阅端口(1-65535):" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
