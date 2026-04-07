@@ -1285,21 +1285,34 @@ disable_open_sub() {
             fi
             ;; 
         2)
-            latest_bak=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak_* 2>/dev/null | head -n 1)
-            if [ -n "$latest_bak" ]; then
-                cp "$latest_bak" /etc/nginx/conf.d/sing-box.conf
+            latest_bak=""
+            for f in /etc/nginx/conf.d/sing-box.conf.bak_*; do
+                [ -e "$f" ] && latest_bak=$f
+                break # 因为 ls 默认按名称排序，通常时间戳在后的在前面
+            done
+
+            if [ -f "$latest_bak" ]; then
+                cp -f "$latest_bak" /etc/nginx/conf.d/sing-box.conf
                 rm -f /etc/nginx/conf.d/sing-box.conf.bak_*
             else
-                yellow "未发现备份文件，将尝试直接使用现有配置"
+                if [ ! -f "/etc/nginx/conf.d/sing-box.conf" ]; then
+                    red "错误：未发现备份文件且 /etc/nginx/conf.d/sing-box.conf 不存在！"
+                    return 1
+                fi
             fi
             server_ip=$(get_realip)
             password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-            sed -i "s|\(location = /\)[^ ]*|\1$password|" /etc/nginx/conf.d/sing-box.conf
-            sub_port=$(port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
+            sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf
+            sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//' | head -n 1)
+            
             start_nginx
             green "\n已开启节点订阅"
-            (port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | sed 's/;//'); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); 
-            link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); 
+            if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
+                link="http://$server_ip/$password"
+            else
+                green "订阅端口：$sub_port"
+                link="http://$server_ip:$sub_port/$password"
+            fi
             green "新的节点订阅链接：$link\n"
             ;;
         3)
