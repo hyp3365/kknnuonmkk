@@ -67,13 +67,6 @@ check_argo() {
 }
 
 
-# 检查nginx状态
-check_nginx() {
-    command_exists nginx || { red "not installed"; return 2; }
-    check_service "nginx" "$(command -v nginx)"
-}
-
-
 #根据系统类型安装、卸载依赖
 manage_packages() {
     # 参数检查
@@ -412,37 +405,37 @@ cat > "${config_dir}" << EOF
          }
      },
      {
-       "type": "vless",
-       "tag": "vless-ws",
-       "listen": "127.0.0.1",
-       "listen_port": 8002, // 对应 Nginx 里的 proxy_pass 8002
-       "users": [
-          {
-            "uuid": "$uuid"
-          }
-         ],
-       "transport": {
-         "type": "ws",
-         "path": "/lPaxe1996Ko-5203aap",
-         "early_data_header_name": "Sec-WebSocket-Protocol"
+      "type": "vless",
+      "tag": "vless-ws",
+      "listen": "::",
+      "listen_port": 8001,
+      "users": [
+        {
+          "uuid": "$uuid"
         }
-      },
-      {
-         "type": "vmess",
-         "tag": "vmess-ws",
-         "listen": "127.0.0.1",
-         "listen_port": 8003, // 对应 Nginx 里的 proxy_pass 8003
-         "users": [
-           {
-            "uuid": "$uuid"
-           }
-          ],
-        "transport": {
-          "type": "ws",
-          "path": "/mPaxe1996Ko-5203aap",
-          "early_data_header_name": "Sec-WebSocket-Protocol"
-         }
-     },
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/lPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+	{
+      "type": "vmess",
+      "tag": "vmess-ws",
+      "listen": "::",
+      "listen_port": 8002,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/mPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
 
 	
     {
@@ -815,72 +808,6 @@ chmod 644 ${work_dir}/sub.txt
 yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
 }
 
-# Nginx 纯转发配置 
-add_nginx_conf() {
-    # 1. 确保目录存在
-    mkdir -p /etc/nginx/conf.d
-
-    # 2. 写入转发配置文件
-    cat > /etc/nginx/conf.d/sing-box.conf << 'EOF'
- upstream vless_backend {
-    server 127.0.0.1:8002;
-    keepalive 32; # 维持 32 个空闲长连接
-}
-
-upstream vmess_backend {
-    server 127.0.0.1:8003;
-    keepalive 32;
-}
-
-server {
-    listen 127.0.0.1:8001 so_keepalive=on;
-    server_name _;
-    
-    tcp_nodelay on;
-    tcp_nopush on; 
-
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-    # 代理优化
-    proxy_buffering off;
-    proxy_request_buffering off; 
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 60s;
-
-    # VLESS 转发
-    location /lPaxe1996Ko-5203aap {
-        proxy_pass http://vless_backend; # 指向 upstream
-    }
-
-    # VMess 转发
-    location /mPaxe1996Ko-5203aap {
-        proxy_pass http://vmess_backend; # 指向 upstream
-    }
-
-    # 默认拒绝其他所有访问
-    location / {
-        return 404;
-    }
-}
-EOF
-
-    # 3. 检查语法并重启 Nginx
-    if nginx -t > /dev/null 2>&1; then
-        systemctl restart nginx > /dev/null 2>&1
-        echo -e "\033[32mNginx 转发配置创建并启动！\033[0m"
-    else
-        echo -e "\033[31mNginx 配置语法检查失败，请手动检查 /etc/nginx/conf.d/sing-box.conf\033[0m"
-    fi
-}
-
-
 # 通用服务管理函数
 manage_service() {
     local service_name="$1"
@@ -1006,16 +933,6 @@ restart_argo() {
     manage_service "argo" "restart"
 }
 
-# 启动 nginx
-start_nginx() {
-    manage_service "nginx" "start"
-}
-
-# 重启 nginx
-restart_nginx() {
-    manage_service "nginx" "restart"
-}
-
 # 卸载 sing-box
 uninstall_singbox() {
    reading "确定要卸载 sing-box 吗? (y/n): " choice
@@ -1043,17 +960,7 @@ uninstall_singbox() {
            rm -rf "${work_dir}" || true
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
-           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           
-           # 卸载Nginx
-           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
-            case "${choice}" in
-                y|Y)
-                    manage_packages uninstall nginx
-                    ;;
-                 *) 
-                    yellow "取消卸载Nginx\n\n"
-                    ;;
+           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1      
             esac
 
             green "\nsing-box 卸载成功\n\n" && exit 0
@@ -1068,7 +975,7 @@ uninstall_singbox() {
 create_shortcut() {
   cat > "$work_dir/sb.sh" << EOF
 #!/usr/bin/env bash
-bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box1.sh) \$1
+bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box2.sh) \$1
 EOF
   chmod +x "$work_dir/sb.sh"
   ln -sf "$work_dir/sb.sh" /usr/bin/sb
@@ -1595,7 +1502,6 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
    purple "---Argo 状态: ${argo_status}"   
-   purple "--Nginx 状态: ${nginx_status}"
    purple "singbox 状态: ${singbox_status}\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
@@ -1628,7 +1534,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages install nginx jq tar openssl lsof coreutils
+                manage_packages install jq tar openssl lsof coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
@@ -1644,7 +1550,6 @@ while true; do
 
                 sleep 5
                 get_info
-				add_nginx_conf
                 create_shortcut
             fi
            ;;
