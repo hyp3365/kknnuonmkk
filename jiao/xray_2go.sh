@@ -22,7 +22,6 @@ client_dir="${work_dir}/url.txt"
 # 定义环境变量
 export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
 export PORT=${PORT:-$(shuf -i 1000-60000 -n 1)}
-export ARGO_PORT=${ARGO_PORT:-'8080'}
 export CFIP=${CFIP:-'cdns.doon.eu.org'} 
 export CFPORT=${CFPORT:-'443'}   
 
@@ -212,9 +211,6 @@ EOF
     systemctl daemon-reload
     systemctl enable xray
     systemctl is-active --quiet xray || systemctl start xray
-    systemctl enable tunnel
-    systemctl start tunnel
-    systemctl is-active --quiet tunnel || systemctl start xray
 }
 # 适配alpine 守护进程
 alpine_openrc_services() {
@@ -227,11 +223,8 @@ command_args="run -c /etc/xray/config.json"
 command_background=true
 pidfile="/var/run/xray.pid"
 EOF
-
     chmod +x /etc/init.d/xray
-
     rc-update add xray default
-
 }
 
 
