@@ -117,7 +117,7 @@ get_realip() {
   fi
 }
 
-# 下载并安装 xray,cloudflared
+# 下载并安装 xray
 install_xray() {
     clear
     purple "正在安装Xray-2go中，请稍等..."
@@ -131,13 +131,11 @@ install_xray() {
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
 
-    # 下载xray,cloudflared
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}"
     curl -sLo "${work_dir}/${server_name}.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
-    curl -sLo "${work_dir}/qrencode" "https://github.com/eooce/test/releases/download/${ARCH}/qrencode-linux-${ARCH}"
-    curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}"
-    unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name} ${work_dir}/argo ${work_dir}/qrencode
+    unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name} 
     rm -rf "${work_dir}/${server_name}.zip" "${work_dir}/geosite.dat" "${work_dir}/geoip.dat" "${work_dir}/README.md" "${work_dir}/LICENSE" 
+    }
 
    # 生成随机UUID和密码
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -273,9 +271,6 @@ echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 yellow "\n温馨提醒：如果是NAT机,reality端口和订阅端口需使用可用端口范围内的端口,否则reality协议不通,无法订阅\n"
-green "节点订阅链接：http://$IP:$PORT/$password\n\n订阅链接适用于V2rayN,Nekbox,karing,Sterisand,Loon,小火箭,圈X等\n"
-green "订阅二维码"
-$work_dir/qrencode "http://$IP:$PORT/$password"
 echo ""
 }
 
@@ -393,7 +388,7 @@ create_shortcut() {
   cat > "$work_dir/2go.sh" << EOF
 #!/usr/bin/env bash
 
-bash <(curl -Ls https://github.com/eooce/xray-2go/raw/main/xray_2go.sh) \$1
+bash <(curl -Ls https://github.com/hyp3699/kknnuonmkk/raw/refs/heads/main/jiao/xray_2go.sh)) \$1
 EOF
   chmod +x "$work_dir/2go.sh"
   ln -sf "$work_dir/2go.sh" /usr/bin/2go
@@ -566,7 +561,6 @@ while true; do
             if [ ${check_xray} -eq 0 ]; then
                 yellow "Xray-2go 已经安装！"
             else
-                install_caddy
                 manage_packages install jq unzip iptables openssl coreutils lsof
                 install_xray
 
@@ -575,8 +569,7 @@ while true; do
                 elif [ -x "$(command -v rc-update)" ]; then
                     alpine_openrc_services
                     change_hosts
-                    rc-service xray restart
-                    rc-service tunnel restart
+                    rc-service xray restart                   
                 else
                     echo "Unsupported init system"
                     exit 1 
