@@ -43,33 +43,6 @@ else
 fi
 }
 
-# 检查 argo 是否已安装
-check_argo() {
-if [ -f "${work_dir}/argo" ]; then
-    if [ -f /etc/alpine-release ]; then
-        rc-service tunnel status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
-    else 
-        [ "$(systemctl is-active tunnel)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
-    fi
-else
-    red "not installed"
-    return 2
-fi
-}
-
-# 检查 caddy 是否已安装
-check_caddy() {
-if command -v caddy &>/dev/null; then
-    if [ -f /etc/alpine-release ]; then
-        rc-service caddy status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
-    else 
-        [ "$(systemctl is-active caddy)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
-    fi
-else
-    red "not installed"
-    return 2
-fi
-}
 
 #根据系统类型安装、卸载依赖
 manage_packages() {
@@ -185,36 +158,6 @@ cat > "${config_dir}" << EOF
   "log": { "access": "/dev/null", "error": "/dev/null", "loglevel": "none" },
   "inbounds": [
     {
-      "port": $ARGO_PORT,
-      "protocol": "vless",
-      "settings": {
-        "clients": [{ "id": "$UUID", "flow": "xtls-rprx-vision" }],
-        "decryption": "none",
-        "fallbacks": [
-          { "dest": 3001 }, { "path": "/vless-argo", "dest": 3002 },
-          { "path": "/vmess-argo", "dest": 3003 }
-        ]
-      },
-      "streamSettings": { "network": "tcp" }
-    },
-    {
-      "port": 3001, "listen": "127.0.0.1", "protocol": "vless",
-      "settings": { "clients": [{ "id": "$UUID" }], "decryption": "none" },
-      "streamSettings": { "network": "tcp", "security": "none" }
-    },
-    {
-      "port": 3002, "listen": "127.0.0.1", "protocol": "vless",
-      "settings": { "clients": [{ "id": "$UUID", "level": 0 }], "decryption": "none" },
-      "streamSettings": { "network": "ws", "security": "none", "wsSettings": { "path": "/vless-argo" } },
-      "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"], "metadataOnly": false }
-    },
-    {
-      "port": 3003, "listen": "127.0.0.1", "protocol": "vmess",
-      "settings": { "clients": [{ "id": "$UUID", "alterId": 0 }] },
-      "streamSettings": { "network": "ws", "wsSettings": { "path": "/vmess-argo" } },
-      "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"], "metadataOnly": false }
-    },
-    {
       "listen":"::","port": $XHTTP_PORT, "protocol": "vless","settings": {"clients": [{"id": "$UUID"}],"decryption": "none"},
       "streamSettings": {"network": "xhttp","security": "reality","realitySettings": {"target": "www.nazhumi.com:443","xver": 0,"serverNames": 
       ["www.nazhumi.com"],"privateKey": "$private_key","shortIds": [""]}},"sniffing": {"enabled": true,"destOverride": ["http","tls","quic"]}
@@ -259,24 +202,7 @@ RestartPreventExitStatus=23
 WantedBy=multi-user.target
 EOF
 
-    cat > /etc/systemd/system/tunnel.service << EOF
-[Unit]
-Description=Cloudflare Tunnel
-After=network.target
-
-[Service]
-Type=simple
-NoNewPrivileges=yes
-TimeoutStartSec=0
-ExecStart=/etc/xray/argo tunnel --url http://localhost:$ARGO_PORT --no-autoupdate --edge-ip-version auto --protocol http2
-StandardOutput=append:/etc/xray/argo.log
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-
-EOF
+    
     if [ -f /etc/centos-release ]; then
         yum install -y chrony
         systemctl start chronyd
@@ -305,21 +231,9 @@ command_background=true
 pidfile="/var/run/xray.pid"
 EOF
 
-    cat > /etc/init.d/tunnel << 'EOF'
-#!/sbin/openrc-run
-
-description="Cloudflare Tunnel"
-command="/bin/sh"
-command_args="-c '/etc/xray/argo tunnel --url http://localhost:8080 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/xray/argo.log 2>&1'"
-command_background=true
-pidfile="/var/run/tunnel.pid"
-EOF
-
     chmod +x /etc/init.d/xray
-    chmod +x /etc/init.d/tunnel
 
     rc-update add xray default
-    rc-update add tunnel default
 
 }
 
@@ -365,37 +279,7 @@ $work_dir/qrencode "http://$IP:$PORT/$password"
 echo ""
 }
 
-# 处理ubuntu系统中没有caddy源的问题
-install_caddy () {
-if [ -f /etc/os-release ] && (grep -q "Ubuntu" /etc/os-release || grep -q "Debian GNU/Linux 11" /etc/os-release); then
-    purple "安装依赖中...\n"
-    apt install -y debian-keyring debian-archive-keyring apt-transport-https
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | tee /etc/apt/trusted.gpg.d/caddy-stable.asc
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-    rm /etc/apt/trusted.gpg.d/caddy-stable.asc /usr/share/keyrings/caddy-archive-keyring.gpg 2>/dev/null
-    curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-archive-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/caddy-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" | tee /etc/apt/sources.list.d/caddy-stable.list
-    DEBIAN_FRONTEND=noninteractive apt update -y && manage_packages install caddy
-else
-    manage_packages install caddy 
-fi
-}
 
-# caddy订阅配置
-add_caddy_conf() {
-[ -f /etc/caddy/Caddyfile ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak > /dev/null 2>&1
-rm -rf /etc/caddy/Caddyfile
-    cat > /etc/caddy/Caddyfile << EOF
-{
-    auto_https off
-    log {
-        output file /var/log/caddy/caddy.log {
-            roll_size 10MB
-            roll_keep 10
-            roll_keep_for 720h
-        }
-    }
-}
 
 :$PORT {
     handle /$password {
@@ -506,128 +390,6 @@ else
 fi
 }
 
-# 启动 argo
-start_argo() {
-if [ ${check_argo} -eq 1 ]; then
-    yellow "\n正在启动 Argo 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service tunnel start
-    else
-        systemctl daemon-reload
-        systemctl start tunnel
-    fi
-    if [ $? -eq 0 ]; then
-        green "Argo 服务已成功重启\n"
-    else
-        red "Argo 服务重启失败\n"
-    fi
-elif [ ${check_argo} -eq 0 ]; then
-    green "Argo 服务正在运行\n"
-    sleep 1
-    menu
-else
-    yellow "Argo 尚未安装！\n"
-    sleep 1
-    menu
-fi
-}
-
-# 停止 argo
-stop_argo() {
-if [ ${check_argo} -eq 0 ]; then
-    yellow "\n正在停止 Argo 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service stop start
-    else
-        systemctl daemon-reload
-        systemctl stop tunnel
-    fi
-    if [ $? -eq 0 ]; then
-        green "Argo 服务已成功停止\n"
-    else
-        red "Argo 服务停止失败\n"
-    fi
-elif [ ${check_argo} -eq 1 ]; then
-    yellow "Argo 服务未运行\n"
-    sleep 1
-    menu
-else
-    yellow "Argo 尚未安装！\n"
-    sleep 1
-    menu
-fi
-}
-
-# 重启 argo
-restart_argo() {
-if [ ${check_argo} -eq 0 ]; then
-    yellow "\n正在重启 Argo 服务\n"
-    rm /etc/xray/argo.log 2>/dev/null
-    if [ -f /etc/alpine-release ]; then
-        rc-service tunnel restart
-    else
-        systemctl daemon-reload
-        systemctl restart tunnel
-    fi
-    if [ $? -eq 0 ]; then
-        green "Argo 服务已成功重启\n"
-    else
-        red "Argo 服务重启失败\n"
-    fi
-elif [ ${check_argo} -eq 1 ]; then
-    yellow "Argo 服务未运行\n"
-    sleep 1
-    menu
-else
-    yellow "Argo 尚未安装！\n"
-    sleep 1
-    menu
-fi
-}
-
-# 启动 caddy
-start_caddy() {
-if command -v caddy &>/dev/null; then
-    yellow "\n正在启动 caddy 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service caddy start
-    else
-        systemctl daemon-reload
-        systemctl start caddy
-    fi
-    if [ $? -eq 0 ]; then
-        green "caddy 服务已成功启动\n"
-    else
-        red "caddy 启动失败\n"
-    fi
-else
-    yellow "caddy 尚未安装！\n"
-    sleep 1
-    menu
-fi
-}
-
-# 重启 caddy
-restart_caddy() {
-if command -v caddy &>/dev/null; then
-    yellow "\n正在重启 caddy 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service caddy restart
-    else
-        systemctl restart caddy
-    fi
-    if [ $? -eq 0 ]; then
-        green "caddy 服务已成功重启\n"
-    else
-        red "caddy 重启失败\n"
-    fi
-else
-    yellow "caddy 尚未安装！\n"
-    sleep 1
-    menu
-fi
-}
-
 # 卸载 xray
 uninstall_xray() {
    reading "确定要卸载 xray-2go 吗? (y/n): " choice
@@ -636,17 +398,13 @@ uninstall_xray() {
            yellow "正在卸载 xray"
            if [ -f /etc/alpine-release ]; then
                 rc-service xray stop
-                rc-service tunnel stop
                 rm /etc/init.d/xray /etc/init.d/tunnel
                 rc-update del xray default
-                rc-update del tunnel default
            else
-                # 停止 xray和 argo 服务
+                # 停止 xray
                 systemctl stop "${server_name}"
-                systemctl stop tunnel
-                # 禁用 xray 服务
+                # 禁用 xray 
                 systemctl disable "${server_name}"
-                systemctl disable tunnel
 
                 # 重新加载 systemd
                 systemctl daemon-reload || true
@@ -654,18 +412,7 @@ uninstall_xray() {
            # 删除配置文件和日志
            rm -rf "${work_dir}" || true
 	       rm -rf /etc/systemd/system/xray.service /etc/systemd/system/tunnel.service 2>/dev/null	
-           
-           # 卸载caddy
-           reading "\n是否卸载 caddy？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载caddy) (y/n): ${re}" choice
-            case "${choice}" in
-                y|Y)
-                    manage_packages uninstall caddy
-                    ;;
-                 *)
-                    yellow "取消卸载caddy\n"
-                    ;;
-            esac
-
+       
             green "\nXray_2go 卸载成功\n"
            ;;
        *)
@@ -800,70 +547,6 @@ case "${choice}" in
 esac
 }
 
-disable_open_sub() {
-if [ ${check_xray} -eq 0 ]; then
-    clear
-    echo ""
-    green "1. 关闭节点订阅"
-    skyblue "------------"
-    green "2. 开启节点订阅"
-    skyblue "------------"
-    green "3. 更换订阅端口"
-    skyblue "------------"
-    purple "4. 返回主菜单"
-    skyblue "------------"
-    reading "请输入选择: " choice
-    case "${choice}" in
-        1)
-            if command -v caddy &>/dev/null; then
-                if [ -f /etc/alpine-release ]; then
-                    rc-service caddy status | grep -q "started" && rc-service caddy stop || red "caddy not running"
-                else 
-                    [ "$(systemctl is-active caddy)" = "active" ] && systemctl stop caddy || red "ngixn not running"
-                fi
-            else
-                yellow "caddy is not installed"
-            fi
-
-            green "\n已关闭节点订阅\n"     
-            ;; 
-        2)
-            green "\n已开启节点订阅\n"
-            server_ip=$(get_realip)
-            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-            sed -i "s/\/[a-zA-Z0-9]\+/\/$password/g" /etc/caddy/Caddyfile
-	        sub_port=$(port=$(grep -oP ':\K[0-9]+' /etc/caddy/Caddyfile); if [ "$port" -eq 80 ]; then echo ""; else echo "$port"; fi)
-            start_caddy
-            (port=$(grep -oP ':\K[0-9]+' /etc/caddy/Caddyfile); if [ "$port" -eq 80 ]; then echo ""; else green "订阅端口：$port"; fi); link=$(if [ -z "$sub_port" ]; then echo "http://$server_ip/$password"; else echo "http://$server_ip:$sub_port/$password"; fi); green "\n新的节点订阅链接：$link\n"
-            ;; 
-
-        3)
-            reading "请输入新的订阅端口(1-65535):" sub_port
-            [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
-            until [[ -z $(lsof -iTCP:$sub_port -sTCP:LISTEN 2>/dev/null) ]]; do
-                if [[ -n $(lsof -iTCP:$sub_port -sTCP:LISTEN 2>/dev/null) ]]; then
-                    echo -e "${red}${new_port}端口已经被其他程序占用，请更换端口重试${re}"
-                    reading "请输入新的订阅端口(1-65535):" sub_port
-                    [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
-                fi
-            done
-            sed -i "s/:[0-9]\+/:$sub_port/g" /etc/caddy/Caddyfile
-            path=$(sed -n 's/.*handle \/\([^ ]*\).*/\1/p' /etc/caddy/Caddyfile)
-            server_ip=$(get_realip)
-            restart_caddy
-            green "\n订阅端口更换成功\n"
-            green "新的订阅链接为：http://$server_ip:$sub_port/$path\n"
-            ;; 
-        4)  menu ;; 
-        *)  red "无效的选项！" ;;
-    esac
-else
-    yellow "xray—2go 尚未安装！"
-    sleep 1
-    menu
-fi
-}
-
 # xray 管理
 manage_xray() {
     green "1. 启动xray服务"
@@ -883,171 +566,7 @@ manage_xray() {
         *) red "无效的选项！" ;;
     esac
 }
-
-# Argo 管理
-manage_argo() {
-if [ ${check_argo} -eq 2 ]; then
-    yellow "Argo 尚未安装！"
-    sleep 1
-    menu
-else
-    clear
-    echo ""
-    green "1. 启动Argo服务"
-    skyblue "------------"
-    green "2. 停止Argo服务"
-    skyblue "------------"
-    green "3. 添加Argo固定隧道"
-    skyblue "----------------"
-    green "4. 切换回Argo临时隧道"
-    skyblue "------------------"
-    green "5. 重新获取Argo临时域名"
-    skyblue "-------------------"
-    purple "6. 返回主菜单"
-    skyblue "-----------"
-    reading "\n请输入选择: " choice
-    case "${choice}" in
-        1)  start_argo ;;
-        2)  stop_argo ;; 
-        3)
-            clear
-            yellow "\n固定隧道可为json或token，固定隧道端口为8080，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
-            reading "\n请输入你的argo域名: " argo_domain
-            green "你的Argo域名为：$argo_domain"
-            ArgoDomain=$argo_domain
-            reading "\n请输入你的argo密钥(token或json): " argo_auth
-            if [[ $argo_auth =~ TunnelSecret ]]; then
-                echo $argo_auth > ${work_dir}/tunnel.json
-                cat > ${work_dir}/tunnel.yml << EOF
-tunnel: $(cut -d\" -f12 <<< "$argo_auth")
-credentials-file: ${work_dir}/tunnel.json
-protocol: http2
-                                           
-ingress:
-  - hostname: $ArgoDomain
-    service: http://localhost:8080
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-EOF
-                if [ -f /etc/alpine-release ]; then
-                    sed -i '/^command_args=/c\command_args="-c '\''/etc/xray/argo tunnel --edge-ip-version auto --config /etc/xray/tunnel.yml run 2>&1'\''"' /etc/init.d/tunnel
-                else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/xray/argo tunnel --edge-ip-version auto --config /etc/xray/tunnel.yml run 2>&1"' /etc/systemd/system/tunnel.service
-                fi
-                restart_argo
-                add_split_url
-                change_argo_domain
-            elif [[ $argo_auth =~ ^[A-Z0-9a-z=]{120,250}$ ]]; then
-                if [ -f /etc/alpine-release ]; then
-                    sed -i "/^command_args=/c\command_args=\"-c '/etc/xray/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1'\"" /etc/init.d/tunnel
-                else
-
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/xray/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$argo_auth' 2>&1"' /etc/systemd/system/tunnel.service
-                fi
-                restart_argo
-                add_split_url
-                change_argo_domain
-            else
-                yellow "你输入的argo域名或token不匹配，请重新输入"
-                manage_argo            
-            fi
-            ;; 
-        4)
-            clear
-            if [ -f /etc/alpine-release ]; then
-                alpine_openrc_services
-            else
-                main_systemd_services
-            fi
-            get_quick_tunnel
-            change_argo_domain 
-            ;; 
-
-        5)  
-            if [ -f /etc/alpine-release ]; then
-                if grep -Fq -- '--url http://localhost:8080' /etc/init.d/tunnel; then
-                    get_quick_tunnel
-                    change_argo_domain 
-                else
-                    yellow "当前使用固定隧道，无法获取临时隧道"
-                    sleep 2
-                    menu
-                fi
-            else
-                if grep -q 'ExecStart=.*--url http://localhost:8080' /etc/systemd/system/tunnel.service; then
-                    get_quick_tunnel
-                    change_argo_domain 
-                else
-                    yellow "当前使用固定隧道，无法获取临时隧道"
-                    sleep 2
-                    menu
-                fi
-            fi 
-            ;; 
-        6)  menu ;; 
-        *)  red "无效的选项！" ;;
-    esac
-fi
-}
-
-# 获取argo临时隧道
-get_quick_tunnel() {
-restart_argo
-yellow "获取临时argo域名中，请稍等...\n"
-sleep 3
-if [ -f /etc/xray/argo.log ]; then
-  for i in {1..5}; do
-      get_argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' /etc/xray/argo.log)
-      [ -n "$get_argodomain" ] && break
-      sleep 2
-  done
-else
-  restart_argo
-  sleep 6
-  get_argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' /etc/xray/argo.log)
-fi
-green "ArgoDomain：${purple}$get_argodomain${re}\n"
-ArgoDomain=$get_argodomain
-}
-
-# 更新Argo域名到订阅
-change_argo_domain() {
-    sed -i "5s/sni=[^&]*/sni=$ArgoDomain/; 5s/host=[^&]*/host=$ArgoDomain/" /etc/xray/url.txt
-    content=$(cat "$client_dir")
-    vmess_urls=$(grep -o 'vmess://[^ ]*' "$client_dir")
-    vmess_prefix="vmess://"
-    for vmess_url in $vmess_urls; do
-        encoded_vmess="${vmess_url#"$vmess_prefix"}"
-        decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-        updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-        new_vmess_url="$vmess_prefix$encoded_updated_vmess"
-        content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-    done
-    echo "$content" > "$client_dir"
-    base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-
-    while IFS= read -r line; do echo -e "${purple}$line"; done < "$client_dir"
-    
-    green "\n节点已更新,更新订阅或手动复制以上节点\n"
-}
-
-# 查看节点信息和订阅链接
-check_nodes() {
-if [ ${check_xray} -eq 0 ]; then
-    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
-    server_ip=$(get_realip)
-    sub_port=$(sed -n 's/.*:\([0-9]\+\).*/\1/p' /etc/caddy/Caddyfile)
-    lujing=$(sed -n 's/.*handle \/\([a-zA-Z0-9]\+\).*/\1/p' /etc/caddy/Caddyfile)
-    green "\n\n节点订阅链接：http://$server_ip:$sub_port/$lujing\n"
-else 
-    yellow "Xray-2go 尚未安装或未运行,请先安装或启动Xray-2go"
-    sleep 1
-    menu
-fi
-}
-
+             
 # 捕获 Ctrl+C 信号
 trap 'red "已取消操作"; exit' INT
 
@@ -1055,26 +574,18 @@ trap 'red "已取消操作"; exit' INT
 menu() {
 while true; do
    check_xray &>/dev/null; check_xray=$?
-   check_caddy &>/dev/null; check_caddy=$?
-   check_argo &>/dev/null; check_argo=$?
    check_xray_status=$(check_xray) > /dev/null 2>&1
-   check_caddy_status=$(check_caddy) > /dev/null 2>&1
-   check_argo_status=$(check_argo) > /dev/null 2>&1
    clear
    echo ""
    purple "=== 老王Xray-2go一键安装脚本 ===\n"
    purple " Xray 状态: ${check_xray_status}\n"
-   purple " Argo 状态: ${check_argo_status}\n"   
-   purple "Caddy 状态: ${check_caddy_status}\n"
    green "1. 安装Xray-2go"
    red "2. 卸载Xray-2go"
    echo "==============="
    green "3. Xray-2go管理"
-   green "4. Argo隧道管理"
    echo  "==============="
    green  "5. 查看节点信息"
    green  "6. 修改节点配置"
-   green  "7. 管理节点订阅"
    echo  "==============="
    purple "8. ssh综合工具箱"
    purple "9. 安装singbox四合一"
@@ -1106,16 +617,13 @@ while true; do
 
                 sleep 3
                 get_info
-                add_caddy_conf
                 create_shortcut
             fi
            ;;
         2) uninstall_xray ;;
         3) manage_xray ;;
-        4) manage_argo ;;
         5) check_nodes ;;
         6) change_config ;;
-        7) disable_open_sub ;;
         8) clear && curl -fsSL https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh -o ssh_tool.sh && chmod +x ssh_tool.sh && ./ssh_tool.sh ;;           
         9) clear && bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sing-box.sh) ;;
         0) exit 0 ;;
