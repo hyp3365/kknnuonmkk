@@ -1285,28 +1285,55 @@ disable_open_sub() {
             fi
             ;; 
         2)
-            actual_bak=$(ls -1 /etc/nginx/conf.d/sing-box.conf.bak_* 2>/dev/null | sort -r | head -n 1)
-
-            if [ -f "$actual_bak" ]; then
-                # 执行恢复
-                cp -f "$actual_bak" "/etc/nginx/conf.d/sing-box.conf"
-                rm -f /etc/nginx/conf.d/sing-box.conf.bak_*
+                
+            echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
+            # 放弃 ls，改用全平台通用的 find 命令，匹配所有 .bak 开头的备份 (包括 .bak.sb 和 .bak_日期)
+            bak_file=$(find /etc/nginx/conf.d/ -maxdepth 1 -name "sing-box.conf.bak*" | sort -r | head -n 1)
+            
+            if [ -n "$bak_file" ] && [ -f "$bak_file" ]; then
+                echo -e "\033[1;32m[系统排错] 成功找到最新备份: $bak_file\033[0m"
+                echo -e "\033[1;33m[系统排错] 正在执行恢复操作...\033[0m"
+                
+                # 使用 \cp 绕过可能存在的 cp 别名提示，强制覆盖
+                \cp -f "$bak_file" "/etc/nginx/conf.d/sing-box.conf"
+                
+                # 严格验证文件是否真的恢复成功
+                if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
+                    echo -e "\033[1;32m[系统排错] 恢复成功！原配置已就位。\033[0m"
+                    # 清理多余的备份文件
+                    rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+                else
+                    echo -e "\033[1;91m[系统排错] 严重错误：复制命令已执行，但 sing-box.conf 依然不存在！请检查目录权限。\033[0m"
+                    return 1
+                fi
             else
                 if [ ! -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                    red "错误：未发现备份文件且 /etc/nginx/conf.d/sing-box.conf 不存在！"
+                    echo -e "\033[1;91m[系统排错] 致命错误：找不到备份文件，且原配置文件也不存在！\033[0m"
+                    echo -e "\033[1;33m[系统排错] 当前 /etc/nginx/conf.d/ 目录下的内容如下：\033[0m"
+                    ls -la /etc/nginx/conf.d/
                     return 1
-                else
-                    yellow "未发现备份，将直接基于当前配置开启订阅"
                 fi
             fi
+
+            # 恢复后的常规逻辑：修改密码、提取端口、重启
             server_ip=$(get_realip)
             password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
             sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf
+            
             sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
             
             start_nginx
-            green "\n已开启节点订阅"
+            green "\n已开启节点订阅并重新生成链接"
+            
+            if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
+                link="http://$server_ip/$password"
+            else
+                green "订阅端口：$sub_port"
+                link="http://$server_ip:$sub_port/$password"
+            fi
+            green "新的节点订阅链接：$link\n"
             ;;
+
         3)
             reading "请输入新的订阅端口(1-65535):" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
