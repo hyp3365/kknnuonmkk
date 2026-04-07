@@ -292,12 +292,10 @@ TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
        
-	curl -sLo "${work_dir}/qrencode" "https://$ARCH.ssss.nyc.mn/qrencode"
-    #curl -sLo "${work_dir}/sing-box" "https://$ARCH.ssss.nyc.mn/sb"
     CF_ARCH=$(uname -m); case "$CF_ARCH" in x86_64) CF_ARCH=amd64;; aarch64|arm64) CF_ARCH=arm64;; armv7l) CF_ARCH=armv7;; i386|i686) CF_ARCH=386;; esac
     curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
   
-    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo ${work_dir}/qrencode
+    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
    # 生成随机端口和密码
     nginx_port=$(($vless_port + 1)) 
@@ -692,16 +690,6 @@ chmod 644 ${work_dir}/sub.txt
 yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
 green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
 $work_dir/qrencode "http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nClash,Mihomo系列订阅链接：https://sublink.eooce.com/clash?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/clash?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nSing-box订阅链接：https://sublink.eooce.com/singbox?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/singbox?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n=========================================================================================="
-green "\n\nSurge订阅链接：https://sublink.eooce.com/surge?config=http://${server_ip}:${nginx_port}/${password}\n"
-$work_dir/qrencode "https://sublink.eooce.com/surge?config=http://${server_ip}:${nginx_port}/${password}"
-yellow "\n==========================================================================================\n"
 }
 
 # nginx订阅配置
@@ -1549,10 +1537,6 @@ check_nodes() {
     lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
     sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf")
     base64_url="http://${server_ip}:${sub_port}/${lujing}"
-    green "\n\nSurge订阅链接: ${purple}https://sublink.eooce.com/surge?config=${base64_url}${re}\n"
-    green "sing-box订阅链接: ${purple}https://sublink.eooce.com/singbox?config=${base64_url}${purple}\n"
-    green "Mihomo/Clash系列订阅链接: ${purple}https://sublink.eooce.com/clash?config=${base64_url}${re}\n"
-    green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接: ${purple}${base64_url}${re}\n"
 }
 
 change_cfip() {
