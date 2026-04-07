@@ -1288,7 +1288,7 @@ disable_open_sub() {
                 
             echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
             # 放弃 ls，改用全平台通用的 find 命令，匹配所有 .bak 开头的备份 (包括 .bak.sb 和 .bak_日期)
-            bak_file=$(find /etc/nginx/conf.d/ -maxdepth 1 -name "sing-box.conf.bak*" | sort -r | head -n 1)
+            bak_file=$(ls /etc/nginx/conf.d/sing-box.conf.bak* 2>/dev/null | sort -r | head -n 1)
             
             if [ -n "$bak_file" ] && [ -f "$bak_file" ]; then
                 echo -e "\033[1;32m[系统排错] 成功找到最新备份: $bak_file\033[0m"
