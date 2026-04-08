@@ -301,7 +301,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
-	shadowsocks_port=$(($vless_port + 4)) 
+	cdn_port=$(($vless_port + 4)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -425,30 +425,6 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
-    },
-	{
-      "type": "vless",
-      "tag": "vless-ws-tls",
-      "listen": "::",
-      "listen_port": 40005,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-       "transport": {
-        "type": "ws",
-        "path": "/sjsjxnbhhggg-85ugg",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      },
-      "tls":{
-				"enabled":false,#启用tls 改为true
-                "server_name":"ui.990093.xyz",#域名
-                "min_version":"1.3",
-                "max_version":"1.3",
-                "certificate_path":"$work_dir/99.pem",#域名源证书
-                "key_path":"$work_dir/99.key"#私钥
-            }
     },
 	{
        "type": "socks",
@@ -1275,11 +1251,11 @@ add_cdn_node() {
         echo -e "${red}错误：未检测到基础端口(vless_port)，请先安装或配置基础节点${re}"
         return 1
     fi
-    cdn_port=$(($vless_port + 5))
+    cdn_port=$(($vless_port + 4))
     echo -e "${green}CDN 节点将使用端口: $cdn_port${re}"
 
     # 2. 输入域名
-    read -p "请输入 CDN 节点域名 (例如: ui.990093.xyz): " cdn_domain
+    read -p "请输入 CDN 节点域名: " cdn_domain
     [[ -z "$cdn_domain" ]] && echo -e "${red}域名不能为空!${re}" && return 1
 
     # 3. 创建证书目录并写入文件
