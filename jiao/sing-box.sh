@@ -985,7 +985,7 @@ create_shortcut() {
   cat > "$work_dir/sb.sh" << EOF
 #!/usr/bin/env bash
 
-bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/1sing-box.sh) \$1
+bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sing-box.sh) \$1
 EOF
   chmod +x "$work_dir/sb.sh"
   ln -sf "$work_dir/sb.sh" /usr/bin/sb
@@ -1314,16 +1314,13 @@ disable_open_sub() {
                     return 1
                 fi
             fi
-
-            # 恢复后的常规逻辑：修改密码、提取端口、重启
             server_ip=$(get_realip)
             password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
             sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf
             
             sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
             
-            start_nginx
-			nginx -s reload > /dev/null 2>&1
+            restart_nginx
             green "\n已开启节点订阅并重新生成链接"
             
             if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
