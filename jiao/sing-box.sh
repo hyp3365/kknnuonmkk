@@ -1355,15 +1355,14 @@ disable_open_sub() {
         6)
             reading "请输入新的订阅端口[1-65535]:" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
-            
-            # 检查端口是否被占用
-            until [[ -z $(lsof -iTCP:"$sub_port" -sTCP:LISTEN -t) ]]; do
-                if [[ -n $(lsof -iTCP:"$sub_port" -sTCP:LISTEN -t) ]]; then
-                    echo -e "${red}端口 $sub_port 已经被其他程序占用，请更换端口重试${re}"
-                    reading "请输入新的订阅端口(1-65535):" sub_port
-                    [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
-                fi
+
+			# 检查端口是否被占用
+            while netstat -tunl | grep -q ":$sub_port "; do
+               echo -e "${red}端口 $sub_port 已经被占用，请更换端口重试${re}"
+               read -p "请输入新的订阅端口(1-65535，回车随机生成): " sub_port
+               [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
             done
+
 
             # 备份当前配置
             if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
