@@ -423,18 +423,6 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
-    },
-	{
-       "type": "socks",
-       "tag": "socks",
-       "listen": "::",
-       "listen_port": $socks_port,
-       "users": [
-         {
-           "username": "$username",
-           "password": "$password"
-         }
-       ]
     }
   ],
   "endpoints": [
@@ -551,15 +539,13 @@ Description=sing-box service
 Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
 
-
 [Service]
 User=root
-Type=simple
-NoNewPrivileges=yes
-TimeoutStartSec=0
 WorkingDirectory=/etc/sing-box
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/
-ExecReload=/bin/kill -HUP $MAINPID
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=infinity
