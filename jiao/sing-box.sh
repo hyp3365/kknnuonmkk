@@ -1272,8 +1272,7 @@ manage_nginx() {
     
     clear
     echo ""
-    green "=== 管理节点订阅 ===\n"
-    green "sing-box当前状态: $nginx_status\n"
+    green "nginx当前状态: $nginx_status\n"
     skyblue "------------"
     green "1. 启动nginx"
     skyblue "------------"
