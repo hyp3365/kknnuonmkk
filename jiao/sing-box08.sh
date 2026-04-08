@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# =========================
+# ========================
 # 老王sing-box四合一安装脚本
 # vless-version-reality|vmess-ws-tls(tunnel)|hysteria2|tuic5
 # 最后更新时间: 2026.3.05
