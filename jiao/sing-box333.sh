@@ -1387,11 +1387,11 @@ disable_open_sub() {
 
 manage_nodes_menu() {
     while true; do
-        # --- 每次循环开始时先扫描文件夹 ---
         local CONF_DIR="/etc/sing-box"
+        # 菜单总宽度
+        local width=45
         
         # 定义节点清单: "文件名|节点名称|添加编号"
-        # 1-5 为添加编号，51-55 为对应的删除编号
         local node_list=(
             "h2-reality.json|H2 + Reality|1"
             "grpc-reality.json|gRPC + Reality|2"
@@ -1401,12 +1401,12 @@ manage_nodes_menu() {
         )
 
         clear
-        echo -e "${YELLOW}=================================${PLAIN}"
-        echo -e "         节点动态管理菜单        "
-        echo -e "${YELLOW}=================================${PLAIN}"
+        yellow "============================================="
+        echo -e "             节点动态管理菜单               "
+        yellow "============================================="
 
-        # --- 第一部分：待添加列表 (红色) ---
-        echo -e "${BLUE}[ 待添加列表 ]${PLAIN}"
+        # --- 第一部分：待添加列表 ---
+        echo -e "\e[1;34m[ 待添加列表 ]\033[0m"
         local has_unadded=false
         for item in "${node_list[@]}"; do
             local file=$(echo $item | cut -d'|' -f1)
@@ -1414,17 +1414,21 @@ manage_nodes_menu() {
             local id=$(echo $item | cut -d'|' -f3)
             
             if [ ! -f "$CONF_DIR/$file" ]; then
-                echo -e " ${id}. ${name}节点 ${RED}(未添加) -> 输入 ${id} 开始配置${PLAIN}"
+                # 拼接左侧文字
+                local left_text=" ${id}. ${name}节点"
+                # 拼接右侧文字
+                local right_text="(未添加) -> 输入 ${id} 开始配置"
+                # 自动计算中间空格实现右对齐
+                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(red "$right_text")"
                 has_unadded=true
             fi
         done
         [ "$has_unadded" = false ] && echo -e " (所有节点已添加)"
 
-        # --- 使用 == 分成两部分 ---
-        echo -e "\n================================="
+        echo -e "\n============================================="
 
-        # --- 第二部分：已添加列表 (绿色) ---
-        echo -e "${GREEN}[ 已添加列表 ]${PLAIN}"
+        # --- 第二部分：已添加列表 ---
+        echo -e "\e[1;32m[ 已添加列表 ]\033[0m"
         local has_added=false
         for item in "${node_list[@]}"; do
             local file=$(echo $item | cut -d'|' -f1)
@@ -1433,66 +1437,35 @@ manage_nodes_menu() {
             local del_id=$((id + 50))
             
             if [ -f "$CONF_DIR/$file" ]; then
-                echo -e " ${del_id}. ${name}节点 ${GREEN}(已添加) -> 输入 ${del_id} 删除节点${PLAIN}"
+                local left_text=" ${del_id}. ${name}节点"
+                local right_text="(已添加) -> 输入 ${del_id} 删除节点"
+                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(green "$right_text")"
                 has_added=true
             fi
         done
         [ "$has_added" = false ] && echo -e " (当前无运行中节点)"
 
-        echo -e "${YELLOW}=================================${PLAIN}"
+        yellow "============================================="
         echo -e " 0. 返回上一级菜单"
-        echo -ne "\n请选择操作: "
-        read choice
+        echo -ne "\n"
+        reading "请选择操作: " choice
 
-        # --- 处理用户输入 ---
         case "${choice}" in
-            1) # 添加 H2 + Reality
-               # 这里调用你之前的生成的代码逻辑
+            1) # 示例：添加 H2 Reality
                yellow "正在配置 H2 + Reality..."
+               # 这里放入你之前的 cat > ... 代码
                ;;
-            2) # 添加 gRPC + Reality
-               yellow "正在配置 gRPC + Reality..."
-               ;;
-            3) # 添加 anytls
-               yellow "正在配置 anytls..."
-               ;;
-            4) # 添加 Socks
-               yellow "正在配置 Socks..."
-               ;;
-            5) # 添加 HTTP
-               yellow "正在配置 HTTP..."
-               ;;
-            51) # 删除 H2 + Reality
-                [ -f "$CONF_DIR/h2-reality.json" ] && rm -f "$CONF_DIR/h2-reality.json" && green "H2 + Reality 配置已移除"
+            51) # 示例：删除 H2 Reality
+                [ -f "$CONF_DIR/h2-reality.json" ] && rm -f "$CONF_DIR/h2-reality.json" && green "配置已移除"
                 ;;
-            52) # 删除 gRPC + Reality
-                [ -f "$CONF_DIR/grpc-reality.json" ] && rm -f "$CONF_DIR/grpc-reality.json" && green "gRPC + Reality 配置已移除"
-                ;;
-            53) # 删除 anytls
-                [ -f "$CONF_DIR/anytls.json" ] && rm -f "$CONF_DIR/anytls.json" && green "anytls 配置已移除"
-                ;;
-            54) # 删除 Socks
-                [ -f "$CONF_DIR/socks.json" ] && rm -f "$CONF_DIR/socks.json" && green "Socks 配置已移除"
-                ;;
-            55) # 删除 HTTP
-                [ -f "$CONF_DIR/http.json" ] && rm -f "$CONF_DIR/http.json" && green "HTTP 配置已移除"
-                ;;
-            0)
-                break
-                ;;
-            *)
-                red "无效选项"
-                sleep 1
-                continue
-                ;;
+            0) break ;;
+            *) red "无效选项"; sleep 1; continue ;;
         esac
-
-        # 提示：每次增删文件后，建议在此处加上重启 sing-box 的命令
-        # systemctl restart sing-box
-        echo -e "\n操作完成。"
         sleep 1
     done
 }
+
+
 		
 
 
