@@ -1264,15 +1264,9 @@ disable_open_sub() {
         return
     fi
 
-# 管理节点订阅管理
-manage_nginx() {
-    # 检查nginx状态
-    local nginx_status=$(check_nginx 2>/dev/null)
-    local nginx_installed=$?
-    
     clear
     echo ""
-    green "nginx当前状态: $nginx_status\n"
+    green "=== 节点订阅管理 ===\n"
     skyblue "------------"
     green "1. 启动nginx"
     skyblue "------------"
