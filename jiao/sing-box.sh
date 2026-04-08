@@ -1684,8 +1684,9 @@ menu() {
    green  "5. 查看节点信息"
    green  "6. 修改节点配置"
    green  "7. 管理节点订阅"
+   green  "8. 更新sing-box"
    echo  "==============="
-   purple "8. ssh综合工具箱"
+   purple "9. ssh综合工具箱"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -1731,12 +1732,16 @@ while true; do
         5) check_nodes ;;
         6) change_config ;;
         7) disable_open_sub ;;
-        8) 
+		8) 
+           clear
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
+		   ;;
+        9) 
            clear
            bash <(curl -Ls ssh_tool.eooce.com)
            ;;           
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 8" ;;
+        *) red "无效的选项，请输入 0 到 9" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
