@@ -44,6 +44,9 @@ generate_vars() {
         fi
     fi
     h2_reality=$(shuf -i 10000-60000 -n 1)
+	socks_port=$(shuf -i 10000-60000 -n 1)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 4)
 }
 
@@ -328,7 +331,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
-	h2_reality=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -1403,8 +1405,6 @@ manage_nodes_menu() {
     while true; do
         local CONF_DIR="/etc/sing-box"
         local width=45
-        
-        # 定义节点清单: "文件名|节点名称|添加编号"
         local node_list=(
             "h2-reality.json|H2 + Reality|1"
             "grpc-reality.json|gRPC + Reality|2"
@@ -1415,11 +1415,9 @@ manage_nodes_menu() {
 
         clear
         yellow "============================================="
-        echo -e "             节点动态管理菜单               "
+        echo -e "             添加删除节点               "
         yellow "============================================="
-
-        # --- 第一部分：待添加列表 (红色) ---
-        echo -e "\e[1;34m[ 待添加列表 ]\033[0m"
+        echo -e "\e[1;34m[ 未添加节点 ]\033[0m"
         local has_unadded=false
         for item in "${node_list[@]}"; do
             local file=$(echo $item | cut -d'|' -f1)
@@ -1436,9 +1434,7 @@ manage_nodes_menu() {
         [ "$has_unadded" = false ] && echo -e " (所有节点已添加)"
 
         echo -e "\n============================================="
-
-        # --- 第二部分：已添加列表 (绿色) ---
-        echo -e "\e[1;32m[ 已添加列表 ]\033[0m"
+        echo -e "\e[1;32m[ 已添加节点 ]\033[0m"
         local has_added=false
         for item in "${node_list[@]}"; do
             local file=$(echo $item | cut -d'|' -f1)
@@ -1460,17 +1456,10 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-
-                            1) 
-                # 1. 生成/提取变量（UUID, Key, 端口, ShortID等）
+        1) 
                 generate_vars
-                
-                # 2. 获取服务器 IP (用于拼接链接)
-                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)
-                
+                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)                
                 yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
-                
-                # 3. 写入配置文件
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
   "inbounds": [
@@ -1513,19 +1502,12 @@ manage_nodes_menu() {
   ]
 }
 EOF
-                # 4. 拼接链接字符串
                 isp="H2-Reality-Node"
                 url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${isp}"
-
-                # 5. 写入订阅文件系统
                 mkdir -p /etc/sing-box
-                # 先删除旧的同名节点，防止重复
                 [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-                # 写入明文链接并生成 Base64
                 echo "$url" >> /etc/sing-box/url.txt
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
-
-                # 6. 重启服务
                 restart_singbox
                 
                 green "==============================================="
@@ -1538,15 +1520,56 @@ EOF
 
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
-            4) yellow "正在配置 Socks...";;
+            4) yellow "正在配置 Socks..."
+                generate_vars
+                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)
+                yellow "正在配置 Socks5 (端口: $socks_port)..."
+                cat > /etc/sing-box/socks5.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "::",
+      "listen_port": $socks_port,
+      "users": [
+        {
+          "username": "$username",
+          "password": "$password"
+        }
+      ]
+    }
+  ]
+}
+EOF
+                isp="Socks5-Node"
+                url="socks://${socks_user}:${socks_pass}@${server_ip}:${socks_port}#${isp}"
+                mkdir -p /etc/sing-box
+                [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                echo "$url" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+
+                # 7. 重启服务
+                restart_singbox
+        
+                green "==============================================="
+                green " Socks5 节点已添加并重启!"
+                green " 节点链接: $url"
+                green " 用户名: $username"
+                green " 密  码: $password"
+                green "==============================================="
+                ;;
             5) yellow "正在配置 HTTP...";;
 
             # --- 完整的删除逻辑 ---
-            51) 
+                       51) 
+                isp="H2-Reality-Node"
                 if [ -f "$CONF_DIR/h2-reality.json" ]; then
                     rm -f "$CONF_DIR/h2-reality.json"
-                    green "H2 + Reality 配置已移除"
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                     restart_singbox
+                    green "已删除"
                 else
                     red "文件不存在"
                 fi
