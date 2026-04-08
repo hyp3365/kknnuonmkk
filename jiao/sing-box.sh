@@ -551,15 +551,13 @@ Description=sing-box service
 Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
 
-
 [Service]
 User=root
-Type=simple
-NoNewPrivileges=yes
-TimeoutStartSec=0
 WorkingDirectory=/etc/sing-box
-ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/
-ExecReload=/bin/kill -HUP $MAINPID
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+ExecStart=/etc/sing-box/sing-box run -c /etc/sing-box/config.json
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=infinity
@@ -605,7 +603,7 @@ alpine_openrc_services() {
 
 description="sing-box service"
 command="/etc/sing-box/sing-box"
-command_args="run -C /etc/sing-box"
+command_args="run -c /etc/sing-box/config.json"
 command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
