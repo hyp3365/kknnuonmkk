@@ -970,7 +970,10 @@ uninstall_singbox() {
            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
             case "${choice}" in
                 y|Y)
+				    stop_nginx
                     manage_packages uninstall nginx
+					rm -f /etc/nginx/conf.d/sing-box.conf
+                    rm -f /etc/nginx/conf.d/sing-box.conf.bak*
                     ;;
                  *) 
                     yellow "取消卸载Nginx\n\n"
@@ -1310,17 +1313,11 @@ disable_open_sub() {
         5)
                 
             echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
-            # 放弃 ls，改用全平台通用的 find 命令，匹配所有 .bak 开头的备份 (包括 .bak.sb 和 .bak_日期)
             bak_file=$(ls /etc/nginx/conf.d/sing-box.conf.bak* 2>/dev/null | sort -r | head -n 1)
             
             if [ -n "$bak_file" ] && [ -f "$bak_file" ]; then
-                echo -e "\033[1;32m[系统排错] 成功找到最新备份: $bak_file\033[0m"
-                echo -e "\033[1;33m[系统排错] 正在执行恢复操作...\033[0m"
-                
-                # 使用 \cp 绕过可能存在的 cp 别名提示，强制覆盖
                 \cp -f "$bak_file" "/etc/nginx/conf.d/sing-box.conf"
-                
-                # 严格验证文件是否真的恢复成功
+    
                 if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                     echo -e "\033[1;32m[系统排错] 恢复成功！原配置已就位。\033[0m"
                     # 清理多余的备份文件
