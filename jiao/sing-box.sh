@@ -1787,7 +1787,7 @@ while true; do
         5) check_nodes ;;
         6) change_config ;;
         7) disable_open_sub ;;
-		10) add_cdn_node ;;
+    	10) add_extra_node ;;
 		8) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
