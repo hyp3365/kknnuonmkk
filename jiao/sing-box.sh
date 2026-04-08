@@ -1260,17 +1260,35 @@ disable_open_sub() {
     echo ""
     green "=== 管理节点订阅 ===\n"
     skyblue "------------"
-    green "1. 关闭节点订阅"
+    green "1. 启动nginx"
     skyblue "------------"
-    green "2. 开启节点订阅"
+	green "2. 停止gninx"
     skyblue "------------"
-    green "3. 更换订阅端口"
+	green "3."重启nginx"
+    skyblue "------------"
+    green "4. 关闭节点订阅"
+    skyblue "------------"
+    green "5. 开启节点订阅"
+    skyblue "------------"
+    green "6. 更换订阅端口"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-        1)
+	    1)
+            start_nginx
+            green "Nginx 服务已启动"
+            ;;
+        2)
+            stop_nginx
+            yellow "Nginx 服务已停止"
+            ;;
+        3)
+            restart_nginx
+            green "Nginx 服务已重启"
+            ;;
+        4)
               if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
                 rm -f "/etc/nginx/conf.d/sing-box.conf"
@@ -1284,7 +1302,7 @@ disable_open_sub() {
                 yellow "未发现 /etc/nginx/conf.d/sing-box.conf 文件，无需操作"
             fi
             ;; 
-        2)
+        5)
                 
             echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
             # 放弃 ls，改用全平台通用的 find 命令，匹配所有 .bak 开头的备份 (包括 .bak.sb 和 .bak_日期)
@@ -1332,7 +1350,7 @@ disable_open_sub() {
             green "新的节点订阅链接：$link\n"
             ;;
 
-        3)
+        6)
             reading "请输入新的订阅端口(1-65535):" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
             
