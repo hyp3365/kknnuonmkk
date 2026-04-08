@@ -1267,12 +1267,6 @@ disable_open_sub() {
     echo ""
     green "=== 管理节点订阅 ===\n"
     skyblue "------------"
-	green "1. 启动nginx"
-    skyblue "------------"
-	green "2. 停止gninx"
-    skyblue "------------"
-	green "3."重启nginx"
-    skyblue "------------"
     green "4. 关闭节点订阅"
     skyblue "------------"
     green "5. 开启节点订阅"
@@ -1283,18 +1277,7 @@ disable_open_sub() {
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-	    1)
-            start_nginx
-            green "Nginx 服务已启动"
-            ;;
-        2)
-            stop_nginx
-            yellow "Nginx 服务已停止"
-            ;;
-        3)
-            restart_nginx
-            green "Nginx 服务已重启"
-            ;;
+	    
         4)
               if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
