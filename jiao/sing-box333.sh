@@ -1433,53 +1433,56 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 
-        case "${choice}" in
-            1) yellow "正在配置 H2 + Reality..."
-			     cat > /etc/sing-box/h2-reality.json << EOF
-            {
-             "inbounds":[
-               {
-                 "type":"vless",
-                 "tag":"h2-reality",
-                 "listen":"::",
-                 "listen_port":$h2_reality,
-                 "users":[
-                    {
-                     "uuid":"$uuid"
-                    }
-                  ],
-                "tls":{
-                "enabled":true,
-                "server_name":"www.iij.ad.jp",
-                "reality":{
-                    "enabled":true,
-                    "handshake":{
-                        "server":"www.iij.ad.jp",
-                        "server_port":443
-                    },
-                    "private_key":"$private_key",
-                    "short_id":["$short_id"]               
-                    }
-                  },
-                 "transport":{
-                 "type": "http"
-                     },
-                 "multiplex":{
-                 "enabled":true,
-                 "padding":true,
-                 "brutal":{
-                    "enabled":true,
-                    "up_mbps":1000,
-                    "down_mbps":1000
-                   }
-                  }
-                 }
-                ]
-               }
-                EOF
-                    restart_singbox
-                    green "H2 + Reality 节点已添加并重启sing-box"                    
+                case "${choice}" in
+            1) 
+                yellow "正在配置 H2 + Reality..."
+                cat > /etc/sing-box/h2-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "h2-reality",
+      "listen": "::",
+      "listen_port": $h2_reality,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      },
+      "transport": {
+        "type": "http"
+      },
+      "multiplex": {
+        "enabled": true,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 1000,
+          "down_mbps": 1000
+        }
+      }
+    }
+  ]
+}
+EOF
+                restart_singbox
+                # 关键修正：确保末尾有双引号 " 闭合
+                green "H2 + Reality 节点已添加并重启 sing-box!"
                 ;;
+
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
             4) yellow "正在配置 Socks...";;
