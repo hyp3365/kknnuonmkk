@@ -48,7 +48,7 @@ generate_vars() {
 	anytls_port=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-    short_id=$(openssl rand -hex 4)
+    short_id=$(openssl rand -hex 6)
 }
 
 
