@@ -1478,7 +1478,7 @@ manage_nodes_menu() {
                }
                 EOF
                     restart_singbox
-                    green "H2 + Reality 节点已添加并重启sing-box                    
+                    green "H2 + Reality 节点已添加并重启sing-box"                    
                 ;;
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
