@@ -1384,23 +1384,28 @@ disable_open_sub() {
 }
 
 
+
 manage_nodes_menu() {
     while true; do
         # --- 每次循环开始时先扫描文件夹 ---
         local CONF_DIR="/etc/sing-box"
         
-        # 定义需要管理的节点文件清单: "文件名|节点名称|添加编号"
+        # 定义节点清单: "文件名|节点名称|添加编号"
+        # 1-5 为添加编号，51-55 为对应的删除编号
         local node_list=(
-            "socks.json|Socks|1"
-            "http.json|HTTP|2"
-            "ws.json|WebSocket|3"
-            "reality.json|Reality|4"
+            "h2-reality.json|H2 + Reality|1"
+            "grpc-reality.json|gRPC + Reality|2"
+            "anytls.json|anytls|3"
+            "socks.json|Socks|4"
+            "http.json|HTTP|5"
         )
 
         clear
         echo -e "${YELLOW}=================================${PLAIN}"
-        echo -e "         节点管理        "
+        echo -e "         节点动态管理菜单        "
         echo -e "${YELLOW}=================================${PLAIN}"
+
+        # --- 第一部分：待添加列表 (红色) ---
         echo -e "${BLUE}[ 待添加列表 ]${PLAIN}"
         local has_unadded=false
         for item in "${node_list[@]}"; do
@@ -1413,12 +1418,12 @@ manage_nodes_menu() {
                 has_unadded=true
             fi
         done
-        [ "$has_unadded" = false ] && echo -e " (暂无可选节点)"
+        [ "$has_unadded" = false ] && echo -e " (所有节点已添加)"
 
         # --- 使用 == 分成两部分 ---
         echo -e "\n================================="
 
-        # --- 第二部分：扫描并列出“已添加”的节点 ---
+        # --- 第二部分：已添加列表 (绿色) ---
         echo -e "${GREEN}[ 已添加列表 ]${PLAIN}"
         local has_added=false
         for item in "${node_list[@]}"; do
@@ -1428,7 +1433,6 @@ manage_nodes_menu() {
             local del_id=$((id + 50))
             
             if [ -f "$CONF_DIR/$file" ]; then
-                # (已添加) 和 删除节点 改为绿色
                 echo -e " ${del_id}. ${name}节点 ${GREEN}(已添加) -> 输入 ${del_id} 删除节点${PLAIN}"
                 has_added=true
             fi
@@ -1442,38 +1446,54 @@ manage_nodes_menu() {
 
         # --- 处理用户输入 ---
         case "${choice}" in
-            1) # 添加 Socks 逻辑
-                yellow "正在跳转到 Socks 配置生成..."
-                # 这里接你的配置生成代码，例如调用另一个函数
+            1) # 添加 H2 + Reality
+               # 这里调用你之前的生成的代码逻辑
+               yellow "正在配置 H2 + Reality..."
+               ;;
+            2) # 添加 gRPC + Reality
+               yellow "正在配置 gRPC + Reality..."
+               ;;
+            3) # 添加 anytls
+               yellow "正在配置 anytls..."
+               ;;
+            4) # 添加 Socks
+               yellow "正在配置 Socks..."
+               ;;
+            5) # 添加 HTTP
+               yellow "正在配置 HTTP..."
+               ;;
+            51) # 删除 H2 + Reality
+                [ -f "$CONF_DIR/h2-reality.json" ] && rm -f "$CONF_DIR/h2-reality.json" && green "H2 + Reality 配置已移除"
                 ;;
-            2) # 添加 HTTP 逻辑
+            52) # 删除 gRPC + Reality
+                [ -f "$CONF_DIR/grpc-reality.json" ] && rm -f "$CONF_DIR/grpc-reality.json" && green "gRPC + Reality 配置已移除"
                 ;;
-            51) # 删除 Socks
-                if [ -f "$CONF_DIR/socks.json" ]; then
-                    rm -f "$CONF_DIR/socks.json"
-                    green "Socks 配置已从磁盘移除"
-                fi
+            53) # 删除 anytls
+                [ -f "$CONF_DIR/anytls.json" ] && rm -f "$CONF_DIR/anytls.json" && green "anytls 配置已移除"
                 ;;
-            52) # 删除 HTTP
+            54) # 删除 Socks
+                [ -f "$CONF_DIR/socks.json" ] && rm -f "$CONF_DIR/socks.json" && green "Socks 配置已移除"
+                ;;
+            55) # 删除 HTTP
                 [ -f "$CONF_DIR/http.json" ] && rm -f "$CONF_DIR/http.json" && green "HTTP 配置已移除"
                 ;;
             0)
                 break
                 ;;
             *)
-                red "无效选项，请重新输入"
+                red "无效选项"
                 sleep 1
                 continue
                 ;;
         esac
 
-        # 操作后给予反馈并刷新扫描
-        echo -e "\n${CYAN}操作完成，配置已自动更新。${PLAIN}"
-        sleep 1.5
+        # 提示：每次增删文件后，建议在此处加上重启 sing-box 的命令
+        # systemctl restart sing-box
+        echo -e "\n操作完成。"
+        sleep 1
     done
 }
-
-
+		
 
 
 
