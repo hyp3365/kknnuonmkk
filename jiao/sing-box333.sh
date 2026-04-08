@@ -1409,7 +1409,7 @@ manage_nodes_menu() {
             "h2-reality.json|H2 + Reality|1"
             "grpc-reality.json|gRPC + Reality|2"
             "anytls.json|anytls|3"
-            "socks5.json|Socks|4"
+            "socks5.json|Socks5|4"
             "http.json|HTTP|5"
         )
 
@@ -1520,7 +1520,7 @@ EOF
 
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
-            4) yellow "正在配置 Socks..."
+            4) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
                 yellow "正在配置 Socks5 (端口: $socks_port)..."
