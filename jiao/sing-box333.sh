@@ -1522,7 +1522,7 @@ EOF
             3) yellow "正在配置 anytls...";;
             4) yellow "正在配置 Socks..."
                 generate_vars
-                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)
+                server_ip=$(get_realip)
                 yellow "正在配置 Socks5 (端口: $socks_port)..."
                 cat > /etc/sing-box/socks5.json << EOF
 {
@@ -1543,7 +1543,7 @@ EOF
 }
 EOF
                 isp="Socks5-Node"
-                url="socks://${socks_user}:${socks_pass}@${server_ip}:${socks_port}#${isp}"
+                url="socks://${username}:${password}@${server_ip}:${socks_port}#${isp}"
                 mkdir -p /etc/sing-box
                 [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
                 echo "$url" >> /etc/sing-box/url.txt
