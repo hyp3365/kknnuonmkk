@@ -1143,35 +1143,49 @@ change_config() {
             green "\nUUID已修改为：${purple}${new_uuid}${re} ${green}请更新订阅或手动更改所有节点的UUID${re}\n"
             ;;
         3)  
-            clear
-            green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n"
-            reading "\n请输入新的Reality伪装域名(可自定义输入,回车留空将使用默认1): " new_sni
-                if [ -z "$new_sni" ]; then    
-                    new_sni="www.joom.com"
-                elif [[ "$new_sni" == "1" ]]; then
-                    new_sni="www.joom.com"
-                elif [[ "$new_sni" == "2" ]]; then
-                    new_sni="www.stengg.com"
-                elif [[ "$new_sni" == "3" ]]; then
-                    new_sni="www.wedgehr.com"
-                elif [[ "$new_sni" == "4" ]]; then
-                    new_sni="www.cerebrium.ai"
-	            elif [[ "$new_sni" == "5" ]]; then
-                    new_sni="www.nazhumi.com"
-                else
-                    new_sni="$new_sni"
-                fi
-                jq --arg new_sni "$new_sni" '
-                (.inbounds[] | select(.type == "vless") | .tls.server_name) = $new_sni |
-                (.inbounds[] | select(.type == "vless") | .tls.reality.handshake.server) = $new_sni
-                ' "$config_dir" > "$config_file.tmp" && mv "$config_file.tmp" "$config_dir"
-                restart_singbox
-                sed -i "s/\(vless:\/\/[^\?]*\?\([^\&]*\&\)*sni=\)[^&]*/\1$new_sni/" $client_dir
-                base64 -w0 $client_dir > /etc/sing-box/sub.txt
-                while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-                echo ""
-                green "\nReality sni已修改为：${purple}${new_sni}${re} ${green}请更新订阅或手动更改reality节点的sni域名${re}\n"
-            ;; 
+    clear
+    # 显示预设域名菜单
+    green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n"
+    
+    # 读取用户输入
+    reading "\n请输入新的Reality伪装域名(可自定义输入,回车留空将使用默认1): " new_sni
+    
+    # 逻辑判断：处理预设选项或自定义输入
+    if [ -z "$new_sni" ]; then    
+        new_sni="www.joom.com"
+    elif [[ "$new_sni" == "1" ]]; then
+        new_sni="www.joom.com"
+    elif [[ "$new_sni" == "2" ]]; then
+        new_sni="www.stengg.com"
+    elif [[ "$new_sni" == "3" ]]; then
+        new_sni="www.wedgehr.com"
+    elif [[ "$new_sni" == "4" ]]; then
+        new_sni="www.cerebrium.ai"
+    elif [[ "$new_sni" == "5" ]]; then
+        new_sni="www.nazhumi.com"
+    else
+        # 如果不是数字1-5，则直接使用用户的输入内容
+        new_sni="$new_sni"
+    fi
+
+    # --- 核心修改部分：使用 sed 强制替换 ---
+    # 强制替换配置文件中的 server_name (对应 tls 配置)
+    sed -i "s/\"server_name\":[[:space:]]*\"[^\"]*\"/\"server_name\": \"$new_sni\"/g" "$config_dir"
+    
+    # 强制替换配置文件中的 server (对应 reality 下的 handshake server)
+    sed -i "s/\"server\":[[:space:]]*\"[^\"]*\"/\"server\": \"$new_sni\"/g" "$config_dir"
+    restart_singbox
+    sed -i "s/\(vless:\/\/[^\?]*\?\([^\&]*\&\)*sni=\)[^&]*/\1$new_sni/" "$client_dir"
+    base64 -w0 "$client_dir" > /etc/sing-box/sub.txt
+    while IFS= read -r line; do 
+        yellow "$line"
+    done < "${work_dir}/url.txt"
+    
+    echo ""
+    green "\nReality SNI 已成功修改为：${purple}${new_sni}${re}"
+    green "提示：请手动刷新订阅或在客户端将 Reality 节点的 SNI 域名更改为新域名。${re}\n"
+    ;;
+
         4)  
             purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围，否则可能造成节点不通\n"
             reading "请输入跳跃起始端口 (回车跳过将使用随机端口): " min_port
