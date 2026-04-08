@@ -22,6 +22,7 @@ skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
 
 generate_vars() {
+    mkdir -p /etc/sing-box
     local config_file="/etc/sing-box/config.json"
     local client_file="/etc/sing-box/url.txt"
     local work_dir="/usr/local/bin"
@@ -1458,11 +1459,18 @@ manage_nodes_menu() {
         echo -e " 0. 返回上一级菜单"
         echo -ne "\n"
         reading "请选择操作: " choice
+		Case "${choice}" in
 
-                case "${choice}" in
-            1) 
-			    generate_vars
-                yellow "正在配置 H2 + Reality..."
+                            1) 
+                # 1. 生成/提取变量（UUID, Key, 端口, ShortID等）
+                generate_vars
+                
+                # 2. 获取服务器 IP (用于拼接链接)
+                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)
+                
+                yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
+                
+                # 3. 写入配置文件
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
   "inbounds": [
@@ -1505,10 +1513,28 @@ manage_nodes_menu() {
   ]
 }
 EOF
+                # 4. 拼接链接字符串
+                isp="H2-Reality-Node"
+                url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${isp}"
+
+                # 5. 写入订阅文件系统
+                mkdir -p /etc/sing-box
+                # 先删除旧的同名节点，防止重复
+                [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                # 写入明文链接并生成 Base64
+                echo "$url" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+
+                # 6. 重启服务
                 restart_singbox
-                # 关键修正：确保末尾有双引号 " 闭合
-                green "H2 + Reality 节点已添加并重启 sing-box!"
+                
+                green "==============================================="
+                green " H2 + Reality 节点已添加并重启!"
+                green " 节点链接: $url"
+                green " 订阅链接文件已更新至 /etc/sing-box/sub.txt"
+                green "==============================================="
                 ;;
+
 
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
