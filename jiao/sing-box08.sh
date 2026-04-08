@@ -1514,7 +1514,45 @@ EOF
 
 
             2) yellow "正在配置 gRPC + Reality...";;
-            3) yellow "正在配置 anytls...";;
+            3) yellow "正在配置 anytls..."
+               generate_vars
+               server_ip=$(get_realip)
+               mkdir -p /etc/sing-box
+               cat > /etc/sing-box/anytls.json << EOF
+{
+    "inbounds":[
+        {
+            "type":"anytls",
+            "tag":"anytls",
+            "listen":"::",
+            "listen_port":$anytls_port,
+            "users":[
+                {
+                    "password":"$password"
+                }
+            ],
+            "padding_scheme":[],
+            "tls":{
+                "enabled":true,
+                "certificate_path": "$work_dir/cert.pem",
+                "key_path": "$work_dir/private.key"
+            }
+        }
+    ]
+}
+EOF
+            isp="AnyTLS-Node"
+            url="anytls://${uuid}@${server_ip}:${anytls_port}?sni=$SNI_DOMAIN#${isp}"
+            [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+            echo "$url" >> /etc/sing-box/url.txt
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+            restart_singbox
+    
+            green "==============================================="
+            green " AnyTLS 节点已添加并重启!"
+            green " 节点链接: $url"
+            green "==============================================="
+            ;;
             4) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
@@ -1579,14 +1617,27 @@ EOF
                 fi
                 ;;
             53)
-                if [ -f "$CONF_DIR/anytls.json" ]; then
-                    rm -f "$CONF_DIR/anytls.json"
-                    green "anytls 配置已移除"
-                    restart_singbox
+                isp="AnyTLS-Node"
+                if [ -f "/etc/sing-box/anytls.json" ]; then
+                rm -f "/etc/sing-box/anytls.json"
+                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "文件不存在"
+                    echo "" > /etc/sing-box/sub.txt
+                fi
+                
+                # 4. 重启服务使配置生效
+                restart_singbox
+                
+                green "==============================================="
+                green " AnyTLS已删除!"
+                green "==============================================="
+                else
+                red "错误: 未找到 AnyTLS 配置文件 (/etc/sing-box/anytls.json)"
                 fi
                 ;;
+
             54)
                 isp="Socks5-Node"
                 if [ -f "$CONF_DIR/socks5.json" ]; then
