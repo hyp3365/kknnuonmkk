@@ -1543,7 +1543,7 @@ EOF
 }
 EOF
             isp="AnyTLS-Node"
-            url="anytls://${uuid}@${server_ip}:${anytls_port}?sni=$SNI_DOMAIN#${isp}"
+            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&allowInsecure=1#${isp}"
             [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
             echo "$url" >> /etc/sing-box/url.txt
             base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
