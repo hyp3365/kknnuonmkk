@@ -1745,6 +1745,7 @@ menu() {
    green  "6. 修改节点配置"
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
+   green  "10. 添加CDN节点"
    echo  "==============="
    purple "9. ssh综合工具箱"
    echo  "==============="
