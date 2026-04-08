@@ -1388,7 +1388,6 @@ disable_open_sub() {
 manage_nodes_menu() {
     while true; do
         local CONF_DIR="/etc/sing-box"
-        # 菜单总宽度
         local width=45
         
         # 定义节点清单: "文件名|节点名称|添加编号"
@@ -1405,7 +1404,7 @@ manage_nodes_menu() {
         echo -e "             节点动态管理菜单               "
         yellow "============================================="
 
-        # --- 第一部分：待添加列表 ---
+        # --- 第一部分：待添加列表 (红色) ---
         echo -e "\e[1;34m[ 待添加列表 ]\033[0m"
         local has_unadded=false
         for item in "${node_list[@]}"; do
@@ -1414,11 +1413,8 @@ manage_nodes_menu() {
             local id=$(echo $item | cut -d'|' -f3)
             
             if [ ! -f "$CONF_DIR/$file" ]; then
-                # 拼接左侧文字
                 local left_text=" ${id}. ${name}节点"
-                # 拼接右侧文字
                 local right_text="(未添加) -> 输入 ${id} 开始配置"
-                # 自动计算中间空格实现右对齐
                 printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(red "$right_text")"
                 has_unadded=true
             fi
@@ -1427,7 +1423,7 @@ manage_nodes_menu() {
 
         echo -e "\n============================================="
 
-        # --- 第二部分：已添加列表 ---
+        # --- 第二部分：已添加列表 (绿色) ---
         echo -e "\e[1;32m[ 已添加列表 ]\033[0m"
         local has_added=false
         for item in "${node_list[@]}"; do
@@ -1451,19 +1447,68 @@ manage_nodes_menu() {
         reading "请选择操作: " choice
 
         case "${choice}" in
-            1) # 示例：添加 H2 Reality
-               yellow "正在配置 H2 + Reality..."
-               # 这里放入你之前的 cat > ... 代码
-               ;;
-            51) # 示例：删除 H2 Reality
-                [ -f "$CONF_DIR/h2-reality.json" ] && rm -f "$CONF_DIR/h2-reality.json" && green "配置已移除"
+            1) yellow "正在配置 H2 + Reality...";; # 此处添加你的生成逻辑
+            2) yellow "正在配置 gRPC + Reality...";;
+            3) yellow "正在配置 anytls...";;
+            4) yellow "正在配置 Socks...";;
+            5) yellow "正在配置 HTTP...";;
+
+            # --- 完整的删除逻辑 ---
+            51) 
+                if [ -f "$CONF_DIR/h2-reality.json" ]; then
+                    rm -f "$CONF_DIR/h2-reality.json"
+                    green "H2 + Reality 配置已移除"
+                    restart_singbox
+                else
+                    red "文件不存在"
+                fi
+                ;;
+            52)
+                if [ -f "$CONF_DIR/grpc-reality.json" ]; then
+                    rm -f "$CONF_DIR/grpc-reality.json"
+                    green "gRPC + Reality 配置已移除"
+                    restart_singbox
+                else
+                    red "文件不存在"
+                fi
+                ;;
+            53)
+                if [ -f "$CONF_DIR/anytls.json" ]; then
+                    rm -f "$CONF_DIR/anytls.json"
+                    green "anytls 配置已移除"
+                    restart_singbox
+                else
+                    red "文件不存在"
+                fi
+                ;;
+            54)
+                if [ -f "$CONF_DIR/socks.json" ]; then
+                    rm -f "$CONF_DIR/socks.json"
+                    green "Socks 配置已移除"
+                    restart_singbox
+                else
+                    red "文件不存在"
+                fi
+                ;;
+            55)
+                if [ -f "$CONF_DIR/http.json" ]; then
+                    rm -f "$CONF_DIR/http.json"
+                    green "HTTP 配置已移除"
+                    restart_singbox
+                else
+                    red "文件不存在"
+                fi
                 ;;
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac
-        sleep 1
+        
+        echo -e "\n按任意键返回菜单..."
+        read -n 1
     done
 }
+
+        
 
 
 		
