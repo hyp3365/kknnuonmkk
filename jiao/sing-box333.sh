@@ -6,8 +6,8 @@
 # 最后更新时间: 2026.3.05
 # =========================
 
-export LANG=en_US.UTF-8
-# 定义颜色
+Export LANG=en_US.UTF-8
+# --- 颜色和基础工具函数 ---
 re="\033[0m"
 red="\033[1;91m"
 green="\e[1;32m"
@@ -20,6 +20,32 @@ yellow() { echo -e "\e[1;33m$1\033[0m"; }
 purple() { echo -e "\e[1;35m$1\033[0m"; }
 skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
+
+generate_vars() {
+    local config_file="/etc/sing-box/config.json"
+    local client_file="/etc/sing-box/url.txt"
+    local work_dir="/usr/local/bin"
+    if [ -f "$config_file" ]; then
+        uuid=$(grep -m 1 '"uuid":' "$config_file" | awk -F '"' '{print $4}')
+    fi
+    [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid)
+    if [ -f "$config_file" ]; then
+        private_key=$(grep -m 1 '"private_key":' "$config_file" | awk -F '"' '{print $4}')
+    fi
+    if [ -f "$client_file" ]; then
+        public_key=$(grep -m 1 'pbk=' "$client_file" | sed -n 's/.*pbk=\([^&]*\).*/\1/p')
+    fi
+    if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+        if [ -f "${work_dir}/sing-box" ]; then
+            output=$(${work_dir}/sing-box generate reality-keypair)
+            private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+            public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+        fi
+    fi
+    h2_reality=$(shuf -i 10000-60000 -n 1)
+    short_id=$(openssl rand -hex 4)
+}
+
 
 # 定义常量
 server_name="sing-box"
@@ -1435,6 +1461,7 @@ manage_nodes_menu() {
 
                 case "${choice}" in
             1) 
+			    generate_vars
                 yellow "正在配置 H2 + Reality..."
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
