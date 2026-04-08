@@ -1435,51 +1435,7 @@ manage_nodes_menu() {
 
         case "${choice}" in
             1) yellow "正在配置 H2 + Reality..."
-            cat > /etc/sing-box/h2-reality.json << EOF
-            {
-             "inbounds":[
-               {
-                 "type":"vless",
-                 "tag":"h2-reality",
-                 "listen":"::",
-                 "listen_port":$h2-reality,
-                 "users":[
-                    {
-                     "uuid":"$uuid"
-                    }
-                  ],
-                "tls":{
-                "enabled":true,
-                "server_name":"www.iij.ad.jp",
-                "reality":{
-                    "enabled":true,
-                    "handshake":{
-                        "server":"www.iij.ad.jp",
-                        "server_port":443
-                    },
-                    "private_key":"$private_key",
-                    "short_id":["$short_id"]               
-                    }
-                  },
-                 "transport":{
-                 "type": "http"
-                     },
-                 "multiplex":{
-                 "enabled":true,
-                 "padding":true,
-                 "brutal":{
-                    "enabled":${IS_BRUTAL},
-                    "up_mbps":1000,
-                    "down_mbps":1000
-                   }
-                  }
-                 }
-                ]
-               }
-                EOF
-                    restart_singbox
-                    green "H2 + Reality 节点已添加并重启sing-box！"
-                fi
+            
                 ;;
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
