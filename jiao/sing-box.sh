@@ -1356,7 +1356,7 @@ disable_open_sub() {
             ;;
 
         6)
-            reading "请输入新的订阅端口(1-65535):" sub_port
+            reading "请输入新的订阅端口[1-65535]:" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
             
             # 检查端口是否被占用
