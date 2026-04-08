@@ -6,7 +6,7 @@
 # 最后更新时间: 2026.3.05
 # =========================
 
-Export LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
 # --- 颜色和基础工具函数 ---
 re="\033[0m"
 red="\033[1;91m"
@@ -1459,7 +1459,7 @@ manage_nodes_menu() {
         echo -e " 0. 返回上一级菜单"
         echo -ne "\n"
         reading "请选择操作: " choice
-		Case "${choice}" in
+		case "${choice}" in
 
                             1) 
                 # 1. 生成/提取变量（UUID, Key, 端口, ShortID等）
