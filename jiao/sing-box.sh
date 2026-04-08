@@ -301,8 +301,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
-	socks_port=$(($vless_port + 4)) 
-    http_port=$(($vless_port + 5)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -314,7 +312,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
 
     # 生成自签名证书
-	touch "${work_dir}/99.key" "${work_dir}/99.pem"
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
     
@@ -426,6 +423,18 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
+    },
+	{
+       "type": "socks",
+       "tag": "socks",
+       "listen": "::",
+       "listen_port": $socks_port,
+       "users": [
+         {
+           "username": "$username",
+           "password": "$password"
+         }
+       ]
     }
   ],
   "endpoints": [
@@ -481,6 +490,12 @@ cat > "${config_dir}" << EOF
       "password": "semppspsa",
       "udp_over_tcp": false       
      },
+	 {
+    "type": "socks",
+    "tag": "socks-40000",
+    "server": "127.0.0.1",
+    "server_port": 40000
+    },
     {
       "type": "direct",
       "tag": "direct"
@@ -1369,96 +1384,6 @@ disable_open_sub() {
 }
 
 
-# 添加 CDN 节点函数
-add_extra_node() {
-    echo -e "${green}=== 跨系统通用：添加代理节点 (Socks5 / HTTP) ===${re}"
-    
-    # 0. 脚本变量初始化（确保这些变量在你的主脚本中有定义）
-    work_dir="/etc/sing-box"
-    client_dir="${work_dir}/url.txt"
-    sub_file="${work_dir}/sub.txt"
-    
-    # 1. 动态获取基础端口
-    vless_port=$(grep -m 1 '"listen_port"' "${work_dir}/config.json" | tr -cd '0-9')
-    [ -z "$vless_port" ] && vless_port=64344
-    
-    socks_port=$((vless_port + 4))
-    http_port=$((vless_port + 5))
-    server_ip=$(curl -s4 4.ipw.cn || curl -s4 ip.sb || wget -qO- -t1 -T2 ip.sb)
-
-    # 2. 节点类型选择
-    echo -e "${yellow}请选择节点类型：${re}"
-    echo "1. 添加 Socks5 节点 (端口: $socks_port)"
-    echo "2. 添加 HTTP 节点   (端口: $http_port)"
-    echo "0. 返回"
-    read -p "请输入 [0-2]: " node_choice
-
-    case "$node_choice" in
-        1) node_type="socks"; node_port=$socks_port ;;
-        2) node_type="http"; node_port=$http_port ;;
-        0) return ;;
-        *) echo -e "${red}无效选项${re}"; return 1 ;;
-    esac
-
-    # 3. 随机账密生成 (手机端免输入)
-    username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
-    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-
-    # 4. 生成模块化配置
-    config_file="${work_dir}/${node_type}_${node_port}.json"
-    cat > "$config_file" <<EOF
-{
-  "inbounds": [
-    {
-      "type": "${node_type}",
-      "tag": "${node_type}-in-${node_port}",
-      "listen": "::",
-      "listen_port": ${node_port},
-      "users": [
-        {
-          "username": "${username}",
-          "password": "${password}"
-        }
-      ]
-    }
-  ]
-}
-EOF
-
-    # 5. 生成订阅链接 (变量已全部修复)
-    # 链接格式: 协议://用户名:密码@IP:端口#备注
-    sub_url="${node_type}://${username}:${password}@${server_ip}:${node_port}#${node_type}-${node_port}"
-    
-    echo "$sub_url" >> "$client_dir"
-    # 使用 tr 删除 base64 换行，确保跨平台订阅软件识别
-    base64 "$client_dir" | tr -d '\n' > "$sub_file"
-
-    # 6. 跨系统服务管理逻辑
-    echo -e "${green}正在进行配置校验...${re}"
-    
-    # 寻找 sing-box 二进制路径进行 check
-    sb_bin=$(command -v sing-box || echo "${work_dir}/sing-box")
-
-    if "$sb_bin" check -C "$work_dir" > /dev/null 2>&1; then
-        # 根据系统选择重启命令
-        if command -v systemctl >/dev/null 2>&1; then
-            systemctl restart sing-box
-        elif command -v rc-service >/dev/null 2>&1; then
-            rc-service sing-box restart
-        fi
-        
-        echo -e "${green}✅ 节点已成功添加！${re}"
-        echo -e "${cyan}类型: ${node_type} | 端口: ${node_port}${re}"
-        echo -e "${cyan}用户: ${username} | 密码: ${password}${re}"
-        echo -e "${yellow}链接: ${sub_url}${re}"
-    else
-        echo -e "${red}❌ 配置语法错误，已自动删除冲突文件。${re}"
-        rm -f "$config_file"
-    fi
-}
-
-
-
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -1739,7 +1664,6 @@ menu() {
    green  "6. 修改节点配置"
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
-   green  "10. 添加CDN节点"
    echo  "==============="
    purple "9. ssh综合工具箱"
    echo  "==============="
@@ -1787,7 +1711,6 @@ while true; do
         5) check_nodes ;;
         6) change_config ;;
         7) disable_open_sub ;;
-    	10) add_extra_node ;;
 		8) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
