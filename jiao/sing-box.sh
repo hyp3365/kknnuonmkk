@@ -927,6 +927,11 @@ start_nginx() {
     manage_service "nginx" "start"
 }
 
+# 停止 nginx
+stop_nginx() {
+    manage_service "nginx" "stop"
+}
+
 # 重启 nginx
 restart_nginx() {
     manage_service "nginx" "restart"
