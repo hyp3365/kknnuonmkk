@@ -972,7 +972,7 @@ create_shortcut() {
   cat > "$work_dir/sb.sh" << EOF
 #!/usr/bin/env bash
 
-bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sing-box.sh) \$1
+bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sing-box333.sh) \$1
 EOF
   chmod +x "$work_dir/sb.sh"
   ln -sf "$work_dir/sb.sh" /usr/bin/sb
@@ -1386,11 +1386,10 @@ disable_open_sub() {
 
 manage_nodes_menu() {
     while true; do
-        # 1. 每次循环开始时先扫描文件夹
+        # --- 每次循环开始时先扫描文件夹 ---
         local CONF_DIR="/etc/sing-box"
         
         # 定义需要管理的节点文件清单: "文件名|节点名称|添加编号"
-        # 这里你可以根据需要增减
         local node_list=(
             "socks.json|Socks|1"
             "http.json|HTTP|2"
@@ -1400,10 +1399,8 @@ manage_nodes_menu() {
 
         clear
         echo -e "${YELLOW}=================================${PLAIN}"
-        echo -e "         节点动态管理菜单        "
+        echo -e "         节点管理        "
         echo -e "${YELLOW}=================================${PLAIN}"
-
-        # 2. 第一部分：扫描并列出“未添加”的节点
         echo -e "${BLUE}[ 待添加列表 ]${PLAIN}"
         local has_unadded=false
         for item in "${node_list[@]}"; do
@@ -1412,15 +1409,16 @@ manage_nodes_menu() {
             local id=$(echo $item | cut -d'|' -f3)
             
             if [ ! -f "$CONF_DIR/$file" ]; then
-                echo -e " ${id}. ${name}节点 ${RED}(未添加)${PLAIN} -> 输入 ${id} 开始配置"
+                echo -e " ${id}. ${name}节点 ${RED}(未添加) -> 输入 ${id} 开始配置${PLAIN}"
                 has_unadded=true
             fi
         done
         [ "$has_unadded" = false ] && echo -e " (暂无可选节点)"
 
-        echo -e "\n---------------------------------"
+        # --- 使用 == 分成两部分 ---
+        echo -e "\n================================="
 
-        # 3. 第二部分：扫描并列出“已添加”的节点
+        # --- 第二部分：扫描并列出“已添加”的节点 ---
         echo -e "${GREEN}[ 已添加列表 ]${PLAIN}"
         local has_added=false
         for item in "${node_list[@]}"; do
@@ -1430,7 +1428,8 @@ manage_nodes_menu() {
             local del_id=$((id + 50))
             
             if [ -f "$CONF_DIR/$file" ]; then
-                echo -e " ${del_id}. ${name}节点 ${GREEN}(已添加)${PLAIN} -> 输入 ${del_id} 删除节点"
+                # (已添加) 和 删除节点 改为绿色
+                echo -e " ${del_id}. ${name}节点 ${GREEN}(已添加) -> 输入 ${del_id} 删除节点${PLAIN}"
                 has_added=true
             fi
         done
@@ -1441,11 +1440,11 @@ manage_nodes_menu() {
         echo -ne "\n请选择操作: "
         read choice
 
-        # 4. 处理用户输入
+        # --- 处理用户输入 ---
         case "${choice}" in
             1) # 添加 Socks 逻辑
                 yellow "正在跳转到 Socks 配置生成..."
-                # 后面接你的配置生成代码
+                # 这里接你的配置生成代码，例如调用另一个函数
                 ;;
             2) # 添加 HTTP 逻辑
                 ;;
