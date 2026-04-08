@@ -301,6 +301,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
+	h2-reality=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -1433,7 +1434,53 @@ manage_nodes_menu() {
         reading "请选择操作: " choice
 
         case "${choice}" in
-            1) yellow "正在配置 H2 + Reality...";; # 此处添加你的生成逻辑
+            1) yellow "正在配置 H2 + Reality..."
+            cat > /etc/sing-box/h2-reality.json << EOF
+            {
+             "inbounds":[
+               {
+                 "type":"vless",
+                 "tag":"h2-reality",
+                 "listen":"::",
+                 "listen_port":$h2-reality,
+                 "users":[
+                    {
+                     "uuid":"$uuid"
+                    }
+                  ],
+                "tls":{
+                "enabled":true,
+                "server_name":"www.iij.ad.jp",
+                "reality":{
+                    "enabled":true,
+                    "handshake":{
+                        "server":"www.iij.ad.jp",
+                        "server_port":443
+                    },
+                    "private_key":"$private_key",
+                    "short_id":["$short_id"]               
+                    }
+                  },
+                 "transport":{
+                 "type": "http"
+                     },
+                 "multiplex":{
+                 "enabled":true,
+                 "padding":true,
+                 "brutal":{
+                    "enabled":${IS_BRUTAL},
+                    "up_mbps":1000,
+                    "down_mbps":1000
+                   }
+                  }
+                 }
+                ]
+               }
+                EOF
+                    restart_singbox
+                    green "H2 + Reality 节点已添加并重启sing-box！"
+                fi
+                ;;
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
             4) yellow "正在配置 Socks...";;
