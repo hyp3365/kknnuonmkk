@@ -554,7 +554,7 @@ Type=simple
 NoNewPrivileges=yes
 TimeoutStartSec=0
 WorkingDirectory=/etc/sing-box
-ExecStart=/etc/sing-box/sing-box run -c /etc/sing-box/config.json
+ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
@@ -1380,87 +1380,63 @@ disable_open_sub() {
     esac
 }
 
-	# 添加 CDN 节点函数
+
+# 添加 CDN 节点函数
+
 add_cdn_node() {
-    echo -e "${green}--- 添加 CDN 节点配置 ---${re}"
+    echo -e "${green}--- 独立文件模式：添加 CDN 节点 ---${re}"
     
-    # 1. 自动计算 CDN 端口 (基于你现有的 vless_port)
-    # 确保之前已经定义了 vless_port
-    if [[ -z "$vless_port" ]]; then
-        echo -e "${red}错误：未检测到基础端口(vless_port)，请先安装或配置基础节点${re}"
-        return 1
-    fi
+    # 1. 基础参数准备
+    [[ -z "$vless_port" ]] && vless_port=64344
     cdn_port=$(($vless_port + 4))
-    echo -e "${green}CDN 节点将使用端口: $cdn_port${re}"
-
-    # 2. 输入域名
     read -p "请输入 CDN 节点域名: " cdn_domain
-    [[ -z "$cdn_domain" ]] && echo -e "${red}域名不能为空!${re}" && return 1
+    [[ -z "$cdn_domain" ]] && return 1
 
-    # 3. 创建证书目录并写入文件
-    # 假设你的工作目录变量是 $work_dir
-    mkdir -p "$work_dir"
-    
-    echo -e "${yellow}请输入源证书 PEM 内容 (粘贴后按回车，最后按 Ctrl+D 结束):${re}"
-    cert_content=$(cat)
-    echo -e "${yellow}请输入私钥 KEY 内容 (粘贴后按回车，最后按 Ctrl+D 结束):${re}"
-    key_content=$(cat)
+    # 2. 证书处理 (保持原样)
+    echo -e "${yellow}请输入 PEM 内容 (Ctrl+D 结束):${re}"
+    cat > "$work_dir/${cdn_domain}.pem"
+    echo -e "${yellow}请输入 KEY 内容 (Ctrl+D 结束):${re}"
+    cat > "$work_dir/${cdn_domain}.key"
 
-    # 检查输入是否为空
-    if [[ -z "$cert_content" || -z "$key_content" ]]; then
-        echo -e "${red}证书或私钥内容不能为空！${re}"
-        return 1
-    fi
+    # 3. 提取 UUID (从主配置读，保证一致)
+    current_uuid=$(grep -m 1 "uuid" "/etc/sing-box/config.json" | awk -F'"' '{print $4}')
 
-    # 写入证书文件
-    echo "$cert_content" > "$work_dir/${cdn_domain}.pem"
-    echo "$key_content" > "$work_dir/${cdn_domain}.key"
-
-    # 4. 使用 jq 构造节点并注入 config.json
-    # 假设 uuid 已经存在于你的变量中
-    config_file="$work_dir/config.json"
-    
-    if [ -f "$config_file" ]; then
-        new_inbound=$(jq -n \
-            --arg tag "vless-ws-tls-$cdn_domain" \
-            --arg port "$cdn_port" \
-            --arg uuid "$uuid" \
-            --arg domain "$cdn_domain" \
-            --arg cert "$work_dir/${cdn_domain}.pem" \
-            --arg key "$work_dir/${cdn_domain}.key" \
-            '{
-                "type": "vless",
-                "tag": $tag,
-                "listen": "::",
-                "listen_port": ($port | tonumber),
-                "users": [{"uuid": $uuid}],
-                "transport": {
-                    "type": "ws",
-                    "path": "/sjsjxnbhhggg-85ugg",
-                    "early_data_header_name": "Sec-WebSocket-Protocol"
-                },
-                "tls": {
-                    "enabled": true,
-                    "server_name": $domain,
-                    "min_version": "1.3",
-                    "max_version": "1.3",
-                    "certificate_path": $cert,
-                    "key_path": $key
-                }
-            }')
-
-        # 备份并更新配置
-        cp "$config_file" "${config_file}.bak"
-        jq ".inbounds += [$new_inbound]" "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
-        
-        echo -e "${green}配置更新成功！${re}"
-        
-        # 5. 重启服务 (调用你现有的 manage_service 函数)
-        manage_service "sing-box" "restart"
-    else
-        echo -e "${red}错误：找不到配置文件 $config_file${re}"
-    fi
+    # 4. 直接生成独立的 JSON 文件
+    # 注意：独立文件也需要完整的 JSON 结构，包含 inbounds 数组
+    cat > "/etc/sing-box/conf.d/${cdn_domain}.json" <<EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-$cdn_domain",
+      "listen": "::",
+      "listen_port": $cdn_port,
+      "users": [{ "uuid": "$current_uuid" }],
+      "transport": {
+        "type": "ws",
+        "path": "/sjsjxnbhhggg-85ugg"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "$cdn_domain",
+        "min_version": "1.3",
+        "certificate_path": "$work_dir/${cdn_domain}.pem",
+        "key_path": "$work_dir/${cdn_domain}.key"
+      }
+    }
+  ]
 }
+EOF
+
+    # 5. 生成订阅链接
+    server_ip=$(get_realip)
+    echo "vless://${current_uuid}@${server_ip}:${cdn_port}?encryption=none&security=tls&sni=${cdn_domain}&type=ws&path=/sjsjxnbhhggg-85ugg&host=${cdn_domain}#CDN-${cdn_domain}" >> "$client_dir"
+    base64 -w0 "$client_dir" > "${work_dir}/sub.txt"
+
+    echo -e "${green}新配置文件已生成: /etc/sing-box/conf.d/${cdn_domain}.json${re}"
+    restart_singbox
+}
+
 
 # singbox 管理
 manage_singbox() {
