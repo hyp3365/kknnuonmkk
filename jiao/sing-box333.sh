@@ -1593,10 +1593,13 @@ EOF
                 fi
                 ;;
             54)
-                if [ -f "$CONF_DIR/socks.json" ]; then
-                    rm -f "$CONF_DIR/socks.json"
-                    green "Socks 配置已移除"
+                isp="Socks5-Node"
+                if [ -f "$CONF_DIR/socks5.json" ]; then
+                    rm -f "$CONF_DIR/socks5.json"
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                     restart_singbox
+                    green "已删除"
                 else
                     red "文件不存在"
                 fi
