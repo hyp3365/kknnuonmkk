@@ -1323,6 +1323,7 @@ disable_open_sub() {
             sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
             
             start_nginx
+			nginx -s reload > /dev/null 2>&1
             green "\n已开启节点订阅并重新生成链接"
             
             if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
