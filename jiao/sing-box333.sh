@@ -301,7 +301,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
-	h2-reality=$(($vless_port + 4))
+	h2_reality=$(($vless_port + 4))
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -1435,14 +1435,14 @@ manage_nodes_menu() {
 
         case "${choice}" in
             1) yellow "正在配置 H2 + Reality..."
-			     Cat > /etc/sing-box/h2-reality.json << EOF
+			     cat > /etc/sing-box/h2-reality.json << EOF
             {
              "inbounds":[
                {
                  "type":"vless",
                  "tag":"h2-reality",
                  "listen":"::",
-                 "listen_port":$h2-reality,
+                 "listen_port":$h2_reality,
                  "users":[
                     {
                      "uuid":"$uuid"
@@ -1478,8 +1478,7 @@ manage_nodes_menu() {
                }
                 EOF
                     restart_singbox
-                    green "H2 + Reality 节点已添加并重启sing-box！"
-                fi         
+                    green "H2 + Reality 节点已添加并重启sing-box                    
                 ;;
             2) yellow "正在配置 gRPC + Reality...";;
             3) yellow "正在配置 anytls...";;
