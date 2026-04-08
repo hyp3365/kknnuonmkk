@@ -601,7 +601,7 @@ alpine_openrc_services() {
 
 description="sing-box service"
 command="/etc/sing-box/sing-box"
-command_args="run -c /etc/sing-box/config.json"
+command_args="run -C /etc/sing-box"
 command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
@@ -657,7 +657,6 @@ hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h
 
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}
 
-vless://${uuid}@${server_ip}:40005?encryption=none&security=tls&sni=ui.990093.xyz&type=ws&path=/sjsjxnbhhggg-85ugg&host=ui.990093.xyz#${isp}
 EOF
 echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
@@ -1382,42 +1381,53 @@ disable_open_sub() {
 
 
 # 添加 CDN 节点函数
-
 add_cdn_node() {
-    echo -e "${green}--- 直接在 sing-box 目录添加配置 ---${re}"
+    echo -e "${green}=== 2026 模块化 CDN 节点添加 (Alpine/手机专享版) ===${re}"
     
-    # 1. 端口与域名准备
-    [[ -z "$vless_port" ]] && vless_port=64344
-    cdn_port=$(($vless_port + 4))
-    read -p "请输入 CDN 节点域名: " cdn_domain
-    [[ -z "$cdn_domain" ]] && return 1
-
-    # 2. 证书输入 (采用 read 方式，减少 cat 带来的空行问题)
-    echo -e "${yellow}请粘贴 PEM 证书内容，完成后直接连按两次回车确认:${re}"
-    cert_content=""
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && break
-        cert_content+="$line"$'\n'
-    done
-    echo "$cert_content" > "/etc/sing-box/${cdn_domain}.pem"
-
-    echo -e "${yellow}请粘贴 KEY 私钥内容，完成后直接连按两次回车确认:${re}"
-    key_content=""
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && break
-        key_content+="$line"$'\n'
-    done
-    echo "$key_content" > "/etc/sing-box/${cdn_domain}.key"
-
-    # 3. 提取 UUID
-    current_uuid=$(grep -m 1 "uuid" "/etc/sing-box/config.json" | awk -F'"' '{print $4}')
-    [[ -z "$current_uuid" ]] && current_uuid="6f01d53c-c4f9-4641-826f-cf27bf185c75"
-
-    # 4. 写入新文件 (直接放在 /etc/sing-box/)
-    # 文件名加个前缀 cdn_ 方便你以后一眼认出来哪些是 cdn 配置
-    new_config_path="/etc/sing-box/cdn_${cdn_domain}.json"
+    # 1. 动态生成端口 (自动提取主配置端口并 +4，如果提取失败默认分配)
+    vless_port=$(grep -m 1 '"listen_port"' /etc/sing-box/config.json | tr -cd '0-9')
+    [ -z "$vless_port" ] && vless_port=64344
+    cdn_port=$((vless_port + 4))
     
-    cat > "$new_config_path" <<EOF
+    # 2. 获取域名
+    read -p "请输入 CDN 域名 (如 cdn.yourdomain.com): " cdn_domain
+    [ -z "$cdn_domain" ] && { echo -e "${red}域名不能为空！${re}"; return 1; }
+
+    # 3. 手机友好型证书输入 (识别空行自动结束)
+    echo -e "${yellow}请粘贴 PEM 证书 (粘贴完后，在文末按一次回车确认):${re}"
+    cert_path="/etc/sing-box/${cdn_domain}.pem"
+    cert_data=""
+    while IFS= read -r line; do
+        [ -z "$line" ] && break
+        cert_data="${cert_data}${line}\n"
+    done
+    printf "%b" "$cert_data" > "$cert_path"
+
+    echo -e "${yellow}请粘贴 KEY 私钥 (粘贴完后，在文末按一次回车确认):${re}"
+    key_path="/etc/sing-box/${cdn_domain}.key"
+    key_data=""
+    while IFS= read -r line; do
+        [ -z "$line" ] && break
+        key_data="${key_data}${line}\n"
+    done
+    printf "%b" "$key_data" > "$key_path"
+
+    # 效验是否成功读入
+    if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
+        echo -e "${red}证书或私钥读取失败，请重试。${re}"
+        return 1
+    fi
+
+    # 4. 自动提取核心变量
+    current_uuid=$(grep -m 1 '"uuid"' /etc/sing-box/config.json | awk -F'"' '{print $4}')
+    [ -z "$current_uuid" ] && current_uuid="6f01d53c-c4f9-4641-826f-cf27bf185c75"
+    
+    # 使用 4.ipw.cn 或者 ip.sb 获取服务器真实 IP
+    server_ip=$(curl -s4 4.ipw.cn || curl -s4 ip.sb)
+
+    # 5. 生成标准 JSON 模块 (使用 cat EOF 保证格式规整)
+    config_file="/etc/sing-box/cdn_${cdn_domain}.json"
+    cat > "$config_file" <<EOF
 {
   "inbounds": [
     {
@@ -1425,7 +1435,11 @@ add_cdn_node() {
       "tag": "cdn-$cdn_domain",
       "listen": "::",
       "listen_port": $cdn_port,
-      "users": [{ "uuid": "$current_uuid" }],
+      "users": [
+        {
+          "uuid": "$current_uuid"
+        }
+      ],
       "transport": {
         "type": "ws",
         "path": "/sjsjxnbhhggg-85ugg"
@@ -1433,28 +1447,29 @@ add_cdn_node() {
       "tls": {
         "enabled": true,
         "server_name": "$cdn_domain",
-        "certificate_path": "/etc/sing-box/${cdn_domain}.pem",
-        "key_path": "/etc/sing-box/${cdn_domain}.key"
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
       }
     }
   ]
 }
 EOF
 
-    # 5. 生成链接并重启
-    server_ip=$(curl -sS 4.ipw.cn)
-    echo "vless://${current_uuid}@${server_ip}:${cdn_port}?encryption=none&security=tls&sni=${cdn_domain}&type=ws&path=/sjsjxnbhhggg-85ugg&host=${cdn_domain}#CDN-${cdn_domain}" >> "$client_dir"
-    base64 -w0 "$client_dir" > "/etc/sing-box/sub.txt"
-
-    echo -e "${green}配置已生成: $new_config_path${re}"
+    # 6. 生成并更新订阅链接 (变量已全部修复)
+    sub_url="vless://${current_uuid}@${server_ip}:${cdn_port}?encryption=none&security=tls&sni=${cdn_domain}&type=ws&path=/sjsjxnbhhggg-85ugg&host=${cdn_domain}#CDN-${cdn_domain}"
     
-    # 检查语法并重启
-    /etc/sing-box/sing-box check -C /etc/sing-box/ >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        systemctl restart sing-box
-        echo -e "${green}sing-box 已重启，新配置已生效！${re}"
+    echo "$sub_url" >> /etc/sing-box/url.txt
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+
+    # 7. 优雅重启
+    echo -e "${green}正在校验配置...${re}"
+    if /etc/sing-box/sing-box check -C /etc/sing-box/ > /dev/null 2>&1; then
+        rc-service sing-box restart
+        echo -e "${green}添加成功！节点分配端口为: ${cdn_port}${re}"
+        echo -e "${yellow}你的新节点链接: \n${sub_url}${re}"
     else
-        echo -e "${red}配置合并语法错误，请检查！${re}"
+        echo -e "${red}配置存在语法错误，已撤销操作。请检查格式！${re}"
+        rm -f "$config_file" # 容错机制：出错就删掉刚才建的坏文件，防止服务彻底崩溃
     fi
 }
 
