@@ -1384,6 +1384,100 @@ disable_open_sub() {
 }
 
 
+manage_nodes_menu() {
+    while true; do
+        # 1. 每次循环开始时先扫描文件夹
+        local CONF_DIR="/etc/sing-box"
+        
+        # 定义需要管理的节点文件清单: "文件名|节点名称|添加编号"
+        # 这里你可以根据需要增减
+        local node_list=(
+            "socks.json|Socks|1"
+            "http.json|HTTP|2"
+            "ws.json|WebSocket|3"
+            "reality.json|Reality|4"
+        )
+
+        clear
+        echo -e "${YELLOW}=================================${PLAIN}"
+        echo -e "         节点动态管理菜单        "
+        echo -e "${YELLOW}=================================${PLAIN}"
+
+        # 2. 第一部分：扫描并列出“未添加”的节点
+        echo -e "${BLUE}[ 待添加列表 ]${PLAIN}"
+        local has_unadded=false
+        for item in "${node_list[@]}"; do
+            local file=$(echo $item | cut -d'|' -f1)
+            local name=$(echo $item | cut -d'|' -f2)
+            local id=$(echo $item | cut -d'|' -f3)
+            
+            if [ ! -f "$CONF_DIR/$file" ]; then
+                echo -e " ${id}. ${name}节点 ${RED}(未添加)${PLAIN} -> 输入 ${id} 开始配置"
+                has_unadded=true
+            fi
+        done
+        [ "$has_unadded" = false ] && echo -e " (暂无可选节点)"
+
+        echo -e "\n---------------------------------"
+
+        # 3. 第二部分：扫描并列出“已添加”的节点
+        echo -e "${GREEN}[ 已添加列表 ]${PLAIN}"
+        local has_added=false
+        for item in "${node_list[@]}"; do
+            local file=$(echo $item | cut -d'|' -f1)
+            local name=$(echo $item | cut -d'|' -f2)
+            local id=$(echo $item | cut -d'|' -f3)
+            local del_id=$((id + 50))
+            
+            if [ -f "$CONF_DIR/$file" ]; then
+                echo -e " ${del_id}. ${name}节点 ${GREEN}(已添加)${PLAIN} -> 输入 ${del_id} 删除节点"
+                has_added=true
+            fi
+        done
+        [ "$has_added" = false ] && echo -e " (当前无运行中节点)"
+
+        echo -e "${YELLOW}=================================${PLAIN}"
+        echo -e " 0. 返回上一级菜单"
+        echo -ne "\n请选择操作: "
+        read choice
+
+        # 4. 处理用户输入
+        case "${choice}" in
+            1) # 添加 Socks 逻辑
+                yellow "正在跳转到 Socks 配置生成..."
+                # 后面接你的配置生成代码
+                ;;
+            2) # 添加 HTTP 逻辑
+                ;;
+            51) # 删除 Socks
+                if [ -f "$CONF_DIR/socks.json" ]; then
+                    rm -f "$CONF_DIR/socks.json"
+                    green "Socks 配置已从磁盘移除"
+                fi
+                ;;
+            52) # 删除 HTTP
+                [ -f "$CONF_DIR/http.json" ] && rm -f "$CONF_DIR/http.json" && green "HTTP 配置已移除"
+                ;;
+            0)
+                break
+                ;;
+            *)
+                red "无效选项，请重新输入"
+                sleep 1
+                continue
+                ;;
+        esac
+
+        # 操作后给予反馈并刷新扫描
+        echo -e "\n${CYAN}操作完成，配置已自动更新。${PLAIN}"
+        sleep 1.5
+    done
+}
+
+
+
+
+
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -1664,12 +1758,13 @@ menu() {
    green  "6. 修改节点配置"
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
+   green  "9. 添加删除节点"
    echo  "==============="
-   purple "9. ssh综合工具箱"
+   purple "10. ssh综合工具箱"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-9): " choice
+   reading "请输入选择(0-10): " choice
    echo ""
 }
 
@@ -1715,7 +1810,8 @@ while true; do
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
-        9) 
+		9) manage_nodes_menu ;;
+        10) 
            clear
            bash <(curl -Ls ssh_tool.eooce.com)
            ;;           
