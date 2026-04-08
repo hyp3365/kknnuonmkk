@@ -301,7 +301,8 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
-	cdn_port=$(($vless_port + 4)) 
+	socks_port=$(($vless_port + 4)) 
+    http_port=$(($vless_port + 5)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -425,18 +426,6 @@ cat > "${config_dir}" << EOF
         "certificate_path": "$work_dir/cert.pem",
         "key_path": "$work_dir/private.key"
       }
-    },
-	{
-       "type": "socks",
-       "tag": "socks",
-       "listen": "::",
-       "listen_port": 49371,
-       "users": [
-         {
-           "username": "$username",
-           "password": "$password"
-         }
-       ]
     }
   ],
   "endpoints": [
@@ -1381,98 +1370,92 @@ disable_open_sub() {
 
 
 # 添加 CDN 节点函数
-add_cdn_node() {
-    echo -e "${green}=== 2026 模块化 CDN 节点添加 (Alpine/手机专享版) ===${re}"
+add_extra_node() {
+    echo -e "${green}=== 跨系统通用：添加代理节点 (Socks5 / HTTP) ===${re}"
     
-    # 1. 动态生成端口 (自动提取主配置端口并 +4，如果提取失败默认分配)
-    vless_port=$(grep -m 1 '"listen_port"' /etc/sing-box/config.json | tr -cd '0-9')
+    # 0. 脚本变量初始化（确保这些变量在你的主脚本中有定义）
+    work_dir="/etc/sing-box"
+    client_dir="${work_dir}/url.txt"
+    sub_file="${work_dir}/sub.txt"
+    
+    # 1. 动态获取基础端口
+    vless_port=$(grep -m 1 '"listen_port"' "${work_dir}/config.json" | tr -cd '0-9')
     [ -z "$vless_port" ] && vless_port=64344
-    cdn_port=$((vless_port + 4))
     
-    # 2. 获取域名
-    read -p "请输入 CDN 域名 (如 cdn.yourdomain.com): " cdn_domain
-    [ -z "$cdn_domain" ] && { echo -e "${red}域名不能为空！${re}"; return 1; }
+    socks_port=$((vless_port + 4))
+    http_port=$((vless_port + 5))
+    server_ip=$(curl -s4 4.ipw.cn || curl -s4 ip.sb || wget -qO- -t1 -T2 ip.sb)
 
-    # 3. 手机友好型证书输入 (识别空行自动结束)
-    echo -e "${yellow}请粘贴 PEM 证书 (粘贴完后，在文末按一次回车确认):${re}"
-    cert_path="/etc/sing-box/${cdn_domain}.pem"
-    cert_data=""
-    while IFS= read -r line; do
-        [ -z "$line" ] && break
-        cert_data="${cert_data}${line}\n"
-    done
-    printf "%b" "$cert_data" > "$cert_path"
+    # 2. 节点类型选择
+    echo -e "${yellow}请选择节点类型：${re}"
+    echo "1. 添加 Socks5 节点 (端口: $socks_port)"
+    echo "2. 添加 HTTP 节点   (端口: $http_port)"
+    echo "0. 返回"
+    read -p "请输入 [0-2]: " node_choice
 
-    echo -e "${yellow}请粘贴 KEY 私钥 (粘贴完后，在文末按一次回车确认):${re}"
-    key_path="/etc/sing-box/${cdn_domain}.key"
-    key_data=""
-    while IFS= read -r line; do
-        [ -z "$line" ] && break
-        key_data="${key_data}${line}\n"
-    done
-    printf "%b" "$key_data" > "$key_path"
+    case "$node_choice" in
+        1) node_type="socks"; node_port=$socks_port ;;
+        2) node_type="http"; node_port=$http_port ;;
+        0) return ;;
+        *) echo -e "${red}无效选项${re}"; return 1 ;;
+    esac
 
-    # 效验是否成功读入
-    if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
-        echo -e "${red}证书或私钥读取失败，请重试。${re}"
-        return 1
-    fi
+    # 3. 随机账密生成 (手机端免输入)
+    username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
-    # 4. 自动提取核心变量
-    current_uuid=$(grep -m 1 '"uuid"' /etc/sing-box/config.json | awk -F'"' '{print $4}')
-    [ -z "$current_uuid" ] && current_uuid="6f01d53c-c4f9-4641-826f-cf27bf185c75"
-    
-    # 使用 4.ipw.cn 或者 ip.sb 获取服务器真实 IP
-    server_ip=$(curl -s4 4.ipw.cn || curl -s4 ip.sb)
-
-    # 5. 生成标准 JSON 模块 (使用 cat EOF 保证格式规整)
-    config_file="/etc/sing-box/cdn_${cdn_domain}.json"
+    # 4. 生成模块化配置
+    config_file="${work_dir}/${node_type}_${node_port}.json"
     cat > "$config_file" <<EOF
 {
   "inbounds": [
     {
-      "type": "vless",
-      "tag": "cdn-$cdn_domain",
+      "type": "${node_type}",
+      "tag": "${node_type}-in-${node_port}",
       "listen": "::",
-      "listen_port": $cdn_port,
+      "listen_port": ${node_port},
       "users": [
         {
-          "uuid": "$current_uuid"
+          "username": "${username}",
+          "password": "${password}"
         }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/sjsjxnbhhggg-85ugg"
-      },
-      "tls": {
-        "enabled": true,
-        "server_name": "$cdn_domain",
-        "certificate_path": "$cert_path",
-        "key_path": "$key_path"
-      }
+      ]
     }
   ]
 }
 EOF
 
-    # 6. 生成并更新订阅链接 (变量已全部修复)
-    sub_url="vless://${current_uuid}@${server_ip}:${cdn_port}?encryption=none&security=tls&sni=${cdn_domain}&type=ws&path=/sjsjxnbhhggg-85ugg&host=${cdn_domain}#CDN-${cdn_domain}"
+    # 5. 生成订阅链接 (变量已全部修复)
+    # 链接格式: 协议://用户名:密码@IP:端口#备注
+    sub_url="${node_type}://${username}:${password}@${server_ip}:${node_port}#${node_type}-${node_port}"
     
-    echo "$sub_url" >> /etc/sing-box/url.txt
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+    echo "$sub_url" >> "$client_dir"
+    # 使用 tr 删除 base64 换行，确保跨平台订阅软件识别
+    base64 "$client_dir" | tr -d '\n' > "$sub_file"
 
-    # 7. 优雅重启
-    echo -e "${green}正在校验配置...${re}"
-    if /etc/sing-box/sing-box check -C /etc/sing-box/ > /dev/null 2>&1; then
-        rc-service sing-box restart
-        echo -e "${green}添加成功！节点分配端口为: ${cdn_port}${re}"
-        echo -e "${yellow}你的新节点链接: \n${sub_url}${re}"
+    # 6. 跨系统服务管理逻辑
+    echo -e "${green}正在进行配置校验...${re}"
+    
+    # 寻找 sing-box 二进制路径进行 check
+    sb_bin=$(command -v sing-box || echo "${work_dir}/sing-box")
+
+    if "$sb_bin" check -C "$work_dir" > /dev/null 2>&1; then
+        # 根据系统选择重启命令
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart sing-box
+        elif command -v rc-service >/dev/null 2>&1; then
+            rc-service sing-box restart
+        fi
+        
+        echo -e "${green}✅ 节点已成功添加！${re}"
+        echo -e "${cyan}类型: ${node_type} | 端口: ${node_port}${re}"
+        echo -e "${cyan}用户: ${username} | 密码: ${password}${re}"
+        echo -e "${yellow}链接: ${sub_url}${re}"
     else
-        echo -e "${red}配置存在语法错误，已撤销操作。请检查格式！${re}"
-        rm -f "$config_file" # 容错机制：出错就删掉刚才建的坏文件，防止服务彻底崩溃
+        echo -e "${red}❌ 配置语法错误，已自动删除冲突文件。${re}"
+        rm -f "$config_file"
     fi
 }
-
 
 
 
