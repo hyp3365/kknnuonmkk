@@ -1409,7 +1409,7 @@ manage_nodes_menu() {
             "h2-reality.json|H2 + Reality|1"
             "grpc-reality.json|gRPC + Reality|2"
             "anytls.json|anytls|3"
-            "socks.json|Socks|4"
+            "socks5.json|Socks|4"
             "http.json|HTTP|5"
         )
 
