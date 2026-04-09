@@ -1765,39 +1765,31 @@ EOF
         green "==============================================="
         ;;
 		7) 
-            yellow "正在开始配置 VLESS-WS-CDN 环境..."
-			generate_vars
+		    generate_vars
             mkdir -p /etc/sing-box
-            read -p "请输入解析到 Cloudflare 的域名: " domain
-            if [ -z "$domain" ]; then
-                red "错误: 域名不能为空!"
-                return 1
-            fi
+            yellow "正在开始配置 VLESS-WS-CDN 环境..."
+            read -p "1. 请输入解析到 CF 的域名: " domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+
             ssl_dir="/etc/sing-box/ssl"
+            mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
             key_path="${ssl_dir}/${domain}.key"
-            mkdir -p "$ssl_dir"
-
-            echo "请粘贴 PEM 证书内容，新起一行输入 EOF 结束:"
-            cert_content=""
-            while IFS= read -r line; do
-                [[ "$line" == "EOF" ]] && break
-                cert_content+="$line"$'\n'
-            done
-            echo -n "$cert_content" > "$cert_path"          
-            echo "请粘贴私钥内容，新起一行输入 EOF 结束:"
-            key_content=""
-            while IFS= read -r line; do
-                [[ "$line" == "EOF" ]] && break
-                key_content+="$line"$'\n'
-            done
+            echo "------------------------------------------------"
+            yellow "2. 请粘贴 PEM 证书内容"
+            echo "粘贴完成后，请按【空格】再按【回车】结束输入:"
+            read -r -d ' ' cert_content
+            echo -n "$cert_content" > "$cert_path"
+            
+            echo "------------------------------------------------"
+            yellow "3. 请粘贴私钥 (Key) 内容"
+            echo "粘贴完成后，请按【空格】再按【回车】结束输入:"
+            read -r -d ' ' key_content
             echo -n "$key_content" > "$key_path"
-
             if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
-                red "错误: 证书或密钥保存失败!"
+                red "写入失败！可能是粘贴过快或格式不对。"
                 return 1
             fi
-            generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
   "inbounds": [
