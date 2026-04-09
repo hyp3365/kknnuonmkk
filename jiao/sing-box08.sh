@@ -702,7 +702,6 @@ add_nginx_conf() {
     [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
 # ======= 1. 订阅服务 (监听订阅端口) =======
-# ======= 1. 订阅服务 (监听订阅端口) =======
 server {
     listen $nginx_port;
     listen [::]:$nginx_port;
@@ -732,7 +731,7 @@ upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
 upstream vless_http { server 127.0.0.1:8004; keepalive 32; }
 upstream vless_grpc { server 127.0.0.1:8005; keepalive 32; }
 
-# ======= 3. 核心分流转发 (监听本地 8001) =======
+# ======= 3. 核心分流转发 (这里的 \$ 符号确保 Nginx 正常识别) =======
 server {
     listen 127.0.0.1:8001 so_keepalive=on;
     http2 on; 
@@ -743,27 +742,35 @@ server {
     proxy_request_buffering off;
     proxy_http_version 1.1;
     
-    # 传递真实 IP
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # 注意：下面这些 \$ 符号是必须的，否则写入文件时变量会丢失
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+
+    # VMess WS
     location /mPaxe1996Ko-5203aap {
         proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
     }
+
+    # VLESS WS
     location /lPaxe1996Ko-5203aap {
         proxy_pass http://vless_ws;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
     }
+
+    # VLESS HTTP
     location /hPaxe1996Ko-5203aap {
         proxy_pass http://vless_http;
         proxy_set_header Connection ""; 
         proxy_read_timeout 3600s;
     }
+
+    # VLESS gRPC
     location /gPaxe1996Ko-5203aap {
         grpc_pass grpc://vless_grpc;
         grpc_read_timeout 3600s;
@@ -771,13 +778,7 @@ server {
     }
 
     location / { return 404; }
-	# 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}   
+}
 EOF
 
 
@@ -1761,18 +1762,24 @@ EOF
   ]
 }
 EOF
-            isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-VLESS")
-            VLESS_URL="vless://${uuid}@www.visa.com.cn:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${isp}"
-            [ -f "${work_dir}/url.txt" ] && sed -i "/#${isp}/d" "${work_dir}/url.txt"
-            echo "" >> "${work_dir}/url.txt"
-            echo "$VLESS_URL" >> "${work_dir}/url.txt"
-            base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-            restart_singbox
+            # 1. 获取 ISP 基础信息
+       isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
+       # 这里是 VLESS-WS 部分，所以用 vless_ws_cf
+       node_remark="${isp_base}_vless_ws_cf"
+       VLESS_URL="vless://${uuid}@www.visa.com.cn:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
+       if [ -f "${work_dir}/url.txt" ]; then
+       sed -i "/#${node_remark}$/d" "${work_dir}/url.txt"
+       sed -i '/^$/d' "${work_dir}/url.txt"
+       fi
+       echo "$VLESS_URL" >> "${work_dir}/url.txt"
+       base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+       restart_singbox
             green "==============================================="
             green " VLESS-WS隧道 添加完成！"
             green " 节点链接: $VLESS_URL"
             green "==============================================="
-            ;;
+            ;; 
+			
             # --- 完整的删除逻辑 ---
                        51) 
                 isp="H2-Reality-Node"
@@ -1850,6 +1857,24 @@ EOF
                     red "文件不存在"
                 fi
                 ;;
+		     56) 
+                if [ -f "$CONF_DIR/vless-ws-cf.json" ]; then
+                    rm -f "$CONF_DIR/vless-ws-cf.json"
+                    if [ -f "/etc/sing-box/url.txt" ]; then
+                        sed -i "/vless_ws_cf$/d" /etc/sing-box/url.txt
+                        sed -i '/^$/d' /etc/sing-box/url.txt
+                    fi
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    restart_singbox
+                    
+                    green "==============================================="
+                    green " VLESS-WS 隧道配置及节点已成功删除！"
+                    green "==============================================="
+                else
+                    red "未发现 VLESS-WS 配置文件，无需删除。"
+                fi
+                ;;
+
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac
