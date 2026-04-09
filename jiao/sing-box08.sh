@@ -1747,12 +1747,57 @@ EOF
     done
 }
 
-        
 
+# 一键开启 BBR2 + FQ 加速
+enable_bbr() {
+    clear
+    # 1. 检查是否已经安装并开启
+    local current_control=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
+    
+    if [[ "$current_control" == "bbr" || "$current_control" == "bbr2" ]]; then
+        green "==============================================="
+        green " 检测到系统已开启 BBR 加速!"
+        green " 当前算法: $current_control"
+        green " 无需重复安装。"
+        green "==============================================="
+        return 0
+    fi
 
-		
+    yellow "正在检测系统环境并配置 BBR 加速..."
 
+    # 2. 自动识别并安装缺失依赖
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update && apt-get install -y procps ca-certificates
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y procps ca-certificates
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache procps ca-certificates
+    fi
 
+    # 3. 策略选择 (优先 bbr2)
+    local strategy="bbr"
+    if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q "bbr2"; then
+        strategy="bbr2"
+    fi
+
+    cat > /etc/sysctl.d/99-bbr.conf << EOF
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = $strategy
+EOF
+
+    sysctl --system > /dev/null 2>&1
+
+    # 6. 最终验证
+    local final_control=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
+    if [[ "$final_control" == "bbr" || "$final_control" == "bbr2" ]]; then
+        green "==============================================="
+        green " 成功！BBR 加速已开启。"
+        green " 当前算法: $final_control"
+        green "==============================================="
+    else
+        red "开启失败，请检查内核版本是否支持 BBR。"
+    fi
+}
 
 # singbox 管理
 manage_singbox() {
@@ -2035,12 +2080,13 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
+   green  "10. 开启BBR加速"
    echo  "==============="
-   purple "10. ssh综合工具箱"
+   purple "11. ssh综合工具箱"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-10): " choice
+   reading "请输入选择(0-11): " choice
    echo ""
 }
 
@@ -2087,7 +2133,8 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
-        10) 
+	    10) enable_bbr ;;
+        11) 
            clear
            bash <(curl -Ls ssh_tool.eooce.com)
            ;;           
