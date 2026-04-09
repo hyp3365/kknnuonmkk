@@ -1768,28 +1768,30 @@ EOF
 		    generate_vars
             mkdir -p /etc/sing-box
             yellow "正在开始配置 VLESS-WS-CDN 环境..."
-            read -p "1. 请输入解析到 CF 的域名: " domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
-
+            read -p "请输入解析到 Cloudflare 的域名: " domain
+            if [ -z "$domain" ]; then
+                red "错误: 域名不能为空!"
+                return 1
+            fi
             ssl_dir="/etc/sing-box/ssl"
             mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
             key_path="${ssl_dir}/${domain}.key"
-            echo "------------------------------------------------"
-            yellow "2. 请粘贴 PEM 证书内容"
-            echo "粘贴完成后，请按【空格】再按【回车】结束输入:"
-            read -r -d ' ' cert_content
-            echo -n "$cert_content" > "$cert_path"
+            green "------------------------------------------------"
+            green "1. 请粘贴 PEM 证书内容"
+            echo "粘贴完成后，请按一下 [回车]，再按 [Ctrl+D] 结束保存:"
+            cat > "$cert_path"
             
-            echo "------------------------------------------------"
-            yellow "3. 请粘贴私钥 (Key) 内容"
-            echo "粘贴完成后，请按【空格】再按【回车】结束输入:"
-            read -r -d ' ' key_content
-            echo -n "$key_content" > "$key_path"
+            green "------------------------------------------------"
+            green "2. 请粘贴 KEY 密钥内容"
+            echo "粘贴完成后，请按一下 [回车]，再按 [Ctrl+D] 结束保存:"
+            cat > "$key_path"
             if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
-                red "写入失败！可能是粘贴过快或格式不对。"
+                red "错误: 证书或密钥保存失败，文件为空！"
                 return 1
             fi
+            chmod 600 "$key_path"
+
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
   "inbounds": [
