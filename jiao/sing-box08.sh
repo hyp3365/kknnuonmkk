@@ -702,6 +702,7 @@ add_nginx_conf() {
     [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
 # ======= 1. 订阅服务 (监听订阅端口) =======
+# ======= 1. 订阅服务 (监听订阅端口) =======
 server {
     listen $nginx_port;
     listen [::]:$nginx_port;
@@ -719,19 +720,13 @@ server {
         add_header Pragma "no-cache";
         add_header Expires "0";
     }
+
     location / {
         return 404;
     }
-	# 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-
 }
 
-# ======= 2. 负载均衡长连接池 (提升 CF 转发速度) =======
+# ======= 2. 后端连接池 =======
 upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
 upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
 upstream vless_http { server 127.0.0.1:8004; keepalive 32; }
@@ -740,62 +735,49 @@ upstream vless_grpc { server 127.0.0.1:8005; keepalive 32; }
 # ======= 3. 核心分流转发 (监听本地 8001) =======
 server {
     listen 127.0.0.1:8001 so_keepalive=on;
-    http2 on; # 开启 HTTP/2 以支持 gRPC
+    http2 on; 
     server_name _;
 
-    # 基础性能优化
     tcp_nodelay on;
     proxy_buffering off;
     proxy_request_buffering off;
     proxy_http_version 1.1;
     
-    # 传递真实 IP (Cloudflare 模式下非常重要)
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-
-    # A. VMess WS 转发 (端口 8002)
+    # 传递真实 IP
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     location /mPaxe1996Ko-5203aap {
         proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
     }
-
-    # B. VLESS WS 转发 (端口 8003)
     location /lPaxe1996Ko-5203aap {
         proxy_pass http://vless_ws;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
     }
-
-    # C. VLESS HTTP 转发 (端口 8004)
-    location /hocation /mPaxe1996Ko-5203aap {
-        proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    } {
+    location /hPaxe1996Ko-5203aap {
         proxy_pass http://vless_http;
-        proxy_set_header Connection ""; # 使用长连接复用
+        proxy_set_header Connection ""; 
         proxy_read_timeout 3600s;
     }
-
-    # D. VLESS gRPC 转发 (端口 8005)
-    location ~ ^/gocation /mPaxe1996Ko-5203aap {
-        proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    } {
+    location /gPaxe1996Ko-5203aap {
         grpc_pass grpc://vless_grpc;
         grpc_read_timeout 3600s;
         client_max_body_size 0;
     }
 
     location / { return 404; }
-}
+	# 禁止访问隐藏文件
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}   
 EOF
 
 
@@ -1726,6 +1708,8 @@ EOF
                 ;;
             5) yellow "正在配置 HTTP...";;
 			6) yellow "正在配置 vless-ws隧道..."
+			generate_vars
+            mkdir -p /etc/sing-box
             if [ -f "${work_dir}/argo.log" ]; then
                 argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
             fi
