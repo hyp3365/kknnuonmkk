@@ -1772,20 +1772,27 @@ EOF
             read -p "确认已关闭小黄云并继续？(y/n): " confirm
             [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
 
-            # 1. 环境准备
-            [ -z "$(command -v curl)" ] && apt install curl socat -y
-            
-            # 2. 获取域名
-            read -p "请输入要申请证书的域名 (例如 example.com): " domain
-            if [ -z "$domain" ]; then
-                red "错误: 域名不能为空!"
-                return 1
+             # 1. 环境准备 (新增了 cron 的安装)
+            green "正在安装必要组件 (curl, socat, cron)..."
+            if [ -f /usr/bin/apt ]; then
+                apt update && apt install curl socat cron -y
+            elif [ -f /usr/bin/yum ]; then
+                yum install curl socat crontabs -y
             fi
+            
+            # 启动并自启 cron 服务
+            systemctl enable --now cron || systemctl enable --now crond
 
-            # 3. 安装 acme.sh (如果未安装)
+            # 2. 获取域名
+            read -p "请输入要申请证书的域名: " domain
+            # ... (后续代码不变) ...
+
+            # 3. 重新安装 acme.sh (添加 --force 确保即使失败也继续)
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                curl https://get.acme.sh | sh -s email=my@example.com
+                curl https://get.acme.sh | sh -s email=my@example.com --force
+                # 强制刷新环境路径
                 source ~/.bashrc
+                export PATH="$HOME/.acme.sh:$PATH"
             fi
 
             # 4. 自动关闭 Nginx 释放 80 端口
