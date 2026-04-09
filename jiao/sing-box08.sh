@@ -1768,29 +1768,25 @@ EOF
 		    generate_vars
             mkdir -p /etc/sing-box
             yellow "正在开始配置 VLESS-WS-CDN 环境..."
-            read -p "请输入解析到 Cloudflare 的域名: " domain
-            if [ -z "$domain" ]; then
-                red "错误: 域名不能为空!"
-                return 1
-            fi
+            read -p "请输入解析到 CF 的域名: " domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+
             ssl_dir="/etc/sing-box/ssl"
             mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
             key_path="${ssl_dir}/${domain}.key"
-            green "------------------------------------------------"
-            green "1. 请粘贴 PEM 证书内容"
-            echo "粘贴完成后，请按一下 [回车]，再按 [Ctrl+D] 结束保存:"
-            cat > "$cert_path"
+
+            # 这种方式可以让 Shell 进入最深层的接收模式
+            green "1. 请粘贴 PEM 证书内容，粘贴完按回车，手动输入 EOF 再回车："
+            cat << 'EOF' > "$cert_path"
+$(cat)
+EOF
+            # 注意：如果上面那行不行，直接改回最原始的 cat > "$cert_path"
             
-            green "------------------------------------------------"
-            green "2. 请粘贴 KEY 密钥内容"
-            echo "粘贴完成后，请按一下 [回车]，再按 [Ctrl+D] 结束保存:"
-            cat > "$key_path"
-            if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
-                red "错误: 证书或密钥保存失败，文件为空！"
-                return 1
-            fi
-            chmod 600 "$key_path"
+            green "2. 请粘贴 KEY 密钥内容，粘贴完按回车，手动输入 EOF 再回车："
+            cat << 'EOF' > "$key_path"
+$(cat)
+EOF
 
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
