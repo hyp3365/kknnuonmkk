@@ -47,6 +47,7 @@ generate_vars() {
 	socks_port=$(shuf -i 10000-60000 -n 1)
 	anytls_port=$(shuf -i 10000-60000 -n 1)
 	grpc_reality=$(shuf -i 10000-60000 -n 1)
+	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -1764,8 +1765,10 @@ EOF
         green "==============================================="
         ;;
 		7) 
-		    yellow "正在开始配置 VLESS-WS-CDN 环境..."
-            read -p "请输入解析到 Cloudflare 的域名 (例如: example.com): " domain
+            yellow "正在开始配置 VLESS-WS-CDN 环境..."
+			generate_vars
+            mkdir -p /etc/sing-box
+            read -p "请输入解析到 Cloudflare 的域名: " domain
             if [ -z "$domain" ]; then
                 red "错误: 域名不能为空!"
                 return 1
@@ -1775,44 +1778,37 @@ EOF
             key_path="${ssl_dir}/${domain}.key"
             mkdir -p "$ssl_dir"
 
-            # 3. 交互式输入并保存 PEM 证书
-            echo "------------------------------------------------"
-            echo "请粘贴你的 PEM 证书内容 (.pem / .crt)"
-            echo "粘贴完成后，请在新的一行输入 'EOF' 然后回车结束:"
-            echo "------------------------------------------------"
+            echo "请粘贴 PEM 证书内容，新起一行输入 EOF 结束:"
             cert_content=""
             while IFS= read -r line; do
                 [[ "$line" == "EOF" ]] && break
                 cert_content+="$line"$'\n'
             done
-            echo -n "$cert_content" > "$cert_path"
-            
-            # 4. 交互式输入并保存 KEY 密钥
-            echo "------------------------------------------------"
-            echo "请粘贴你的私钥内容 (.key)"
-            echo "粘贴完成后，请在新的一行输入 'EOF' 然后回车结束:"
-            echo "------------------------------------------------"
+            echo -n "$cert_content" > "$cert_path"          
+            echo "请粘贴私钥内容，新起一行输入 EOF 结束:"
             key_content=""
             while IFS= read -r line; do
                 [[ "$line" == "EOF" ]] && break
                 key_content+="$line"$'\n'
             done
             echo -n "$key_content" > "$key_path"
+
             if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
-                red "错误: 证书或密钥保存失败，请检查输入或目录权限！"
+                red "错误: 证书或密钥保存失败!"
                 return 1
             fi
+            generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
   "inbounds": [
     {
       "type": "vless",
-      "tag": "vless-ws-cnd",
+      "tag": "vless-ws-cdn",
       "listen": "::",
       "listen_port": $vless_ws_cdn_port,
       "users": [
         {
-          "uuid": "$uuid",
+          "uuid": "$uuid"
         }
       ],
       "tls": {
@@ -1831,12 +1827,24 @@ EOF
   ]
 }
 EOF
-
+            isp="VLESS-WS-CDN-Node_vless_ws_cdn"
+            url="vless://${uuid}@${domain}:${vless_ws_cdn_port}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=%2Fsspaasksavxssaszass#${isp}"
+            
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+            fi
+            echo "$url" >> "/etc/sing-box/url.txt"
+            echo "" >> "/etc/sing-box/url.txt"
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null        
+            restart_singbox
             green "==============================================="
-            green " 配置完成！"
-            green " 域名: $domain"
+            green " 节点链接: $url"
             green "==============================================="
             ;;
+
+        
+  
+      
             # --- 完整的删除逻辑 ---
             51) 
                 isp="H2-Reality-Node_h2_reality"
@@ -1934,6 +1942,18 @@ EOF
                     red "未发现 VLESS-WS 配置文件，无需删除。"
                 fi
                 ;;
+				57) 
+            isp="VLESS-WS-CDN-Node_vless_ws_cdn"
+            if [ -f "/etc/sing-box/vless-ws-cdn.json" ]; then
+                rm -f "/etc/sing-box/vless-ws-cdn.json"
+                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                restart_singbox
+                green "VLESS-WS-CDN 节点已删除"
+            else
+                red "文件不存在"
+            fi
+            ;;
 		
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
