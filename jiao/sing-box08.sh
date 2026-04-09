@@ -1784,7 +1784,7 @@ EOF
 
             # 2. 安装 acme.sh 并【强制设置】默认服务器为 Let's Encrypt
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                curl https://get.acme.sh | sh -s email=my@example.com
+                curl https://get.acme.sh | sh -s email=tsssspo883@​@gmail.com
             fi
             # 无论是否安装过，强制执行一次切换命令
             ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
