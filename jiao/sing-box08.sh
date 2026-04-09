@@ -1457,6 +1457,7 @@ manage_nodes_menu() {
             "anytls.json|anytls|3"
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
+			"vless-ws-cf.json|vless + ws + cf|6"
         )
 
         clear
@@ -1709,7 +1710,70 @@ EOF
                 green "==============================================="
                 ;;
             5) yellow "正在配置 HTTP...";;
+			6) yellow "正在配置 vless-ws隧道..."
+            if [ -f "${work_dir}/argo.log" ]; then
+                argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
+            fi
 
+            # 2. 第二优先级：日志失效时，从 url.txt 的历史 VMess 节点中解码提取
+            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
+                purple "正在获取cf隧道域名..."
+                argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
+                    decoded=$(echo "${line#vmess://}" | base64 -d 2>/dev/null)
+                    echo "$decoded" | grep -oE '"host":\s*"[^"]+"' | cut -d'"' -f4 | grep "trycloudflare.com"
+                done | head -n 1)
+            fi
+
+            # 3. 第三优先级：从现有的 VLESS/明文链接获取
+            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
+                argodomain=$(grep "trycloudflare.com" "${work_dir}/url.txt" | grep -oE "(sni|host)=[^&]+" | head -n 1 | cut -d'=' -f2)
+            fi
+
+            # 4. 报错退出机制
+            if [ -z "$argodomain" ]; then
+                red "======================================================"
+                red " 错误：无法获取 Argo 域名！"
+                red " 请检查：1. argo.log 是否存在； 2. url.txt 是否有旧节点。"
+                red " 为了系统安全，程序已停止，未生成新的隧道域名。"
+                red "======================================================"
+                break # 在菜单循环中使用 break 而不是 return
+            fi
+
+            # 5. 生成配置文件 (关键步骤)
+            cat > /etc/sing-box/vless-ws-cf.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-in",
+      "listen": "127.0.0.1",
+      "listen_port": 8003,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/lPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+            isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-VLESS")
+            VLESS_URL="vless://${uuid}@www.visa.com.cn:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${isp}"
+            [ -f "${work_dir}/url.txt" ] && sed -i "/#${isp}/d" "${work_dir}/url.txt"
+            echo "" >> "${work_dir}/url.txt"
+            echo "$VLESS_URL" >> "${work_dir}/url.txt"
+            base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+            restart_singbox
+            green "==============================================="
+            green " VLESS-WS隧道 添加完成！"
+            green " 节点链接: $VLESS_URL"
+            green "==============================================="
+            ;;
             # --- 完整的删除逻辑 ---
                        51) 
                 isp="H2-Reality-Node"
