@@ -1441,12 +1441,13 @@ manage_nodes_menu() {
         local CONF_DIR="/etc/sing-box"
         local width=45
         local node_list=(
-            "h2-reality.json|H2 + Reality|1"
-            "grpc-reality.json|gRPC + Reality|2"
+            "h2-reality.json|http-Reality|1"
+            "grpc-reality.json|gRPC-Reality|2"
             "anytls.json|anytls|3"
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
-			"vless-ws-cf.json|vless + ws + cf|6"
+			"vless-ws-cf.json|vless-ws-cf|6"
+			"vless-ws-cdn.json|vless-ws-cdn|7"
         )
 
         clear
@@ -1762,6 +1763,80 @@ EOF
         green " 节点链接: $VLESS_URL"
         green "==============================================="
         ;;
+		7) 
+		    yellow "正在开始配置 VLESS-WS-CDN 环境..."
+            read -p "请输入解析到 Cloudflare 的域名 (例如: example.com): " domain
+            if [ -z "$domain" ]; then
+                red "错误: 域名不能为空!"
+                return 1
+            fi
+            ssl_dir="/etc/sing-box/ssl"
+            cert_path="${ssl_dir}/${domain}.pem"
+            key_path="${ssl_dir}/${domain}.key"
+            mkdir -p "$ssl_dir"
+
+            # 3. 交互式输入并保存 PEM 证书
+            echo "------------------------------------------------"
+            echo "请粘贴你的 PEM 证书内容 (.pem / .crt)"
+            echo "粘贴完成后，请在新的一行输入 'EOF' 然后回车结束:"
+            echo "------------------------------------------------"
+            cert_content=""
+            while IFS= read -r line; do
+                [[ "$line" == "EOF" ]] && break
+                cert_content+="$line"$'\n'
+            done
+            echo -n "$cert_content" > "$cert_path"
+            
+            # 4. 交互式输入并保存 KEY 密钥
+            echo "------------------------------------------------"
+            echo "请粘贴你的私钥内容 (.key)"
+            echo "粘贴完成后，请在新的一行输入 'EOF' 然后回车结束:"
+            echo "------------------------------------------------"
+            key_content=""
+            while IFS= read -r line; do
+                [[ "$line" == "EOF" ]] && break
+                key_content+="$line"$'\n'
+            done
+            echo -n "$key_content" > "$key_path"
+            if [ ! -s "$cert_path" ] || [ ! -s "$key_path" ]; then
+                red "错误: 证书或密钥保存失败，请检查输入或目录权限！"
+                return 1
+            fi
+            cat > /etc/sing-box/vless-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-cnd",
+      "listen": "::",
+      "listen_port": $vless_ws_cdn_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "$domain",
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/sspaasksavxssaszass",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+
+            green "==============================================="
+            green " 配置完成！"
+            green " 域名: $domain"
+            green "==============================================="
+            ;;
             # --- 完整的删除逻辑 ---
             51) 
                 isp="H2-Reality-Node_h2_reality"
