@@ -1772,37 +1772,76 @@ EOF
             read -p "确认已关闭并继续？(y/n): " confirm
             [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
 
-            # 1. 环境准备与端口强杀
-            green "正在清理 80 端口并安装依赖..."
-            if [ -f /usr/bin/apt ]; then
-                apt update && apt install curl socat cron psmisc -y
-            elif [ -f /usr/bin/yum ]; then
-                yum install curl socat crontabs psmisc -y
+                        # 1. 智能检测并安装依赖
+            green "正在检查依赖环境..."
+            need_install=0
+            # 检查核心命令是否存在
+            for cmd in curl socat fuser crontab; do
+                if ! command -v $cmd >/dev/null 2>&1; then
+                    need_install=1
+                    break
+                fi
+            done
+            
+            if [ $need_install -eq 1 ]; then
+                green "检测到缺失依赖，正在安装..."
+                if command -v apt >/dev/null 2>&1; then
+                    apt update && apt install curl socat cron psmisc -y
+                elif command -v yum >/dev/null 2>&1; then
+                    yum install curl socat crontabs psmisc -y
+                else
+                    red "未知的包管理器，请手动安装 curl, socat, cron, psmisc"
+                fi
+            else
+                green "所有依赖已就绪，跳过安装。"
             fi
-            systemctl stop nginx 2>/dev/null
-            fuser -k 80/tcp 2>/dev/null # 强制杀死任何占用 80 端口的进程
 
-            # 2. 安装 acme.sh 并【强制设置】默认服务器为 Let's Encrypt
+            # 清理 80 端口
+            green "正在清理 80 端口..."
+            systemctl stop nginx 2>/dev/null
+            fuser -k 80/tcp 2>/dev/null
+            fuser -k 80/udp 2>/dev/null
+
+            # 2. 获取域名并设置纯净英文环境 (防止非 ASCII 字符报错)
+            read -p "请输入要申请证书的域名 (如 pea.de5.net): " domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+
+            export LANG=en_US.UTF-8
+            export LC_ALL=en_US.UTF-8
+
+            # 3. 智能处理邮箱与 acme.sh 注册
+            # 这里让用户输入邮箱，如果直接回车，就用默认的 admin@域名
+            read -p "请输入注册邮箱 (直接回车默认使用 admin@${domain}): " user_email
+            user_email="${user_email:-admin@${domain}}"
+            # 核心修复：清理输入中可能存在的空格、中文符号和隐形特殊字符
+            user_email=$(echo "$user_email" | tr -d '[:space:]' | tr -cd '[:alnum:]@.')
+
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                curl https://get.acme.sh | sh -s email=tsssspo883@​@gmail.com
+                green "正在安装 acme.sh..."
+                curl https://get.acme.sh | sh -s email="$user_email"
+            else
+                green "确保 acme.sh 账户已注册..."
+                ~/.acme.sh/acme.sh --register-account -m "$user_email" --server letsencrypt >/dev/null 2>&1
             fi
+
             # 无论是否安装过，强制执行一次切换命令
             ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 
-            # 3. 获取域名并申请
-            read -p "请输入域名 (如 pea.de5.net): " domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
-
+            # 4. 发起申请 (加上 --listen-v6 增加 IPv6 连通率)
             green "正在向 Let's Encrypt 发起申请..."
-            ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force
+            ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force --listen-v6
             
-            if [ $? -ne 0 ]; then
-                red "申请失败！请确认 80 端口是否对公网开放，且解析已生效。"
+            acme_ret=$? # 记录申请结果状态码
+
+            # 5. 判断申请结果
+            if [ $acme_ret -ne 0 ]; then
+                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
                 systemctl start nginx 2>/dev/null
                 return 1
             fi
 
-            # 4. 安装证书
+            # 6. 安装证书
+            green "证书申请成功！正在安装到指定目录..."
             ssl_dir="/etc/sing-box/ssl"
             mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
@@ -1812,12 +1851,10 @@ EOF
                 --fullchain-file "$cert_path" \
                 --key-file "$key_path"
 
+            # 7. 善后工作
             systemctl start nginx 2>/dev/null # 申请完恢复 Nginx
-            # 7. 判断申请结果并配置
-            if [ $acme_ret -ne 0 ]; then
-                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
-                return 1
-            fi
+            green "SSL 证书配置已全部完成！"
+
 
             # 8. 生成 vless-ws-cdn.json 配置
             generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
