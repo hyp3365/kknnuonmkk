@@ -1565,7 +1565,7 @@ EOF
             generate_vars
             server_ip=$(get_realip)
             mkdir -p /etc/sing-box
-            cat > /etc/sing-box/grpc_reality.json << EOF
+            cat > /etc/sing-box/grpc-reality.json << EOF
 {
     "inbounds":[
         {
