@@ -400,22 +400,21 @@ cat > "${config_dir}" << EOF
       }
     },
     {
-      "type": "vmess",
-      "tag": "vmess-ws",
-      "listen": "::",
-      "listen_port": 8001,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/mPaxe1996Ko-5203aap",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    },
-	
+         "type": "vmess",
+         "tag": "vmess-ws",
+         "listen": "127.0.0.1",
+         "listen_port": 8002, 
+         "users": [
+           {
+            "uuid": "$uuid"
+           }
+          ],
+        "transport": {
+          "type": "ws",
+          "path": "/mPaxe1996Ko-5203aap",
+          "early_data_header_name": "Sec-WebSocket-Protocol"
+         }
+     },
     {
       "type": "hysteria2",
       "tag": "hysteria2",
@@ -701,39 +700,89 @@ add_nginx_conf() {
     mkdir -p /etc/nginx/conf.d
 
     [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
-
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
-# sing-box 订阅配置
+# ======= 1. 订阅服务 (监听订阅端口) =======
 server {
-    listen $nginx_port;
-    listen [::]:$nginx_port;
+    listen \$nginx_port;
+    listen [::]:\$nginx_port;
     server_name _;
 
-    # 安全设置
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-
-    location = /$password {
+    location = /\$password {
         alias /etc/sing-box/sub.txt;
         default_type 'text/plain; charset=utf-8';
         add_header Cache-Control "no-cache, no-store, must-revalidate";
-        add_header Pragma "no-cache";
-        add_header Expires "0";
     }
 
-    location / {
-        return 404;
+    location / { return 404; }
+}
+
+# ======= 2. 负载均衡长连接池 (提升 CF 转发速度) =======
+upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
+upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
+upstream vless_http { server 127.0.0.1:8004; keepalive 32; }
+upstream vless_grpc { server 127.0.0.1:8005; keepalive 32; }
+
+# ======= 3. 核心分流转发 (监听本地 8001) =======
+server {
+    listen 127.0.0.1:8001 so_keepalive=on;
+    http2 on; # 开启 HTTP/2 以支持 gRPC
+    server_name _;
+
+    # 基础性能优化
+    tcp_nodelay on;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_http_version 1.1;
+    
+    # 传递真实 IP (Cloudflare 模式下非常重要)
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+
+    # A. VMess WS 转发 (端口 8002)
+    location /mPaxe1996Ko-5203aap {
+        proxy_pass http://vmess_ws;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
     }
 
-    # 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
+    # B. VLESS WS 转发 (端口 8003)
+    location /lPaxe1996Ko-5203aap {
+        proxy_pass http://vless_ws;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
     }
+
+    # C. VLESS HTTP 转发 (端口 8004)
+    location /hocation /mPaxe1996Ko-5203aap {
+        proxy_pass http://vmess_ws;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    } {
+        proxy_pass http://vless_http;
+        proxy_set_header Connection ""; # 使用长连接复用
+        proxy_read_timeout 3600s;
+    }
+
+    # D. VLESS gRPC 转发 (端口 8005)
+    location ~ ^/gocation /mPaxe1996Ko-5203aap {
+        proxy_pass http://vmess_ws;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    } {
+        grpc_pass grpc://vless_grpc;
+        grpc_read_timeout 3600s;
+        client_max_body_size 0;
+    }
+
+    location / { return 404; }
 }
 EOF
+
 
     # 检查主配置文件是否存在
     if [ -f "/etc/nginx/nginx.conf" ]; then
