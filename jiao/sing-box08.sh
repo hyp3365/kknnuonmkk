@@ -46,6 +46,7 @@ generate_vars() {
     h2_reality=$(shuf -i 10000-60000 -n 1)
 	socks_port=$(shuf -i 10000-60000 -n 1)
 	anytls_port=$(shuf -i 10000-60000 -n 1)
+	grpc_reality=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -1515,7 +1516,77 @@ EOF
                 ;;
 
 
-            2) yellow "正在配置 gRPC + Reality...";;
+            2) yellow "正在配置 gRPC + Reality..."
+			           20) # 假设这是你的第 20 号节点选项
+            yellow "正在配置 VLESS-gRPC-Reality..."
+            generate_vars
+            server_ip=$(get_realip)
+            
+            # 1. 确保目录存在
+            mkdir -p /etc/sing-box
+            
+            # 2. 写入 JSON 配置文件
+            cat > /etc/sing-box/grpc_reality.json << EOF
+{
+    "inbounds":[
+        {
+            "type":"vless",
+            "tag":"grpc-reality",
+            "listen":"::",
+            "listen_port":$grpc_reality,
+            "users":[
+                {
+                    "uuid":"$uuid"
+                }
+            ],
+            "tls":{
+                "enabled":true,
+                "server_name":"www.iij.ad.jp",
+                "reality":{
+                    "enabled":true,
+                    "handshake":{
+                        "server":"www.iij.ad.jp",
+                        "server_port":443
+                    },
+                    "private_key": "$private_key",
+                    "short_id": ["$short_id"]
+                }
+            },
+            "transport":{
+                "type": "grpc",
+                "service_name": "grpc"
+            },
+            "multiplex":{
+                "enabled":true,
+                "padding":true,
+                "brutal":{
+                    "enabled":true,
+                    "up_mbps":200,
+                    "down_mbps":200
+                }
+            }
+        }
+    ]
+}
+EOF
+
+            # 3. 设置节点信息及生成 URL
+            isp="gRPC-Reality-Node"
+            url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${isp}"
+            [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+            echo "$url" >> /etc/sing-box/url.txt
+            
+            # 5. 更新订阅文件并重启
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+            restart_singbox
+    
+            green "==============================================="
+            green " VLESS-gRPC-Reality 节点已添加并重启!"
+            green " 节点链接: $url"
+            green " 端口: $PORT_GRPC_REALITY"
+            green "==============================================="
+               ;;
             3) yellow "正在配置 anytls..."
                generate_vars
                server_ip=$(get_realip)
@@ -1612,14 +1683,26 @@ EOF
                 fi
                 ;;
             52)
-                if [ -f "$CONF_DIR/grpc-reality.json" ]; then
-                    rm -f "$CONF_DIR/grpc-reality.json"
-                    green "gRPC + Reality 配置已移除"
-                    restart_singbox
+            isp="gRPC-Reality-Node"
+            target_conf="/etc/sing-box/grpc_reality.json"
+
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "文件不存在"
+                    echo "" > /etc/sing-box/sub.txt
                 fi
-                ;;
+                restart_singbox
+                
+                green "==============================================="
+                green " VLESS-gRPC-Reality 已删除!"
+                green "==============================================="
+            else
+                red "错误: 未找到该节点配置文件 ($target_conf)"
+            fi
+            ;;
             53)
                 isp="AnyTLS-Node"
                 if [ -f "/etc/sing-box/anytls.json" ]; then
