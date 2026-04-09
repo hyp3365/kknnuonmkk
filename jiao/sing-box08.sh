@@ -1547,23 +1547,20 @@ manage_nodes_menu() {
   ]
 }
 EOF
-                isp="H2-Reality-Node"
+                isp="H2-Reality-Node_h2_reality"
                 url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${isp}"
-                mkdir -p /etc/sing-box
-                [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-				echo "$url" >> /etc/sing-box/url.txt
-				echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
-                restart_singbox
-                
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> "/etc/sing-box/url.txt"
+                echo "" >> "/etc/sing-box/url.txt"
+                base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+                restart_singbox 
                 green "==============================================="
-                green " H2 + Reality 节点已添加并重启!"
+                green " H2 + Reality 节点已添加!"
                 green " 节点链接: $url"
-                green " 订阅链接文件已更新至 /etc/sing-box/sub.txt"
                 green "==============================================="
                 ;;
-
-
             2) yellow "正在配置 gRPC + Reality..."
             generate_vars
             server_ip=$(get_realip)
@@ -1612,21 +1609,20 @@ EOF
 }
 EOF
 
-            # 3. 设置节点信息及生成 URL
-            isp="grpc-Reality-Node"
+            isp="grpc-Reality-Node_grpc_reality"
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${isp}"
-            [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-            echo "$url" >> /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-            # 5. 更新订阅文件并重启
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+            fi
+            echo "$url" >> "/etc/sing-box/url.txt"
+            echo "" >> "/etc/sing-box/url.txt"
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
             restart_singbox
-    
             green "==============================================="
             green " VLESS-gRPC-Reality 节点已添加并重启!"
             green " 节点链接: $url"
             green "==============================================="
-               ;;
+            ;;
             3) yellow "正在配置 anytls..."
                generate_vars
                server_ip=$(get_realip)
@@ -1654,14 +1650,15 @@ EOF
     ]
 }
 EOF
-            isp="AnyTLS-Node"
+            isp="AnyTLS-Node_anytls"
             url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&allowInsecure=1#${isp}"
-            [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-			echo "$url" >> /etc/sing-box/url.txt
-			echo "" >> /etc/sing-box/url.txt
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+            fi
+            echo "$url" >> "/etc/sing-box/url.txt"
+            echo "" >> "/etc/sing-box/url.txt"
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
             restart_singbox
-    
             green "==============================================="
             green " AnyTLS 节点已添加并重启!"
             green " 节点链接: $url"
@@ -1689,22 +1686,18 @@ EOF
   ]
 }
 EOF
-                isp="Socks5-Node"
+            isp="Socks5-Node_socks5"
                 url="socks://${username}:${password}@${server_ip}:${socks_port}#${isp}"
-                mkdir -p /etc/sing-box
-                [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-				echo "$url" >> /etc/sing-box/url.txt
-				echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
-
-                # 7. 重启服务
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 restart_singbox
-        
                 green "==============================================="
-                green " Socks5 节点已添加并重启!"
+                green " Socks5 节点已添加!"
                 green " 节点链接: $url"
-                green " 用户名: $username"
-                green " 密  码: $password"
                 green "==============================================="
                 ;;
             5) yellow "正在配置 HTTP...";;
@@ -1762,30 +1755,28 @@ EOF
   ]
 }
 EOF
-            # 1. 获取 ISP 基础信息
-       isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
-       # 这里是 VLESS-WS 部分，所以用 vless_ws_cf
-       node_remark="${isp_base}_vless_ws_cf"
-       VLESS_URL="vless://${uuid}@www.visa.com.cn:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
-       if [ -f "${work_dir}/url.txt" ]; then
-       sed -i "/#${node_remark}$/d" "${work_dir}/url.txt"
-       sed -i '/^$/d' "${work_dir}/url.txt"
-       fi
-       echo "$VLESS_URL" >> "${work_dir}/url.txt"
-       base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-       restart_singbox
-            green "==============================================="
-            green " VLESS-WS隧道 添加完成！"
-            green " 节点链接: $VLESS_URL"
-            green "==============================================="
-            ;; 
-			
+        isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
+        node_remark="${isp_base}_vless_ws_cf"
+        VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
+        if [ -f "${work_dir}/url.txt" ]; then
+            grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+        fi
+        echo "$VLESS_URL" >> "${work_dir}/url.txt"
+        echo "" >> "${work_dir}/url.txt"
+        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+        restart_singbox
+
+        green "==============================================="
+        green " VLESS-WS隧道 添加完成！"
+        green " 节点链接: $VLESS_URL"
+        green "==============================================="
+        ;;
             # --- 完整的删除逻辑 ---
-                       51) 
-                isp="H2-Reality-Node"
+            51) 
+                isp="H2-Reality-Node_h2_reality"
                 if [ -f "$CONF_DIR/h2-reality.json" ]; then
                     rm -f "$CONF_DIR/h2-reality.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                     restart_singbox
                     green "已删除"
@@ -1794,16 +1785,16 @@ EOF
                 fi
                 ;;
             52)
-            isp="gRPC-Reality-Node"
+            isp="grpc-Reality-Node_grpc_reality"
             target_conf="/etc/sing-box/grpc_reality.json"
 
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
-                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
+                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    echo "" > /etc/sing-box/sub.txt
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
                 restart_singbox
                 
@@ -1815,33 +1806,33 @@ EOF
             fi
             ;;
             53)
-                isp="AnyTLS-Node"
+                isp="AnyTLS-Node_anytls"
                 if [ -f "/etc/sing-box/anytls.json" ]; then
-                rm -f "/etc/sing-box/anytls.json"
-                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    rm -f "/etc/sing-box/anytls.json"
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
+                    restart_singbox
+                    green "==============================================="
+                    green " AnyTLS已删除!"
+                    green "==============================================="
                 else
-                    echo "" > /etc/sing-box/sub.txt
-                fi
-                
-                # 4. 重启服务使配置生效
-                restart_singbox
-                
-                green "==============================================="
-                green " AnyTLS已删除!"
-                green "==============================================="
-                else
-                red "错误: 未找到 AnyTLS 配置文件 (/etc/sing-box/anytls.json)"
+                    red "错误: 未找到 AnyTLS 配置文件 (/etc/sing-box/anytls.json)"
                 fi
                 ;;
-
             54)
-                isp="Socks5-Node"
+                isp="Socks5-Node_socks5"
                 if [ -f "$CONF_DIR/socks5.json" ]; then
                     rm -f "$CONF_DIR/socks5.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
                     restart_singbox
                     green "已删除"
                 else
@@ -1860,13 +1851,16 @@ EOF
 		     56) 
                 if [ -f "$CONF_DIR/vless-ws-cf.json" ]; then
                     rm -f "$CONF_DIR/vless-ws-cf.json"
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/vless_ws_cf$/d" /etc/sing-box/url.txt
-                        sed -i '/^$/d' /etc/sing-box/url.txt
-                    fi
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    restart_singbox
                     
+                    if [ -f "/etc/sing-box/url.txt" ]; then
+                        sed -i "/_vless_ws_cf$/{N;d;}" /etc/sing-box/url.txt
+                    fi
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi            
+                    restart_singbox
                     green "==============================================="
                     green " VLESS-WS 隧道配置及节点已成功删除！"
                     green "==============================================="
@@ -1874,7 +1868,6 @@ EOF
                     red "未发现 VLESS-WS 配置文件，无需删除。"
                 fi
                 ;;
-
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac
