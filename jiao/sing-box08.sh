@@ -735,12 +735,11 @@ server {
 upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
 upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
 
-# ======= 3. 核心分流转发 (这里的 \$ 符号确保 Nginx 正常识别) =======
+# ======= 3. 核心分流转发 =======
 server {
-    listen 127.0.0.1:8001 so_keepalive=on;
-    http2 on; 
+	listen 127.0.0.1:8001 http2 so_keepalive=on;
     server_name _;
-
+	
     tcp_nodelay on;
     proxy_buffering off;
     proxy_request_buffering off;
@@ -1767,93 +1766,85 @@ EOF
 		7) 
 		    generate_vars
             mkdir -p /etc/sing-box
-            yellow "正在启动 Standalone 自动证书申请 (强制 Let's Encrypt)..."
-            yellow "请确保 Cloudflare 已关闭小黄云 (灰色云朵)！"
-            read -p "确认已关闭并继续？(y/n): " confirm
-            [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
-
-                        # 1. 智能检测并安装依赖
-            green "正在检查依赖环境..."
-            need_install=0
-            # 检查核心命令是否存在
-            for cmd in curl socat fuser crontab; do
+                        # ==========================================
+            #      Cloudflare DNS API 证书申请模块
+            # ==========================================
+            green "正在启动 Cloudflare DNS API 模式申请证书..."
+            
+            # 1. 智能检测依赖环境
+            green "正在检查系统依赖..."
+            for cmd in curl socat crontab; do
                 if ! command -v $cmd >/dev/null 2>&1; then
-                    need_install=1
+                    green "正在安装缺失依赖: $cmd ..."
+                    if command -v apt >/dev/null 2>&1; then
+                        apt update && apt install curl socat cron psmisc -y
+                    elif command -v yum >/dev/null 2>&1; then
+                        yum install curl socat crontabs psmisc -y
+                    fi
                     break
                 fi
             done
-            
-            if [ $need_install -eq 1 ]; then
-                green "检测到缺失依赖，正在安装..."
-                if command -v apt >/dev/null 2>&1; then
-                    apt update && apt install curl socat cron psmisc -y
-                elif command -v yum >/dev/null 2>&1; then
-                    yum install curl socat crontabs psmisc -y
-                else
-                    red "未知的包管理器，请手动安装 curl, socat, cron, psmisc"
-                fi
-            else
-                green "所有依赖已就绪，跳过安装。"
-            fi
 
-            # 清理 80 端口
-            green "正在清理 80 端口..."
-            systemctl stop nginx 2>/dev/null
-            fuser -k 80/tcp 2>/dev/null
-            fuser -k 80/udp 2>/dev/null
-
-            # 2. 获取域名并设置纯净英文环境 (防止非 ASCII 字符报错)
-            read -p "请输入要申请证书的域名 (如 pea.de5.net): " domain
+            # 2. 获取并清理用户输入
+            read -p "请输入域名 (如 pea.de5.net): " domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
 
+            read -p "请输入 Cloudflare 登录邮箱: " cf_email
+            [ -z "$cf_email" ] && red "邮箱不能为空!" && return 1
+
+            read -p "请输入 Cloudflare Global API Key: " cf_key
+            [ -z "$cf_key" ] && red "API Key 不能为空!" && return 1
+
+            # 强制清理输入中可能存在的空格或隐形字符
+            export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
+            export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')
             export LANG=en_US.UTF-8
-            export LC_ALL=en_US.UTF-8
 
-            # 3. 智能处理邮箱与 acme.sh 注册
-            # 这里让用户输入邮箱，如果直接回车，就用默认的 admin@域名
-            read -p "请输入注册邮箱 (直接回车默认使用 admin@${domain}): " user_email
-            user_email="${user_email:-admin@${domain}}"
-            # 核心修复：清理输入中可能存在的空格、中文符号和隐形特殊字符
-            user_email=$(echo "$user_email" | tr -d '[:space:]' | tr -cd '[:alnum:]@.')
-
+            # 3. 安装或检查 acme.sh
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                green "正在安装 acme.sh..."
-                curl https://get.acme.sh | sh -s email="$user_email"
-            else
-                green "确保 acme.sh 账户已注册..."
-                ~/.acme.sh/acme.sh --register-account -m "$user_email" --server letsencrypt >/dev/null 2>&1
+                green "正在安装 acme.sh 核心组件..."
+                curl https://get.acme.sh | sh -s email="$CF_Email"
+                ~/.acme.sh/acme.sh --upgrade --auto-upgrade
             fi
 
-            # 无论是否安装过，强制执行一次切换命令
+            # 4. 发起申请
+            green "正在通过 DNS 验证发起申请，请耐心等待 1-2 分钟..."
+            # 强制使用 Let's Encrypt 提高兼容性
             ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-
-            # 4. 发起申请 (加上 --listen-v6 增加 IPv6 连通率)
-            green "正在向 Let's Encrypt 发起申请..."
-            ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force --listen-v6
+            ~/.acme.sh/acme.sh --issue --dns dns_cf -d "$domain" --keylength ec-256 --force
             
-            acme_ret=$? # 记录申请结果状态码
-
-            # 5. 判断申请结果
-            if [ $acme_ret -ne 0 ]; then
-                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
-                systemctl start nginx 2>/dev/null
+            if [ $? -ne 0 ]; then
+                red "申请失败！请检查 CF 邮箱、API Key 是否正确，以及域名是否属于该账号。"
                 return 1
             fi
 
-            # 6. 安装证书
-            green "证书申请成功！正在安装到指定目录..."
+            # 5. 自动创建文件夹并安装证书
             ssl_dir="/etc/sing-box/ssl"
-            mkdir -p "$ssl_dir"
-            cert_path="${ssl_dir}/${domain}.pem"
-            key_path="${ssl_dir}/${domain}.key"
+            if [ ! -d "$ssl_dir" ]; then
+                green "创建证书文件夹: $ssl_dir"
+                mkdir -p "$ssl_dir"
+            fi
 
+            green "正在安装证书到指定位置..."
             ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
-                --fullchain-file "$cert_path" \
-                --key-file "$key_path"
+                --fullchain-file "$ssl_dir/${domain}.pem" \
+                --key-file "$ssl_dir/${domain}.key" \
+                --reloadcmd "systemctl restart sing-box nginx" # 续期后自动重启服务
 
-            # 7. 善后工作
-            systemctl start nginx 2>/dev/null # 申请完恢复 Nginx
-            green "SSL 证书配置已全部完成！"
+            # 6. 设置严格的安全权限
+            chmod 700 "$ssl_dir"
+            chmod 600 "$ssl_dir/${domain}.key"
+
+            # 7. 最终确认
+            if [ -f "$ssl_dir/${domain}.pem" ] && [ -f "$ssl_dir/${domain}.key" ]; then
+                green "--------------------------------------------------"
+                green " 证书申请并安装成功！"
+                echo " 证书路径: $ssl_dir/${domain}.pem"
+                echo " 私钥路径: $ssl_dir/${domain}.key"
+                green "--------------------------------------------------"
+            else
+                red "证书文件安装失败，请手动检查 /root/.acme.sh/ 日志。"
+            fi
 
 
             # 8. 生成 vless-ws-cdn.json 配置
