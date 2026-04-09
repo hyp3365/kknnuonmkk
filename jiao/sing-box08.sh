@@ -1807,7 +1807,7 @@ EOF
                 --key-file "$key_path"
 
             green "正在生成 sing-box 配置文件..."
-            cat <<EOF > /etc/sing-box/config.json
+			cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -1833,7 +1833,7 @@ EOF
 }
 EOF
             isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Node")
-            node_remark="${isp_base}_vless_ws_cf"
+            node_remark="${isp_base}_vless_ws_cdn_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -1847,7 +1847,7 @@ EOF
             yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vless_ws_cdn_port"
             green "--------------------------------------------------"
-            echo " $VLESS_URL"
+            echo " 节点连接 $VLESS_URL"
             green "--------------------------------------------------"
             ;;
       
@@ -1948,18 +1948,28 @@ EOF
                     red "未发现 VLESS-WS 配置文件，无需删除。"
                 fi
                 ;;
-				57) 
-            isp="VLESS-WS-CDN-Node_vless_ws_cdn"
-            if [ -f "/etc/sing-box/vless-ws-cdn.json" ]; then
-                rm -f "/etc/sing-box/vless-ws-cdn.json"
-                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                green "VLESS-WS-CDN 节点已删除"
-            else
-                red "文件不存在"
-            fi
-            ;;
+		    57) 
+                isp="_vless_ws_cdn_cdn"
+                config_file="/etc/sing-box/vless-ws-cdn.json"
+                if [ -f "$config_file" ]; then
+                    rm -f "$config_file"
+                    if [ -f "/etc/sing-box/url.txt" ]; then
+                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    fi
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
+                    restart_singbox
+                    green "==============================================="
+                    green " vless-ws-cdn 已删除!"
+                    green "==============================================="
+                else
+                    red "错误: 未找到配置文件 ($config_file)"
+                fi
+                ;;
+
 		
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
