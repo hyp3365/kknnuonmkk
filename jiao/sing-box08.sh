@@ -1766,90 +1766,48 @@ EOF
 		7) 
 		    generate_vars
             mkdir -p /etc/sing-box
-                        # ==========================================
-            #      Cloudflare DNS API 证书申请模块
-            # ==========================================
             green "正在启动 Cloudflare DNS API 模式申请证书..."
-            
-            # 1. 智能检测依赖环境
-            green "正在检查系统依赖..."
+            # 1. 检查依赖
             for cmd in curl socat crontab; do
                 if ! command -v $cmd >/dev/null 2>&1; then
-                    green "正在安装缺失依赖: $cmd ..."
-                    if command -v apt >/dev/null 2>&1; then
-                        apt update && apt install curl socat cron psmisc -y
-                    elif command -v yum >/dev/null 2>&1; then
-                        yum install curl socat crontabs psmisc -y
-                    fi
+                    green "安装依赖: $cmd ..."
+                    apt update && apt install curl socat cron psmisc -y || yum install curl socat crontabs psmisc -y
                     break
                 fi
             done
-
-            # 2. 获取并清理用户输入
-            read -p "请输入域名 (如 pea.de5.net): " domain
+            read -p "请输入域名 (如 de5.net): " domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
-
             read -p "请输入 Cloudflare 登录邮箱: " cf_email
             [ -z "$cf_email" ] && red "邮箱不能为空!" && return 1
-
             read -p "请输入 Cloudflare Global API Key: " cf_key
             [ -z "$cf_key" ] && red "API Key 不能为空!" && return 1
-
-            # 强制清理输入中可能存在的空格或隐形字符
             export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
             export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')
             export LANG=en_US.UTF-8
-
-            # 3. 安装或检查 acme.sh
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                green "正在安装 acme.sh 核心组件..."
+                green "安装 acme.sh..."
                 curl https://get.acme.sh | sh -s email="$CF_Email"
-                ~/.acme.sh/acme.sh --upgrade --auto-upgrade
             fi
-
-            # 4. 发起申请
-            green "正在通过 DNS 验证发起申请，请耐心等待 1-2 分钟..."
-            # 强制使用 Let's Encrypt 提高兼容性
+            green "正在向 Let's Encrypt 发起申请..."
             ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
             ~/.acme.sh/acme.sh --issue --dns dns_cf -d "$domain" --keylength ec-256 --force
             
             if [ $? -ne 0 ]; then
-                red "申请失败！请检查 CF 邮箱、API Key 是否正确，以及域名是否属于该账号。"
+                red "申请失败！请检查 CF 信息或域名解析。"
                 return 1
             fi
-
-            # 5. 自动创建文件夹并安装证书
             ssl_dir="/etc/sing-box/ssl"
-            if [ ! -d "$ssl_dir" ]; then
-                green "创建证书文件夹: $ssl_dir"
-                mkdir -p "$ssl_dir"
-            fi
-
-            green "正在安装证书到指定位置..."
+            [ ! -d "$ssl_dir" ] && mkdir -p "$ssl_dir"          
+            cert_path="${ssl_dir}/${domain}.pem"
+            key_path="${ssl_dir}/${domain}.key"
+            ws_path="/sspaasksavxssaszass"
+            green "正在安装证书到: $ssl_dir"
             ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
-                --fullchain-file "$ssl_dir/${domain}.pem" \
-                --key-file "$ssl_dir/${domain}.key" \
-                --reloadcmd "systemctl restart sing-box nginx" # 续期后自动重启服务
+                --fullchain-file "$cert_path" \
+                --key-file "$key_path"
 
-            # 6. 设置严格的安全权限
-            chmod 700 "$ssl_dir"
-            chmod 600 "$ssl_dir/${domain}.key"
-
-            # 7. 最终确认
-            if [ -f "$ssl_dir/${domain}.pem" ] && [ -f "$ssl_dir/${domain}.key" ]; then
-                green "--------------------------------------------------"
-                green " 证书申请并安装成功！"
-                echo " 证书路径: $ssl_dir/${domain}.pem"
-                echo " 私钥路径: $ssl_dir/${domain}.key"
-                green "--------------------------------------------------"
-            else
-                red "证书文件安装失败，请手动检查 /root/.acme.sh/ 日志。"
-            fi
-
-
-            # 8. 生成 vless-ws-cdn.json 配置
-            generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
-            cat > /etc/sing-box/vless-ws-cdn.json << EOF
+            green "正在生成 sing-box 配置文件..."
+            cat <<EOF > /etc/sing-box/config.json
 {
   "inbounds": [
     {
@@ -1866,7 +1824,7 @@ EOF
       },
       "transport": {
         "type": "ws",
-        "path": "/sspaasksavxssaszass",
+        "path": "$ws_path",
         "max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
@@ -1874,23 +1832,24 @@ EOF
   ]
 }
 EOF
-            # 生成节点链接并更新订阅 (保持你原有的逻辑)
-            isp="VLESS-WS-CDN"
-            url="vless://${uuid}@${domain}:${vless_ws_cdn_port}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=%2Fsspaasksavxssaszass#${isp}"
-            echo "$url" >> "/etc/sing-box/url.txt"
-            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-            
+            isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Node")
+            node_remark="${isp_base}_vless_ws_cf"
+            encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
+            VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
+            if [ -f "${work_dir}/url.txt" ]; then
+                grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+            fi
+            echo "$VLESS_URL" >> "${work_dir}/url.txt"
+            echo "" >> "${work_dir}/url.txt"
+            base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
             restart_singbox
-            green "==============================================="
-            green " 证书申请并配置完成！"
-            green " 域名: $domain"
-            green " 注意：现在可以回到 CF 后台重新开启小黄云了。"
-            green "==============================================="
+            green "--------------------------------------------------"
+            yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
+            yellow " 回源端口: $vless_ws_cdn_port"
+            green "--------------------------------------------------"
+            echo " $VLESS_URL"
+            green "--------------------------------------------------"
             ;;
-
-
-        
-  
       
             # --- 完整的删除逻辑 ---
             51) 
