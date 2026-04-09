@@ -1502,7 +1502,8 @@ EOF
                 url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${isp}"
                 mkdir -p /etc/sing-box
                 [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+				echo "$url" >> /etc/sing-box/url.txt
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
                 restart_singbox
                 
@@ -1545,7 +1546,8 @@ EOF
             isp="AnyTLS-Node"
             url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&allowInsecure=1#${isp}"
             [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-            echo "$url" >> /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+			echo "$url" >> /etc/sing-box/url.txt
             base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
             restart_singbox
     
@@ -1580,7 +1582,8 @@ EOF
                 url="socks://${username}:${password}@${server_ip}:${socks_port}#${isp}"
                 mkdir -p /etc/sing-box
                 [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
-                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+				echo "$url" >> /etc/sing-box/url.txt
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
 
                 # 7. 重启服务
