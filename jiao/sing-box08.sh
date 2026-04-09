@@ -337,6 +337,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
+	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
@@ -469,7 +470,6 @@ cat > "${config_dir}" << EOF
       "peers": [
         {
           "address": "engage.cloudflareclient.com",
-		  
            #洛杉矶ip 2606:4700:d0::a29f:c001 
 		   #洛杉矶ip 162.159.195.1
           "port": 2408,
@@ -539,7 +539,7 @@ cat > "${config_dir}" << EOF
     ],
     "rules": [
 	  {
-        "inbound": ["tuic"], // 限制只针对这个节点
+        "inbound": ["tuic"], // 限制只针对这个节点 可以增加多个节点
         "domain_suffix": [
           "ping.pe"
           #"ip.sb",
