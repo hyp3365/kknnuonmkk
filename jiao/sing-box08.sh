@@ -1771,42 +1771,53 @@ EOF
             yellow "注意：申请前请务必在 Cloudflare 后台关闭域名代理模式，改为 [仅限 DNS]！"
             read -p "确认已关闭小黄云并继续？(y/n): " confirm
             [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
-
-             # 1. 环境准备 (新增了 cron 的安装)
-            green "正在安装必要组件 (curl, socat, cron)..."
+             # 1. 环境预检 (自动安装 cron 和放行防火墙)
+            green "正在优化系统环境..."
             if [ -f /usr/bin/apt ]; then
                 apt update && apt install curl socat cron -y
+                ufw allow 80/tcp >/dev/null 2>&1
             elif [ -f /usr/bin/yum ]; then
                 yum install curl socat crontabs -y
+                firewall-cmd --add-port=80/tcp --permanent >/dev/null 2>&1
+                firewall-cmd --reload >/dev/null 2>&1
             fi
-            
-            # 启动并自启 cron 服务
-            systemctl enable --now cron || systemctl enable --now crond
+            systemctl enable --now cron >/dev/null 2>&1
 
-            # 2. 获取域名
-            read -p "请输入要申请证书的域名: " domain
-            # ... (后续代码不变) ...
-
-            # 3. 重新安装 acme.sh (添加 --force 确保即使失败也继续)
+            # 2. 安装 acme.sh 并强制切换到更稳定的 Let's Encrypt
             if [ ! -f ~/.acme.sh/acme.sh ]; then
-                curl https://get.acme.sh | sh -s email=my@example.com --force
-                # 强制刷新环境路径
-                source ~/.bashrc
-                export PATH="$HOME/.acme.sh:$PATH"
+                curl https://get.acme.sh | sh -s email=my@example.com
+                ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
             fi
 
-            # 4. 自动关闭 Nginx 释放 80 端口
+            read -p "请输入域名: " domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+
+            # 3. 强力释放 80 端口 (防止 Nginx 没关干净)
             if systemctl is-active --quiet nginx; then
-                yellow "检测到 Nginx 正在运行，正在自动关闭以释放 80 端口..."
                 systemctl stop nginx
-                need_start_nginx=true
             fi
+            # 这一行是保险：杀死任何依然占用 80 的进程
+            fuser -k 80/tcp >/dev/null 2>&1 
 
-            # 5. 开始申请证书
-            green "正在向证书服务器发起请求，请稍候..."
+            # 4. 申请证书
+            green "正在向 Let's Encrypt 申请证书，通常只需 10-30 秒..."
             ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force
             
-            acme_ret=$?
+            if [ $? -ne 0 ]; then
+                red "申请失败！请检查：1. 域名是否关闭了小黄云 2. 解析是否生效。"
+                systemctl start nginx >/dev/null 2>&1
+                return 1
+            fi
+
+            # 5. 自动配置与恢复
+            ssl_dir="/etc/sing-box/ssl"
+            mkdir -p "$ssl_dir"
+            ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
+                --fullchain-file "${ssl_dir}/${domain}.pem" \
+                --key-file "${ssl_dir}/${domain}.key"
+
+            systemctl start nginx >/dev/null 2>&1
+
 
             # 6. 无论成功与否，尝试恢复 Nginx 运行
             if [ "$need_start_nginx" = true ]; then
