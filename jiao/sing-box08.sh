@@ -1651,7 +1651,7 @@ EOF
 }
 EOF
             isp="AnyTLS-Node_anytls"
-            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&allowInsecure=1#${isp}"
+            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${isp}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
             fi
