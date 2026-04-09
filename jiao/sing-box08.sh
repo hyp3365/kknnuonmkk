@@ -1767,71 +1767,42 @@ EOF
 		7) 
 		    generate_vars
             mkdir -p /etc/sing-box
-            yellow "正在启动自动证书申请流程..."
-            yellow "注意：申请前请务必在 Cloudflare 后台关闭域名代理模式，改为 [仅限 DNS]！"
-            read -p "确认已关闭小黄云并继续？(y/n): " confirm
+            yellow "正在启动 Standalone 自动证书申请 (强制 Let's Encrypt)..."
+            yellow "请确保 Cloudflare 已关闭小黄云 (灰色云朵)！"
+            read -p "确认已关闭并继续？(y/n): " confirm
             [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
-             # 1. 环境预检 (自动安装 cron 和放行防火墙)
-            green "正在优化系统环境..."
-            if [ -f /usr/bin/apt ]; then
-                apt update && apt install curl socat cron -y
-                ufw allow 80/tcp >/dev/null 2>&1
-            elif [ -f /usr/bin/yum ]; then
-                yum install curl socat crontabs -y
-                firewall-cmd --add-port=80/tcp --permanent >/dev/null 2>&1
-                firewall-cmd --reload >/dev/null 2>&1
-            fi
-            systemctl enable --now cron >/dev/null 2>&1
 
-            # 2. 安装 acme.sh 并强制切换到更稳定的 Let's Encrypt
+            # 1. 环境准备与端口强杀
+            green "正在清理 80 端口并安装依赖..."
+            if [ -f /usr/bin/apt ]; then
+                apt update && apt install curl socat cron psmisc -y
+            elif [ -f /usr/bin/yum ]; then
+                yum install curl socat crontabs psmisc -y
+            fi
+            systemctl stop nginx 2>/dev/null
+            fuser -k 80/tcp 2>/dev/null # 强制杀死任何占用 80 端口的进程
+
+            # 2. 安装 acme.sh 并【强制设置】默认服务器为 Let's Encrypt
             if [ ! -f ~/.acme.sh/acme.sh ]; then
                 curl https://get.acme.sh | sh -s email=my@example.com
-                ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
             fi
+            # 无论是否安装过，强制执行一次切换命令
+            ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 
-            read -p "请输入域名: " domain
+            # 3. 获取域名并申请
+            read -p "请输入域名 (如 pea.de5.net): " domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
 
-            # 3. 强力释放 80 端口 (防止 Nginx 没关干净)
-            if systemctl is-active --quiet nginx; then
-                systemctl stop nginx
-            fi
-            # 这一行是保险：杀死任何依然占用 80 的进程
-            fuser -k 80/tcp >/dev/null 2>&1 
-
-            # 4. 申请证书
-            green "正在向 Let's Encrypt 申请证书，通常只需 10-30 秒..."
+            green "正在向 Let's Encrypt 发起申请..."
             ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force
             
             if [ $? -ne 0 ]; then
-                red "申请失败！请检查：1. 域名是否关闭了小黄云 2. 解析是否生效。"
-                systemctl start nginx >/dev/null 2>&1
+                red "申请失败！请确认 80 端口是否对公网开放，且解析已生效。"
+                systemctl start nginx 2>/dev/null
                 return 1
             fi
 
-            # 5. 自动配置与恢复
-            ssl_dir="/etc/sing-box/ssl"
-            mkdir -p "$ssl_dir"
-            ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
-                --fullchain-file "${ssl_dir}/${domain}.pem" \
-                --key-file "${ssl_dir}/${domain}.key"
-
-            systemctl start nginx >/dev/null 2>&1
-
-
-            # 6. 无论成功与否，尝试恢复 Nginx 运行
-            if [ "$need_start_nginx" = true ]; then
-                yellow "恢复 Nginx 运行..."
-                systemctl start nginx
-            fi
-
-            # 7. 判断申请结果并配置
-            if [ $acme_ret -ne 0 ]; then
-                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
-                return 1
-            fi
-
-            # 定义路径并安装证书
+            # 4. 安装证书
             ssl_dir="/etc/sing-box/ssl"
             mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
@@ -1840,6 +1811,13 @@ EOF
             ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
                 --fullchain-file "$cert_path" \
                 --key-file "$key_path"
+
+            systemctl start nginx 2>/dev/null # 申请完恢复 Nginx
+            # 7. 判断申请结果并配置
+            if [ $acme_ret -ne 0 ]; then
+                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
+                return 1
+            fi
 
             # 8. 生成 vless-ws-cdn.json 配置
             generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
