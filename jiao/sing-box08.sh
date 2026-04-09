@@ -723,13 +723,16 @@ server {
     location / {
         return 404;
     }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
 }
 
 # ======= 2. 后端连接池 =======
 upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
 upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
-upstream vless_http { server 127.0.0.1:8004; keepalive 32; }
-upstream vless_grpc { server 127.0.0.1:8005; keepalive 32; }
 
 # ======= 3. 核心分流转发 (这里的 \$ 符号确保 Nginx 正常识别) =======
 server {
@@ -762,27 +765,15 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
     }
-
-    # VLESS HTTP
-    location /hPaxe1996Ko-5203aap {
-        proxy_pass http://vless_http;
-        proxy_set_header Connection ""; 
-        proxy_read_timeout 3600s;
-    }
-
-    # VLESS gRPC
-    location /gPaxe1996Ko-5203aap {
-        grpc_pass grpc://vless_grpc;
-        grpc_read_timeout 3600s;
-        client_max_body_size 0;
-    }
-
     location / { return 404; }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
 }
 EOF
 
-
-    # 检查主配置文件是否存在
     if [ -f "/etc/nginx/nginx.conf" ]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
         sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
@@ -1456,7 +1447,6 @@ manage_nodes_menu() {
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-cf.json|vless + ws + cf|6"
-			"vless-http-cf.json|vless + http + cf|7"
         )
 
         clear
@@ -1772,73 +1762,6 @@ EOF
         green " 节点链接: $VLESS_URL"
         green "==============================================="
         ;;
-        7) 
-            yellow "正在配置 vless-http隧道..."
-            generate_vars
-            mkdir -p /etc/sing-box
-            if [ -f "${work_dir}/argo.log" ]; then
-                argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
-            fi
-            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
-                purple "正在获取cf隧道域名..."
-                argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
-                    decoded=$(echo "${line#vmess://}" | base64 -d 2>/dev/null)
-                    echo "$decoded" | grep -oE '"host":\s*"[^"]+"' | cut -d'"' -f4 | grep "trycloudflare.com"
-                done | head -n 1)
-            fi
-            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
-                argodomain=$(grep "trycloudflare.com" "${work_dir}/url.txt" | grep -oE "(sni|host)=[^&]+" | head -n 1 | cut -d'=' -f2)
-            fi
-            if [ -z "$argodomain" ]; then
-                red "======================================================"
-                red " 错误：无法获取 Argo 域名！"
-                red "======================================================"
-                break 
-            fi
-
-            cat > /etc/sing-box/vless-http-cf.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-http-in",
-      "listen": "127.0.0.1",
-      "listen_port": 8004,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "http",
-        "host": [
-          "$argodomain"
-        ],
-        "path": "/hPaxe1996Ko-5203aap"
-      }
-    }
-  ]
-}
-EOF
-        isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
-        node_remark="${isp_base}_vless_http_cf"
-        VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=http&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap#${node_remark}"
-        
-        if [ -f "${work_dir}/url.txt" ]; then
-            grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
-        fi
-
-        echo "$VLESS_URL" >> "${work_dir}/url.txt"
-        echo "" >> "${work_dir}/url.txt"
-        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-        restart_singbox
-
-        green "==============================================="
-        green " VLESS-HTTP隧道 添加完成！"
-        green " 节点链接: $VLESS_URL"
-        green "==============================================="
-        ;;
-
             # --- 完整的删除逻辑 ---
             51) 
                 isp="H2-Reality-Node_h2_reality"
@@ -1936,29 +1859,7 @@ EOF
                     red "未发现 VLESS-WS 配置文件，无需删除。"
                 fi
                 ;;
-			 57)
-                if [ -f "$CONF_DIR/vless-http-cf.json" ]; then
-                    rm -f "$CONF_DIR/vless-http-cf.json"
-                    
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/_vless_http_cf$/{N;d;}" /etc/sing-box/url.txt
-                    fi
-
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi            
-
-                    restart_singbox
-                    green "==============================================="
-                    green " VLESS-HTTP 隧道配置及节点已成功删除！"
-                    green "==============================================="
-                else
-                    red "未发现 VLESS-HTTP 配置文件，无需删除。"
-                fi
-                ;;
-
+		
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac
