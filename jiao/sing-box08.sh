@@ -703,17 +703,32 @@ add_nginx_conf() {
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
 # ======= 1. 订阅服务 (监听订阅端口) =======
 server {
-    listen \$nginx_port;
-    listen [::]:\$nginx_port;
+    listen $nginx_port;
+    listen [::]:$nginx_port;
     server_name _;
 
-    location = /\$password {
+    # 安全设置
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /$password {
         alias /etc/sing-box/sub.txt;
         default_type 'text/plain; charset=utf-8';
         add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+    location / {
+        return 404;
+    }
+	# 禁止访问隐藏文件
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
     }
 
-    location / { return 404; }
 }
 
 # ======= 2. 负载均衡长连接池 (提升 CF 转发速度) =======
