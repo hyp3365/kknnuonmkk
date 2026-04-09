@@ -1565,7 +1565,7 @@ EOF
 EOF
 
             # 3. 设置节点信息及生成 URL
-            isp="gRPC-Reality-Node"
+            isp="grpc-Reality-Node"
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${isp}"
             [ -f /etc/sing-box/url.txt ] && sed -i "/#${isp}/d" /etc/sing-box/url.txt
             echo "$url" >> /etc/sing-box/url.txt
@@ -1577,7 +1577,6 @@ EOF
             green "==============================================="
             green " VLESS-gRPC-Reality 节点已添加并重启!"
             green " 节点链接: $url"
-            green " 端口: $PORT_GRPC_REALITY"
             green "==============================================="
                ;;
             3) yellow "正在配置 anytls..."
