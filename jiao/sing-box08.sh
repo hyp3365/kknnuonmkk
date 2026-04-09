@@ -1446,7 +1446,7 @@ manage_nodes_menu() {
             "anytls.json|anytls|3"
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
-			"vless-ws-cf.json|vless-ws-cf|6"
+			"vless-ws-argo.json|vless-ws-argo|6"
 			"vless-ws-cdn.json|vless-ws-cdn|7"
         )
 
@@ -1725,12 +1725,12 @@ EOF
             fi
 
             # 5. 生成配置文件 (关键步骤)
-            cat > /etc/sing-box/vless-ws-cf.json << EOF
+            cat > /etc/sing-box/vless-ws-argo.json << EOF
 {
   "inbounds": [
     {
       "type": "vless",
-      "tag": "vless-ws-in",
+      "tag": "vless-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": 8003,
       "users": [
@@ -1748,7 +1748,7 @@ EOF
 }
 EOF
         isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
-        node_remark="${isp_base}_vless_ws_cf"
+        node_remark="${isp_base}_vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
             grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
@@ -1929,8 +1929,8 @@ EOF
                 fi
                 ;;
 		     56) 
-                if [ -f "$CONF_DIR/vless-ws-cf.json" ]; then
-                    rm -f "$CONF_DIR/vless-ws-cf.json"
+                if [ -f "$CONF_DIR/vless-ws-argo.json" ]; then
+                    rm -f "$CONF_DIR/vless-ws-argo.json"
                     
                     if [ -f "/etc/sing-box/url.txt" ]; then
                         sed -i "/_vless_ws_cf$/{N;d;}" /etc/sing-box/url.txt
