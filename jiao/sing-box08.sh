@@ -1767,27 +1767,64 @@ EOF
 		7) 
 		    generate_vars
             mkdir -p /etc/sing-box
-            yellow "正在开始配置 VLESS-WS-CDN 环境..."
-            read -p "请输入解析到 CF 的域名: " domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
+            yellow "正在启动自动证书申请流程..."
+            yellow "注意：申请前请务必在 Cloudflare 后台关闭域名代理模式，改为 [仅限 DNS]！"
+            read -p "确认已关闭小黄云并继续？(y/n): " confirm
+            [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return 1
 
+            # 1. 环境准备
+            [ -z "$(command -v curl)" ] && apt install curl socat -y
+            
+            # 2. 获取域名
+            read -p "请输入要申请证书的域名 (例如 example.com): " domain
+            if [ -z "$domain" ]; then
+                red "错误: 域名不能为空!"
+                return 1
+            fi
+
+            # 3. 安装 acme.sh (如果未安装)
+            if [ ! -f ~/.acme.sh/acme.sh ]; then
+                curl https://get.acme.sh | sh -s email=my@example.com
+                source ~/.bashrc
+            fi
+
+            # 4. 自动关闭 Nginx 释放 80 端口
+            if systemctl is-active --quiet nginx; then
+                yellow "检测到 Nginx 正在运行，正在自动关闭以释放 80 端口..."
+                systemctl stop nginx
+                need_start_nginx=true
+            fi
+
+            # 5. 开始申请证书
+            green "正在向证书服务器发起请求，请稍候..."
+            ~/.acme.sh/acme.sh --issue --standalone -d "$domain" --keylength ec-256 --force
+            
+            acme_ret=$?
+
+            # 6. 无论成功与否，尝试恢复 Nginx 运行
+            if [ "$need_start_nginx" = true ]; then
+                yellow "恢复 Nginx 运行..."
+                systemctl start nginx
+            fi
+
+            # 7. 判断申请结果并配置
+            if [ $acme_ret -ne 0 ]; then
+                red "证书申请失败！可能原因：1.小黄云未关 2.域名未解析到此IP 3.80端口仍被占用"
+                return 1
+            fi
+
+            # 定义路径并安装证书
             ssl_dir="/etc/sing-box/ssl"
             mkdir -p "$ssl_dir"
             cert_path="${ssl_dir}/${domain}.pem"
             key_path="${ssl_dir}/${domain}.key"
 
-            # 这种方式可以让 Shell 进入最深层的接收模式
-            green "1. 请粘贴 PEM 证书内容，粘贴完按回车，手动输入 EOF 再回车："
-            cat << 'EOF' > "$cert_path"
-$(cat)
-EOF
-            # 注意：如果上面那行不行，直接改回最原始的 cat > "$cert_path"
-            
-            green "2. 请粘贴 KEY 密钥内容，粘贴完按回车，手动输入 EOF 再回车："
-            cat << 'EOF' > "$key_path"
-$(cat)
-EOF
+            ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
+                --fullchain-file "$cert_path" \
+                --key-file "$key_path"
 
+            # 8. 生成 vless-ws-cdn.json 配置
+            generate_vars # 确保变量 uuid 和 vless_ws_cdn_port 已生成
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
 {
   "inbounds": [
@@ -1796,11 +1833,7 @@ EOF
       "tag": "vless-ws-cdn",
       "listen": "::",
       "listen_port": $vless_ws_cdn_port,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
+      "users": [ { "uuid": "$uuid" } ],
       "tls": {
         "enabled": true,
         "server_name": "$domain",
@@ -1817,20 +1850,20 @@ EOF
   ]
 }
 EOF
-            isp="VLESS-WS-CDN-Node_vless_ws_cdn"
+            # 生成节点链接并更新订阅 (保持你原有的逻辑)
+            isp="VLESS-WS-CDN"
             url="vless://${uuid}@${domain}:${vless_ws_cdn_port}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=%2Fsspaasksavxssaszass#${isp}"
-            
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-            fi
             echo "$url" >> "/etc/sing-box/url.txt"
-            echo "" >> "/etc/sing-box/url.txt"
-            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null        
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+            
             restart_singbox
             green "==============================================="
-            green " 节点链接: $url"
+            green " 证书申请并配置完成！"
+            green " 域名: $domain"
+            green " 注意：现在可以回到 CF 后台重新开启小黄云了。"
             green "==============================================="
             ;;
+
 
         
   
