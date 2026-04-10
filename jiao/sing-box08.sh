@@ -224,19 +224,39 @@ manage_packages() {
 
 # 获取ip
 get_realip() {
-    ip=$(curl -4 -sm 2 ip.sb)
-    ipv6() { curl -6 -sm 2 ip.sb; }
+    local ip=""
+    local v6=""
+    local resp=""
+    # 依次尝试：ip.sb, ifconfig.me, icanhazip.com
+    ip=$(curl -4 -sm 5 ip.sb || curl -4 -sm 5 ifconfig.me || curl -4 -sm 5 icanhazip.com)
+    get_v6() {
+        curl -6 -sm 5 ip.sb || curl -6 -sm 5 icanhazip.com || curl -6 -sm 5 api64.ipify.org
+    }
     if [ -z "$ip" ]; then
-        echo "[$(ipv6)]"
-    elif curl -4 -sm 2 http://ipinfo.io/org | grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        echo "[$(ipv6)]"
+        v6=$(get_v6)
+        if [ -n "$v6" ]; then
+            echo "[$v6]"
+        else
+            echo "error_network_down"
+        fi
+        return
+    fi
+    local org
+    org=$(curl -4 -sm 5 http://ipinfo.io/org 2>/dev/null)    
+    if echo "$org" | grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
+        v6=$(get_v6)
+        [ -n "$v6" ] && echo "[$v6]" || echo "$ip"
     else
-        resp=$(curl -sm 8 "https://status.eooce.com/api/$ip" | jq -r '.status')
+        resp=$(curl -sm 5 "https://status.eooce.com/api/$ip" 2>/dev/null | jq -r '.status' 2>/dev/null)       
         if [ "$resp" = "Available" ]; then
             echo "$ip"
         else
-            v6=$(ipv6)
-            [ -n "$v6" ] && echo "[$v6]" || echo "$ip"
+            v6=$(get_v6)
+            if [ -n "$v6" ]; then
+                echo "[$v6]"
+            else
+                echo "$ip"
+            fi
         fi
     fi
 }
