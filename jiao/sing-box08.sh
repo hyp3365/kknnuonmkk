@@ -731,43 +731,53 @@ server {
 }
 EOF
 [[ -f "/etc/nginx/conf.d/s-sing-box.conf" ]] && cp /etc/nginx/conf.d/s-sing-box.conf /etc/nginx/conf.d/s-sing-box.conf.bak.sb
-cat > /etc/nginx/conf.d/s-sing-box.conf << EOF
-# ======= 1. 后端连接池 =======
-upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
-upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
+cat > /etc/nginx/conf.d/s-sing-box.conf << 'EOF'
+upstream vmess_ws { 
+    server 127.0.0.1:8002; 
+    keepalive 1024; 
+}
+upstream vless_ws { 
+    server 127.0.0.1:8003; 
+    keepalive 1024; 
+}
 
-# ======= 2. 核心分流转发 =======
 server {
-	listen 127.0.0.1:8001 http2 so_keepalive=on;
+    listen 127.0.0.1:8001 so_keepalive=on backlog=4096;
     server_name _;
-	
-    tcp_nodelay on;
-    proxy_buffering off;
-    proxy_request_buffering off;
-    proxy_http_version 1.1;
     
-    # 注意：下面这些 \$ 符号是必须的，否则写入文件时变量会丢失
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    tcp_nodelay on;               
+    proxy_buffering off;          
+    proxy_request_buffering off;
+    proxy_http_version 1.1;       
+    
+    proxy_connect_timeout 30s;    
+    proxy_send_timeout 3600s;     
+    proxy_read_timeout 3600s;
+    
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
     # VMess WS
     location /mPaxe1996Ko-5203aap {
         proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
     }
 
     # VLESS WS
     location /lPaxe1996Ko-5203aap {
         proxy_pass http://vless_ws;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
     }
-    location / { return 404; }
-	location ~ /\. {
+
+    location / { 
+        access_log off;
+        return 404; 
+    }
+    
+    location ~ /\. {
         deny all;
         access_log off;
         log_not_found off;
