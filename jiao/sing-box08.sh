@@ -1334,9 +1334,9 @@ disable_open_sub() {
                 green "=== Nginx配置 ==="
                 skyblue "------------"
                 avail_dir="/etc/nginx/sites-available"
-                enabled_dir="/etc/nginx/sites-enabled"             
-                mapfile -t all_conf < <(ls "$avail_dir" 2>/dev/null)            
-                disabled_list=()
+                enabled_dir="/etc/nginx/sites-enabled"                        
+                mapfile -t all_conf < <(ls "$avail_dir" | grep '\.conf$')
+				disabled_list=()
                 enabled_list=()
                 for conf in "${all_conf[@]}"; do
                     if [ -L "$enabled_dir/$conf" ]; then
