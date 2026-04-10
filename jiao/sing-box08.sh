@@ -1023,7 +1023,7 @@ uninstall_singbox() {
    esac
 }
 # 创建快捷指令（自动下载脚本到本地保存）
-Create_shortcut() {
+create_shortcut() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
