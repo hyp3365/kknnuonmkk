@@ -671,8 +671,24 @@ get_info() {
   yellow "\nip检测中,请稍等...\n"
   server_ip=$(get_realip)
   clear
-  isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ipapi.co/json" | tr -d '\n' | awk -F\" '{c="";o="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="org")o=$(x+2)};if(c&&o)print c"-"o}' | sed 's/ /_/g' || echo "$hostname")
-  
+# 1. 安全获取两位大写国家代码 (如 US, HK)
+  cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+
+# 2. 转换为国旗
+  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
+    hex_str=$(echo "$cc" | awk '{
+        chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        i1 = index(chars, substr($0, 1, 1))
+        i2 = index(chars, substr($0, 2, 1))
+        printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
+    }')
+    isp=$(printf "$hex_str")
+else
+    # 保底机制：如果 API 失败或者获取到乱码，统一显示地球图标，防止脚本崩溃
+    isp="🌐" 
+fi
+
   if [ -f "${work_dir}/argo.log" ]; then
       for i in {1..5}; do
           purple "第 $i 次尝试获取ArgoDoamin中..."
@@ -1914,8 +1930,7 @@ EOF
   ]
 }
 EOF
-        isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Argo-Node")
-        node_remark="${isp_base}_vless_ws_argo"
+        node_remark="${isp}vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
             grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
