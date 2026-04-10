@@ -43,11 +43,11 @@ generate_vars() {
             public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
         fi
     fi
-    h2_reality=$(shuf -i 10000-60000 -n 1)
-	socks_port=$(shuf -i 10000-60000 -n 1)
-	anytls_port=$(shuf -i 10000-60000 -n 1)
-	grpc_reality=$(shuf -i 10000-60000 -n 1)
-	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+    h2_reality=$(shuf -i 10000-65000 -n 1)
+	socks_port=$(shuf -i 10000-65000 -n 1)
+	anytls_port=$(shuf -i 10000-65000 -n 1)
+	grpc_reality=$(shuf -i 10000-65000 -n 1)
+	vless_ws_cdn_port=$(shuf -i 10000-65000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -59,7 +59,7 @@ server_name="sing-box"
 work_dir="/etc/sing-box"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
-export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
+export vless_port=${PORT:-$(shuf -i 10000-65000 -n 1)}
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 
