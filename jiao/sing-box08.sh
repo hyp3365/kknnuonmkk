@@ -702,7 +702,6 @@ add_nginx_conf() {
 
     [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
-# ======= 1. 订阅服务 (监听订阅端口) =======
 server {
     listen $nginx_port;
     listen [::]:$nginx_port;
@@ -730,12 +729,14 @@ server {
         log_not_found off;
     }
 }
-
-# ======= 2. 后端连接池 =======
+EOF
+[[ -f "/etc/nginx/conf.d/s-sing-box.conf" ]] && cp /etc/nginx/conf.d/s-sing-box.conf /etc/nginx/conf.d/s-sing-box.conf.bak.sb
+cat > /etc/nginx/conf.d/s-sing-box.conf << EOF
+# ======= 1. 后端连接池 =======
 upstream vmess_ws { server 127.0.0.1:8002; keepalive 32; }
 upstream vless_ws { server 127.0.0.1:8003; keepalive 32; }
 
-# ======= 3. 核心分流转发 =======
+# ======= 2. 核心分流转发 =======
 server {
 	listen 127.0.0.1:8001 http2 so_keepalive=on;
     server_name _;
