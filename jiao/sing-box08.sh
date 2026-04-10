@@ -1303,18 +1303,31 @@ EOF
             ;;
 
         5)  
+            if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw active; then
+                yellow "正在清理规则..."
+                ufw status numbered | grep 'Hys2_Hopping' | cut -d'[' -f2 | cut -d']' -f1 | sort -rn | xargs -I{} ufw --force delete {} >/dev/null 2>&1
+                sed -i '/\*nat/,/COMMIT/d' /etc/ufw/before.rules
+                ufw reload >/dev/null 2>&1       
+            elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+                yellow "正在清理规则..."
+                forward_ports=$(firewall-cmd --list-forward-ports)
+                [ -n "$forward_ports" ] && firewall-cmd --permanent --remove-forward-port="$forward_ports" >/dev/null 2>&1
+                firewall-cmd --permanent --remove-port=$min_port-$max_port/udp >/dev/null 2>&1
+                firewall-cmd --reload >/dev/null 2>&1
+            fi
+            purple "清理中...\n"
             iptables -t nat -F PREROUTING > /dev/null 2>&1
             command -v ip6tables &> /dev/null && ip6tables -t nat -F PREROUTING > /dev/null 2>&1
-            if [ -f /etc/debian_version ]; then
+            if [ -f /etc/debian_version ] && command -v netfilter-persistent >/dev/null 2>&1; then
                 netfilter-persistent save > /dev/null 2>&1
-            elif [ -f /etc/redhat-release ]; then
+            elif [ -f /etc/redhat-release ] && systemctl is-active --quiet iptables; then
                 service iptables save > /dev/null 2>&1
-                command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
             fi
             sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
-            [ -f "$client_dir" ] && base64 -w0 "$client_dir" > /etc/sing-box/sub.txt            
-            green "\n端口跳跃规则已删除"
+            [ -f "$client_dir" ] && base64 -w0 "$client_dir" > /etc/sing-box/sub.txt                     
+            green "\n端口跳跃已关闭"
             ;;
+
 	esac
 }
 
