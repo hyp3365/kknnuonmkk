@@ -2220,6 +2220,55 @@ update_script() {
         red "\n更新失败：请检查网络连接"
     fi
 }
+# 防火墙管理函数
+ufw_kg() {
+    clear
+    echo "==============="
+    green  "  防火墙管理"
+    echo "==============="
+    echo "1. 开启端口"
+    echo "2. 关闭端口"
+    echo "3. 显示已开启端口"
+    echo "4. 检查防火墙状态"
+    echo "5. 返回主菜单"
+    echo "==============="
+    reading "请输入选择(1-5): " fw_choice
+
+    case "${fw_choice}" in
+        1)
+            reading "请输入要开启的端口 (例如 80 或 8080/tcp): " port
+            if [ -n "$port" ]; then
+                ufw allow "$port"
+                green "端口 $port 已成功开启"
+            else
+                red "端口输入不能为空"
+            fi
+            ;;
+        2)
+            reading "请输入要关闭的端口或规则编号: " port
+            if [ -n "$port" ]; then
+                ufw delete allow "$port"
+                green "端口 $port 相关规则已移除"
+            else
+                red "输入不能为空"
+            fi
+            ;;
+        3)
+            echo "--- 当前已开放规则 ---"
+            ufw status numbered | grep "ALLOW"
+            ;;
+        4)
+            ufw status verbose
+            ;;
+        5)
+            return
+            ;;
+        *)
+            red "无效选项"
+            ;;
+    esac
+}
+
 
 # singbox 管理
 manage_singbox() {
@@ -2522,6 +2571,7 @@ menu() {
    echo  "==============="
    purple "11. ssh综合工具箱"
    purple "12. 更新脚本"
+   purple "13. 防火墙管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -2578,6 +2628,7 @@ while true; do
            bash <(curl -Ls ssh_tool.eooce.com)
            ;; 
 		12) update_script ;;
+		13) ufw_kg ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 10" ;;
    esac
