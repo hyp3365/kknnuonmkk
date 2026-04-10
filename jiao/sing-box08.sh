@@ -2094,23 +2094,24 @@ EOF
                 fi
                 ;;
 		     56) 
-                if [ -f "$CONF_DIR/vless-ws-argo.json" ]; then
-                    rm -f "$CONF_DIR/vless-ws-argo.json"
-                    
+				isp="_vless_ws_argo"
+                config_file="/etc/sing-box/vless-ws-argo.json"
+                if [ -f "$config_file" ]; then
+                    rm -f "$config_file"
                     if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/_vless_ws_cf$/{N;d;}" /etc/sing-box/url.txt
+                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
                     fi
                     if [ -s "/etc/sing-box/url.txt" ]; then
                         base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                     else
                         truncate -s 0 /etc/sing-box/sub.txt
-                    fi            
+                    fi
                     restart_singbox
                     green "==============================================="
-                    green " VLESS-WS 隧道配置及节点已成功删除！"
+                    green " VLESS-WS-ARGO 隧道配置及节点已删除！"
                     green "==============================================="
                 else
-                    red "未发现 VLESS-WS 配置文件，无需删除。"
+                    red "错误: 未找到配置文件 ($config_file)"
                 fi
                 ;;
 		    57) 
