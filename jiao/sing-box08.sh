@@ -1304,11 +1304,13 @@ disable_open_sub() {
     skyblue "------------"
 	green "3. 重启nginx"
     skyblue "------------"
-    green "4. 关闭节点订阅"
+	green "4. nginx配置"
     skyblue "------------"
-    green "5. 开启节点订阅"
+    green "5. 关闭节点订阅"
     skyblue "------------"
-    green "6. 更换订阅端口"
+    green "6. 开启节点订阅"
+    skyblue "------------"
+    green "7. 更换订阅端口"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1326,7 +1328,91 @@ disable_open_sub() {
             restart_nginx
             green "Nginx 服务已重启"
             ;;
-        4)
+		4)
+            while true; do
+                clear
+                green "=== Nginx配置 ==="
+                skyblue "------------"
+                avail_dir="/etc/nginx/sites-available"
+                enabled_dir="/etc/nginx/sites-enabled"             
+                mapfile -t all_conf < <(ls "$avail_dir" 2>/dev/null)            
+                disabled_list=()
+                enabled_list=()
+                for conf in "${all_conf[@]}"; do
+                    if [ -L "$enabled_dir/$conf" ]; then
+                        enabled_list+=("$conf")
+                    else
+                        disabled_list+=("$conf")
+                    fi
+                done
+                local idx=1
+                local mapping=()
+
+                # --- 上部分：显示未启用 (不在 sites-enabled 中) ---
+                green "未启用配置 (输入数字启用):"
+                if [ ${#disabled_list[@]} -eq 0 ]; then
+                    echo " (暂无)"
+                else
+                    for conf in "${disabled_list[@]}"; do
+                        echo -e " $idx. \033[33m$conf\033[0m"
+                        mapping[$idx]="$conf:enable"
+                        ((idx++))
+                    done
+                fi
+                skyblue "------------"
+                # --- 下部分：显示已启用 (已链接到 sites-enabled) ---
+                green "已启用配置 (输入数字停用):"
+                if [ ${#enabled_list[@]} -eq 0 ]; then
+                    echo " (暂无)"
+                else
+                    for conf in "${enabled_list[@]}"; do
+                        echo -e " $idx. \033[32m$conf\033[0m"
+                        mapping[$idx]="$conf:disable"
+                        ((idx++))
+                    done
+                fi
+
+                skyblue "------------"
+                purple "0. 返回上级菜单"
+                skyblue "------------"
+                echo -n "请选择操作数字: "
+                read sub_choice
+
+                [ "$sub_choice" == "0" ] && break
+
+                target_info=${mapping[$sub_choice]}
+                if [ -z "$target_info" ]; then
+                    yellow "选择无效，请重新输入"
+                    sleep 1
+                    continue
+                fi
+                filename=${target_info%:*}
+                action=${target_info#*:}
+                if [ "$action" == "enable" ]; then
+                    # 启用：创建软链接
+                    ln -sf "$avail_dir/$filename" "$enabled_dir/$filename"
+                    green "已创建软链接: $filename"
+                else
+                    # 停用：删除软链接 (源文件在 sites-available 不受影响)
+                    rm -f "$enabled_dir/$filename"
+                    yellow "已断开软链接: $filename"
+                fi
+
+                echo -e "\033[1;33m正在验证 Nginx 配置...\033[0m"
+                if nginx -t > /dev/null 2>&1; then
+                    if command_exists rc-service 2>/dev/null; then
+                        rc-service nginx reload
+                    else 
+                        systemctl reload nginx
+                    fi
+                    green "Nginx 配置正常，已自动重载！"
+                else
+                    red "错误：Nginx 配置语法检查失败，请手动排查！"
+                fi
+                sleep 2
+            done
+            ;;
+        5)
               if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
                 rm -f "/etc/nginx/conf.d/sing-box.conf"
@@ -1340,7 +1426,7 @@ disable_open_sub() {
                 yellow "未发现 /etc/nginx/conf.d/sing-box.conf 文件，无需操作"
             fi
             ;; 
-        5)
+        6)
                 
             echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
             bak_file=$(ls /etc/nginx/conf.d/sing-box.conf.bak* 2>/dev/null | sort -r | head -n 1)
@@ -1382,7 +1468,7 @@ disable_open_sub() {
             green "新的节点订阅链接：$link\n"
             ;;
 
-        6)
+        7)
             reading "请输入新的订阅端口[1-65535]:" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
 
