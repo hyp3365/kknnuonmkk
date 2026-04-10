@@ -2366,20 +2366,28 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
-content=$(cat "$client_dir")
-vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-vmess_prefix="vmess://"
-encoded_vmess="${vmess_url#"$vmess_prefix"}"
-decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
-new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-echo "$new_content" > "$client_dir"
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
-purple "$new_vmess_url\n" 
+    content=$(cat "$client_dir")
+    target_remark="${isp_base}_vless_ws_argo"
+    vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
+    if [ -n "$vmess_url" ]; then
+        vmess_prefix="vmess://"
+        encoded_vmess="${vmess_url#"$vmess_prefix"}"
+        decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
+        updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
+        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
+        new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
+        content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
+    fi
+    if echo "$content" | grep -q "vless://.*#${target_remark}"; then
+        vless_line=$(echo "$content" | grep "vless://.*#${target_remark}")
+        new_vless_line=$(echo "$vless_line" | sed -E "s/(sni=)[^& ]*/\1$ArgoDomain/g; s/(host=)[^& ]*/\1$ArgoDomain/g")
+        content=$(echo "$content" | sed "s|$vless_line|$new_vless_line|")
+    fi
+    echo "$content" > "$client_dir"
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"    
+    green "节点域名更新完成"
 }
+
 
 # 查看节点信息和订阅链接
 check_nodes() {
