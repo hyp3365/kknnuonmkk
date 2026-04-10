@@ -1022,21 +1022,39 @@ uninstall_singbox() {
            ;;
    esac
 }
-
-# 创建快捷指令
-create_shortcut() {
-  cat > "$work_dir/sb.sh" << EOF
-#!/usr/bin/env bash
-bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh) \$1
-EOF
-  chmod +x "$work_dir/sb.sh"
-  ln -sf "$work_dir/sb.sh" /usr/bin/sb
-  if [ -s /usr/bin/sb ]; then
-    green "\n快捷指令 sb 创建成功\n"
-  else
-    red "\n快捷指令创建失败\n"
-  fi
+# 创建快捷指令（自动下载脚本到本地保存）
+Create_shortcut() {
+    local remote_url="http://830087.xyz"
+    local local_file="$work_dir/sb.sh"
+    if [ ! -s "$local_file" ]; then
+        mkdir -p "$work_dir"
+        curl -Lss "$remote_url" -o "$local_file"
+    fi
+    if [ -s "$local_file" ]; then
+        chmod +x "$local_file"
+        ln -sf "$local_file" /usr/bin/sb
+        if [ -x /usr/bin/sb ]; then
+            green "\n快捷指令 sb 已创建\n"
+        fi
+    else
+        red "\n本地化保存失败，请检查网络后重新运行\n"
+        rm -f "$local_file" 
+    fi
 }
+# 创建快捷指令远程
+#create_shortcut() {
+ # cat > "$work_dir/sb.sh" << EOF
+#!/usr/bin/env bash
+#bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh) \$1
+#EOF
+  #chmod +x "$work_dir/sb.sh"
+  #ln -sf "$work_dir/sb.sh" /usr/bin/sb
+  #if [ -s /usr/bin/sb ]; then
+    #green "\n快捷指令 sb 创建成功\n"
+  #else
+    #red "\n快捷指令创建失败\n"
+  #fi
+#}
 
 # 适配alpine运行argo报错用户组和dns的问题
 change_hosts() {
@@ -2118,6 +2136,27 @@ EOF
     fi
 }
 
+update_script() {
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
+    local local_file="$work_dir/sb.sh"
+
+    if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
+        if [ -s "${local_file}.tmp" ]; then
+            mv -f "${local_file}.tmp" "$local_file"
+            chmod +x "$local_file"
+            ln -sf "$local_file" /usr/bin/sb
+            green "\n脚本已更新！"
+            sleep 1
+            exec bash "$local_file"
+        else
+            rm -f "${local_file}.tmp"
+            red "\n更新失败：下载的文件为空"
+        fi
+    else
+        red "\n更新失败：请检查网络连接"
+    fi
+}
+
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -2402,6 +2441,7 @@ menu() {
    green  "10. 开启BBR加速"
    echo  "==============="
    purple "11. ssh综合工具箱"
+   purple "12. 更新脚本"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -2456,7 +2496,8 @@ while true; do
         11) 
            clear
            bash <(curl -Ls ssh_tool.eooce.com)
-           ;;           
+           ;; 
+		12) update_script ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 10" ;;
    esac
