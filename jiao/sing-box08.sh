@@ -1279,26 +1279,19 @@ EOF
             green "\nhysteria2端口跳跃已开启,跳跃端口为：${purple}$min_port-$max_port${re} ${green}请更新订阅或手动复制以上hysteria2节点${re}\n"
             ;;
         5)  
-            iptables -t nat -F PREROUTING  > /dev/null 2>&1
-            command -v ip6tables &> /dev/null && ip6tables -t nat -F PREROUTING  > /dev/null 2>&1
-            if command_exists rc-service 2>/dev/null; then
-                rc-update del iptables default && rm -rf /etc/init.d/iptables 
-            elif [ -f /etc/redhat-release ]; then
+            iptables -t nat -F PREROUTING > /dev/null 2>&1
+            command -v ip6tables &> /dev/null && ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+            if [ -f /etc/debian_version ]; then
                 netfilter-persistent save > /dev/null 2>&1
             elif [ -f /etc/redhat-release ]; then
                 service iptables save > /dev/null 2>&1
                 command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
-            else
-                manage_packages uninstall iptables ip6tables iptables-persistent iptables-service > /dev/null 2>&1
             fi
             sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
-            base64 -w0 $client_dir > /etc/sing-box/sub.txt
-            green "\n端口跳跃已删除\n"
+            [ -f "$client_dir" ] && base64 -w0 "$client_dir" > /etc/sing-box/sub.txt            
+            green "\n端口跳跃规则已删除"
             ;;
-        6)  change_cfip ;;
-        0)  menu ;;
-        *)  read "无效的选项！" ;; 
-    esac
+	esac
 }
 
 disable_open_sub() {
