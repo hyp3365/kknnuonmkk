@@ -1237,12 +1237,15 @@ change_config() {
             purple "正在设置跳跃规则中，请稍等...\n"
             listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
             
-            # ================= 核心优化：智能防火墙适配 =================
+            # ================= 核心优化：智能防火墙适配 & 面板可见 =================
             if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw active; then
                 # 场景 1：检测到 UFW 正在运行
-                # 允许主端口
-                ufw allow $listen_port/udp >/dev/null 2>&1
-                # 写入 NAT 转发规则到 UFW 配置文件顶部 (避免重复写入)
+                # 允许主端口并添加备注，使其在面板可见
+                ufw allow $listen_port/udp comment 'Hys2_Main' >/dev/null 2>&1
+                # 允许跳跃区间并添加备注，使其在面板可见
+                ufw allow $min_port:$max_port/udp comment 'Hys2_Hopping' >/dev/null 2>&1
+                
+                # 写入底层 NAT 转发规则
                 if ! grep -q "dport $min_port:$max_port -j DNAT" /etc/ufw/before.rules; then
                     sed -i "1s|^|*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port\nCOMMIT\n\n|" /etc/ufw/before.rules
                 fi
@@ -1250,12 +1253,16 @@ change_config() {
                 
             elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
                 # 场景 2：检测到 Firewalld 正在运行
+                # 允许主端口和跳跃区间，使其在面板可见
                 firewall-cmd --permanent --add-port=$listen_port/udp >/dev/null 2>&1
+                firewall-cmd --permanent --add-port=$min_port-$max_port/udp >/dev/null 2>&1
+                
+                # 设置 NAT 转发
                 firewall-cmd --permanent --add-forward-port=port=$min_port-$max_port:proto=udp:toport=$listen_port >/dev/null 2>&1
                 firewall-cmd --reload >/dev/null 2>&1
                 
             else
-                # 场景 3：没有 UFW 和 Firewalld，执行原生底层 iptables 逻辑
+                # 场景 3：没有 UFW 和 Firewalld，仅执行原生底层 iptables 逻辑 (不影响面板)
                 iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null 2>&1
                 command -v ip6tables &> /dev/null && ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null 2>&1
                 
@@ -1294,6 +1301,7 @@ EOF
             while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
             green "\nhysteria2端口跳跃已开启,跳跃端口为：${purple}$min_port-$max_port${re} ${green}请更新订阅或手动复制以上hysteria2节点${re}\n"
             ;;
+
         5)  
             iptables -t nat -F PREROUTING > /dev/null 2>&1
             command -v ip6tables &> /dev/null && ip6tables -t nat -F PREROUTING > /dev/null 2>&1
