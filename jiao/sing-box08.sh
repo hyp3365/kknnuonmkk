@@ -1039,7 +1039,9 @@ uninstall_singbox() {
 				    stop_nginx
                     manage_packages uninstall nginx
 					rm -f /etc/nginx/conf.d/sing-box.conf
+					rm -f /etc/nginx/conf.d/s-sing-box.conf
                     rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+					rm -f /etc/nginx/conf.d/s-sing-box.conf.bak*
                     ;;
                  *) 
                     yellow "取消卸载Nginx\n\n"
