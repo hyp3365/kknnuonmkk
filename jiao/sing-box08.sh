@@ -2614,7 +2614,34 @@ iptables_ssl() {
         *) iptables_ssl ;;
     esac
 }
-            
+
+# singbox 管理
+manage_singbox() {
+    # 检查sing-box状态
+    local singbox_status=$(check_singbox 2>/dev/null)
+    local singbox_installed=$?
+    
+    clear
+    echo ""
+    green "=== sing-box 管理 ===\n"
+    green "sing-box当前状态: $singbox_status\n"
+    green "1. 启动sing-box服务"
+    skyblue "-------------------"
+    green "2. 停止sing-box服务"
+    skyblue "-------------------"
+    green "3. 重启sing-box服务"
+    skyblue "-------------------"
+    purple "0. 返回主菜单"
+    skyblue "------------"
+    reading "\n请输入选择: " choice
+    case "${choice}" in
+        1) start_singbox ;;  
+        2) stop_singbox ;;
+        3) restart_singbox ;;
+        0) menu ;;
+        *) red "无效的选项！" && sleep 1 && manage_singbox;;
+    esac
+}            
 
 # Argo 管理
 manage_argo() {
