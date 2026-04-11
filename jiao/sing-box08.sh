@@ -2536,19 +2536,31 @@ iptables_ssl() {
                 green "成功：端口 $port (v4/v6) 已放行" && sleep 1
             fi
             iptables_ssl ;;
-        2)
-            reading "输入要取消的端口号: " port
-            if [[ -n "$port" ]]; then
-                # 地毯式清理 IPv4
+         2)
+            reading "输入要取消放行的端口号: " port
+            if [[ "$port" =~ ^[0-9]+$ ]]; then
+                yellow "正在尝试清理端口 $port 的所有规则..."
+                
+                # --- IPv4 循环清理 ---
                 while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                 while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
-                # 地毯式清理 IPv6
+                while iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
+                while iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
+                
+                # --- IPv6 循环清理 ---
                 if command -v ip6tables &> /dev/null; then
                     while ip6tables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                     while ip6tables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
+                    while ip6tables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
+                    while ip6tables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
                 fi
+
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port 相关规则已全清" && sleep 1
+                green "清理完成！该端口的所有规则已移除。"
+                sleep 1
+            else
+                red "错误：请输入有效的数字端口号"
+                sleep 1
             fi
             iptables_ssl ;;
         3)
