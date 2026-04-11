@@ -2065,7 +2065,7 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "sspsksavxaszass",
+        "path": "/sspsksavxaszass",
         "max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
@@ -2073,6 +2073,7 @@ EOF
    ]
   }
   EOF
+ 
                 node_remark="${isp}_vless_ws_cdn"
                 vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=sspsksavxaszass#${node_remark}"
                 
