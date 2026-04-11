@@ -1305,39 +1305,75 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-            purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围...\n"
-            reading "请输入跳跃起始端口 (默认随机): " min_port
-            [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
-            reading "请输入跳跃结束端口 (默认起始+100): " max_port
-            [ -z "$max_port" ] && max_port=$(($min_port + 100))           
-            yellow "正在配置规则..."
-            # 获取 Hysteria2 监听端口
-            listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
-            [ -z "$listen_port" ] && { red "错误：未检测到 Hysteria2 监听端口"; return; }
+            # ===========================
+#   安全版端口跳跃（不掉线）
+# ===========================
 
-            if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "active"; then
-                # --- UFW 模式 ---
-                green "检测到 UFW 已激活，正在写入 before.rules..."
-                sed -i '/PortHopping/d' /etc/ufw/before.rules
-                if ! grep -q "\*nat" /etc/ufw/before.rules; then
-                    sed -i '1i *nat\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\nCOMMIT\n' /etc/ufw/before.rules
-                fi
-                sed -i '/\*nat/,/COMMIT/ { /COMMIT/i -A PREROUTING -p udp --dport '"$min_port"':'"$max_port"' -j DNAT --to-destination :'"$listen_port"' -m comment --comment "PortHopping"
-                }' /etc/ufw/before.rules
-                ufw reload > /dev/null 2>&1
-            else            
-                sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-                iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
-                iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
-                if command -v ip6tables &>/dev/null; then
-                    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
-                    ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
-                    ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
-                fi
-                if command -v netfilter-persistent &>/dev/null; then
-                    netfilter-persistent save >/dev/null 2>&1
-                fi
-            fi
+purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围...\n"
+
+reading "请输入跳跃起始端口 (默认随机): " min_port
+[ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
+
+reading "请输入跳跃结束端口 (默认起始+100): " max_port
+[ -z "$max_port" ] && max_port=$(($min_port + 100))
+
+yellow "正在为 Iptables 配置端口跳跃..."
+
+# 1. 获取 SSH 端口
+ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+[ -z "$ssh_p" ] && ssh_p=22
+
+# 2. 永久保护 SSH（先删旧再插入，确保永远在最前）
+iptables -D INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
+iptables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+
+iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -I INPUT -p tcp --dport "$ssh_p" -j ACCEPT
+
+# 3. 开启内核转发
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+
+# 4. 清理旧 NAT 跳跃规则（精准删除）
+iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
+
+# 5. 添加新的 NAT 跳跃规则
+iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" \
+    -j DNAT --to-destination :"$listen_port" \
+    -m comment --comment "PortHopping"
+
+# 6. 放行跳跃区间（先删旧再插入，避免重复）
+iptables -D INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT 2>/dev/null
+iptables -I INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
+
+# 7. IPv6 同步（若系统支持 NAT66）
+if command -v ip6tables &>/dev/null; then
+    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+
+    ip6tables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+    ip6tables -D INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
+    ip6tables -D INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT 2>/dev/null
+
+    ip6tables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+    ip6tables -I INPUT -p tcp --dport "$ssh_p" -j ACCEPT
+    ip6tables -I INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
+
+    # NAT66（如果系统支持）
+    ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
+    ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" \
+        -j DNAT --to-destination :"$listen_port" \
+        -m comment --comment "PortHopping" 2>/dev/null
+fi
+
+# 8. 持久化保存
+if [ -x "$(command -v netfilter-persistent)" ]; then
+    netfilter-persistent save >/dev/null 2>&1
+elif [ -x "$(command -v service)" ]; then
+    service iptables save >/dev/null 2>&1
+fi
+
+restart_singbox
+
+green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
             restart_singbox
             ip=$(get_realip)
             uuid=$(sed -n 's/.*hysteria2:\/\/\([^@]*\)@.*/\1/p' $client_dir)
