@@ -1380,7 +1380,6 @@ change_config() {
 		6)  change_cfip ;;
         0)  menu ;;
         *)  read "无效的选项！" ;; 
-       else
 }
 
 disable_open_sub() {
