@@ -2450,34 +2450,56 @@ vps_ssl() {
 
 #Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
+
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
-    local policy=$(iptables -L INPUT -n 2>/dev/null | head -n 1 | awk '{print $4}' | tr -d ')')
+    
+    # 1. 运行状态检测逻辑
+    local status_text=""
+    if ! command -v iptables &> /dev/null; then
+        status_text="\033[0;31m未安装\033[0m"
+        local mode_text="\033[0;31m未知\033[0m"
+    else
+        # 检查是否有基础链，判断是否运行中
+        if iptables -L INPUT -n &>/dev/null; then
+            status_text="\033[0;32m运行中\033[0m"
+            # 获取当前策略模式
+            local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
+            if [ "$policy" == "ACCEPT" ]; then
+                mode_text="\033[0;31m裸奔模式 (全部放行)\033[0m"
+            else
+                mode_text="\033[0;32m加固模式 (仅放行白名单)\033[0m"
+            fi
+        else
+            status_text="\033[0;33m已停止 (驱动未加载)\033[0m"
+            mode_text="\033[0;31m失效\033[0m"
+        fi
+    fi
+
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
     echo ""
     green "=== Iptables 防火墙管理 ==="
-    
-    if [ -z "$policy" ]; then
-        red "状态: 未安装或未运行 (请执行选项 5)"
-    elif [ "$policy" == "ACCEPT" ]; then
-        red "状态: 裸奔模式 (全部放行)"
-    else
-        green "状态: 加固模式 (仅放行白名单)"
-    fi
+    echo -e "运行状态: $status_text"
+    echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
-    ipt_msg "\033[0;33m" "已放行端口清单:"
+    
+    ipt_msg "\033[0;33m" "已放行端口:"
     if command -v iptables &> /dev/null; then
         printf "%-12s %-15s\n" "端口号" "说明"
         iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
-            port="ALL"; 
-            if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
-            note=($0 ~ tag) ? "脚本放行" : "系统/手动";
-            if (!seen[port]++) {
-                printf "\033[0;32m%-12s %-15s\033[0m\n", port, note
+            port=""; 
+            if($0 ~ /dpt:/) { 
+                split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] 
+            }
+            if (port != "" && port != "ALL") {
+                note=($0 ~ tag) ? "脚本放行" : "系统/手动";
+                if (!seen[port]++) {
+                    printf "\033[0;32m%-12s %-15s\033[0m\n", port, note
+                }
             }
         }'
     fi
@@ -2508,10 +2530,13 @@ iptables_ssl() {
         2)
             reading "输入要取消放行的端口号: " port
             if [[ "$port" =~ ^[0-9]+$ ]]; then
+                # 执行删除，这里只针对带端口的规则进行删除
                 while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                 while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
                 green "成功：端口 $port 相关规则已删除" && sleep 1
+            else
+                red "请输入正确的数字端口号" && sleep 1
             fi
             iptables_ssl
             ;;
