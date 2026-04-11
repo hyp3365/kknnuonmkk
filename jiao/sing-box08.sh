@@ -1856,7 +1856,6 @@ EOF
             4) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
-                yellow "正在配置 Socks5 (端口: $socks_port)..."
                 cat > /etc/sing-box/socks5.json << EOF
 {
   "inbounds": [
@@ -2030,16 +2029,16 @@ EOF
 EOF
             node_remark="${isp}_vless_ws_tls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
-            VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
+            vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
                 grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
             fi
-            echo "$VLESS_URL" >> "${work_dir}/url.txt"
+            echo "$vless_url" >> "${work_dir}/url.txt"
             echo "" >> "${work_dir}/url.txt"
             base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
             restart_singbox
             green "--------------------------------------------------"
-            echo " 节点连接 $VLESS_URL"
+            echo " 节点连接 $vless_url"
 			green "--------------------------------------------------"
 			yellow " 已生成节点，请去 Cloudflare 添加端口回源规则"
             yellow " 回源端口: $vless_ws_tls_cdn_port"
@@ -2052,7 +2051,7 @@ EOF
             read -p "请输入域名 (例如: b.a.com): " domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
-{
+ {
   "inbounds": [
     {
       "type": "vless",
@@ -2071,25 +2070,25 @@ EOF
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
-  ]
-}
-EOF
+   ]
+  }
+  EOF
                 node_remark="${isp}_vless_ws_cdn"
-                VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=sspsksavxaszass#${node_remark}"
+                vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=sspsksavxaszass#${node_remark}"
+                
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
-                fi
-                echo "$VLESS_URL" >> /etc/sing-box/url.txt
+                fi          
+                echo "$vless_url" >> /etc/sing-box/url.txt
                 echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                
-                restart_singbox
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null           
+                restart_singbox      
                 green "--------------------------------------------------"
-                echo " 节点连接 $VLESS_URL"
-		    	green "--------------------------------------------------"
+                echo " 节点连接: $vless_url"
+                green "--------------------------------------------------"
                 yellow " 已生成节点，请去 Cloudflare 添加端口回源规则"
                 yellow " 回源端口: $vless_ws_cdn_port"
-		     	yellow "SSL/TLS概述 模式改成灵活
+                yellow " SSL/TLS 概述模式请务必改成：灵活 "
                 green "==============================================="
                 ;;
       
