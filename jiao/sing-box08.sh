@@ -60,6 +60,7 @@ generate_vars() {
 	socks_port=$(shuf -i 10000-65000 -n 1)
 	anytls_port=$(shuf -i 10000-65000 -n 1)
 	grpc_reality=$(shuf -i 10000-65000 -n 1)
+	vless_wstls_cdn_port=$(shuf -i 10000-65000 -n 1)
 	vless_ws_cdn_port=$(shuf -i 10000-65000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
@@ -1641,7 +1642,8 @@ manage_nodes_menu() {
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-ws-cdn.json|vless-ws-cdn|7"
+			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
+			"vless-ws-cdn.json|vless-ws-cdn|8"
         )
 
         clear
@@ -2001,14 +2003,14 @@ EOF
                 --key-file "$key_path"
 
             green "正在生成 sing-box 配置文件..."
-			cat > /etc/sing-box/vless-ws-cdn.json << EOF
+			cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
 {
   "inbounds": [
     {
       "type": "vless",
-      "tag": "vless-ws-cdn",
+      "tag": "vless-wstls-cdn",
       "listen": "::",
-      "listen_port": $vless_ws_cdn_port,
+      "listen_port": $vless_wstls_cdn_port,
       "users": [ { "uuid": "$uuid" } ],
       "tls": {
         "enabled": true,
@@ -2026,7 +2028,7 @@ EOF
   ]
 }
 EOF
-            node_remark="${isp}_vless_ws_cdn"
+            node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2036,11 +2038,60 @@ EOF
             echo "" >> "${work_dir}/url.txt"
             base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
             restart_singbox
+			green "--------------------------------------------------"
+            echo " 节点连接 $VLESS_URL"
             green "--------------------------------------------------"
             yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vless_ws_cdn_port"
+			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
+            green "--------------------------------------------------"
+            ;;
+			8) 
+            generate_vars
+            mkdir -p /etc/sing-box
+            read -p '请输入域名 (例如: b.a.com): ' domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+            cat > /etc/sing-box/vless-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-cdn",
+      "listen": "::",
+      "listen_port": $vless_ws_cdn_port,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/sspsksavxaszass",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+
+            node_remark="${isp}_vless_ws_cdn"
+            vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspsksavxaszass#${node_remark}"         
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
+            fi                    
+            echo "$vless_url" >> /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null           
+            
+            restart_singbox      
+          
             green "--------------------------------------------------"
             echo " 节点连接 $VLESS_URL"
+            green "--------------------------------------------------"
+            yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
+            yellow " 回源端口: $vless_ws_cdn_port"
+			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活 (Flexible)'"
             green "--------------------------------------------------"
             ;;
       
@@ -2143,6 +2194,27 @@ EOF
                 fi
                 ;;
 		    57) 
+                isp="_vless_wstls_cdn"
+                config_file="/etc/sing-box/vless-wstls-cdn.json"
+                if [ -f "$config_file" ]; then
+                    rm -f "$config_file"
+                    if [ -f "/etc/sing-box/url.txt" ]; then
+                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    fi
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
+                    restart_singbox
+                    green "==============================================="
+                    green " vless-ws-cdn 已删除!"
+                    green "==============================================="
+                else
+                    red "错误: 未找到配置文件 ($config_file)"
+                fi
+                ;;
+			58) 
                 isp="_vless_ws_cdn"
                 config_file="/etc/sing-box/vless-ws-cdn.json"
                 if [ -f "$config_file" ]; then
