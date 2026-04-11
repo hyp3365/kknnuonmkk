@@ -1714,7 +1714,7 @@ manage_nodes_menu() {
     }
   ]
 }
-EOF        
+EOF
           node_remark="${isp}_vless_http_reality"
           url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
           if [ -f "/etc/sing-box/url.txt" ]; then
