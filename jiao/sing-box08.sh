@@ -2795,23 +2795,27 @@ change_argo_domain() {
         content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
         echo "$content" > "$client_dir"
     fi
+
     target_remark="${isp_base}_vless_ws_argo"
     NEW_VLESS="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
+    
     local files=("$client_dir" "${work_dir}/url.txt")
     for file in "${files[@]}"; do
         if [ -f "$file" ]; then
             if grep -q "#${target_remark}" "$file"; then
-                sed -i "/#${target_remark}/,+1 { /#${target_remark}/d; /^$/d; }" "$file"
+                sed -i "/#${target_remark}/,+1d" "$file"
+                echo -e "${NEW_VLESS}\n" >> "$file"
+            else
+                : 
             fi
-            echo -e "${NEW_VLESS}\n" >> "$file"
         fi
     done
+
     if [ -f "${work_dir}/url.txt" ]; then
         base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
     fi
     green "域名已更新"
 }
-
 
 
 # 查看节点信息和订阅链接
