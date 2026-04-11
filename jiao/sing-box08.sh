@@ -2104,7 +2104,7 @@ EOF
                 fi
                 ;;
 		     56) 
-				isp="_vless_ws_argo"
+				isp="vless_ws_argo"
                 config_file="/etc/sing-box/vless-ws-argo.json"
                 if [ -f "$config_file" ]; then
                     rm -f "$config_file"
