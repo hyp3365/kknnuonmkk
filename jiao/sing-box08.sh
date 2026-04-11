@@ -2447,7 +2447,7 @@ vps_ssl() {
         read -n 1 -s -r -p $'\033[1;33m操作完成，按任意键菜单...\033[0m'
     done
 }
-
+    
 #Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
@@ -2455,7 +2455,7 @@ iptables_ssl() {
     clear
     local tag="ScriptManaged"
     
-    # 1. 运行状态检测
+    # 1. 运行状态与 SSH 端口检测
     local status_text=""
     if ! command -v iptables &> /dev/null; then
         status_text="\033[0;31m未安装\033[0m"
@@ -2464,14 +2464,9 @@ iptables_ssl() {
         if iptables -L INPUT -n &>/dev/null; then
             status_text="\033[0;32m运行中\033[0m"
             local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-            if [ "$policy" == "ACCEPT" ]; then
-                mode_text="\033[0;31m裸奔模式 (全部放行)\033[0m"
-            else
-                mode_text="\033[0;32m加固模式 (仅放行白名单)\033[0m"
-            fi
+            [ "$policy" == "ACCEPT" ] && mode_text="\033[0;31m裸奔模式\033[0m" || mode_text="\033[0;32m加固模式\033[0m"
         else
             status_text="\033[0;33m已停止\033[0m"
-            mode_text="\033[0;31m失效\033[0m"
         fi
     fi
 
@@ -2479,24 +2474,20 @@ iptables_ssl() {
     [ -z "$ssh_p" ] && ssh_p=22
 
     echo ""
-    green "=== Iptables 防火墙管理 ==="
+    green "=== Iptables 防火墙管理 (双栈同步版) ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
     
-    # 2. 已放行端口显示 (严格过滤：只显示 1-65535 的有效数字端口)
+    # 2. 已放行端口 (显示)
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-12s %-15s\n" "端口号" "说明"
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
-        # 预抓取所有放行的有效端口号
         allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
-        
         iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
-            port=""; 
-            if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
-            # 严格判断：端口必须大于0且不是 ALL
+            port=""; if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
             if (port != "" && port != "ALL" && port > 0) {
                 note=($0 ~ tag) ? "脚本放行" : "系统/手动";
                 if (!seen[port]++) { printf "\033[0;32m%-12s %-15s\033[0m\n", port, note }
@@ -2504,138 +2495,92 @@ iptables_ssl() {
         }'
     fi
     
-    # 3. 显示未放行的服务端口
     echo -e "\033[0;36m---------------------------\033[0m"
-    ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口:"
-    printf "%-12s %-15s %-18s\n" "端口号"  "所属服务"  "监听IP"
+    ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口 (已隐藏IPv6):"
+    printf "%-12s %-15s %-18s\n" "端口号"  "所属服务"  "监听IP"    
     ss -tunlp | awk 'NR>1 {
-        addr = $5
-        n = split(addr, a, ":")
-        port = a[n]
-        ip = ""
-        for(i=1; i<n; i++){
-            ip = (ip == "" ? a[i] : ip ":" a[i])
-        }
-        sub(/^::ffff:/, "", ip)
-        if (ip == "" || ip == "*") ip = "0.0.0.0"
-        if (ip == "[::]") ip = "[::](IPv6)"
-        name = "未知服务"
-        if ($NF ~ /"/) {
-            split($NF, s, "\"")
-            if (s[2] != "") name = s[2]
-        }
-        if (port ~ /^[0-9]+$/ && port > 0) {
-            print port, name, ip
-        }
-    }' | sort -u | sort -n -k1,1 | while read -r p_port p_name p_ip; do
+        addr = $5; n = split(addr, a, ":"); port = a[n];
+        ip = ""; for(i=1; i<n; i++) ip = (ip == "" ? a[i] : ip ":" a[i]);
+        if (ip ~ /:/ || ip ~ /\[/) next;
+        if (ip == "" || ip == "*") ip = "0.0.0.0";
+        name = "未知服务"; if ($NF ~ /"/) { split($NF, s, "\""); name = s[2] }
+        if (port ~ /^[0-9]+$/ && port > 0) print port, name, ip}' | sort -un | sort -n -k1,1 | while read -r p_port p_name p_ip; do
         if ! echo "$allowed_ports" | grep -qw "$p_port"; then
             printf "\033[0;31m%-12s %-15s %-18s\033[0m\n" "$p_port" "$p_name" "$p_ip"
         fi
     done
     skyblue "---------------------------"
     
-    green "1. 放行新端口 (TCP+UDP)"
-    green "2. 取消放行端口 (按端口号删除)"
-    green "3. 开启拦截加固 (开启拦截)"
-    green "4. 关闭拦截加固 (恢复默认放行所有)"
-    green "5. 安装/更新 Iptables 环境"
+    green "1. 放行新端口 (同步 IPv4/IPv6)"
+    green "2. 取消放行端口 (同步 IPv4/IPv6)"
+    green "3. 开启拦截加固 (双栈同步加固)"
+    green "4. 关闭拦截加固 (恢复默认放行)"
+    green "5. 安装/更新 环境"
     purple "0. 返回主菜单"
     skyblue "------------"
     
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
-            reading "输入需要放行的端口号 (1-65535): " port
-            if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ] && [ "$port" -le 65535 ]; then
+            reading "输入放行端口号: " port
+            if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ]; then
+                # IPv4
                 iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                 iptables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
+                # IPv6 (判断是否存在 ip6tables)
+                if command -v ip6tables &> /dev/null; then
+                    ip6tables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
+                    ip6tables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
+                fi
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port 已放行" && sleep 1
-            else
-                red "错误：请输入 1-65535 之间的有效端口" && sleep 1
+                green "成功：端口 $port (v4/v6) 已放行" && sleep 1
             fi
             iptables_ssl ;;
         2)
-            reading "输入要取消放行的端口号: " port
-            if [[ "$port" =~ ^[0-9]+$ ]]; then
-                yellow "正在尝试清理端口 $port 的所有规则..."
-                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do
-                    :
-                done
-                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do
-                    :
-                done
-                while iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do
-                    :
-                done
-                while iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do
-                    :
-                done
-                if [ -x "$(command -v netfilter-persistent)" ]; then
-                    netfilter-persistent save >/dev/null 2>&1
+            reading "输入要取消的端口号: " port
+            if [[ -n "$port" ]]; then
+                # 地毯式清理 IPv4
+                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
+                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
+                # 地毯式清理 IPv6
+                if command -v ip6tables &> /dev/null; then
+                    while ip6tables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
+                    while ip6tables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
                 fi
-                
-                green "清理完成！如果列表中仍有残留，请尝试重启防火墙"
-                sleep 1
-            else
-                red "错误：请输入有效的数字端口号"
-                sleep 1
+                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+                green "成功：端口 $port 相关规则已全清" && sleep 1
             fi
             iptables_ssl ;;
         3)
             yellow "正在开启加固..."
-            iptables -I INPUT 1 -i lo -j ACCEPT
-            iptables -I INPUT 2 -m state --state RELATED,ESTABLISHED -j ACCEPT
-            iptables -I INPUT 3 -p tcp --dport "$ssh_p" -j ACCEPT
+            # IPv4 加固
+            iptables -P INPUT ACCEPT
+            iptables -F INPUT
+            iptables -A INPUT -i lo -j ACCEPT
+            iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+            iptables -A INPUT -p tcp --dport "$ssh_p" -j ACCEPT
             iptables -P INPUT DROP
+            if command -v ip6tables &> /dev/null; then
+                ip6tables -P INPUT ACCEPT
+                ip6tables -F INPUT
+                ip6tables -A INPUT -i lo -j ACCEPT
+                ip6tables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+                ip6tables -A INPUT -p tcp --dport "$ssh_p" -j ACCEPT
+                ip6tables -P INPUT DROP
+            fi
             [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-            green "加固成功！" && sleep 1
+            green "加固完成！" && sleep 1
             iptables_ssl ;;
         4)
             iptables -P INPUT ACCEPT
-            yellow "拦截已关闭" && sleep 1
-            iptables_ssl ;;            
-        5)
-            yellow "正在安装/更新环境..."
-            if [ -f /etc/debian_version ]; then
-                apt-get update && apt-get install -y iptables iptables-persistent iproute2
-            elif [ -f /etc/redhat-release ]; then
-                yum install -y iptables-services iproute && systemctl enable iptables && systemctl start iptables
-            fi
-            green "环境配置完成！" && sleep 1
+            [ -x "$(command -v ip6tables)" ] && ip6tables -P INPUT ACCEPT
+            green "已恢复放行所有" && sleep 1
             iptables_ssl ;;
         0) menu ;;
-        *) red "无效的选项！" && sleep 1 && iptables_ssl ;;
+        *) iptables_ssl ;;
     esac
 }
 
-# singbox 管理
-manage_singbox() {
-    # 检查sing-box状态
-    local singbox_status=$(check_singbox 2>/dev/null)
-    local singbox_installed=$?
-    
-    clear
-    echo ""
-    green "=== sing-box 管理 ===\n"
-    green "sing-box当前状态: $singbox_status\n"
-    green "1. 启动sing-box服务"
-    skyblue "-------------------"
-    green "2. 停止sing-box服务"
-    skyblue "-------------------"
-    green "3. 重启sing-box服务"
-    skyblue "-------------------"
-    purple "0. 返回主菜单"
-    skyblue "------------"
-    reading "\n请输入选择: " choice
-    case "${choice}" in
-        1) start_singbox ;;  
-        2) stop_singbox ;;
-        3) restart_singbox ;;
-        0) menu ;;
-        *) red "无效的选项！" && sleep 1 && manage_singbox;;
-    esac
-}
 
 # Argo 管理
 manage_argo() {
