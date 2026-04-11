@@ -2444,18 +2444,19 @@ ipt_msg() { echo -e "${1}${2}\033[0m"; }
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
-
-    local status_text=""
-    local service_active=false
-    if systemctl is-active --quiet netfilter-persistent || systemctl is-active --quiet iptables; then
-        service_active=true
-    fi
-    local rule_count=$(iptables -L INPUT -n | wc -l)
     
-    if [ "$service_active" = true ] && [ "$rule_count" -gt 3 ]; then
+    local status_text=""
+    local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
+    local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
+
+    if [ "$svc_status" == "active" ] || [ "$rule_count" -gt 0 ]; then
         status_text="\033[0;32m运行中\033[0m"
         local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-        [ "$policy" == "ACCEPT" ] && mode_text="\033[0;31m裸奔模式\033[0m" || mode_text="\033[0;32m加固模式\033[0m"
+        if [ "$policy" == "ACCEPT" ] && [ "$rule_count" -lt 3 ]; then
+            mode_text="\033[0;31m裸奔模式\033[0m"
+        else
+            mode_text="\033[0;32m加固模式\033[0m"
+        fi
     else
         status_text="\033[0;31m已停止\033[0m"
         mode_text="\033[0;37m未拦截\033[0m"
@@ -2592,35 +2593,29 @@ iptables_ssl() {
             iptables_ssl
             ;;
 		6)
-            yellow "正在彻底停止防火墙..."
-            # 1. 策略全部设为 ACCEPT，防止把自己锁死
+            yellow "正在停止防火墙并清空规则..."
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
-            
-            # 2. 清空所有表和自定义链
             iptables -F
             iptables -t nat -F
-            iptables -t mangle -F
             iptables -X
-            
-            # 3. 停止系统服务
+            # 停止并禁用服务，确保检测逻辑能抓到 "inactive"
             systemctl stop netfilter-persistent > /dev/null 2>&1
             systemctl disable netfilter-persistent > /dev/null 2>&1
-            
-            green "防火墙已停止并进入【裸奔模式】。" && sleep 1
+            green "防火墙服务已停止，状态已重置。" && sleep 1
             iptables_ssl ;;
         7)
-            yellow "正在重新启动..."
+            yellow "正在重启防火墙并强制加载规则..."
+            # 1. 启动服务
             systemctl enable netfilter-persistent > /dev/null 2>&1
             systemctl start netfilter-persistent > /dev/null 2>&1
-            
+            # 2. 强制从文件同步到内存
             if [ -f /etc/iptables/rules.v4 ]; then
                 iptables-restore < /etc/iptables/rules.v4
-                [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
-                green "成功：已恢复 IPv4/IPv6 持久化规则。"
+                green "规则文件已强制同步到内存。"
             else
-                red "错误：未发现备份文件 /etc/iptables/rules.v4，请先使用放行功能保存规则。"
+                yellow "未发现持久化文件，仅启动空服务。"
             fi
             sleep 1
             iptables_ssl ;;
