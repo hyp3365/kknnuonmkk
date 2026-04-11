@@ -1641,7 +1641,8 @@ manage_nodes_menu() {
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-ws-cdn.json|vless-ws-cdn|7"
+			"vless-ws-tls-cdn.json|vless-ws-tls-cdn|7"
+		    "vless-ws-cdn.json|vless-ws-cdn|8"
         )
 
         clear
@@ -2001,14 +2002,14 @@ EOF
                 --key-file "$key_path"
 
             green "正在生成 sing-box 配置文件..."
-			cat > /etc/sing-box/vless-ws-cdn.json << EOF
+			cat > /etc/sing-box/vless-ws-tls-cdn.json << EOF
 {
   "inbounds": [
     {
       "type": "vless",
-      "tag": "vless-ws-cdn",
+      "tag": "vless-ws-tls-cdn",
       "listen": "::",
-      "listen_port": $vless_ws_cdn_port,
+      "listen_port": $vless_ws_tls_cdn_port,
       "users": [ { "uuid": "$uuid" } ],
       "tls": {
         "enabled": true,
@@ -2026,7 +2027,7 @@ EOF
   ]
 }
 EOF
-            node_remark="${isp}_vless_ws_cdn"
+            node_remark="${isp}_vless_ws_tls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2037,12 +2038,59 @@ EOF
             base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
             restart_singbox
             green "--------------------------------------------------"
-            yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
-            yellow " 回源端口: $vless_ws_cdn_port"
-            green "--------------------------------------------------"
             echo " 节点连接 $VLESS_URL"
+			green "--------------------------------------------------"
+			yellow " 已生成节点，请去 Cloudflare 添加端口回源规则"
+            yellow " 回源端口: $vless_ws_tls_cdn_port"
+			yellow "SSL/TLS概述 模式改成完全  
             green "--------------------------------------------------"
             ;;
+		8) 
+            generate_vars
+            mkdir -p /etc/sing-box
+            read -p "请输入域名 (例如: b.a.com): " domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+            cat > /etc/sing-box/vless-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-cdn",
+      "listen": "::",
+      "listen_port": $vless_ws_cdn_port,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "sspsksavxaszass",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+                node_remark="${isp}_vless_ws_cdn"
+                VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=sspsksavxaszass#${node_remark}"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
+                fi
+                echo "$VLESS_URL" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                
+                restart_singbox
+                green "--------------------------------------------------"
+                echo " 节点连接 $VLESS_URL"
+		    	green "--------------------------------------------------"
+                yellow " 已生成节点，请去 Cloudflare 添加端口回源规则"
+                yellow " 回源端口: $vless_ws_cdn_port"
+		     	yellow "SSL/TLS概述 模式改成灵活
+                green "==============================================="
+                ;;
       
             # --- 完整的删除逻辑 ---
             51) 
@@ -2143,8 +2191,8 @@ EOF
                 fi
                 ;;
 		    57) 
-                isp="_vless_ws_cdn"
-                config_file="/etc/sing-box/vless-ws-cdn.json"
+                isp="_vless_ws_tls_cdn"
+                config_file="/etc/sing-box/vless-ws-tls-cdn.json"
                 if [ -f "$config_file" ]; then
                     rm -f "$config_file"
                     if [ -f "/etc/sing-box/url.txt" ]; then
