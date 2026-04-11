@@ -2344,10 +2344,15 @@ update_script() {
 vps_ssl() {
     clear
     green "=== VPS秘钥登录 ==="
-    green "1. 配置密钥 (生成/授权/彻底禁用密码)"
+	skyblue "-------------------"
+    green "1. 配置密钥(生成秘钥/彻底禁用密码)"
+	skyblue "-------------------"
     green "2. 修改SSH登录端口"
+	skyblue "-------------------"
     green "3. 安全组件更新 "
+	skyblue "-------------------"
     green "4. 重启SSH服务"
+	skyblue "-------------------"
     green "0. 返回主菜单"
     skyblue "---------------------------"
     reading "请选择: " ssl_choice
