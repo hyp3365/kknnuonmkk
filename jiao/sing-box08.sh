@@ -370,6 +370,8 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     uuid=$(cat /proc/sys/kernel/random/uuid)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
 	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
@@ -681,6 +683,18 @@ EOF
 get_info() {  
   yellow "\nip检测中,请稍等...\n"
   server_ip=$(get_realip)
+  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
+      isp=$(printf $(echo "$cc" | awk '{
+          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+          i1 = index(chars, substr($0, 1, 1))
+          i2 = index(chars, substr($0, 2, 1))
+          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
+      }'))
+  else
+      isp="🌐" 
+  fi
   clear
   if [ -f "${work_dir}/argo.log" ]; then
       for i in {1..5}; do
