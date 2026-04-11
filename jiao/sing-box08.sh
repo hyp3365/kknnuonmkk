@@ -702,7 +702,7 @@ get_info() {
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}vless-reality
 
-vmess://$(echo "$VMESS"vmess-ws-argo | base64 -w0)
+vmess://$(echo "$VMESS"| base64 -w0)
 
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}hysteria2
 
