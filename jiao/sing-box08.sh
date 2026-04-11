@@ -1206,34 +1206,50 @@ change_config() {
                     green "\ntuic端口已修改为：${purple}${new_port}${re} ${green}请更新订阅或手动更改tuic端口${re}\n"
                     ;;
                 4)  
-                    reading "\n请输入vmess-argo端口 (回车跳过将使用随机端口): " new_port
-                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
-                    sed -i '/"type": "vmess"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
-                    allow_port $new_port/tcp > /dev/null 2>&1
-                    if command_exists rc-service; then
-                        if grep -q "localhost:" /etc/init.d/argo; then
-                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/init.d/argo
-                            get_quick_tunnel
-                            change_argo_domain 
-                        fi
-                    else
-                        if grep -q "localhost:" /etc/systemd/system/argo.service; then
-                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/systemd/system/argo.service
-                            get_quick_tunnel
-                            change_argo_domain 
-                        fi
-                    fi
+                                purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围...\n"
+            reading "请输入跳跃起始端口 (默认随机): " min_port
+            [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
+            reading "请输入跳跃结束端口 (默认起始+100): " max_port
+            [ -z "$max_port" ] && max_port=$(($min_port + 100))           
+            
+            yellow "正在为 Iptables 配置端口跳跃..."
 
-                    if [ -f /etc/sing-box/tunnel.yml ]; then
-                        sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/sing-box/tunnel.yml
-                        restart_argo
-                    fi
+            # 1. 获取当前 SSH 端口 (必须准确)
+            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+            [ -z "$ssh_p" ] && ssh_p=22
 
-                    if ([ -f /etc/systemd/system/argo.service ] && grep -q -- "--token" /etc/systemd/system/argo.service) || \
-                       ([ -f /etc/init.d/argo ] && grep -q -- "--token" /etc/init.d/argo); then
-                        yellow "请在cloudflared里也对应修改端口为：${purple}${new_port}${re}\n"
-                    fi
+            # 2. 【防断连核心】在任何操作前，先确保 INPUT 链最前面有这两条规则
+            # 无论你现在是“裸奔”还是“加固”，这两条能确保你当前的 SSH 绝对不断
+            iptables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+            iptables -I INPUT 2 -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
 
+            # 3. 开启内核转发
+            sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+            
+            # 4. 精准操作 NAT 表：删除旧的，添加新的
+            # 使用精准匹配删除，不使用 -F，不伤及无辜
+            iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
+            iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
+            
+            # 5. 【放行跳跃流量】即使你现在是“裸奔模式”，这一条也得加上
+            # 它是为了防止你以后切换到“加固模式”后，端口跳跃突然失效
+            iptables -I INPUT 3 -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
+
+            # 6. IPv6 同步处理
+            if command -v ip6tables &>/dev/null; then
+                sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+                ip6tables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+                ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
+                ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
+                ip6tables -I INPUT 2 -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
+            fi
+
+            # 7. 保存到持久化配置
+            if [ -x "$(command -v netfilter-persistent)" ]; then
+                netfilter-persistent save >/dev/null 2>&1
+            elif [ -x "$(command -v service)" ]; then
+                service iptables save >/dev/null 2>&1
+            fi
                     restart_singbox
                     green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
                     ;;                    
