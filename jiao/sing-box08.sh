@@ -2342,79 +2342,89 @@ update_script() {
 
 # 13. VPS 密钥登录
 vps_ssl() {
-    clear
-    green "=== VPS秘钥登录 ==="
-	skyblue "-------------------"
-    green "1. 配置密钥(生成秘钥/彻底禁用密码)"
-	skyblue "-------------------"
-    green "2. 修改SSH登录端口"
-	skyblue "-------------------"
-    green "3. 安全组件更新 "
-	skyblue "-------------------"
-    green "4. 重启SSH服务"
-	skyblue "-------------------"
-    green "0. 返回主菜单"
-    skyblue "---------------------------"
-    reading "请选择: " ssl_choice
+    while true; do
+        clear
+        green  "=== VPS秘钥配置 ==="
+        skyblue "-----------------------"
+        green  "1. 配置密钥 (生成秘钥/禁用密码)"
+        skyblue "-----------------------"
+        green  "2. 修改SSH登录端口"
+        skyblue "-----------------------"
+        green  "3. 安全组件更新 "
+        skyblue "-----------------------"
+        green  "4. 重启SSH服务 (使配置生效)"
+        skyblue "-----------------------"
+        green  "0. 返回主菜单"
+        skyblue "-----------------------"
+        reading "请输入选择 [0-4]: " ssl_choice
 
-    case "${ssl_choice}" in
-        1)
-            yellow "正在配置 Ed25519 密钥认证..."
-            [ ! -d ~/.ssh ] && mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            
-            # 生成密钥并授权
-            ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "vps_admin"
-            cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
-            chmod 600 ~/.ssh/authorized_keys
-
-            sed -i '/^#\?PubkeyAuthentication/d' /etc/ssh/sshd_config
-            sed -i '/^#\?PasswordAuthentication/d' /etc/ssh/sshd_config
-            sed -i '/^#\?KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
-            sed -i '/^#\?ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
-            sed -i '/^#\?PermitRootLogin/d' /etc/ssh/sshd_config
-            echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
-            echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
-            echo "KbdInteractiveAuthentication no" >> /etc/ssh/sshd_config
-            echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config
-            echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
-
-            red "--------------------------------------------------"
-            red "请立即复制下方私钥并保存到本地："
-            echo ""
-            yellow "$(cat ~/.ssh/id_ed25519)"
-            echo ""
-            red "--------------------------------------------------"
-            rm -f ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
-            green "配置完成！私钥已删除。请确认已保存私钥后再重启SSH服务！"
-            ;;
-        2)
-            read -p "请输入新的 SSH 端口号 (1024-65535): " new_port
-            if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
-             sed -i '/^#\?Port/d' /etc/ssh/sshd_config
-             echo "Port $new_port" >> /etc/ssh/sshd_config
-             green "端口已成功修改为 $new_port"
-             else
-             red "无效端口"
-            fi
-            ;;
-        3)
-            yellow "开始检查系统安全组件更新..."
-            apt-get update
-            # 仅更新已安装的包，不改变系统版本
-            apt-get upgrade -y
-            green "安全组件更新完成！"
-            ;;
-        4)
-            yellow "正在重启 SSH 服务..."
-            if systemctl restart sshd; then
-                green "SSH 服务重启成功！"
-            else
-                red "重启失败，请检查配置是否正确。"
-            fi
-            ;;
-        0) return ;;
-        *) red "无效选项" ;;
-    esac
+        case "${ssl_choice}" in
+            1)
+                yellow "正在配置 Ed25519 密钥认证..."
+                [ ! -d ~/.ssh ] && mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "vps_admin"
+                cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+                chmod 600 ~/.ssh/authorized_keys
+                sed -i '/^#\?PubkeyAuthentication/d' /etc/ssh/sshd_config
+                sed -i '/^#\?PasswordAuthentication/d' /etc/ssh/sshd_config
+                sed -i '/^#\?KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
+                sed -i '/^#\?ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
+                sed -i '/^#\?PermitRootLogin/d' /etc/ssh/sshd_config
+                {
+                    echo "PubkeyAuthentication yes"
+                    echo "PasswordAuthentication no"
+                    echo "KbdInteractiveAuthentication no"
+                    echo "ChallengeResponseAuthentication no"
+                    echo "PermitRootLogin yes"
+                } >> /etc/ssh/sshd_config
+                
+                red "--------------------------------------------------"
+                red "请务必保存下方私钥到本地 (id_ed25519)："
+                echo ""
+                yellow "$(cat ~/.ssh/id_ed25519)"
+                echo ""
+                red "--------------------------------------------------"
+                rm -f ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
+                green "配置完成！私钥已从服务器删除。"
+                yellow "注意：请保存好私钥，并在重启 SSH 前确认端口已放行！"
+                ;;
+            2)
+                read -p "请输入新的SSH登录端口号 (1024-65535): " new_port
+                if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
+                    # 先删再加端口，防止重复
+                    sed -i '/^#\?Port/d' /etc/ssh/sshd_config
+                    echo "Port $new_port" >> /etc/ssh/sshd_config
+                    green "端口已修改为 $new_port"
+                    yellow "温馨提醒：重启SSH前请确保防火墙已放行 $new_port 端口。"
+                else
+                    red "错误：请输入 1024-65535 之间的数字。"
+                fi
+                ;;
+            3)
+                yellow "正在更新系统安全组件..."
+                apt-get update && apt-get upgrade -y
+                green "安全更新执行完毕！"
+                ;;
+            4)
+                yellow "正在重启 SSH 服务..."
+                if systemctl restart sshd; then
+                    green "SSH 服务重启成功！"
+                    yellow "请尝试用新端口/密钥开启新窗口连接，切勿立即关闭当前窗口！"
+                else
+                    red "重启失败，请检查 /etc/ssh/sshd_config 配置。"
+                fi
+                ;;
+            0)
+                return 0 # 跳出循环，返回主菜单
+                ;;
+            *)
+                red "无效选项，请重新输入。"
+                ;;
+        esac
+        
+        echo ""
+        read -n 1 -s -r -p $'\033[1;33m操作完成，按任意键菜单...\033[0m'
+    done
 }
 
 # singbox 管理
