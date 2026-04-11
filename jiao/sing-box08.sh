@@ -2542,12 +2542,29 @@ iptables_ssl() {
             iptables_ssl ;;
         2)
             reading "输入要取消放行的端口号: " port
-            # 这里即使输入 0，也会尝试清理，但增加了对空输入的防御
-            if [[ -n "$port" ]]; then
-                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
-                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "已尝试清理端口 $port 相关规则" && sleep 1
+            if [[ "$port" =~ ^[0-9]+$ ]]; then
+                yellow "正在尝试清理端口 $port 的所有规则..."
+                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do
+                    :
+                done
+                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do
+                    :
+                done
+                while iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do
+                    :
+                done
+                while iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do
+                    :
+                done
+                if [ -x "$(command -v netfilter-persistent)" ]; then
+                    netfilter-persistent save >/dev/null 2>&1
+                fi
+                
+                green "清理完成！如果列表中仍有残留，请尝试重启防火墙"
+                sleep 1
+            else
+                red "错误：请输入有效的数字端口号"
+                sleep 1
             fi
             iptables_ssl ;;
         3)
