@@ -2366,14 +2366,18 @@ vps_ssl() {
             ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "vps_admin"
             cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
             chmod 600 ~/.ssh/authorized_keys
-            
-            # 彻底锁死密码验证
-            sed -i "s/^#\?PubkeyAuthentication .*/PubkeyAuthentication yes/" /etc/ssh/sshd_config
-            sed -i "s/^#\?PasswordAuthentication .*/PasswordAuthentication no/" /etc/ssh/sshd_config
-            sed -i "s/^#\?KbdInteractiveAuthentication .*/KbdInteractiveAuthentication no/" /etc/ssh/sshd_config
-            sed -i "s/^#\?ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/" /etc/ssh/sshd_config
-            sed -i "s/^#\?PermitRootLogin .*/PermitRootLogin yes/" /etc/ssh/sshd_config
-            
+
+            sed -i '/^#\?PubkeyAuthentication/d' /etc/ssh/sshd_config
+            sed -i '/^#\?PasswordAuthentication/d' /etc/ssh/sshd_config
+            sed -i '/^#\?KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
+            sed -i '/^#\?ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
+            sed -i '/^#\?PermitRootLogin/d' /etc/ssh/sshd_config
+            echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+            echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+            echo "KbdInteractiveAuthentication no" >> /etc/ssh/sshd_config
+            echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config
+            echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+
             red "--------------------------------------------------"
             red "请立即复制下方私钥并保存到本地："
             echo ""
