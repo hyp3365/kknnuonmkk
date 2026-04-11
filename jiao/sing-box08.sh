@@ -58,6 +58,7 @@ generate_vars() {
   fi
     h2_reality=$(shuf -i 10000-65000 -n 1)
 	socks_port=$(shuf -i 10000-65000 -n 1)
+	http_port=$(shuf -i 10000-65000 -n 1)
 	anytls_port=$(shuf -i 10000-65000 -n 1)
 	grpc_reality=$(shuf -i 10000-65000 -n 1)
 	vless_wstls_cdn_port=$(shuf -i 10000-65000 -n 1)
@@ -1705,7 +1706,7 @@ manage_nodes_menu() {
   ]
 }
 EOF
-          allow_port "${h2_reality}/tcp"
+          allow_port $h2_reality/tcp > /dev/null 2>&1
 		  node_remark="${isp}_vless_http_reality"
           url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
           if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1768,7 +1769,7 @@ EOF
     ]
 }
 EOF
-            allow_port "${grpc_reality}/tcp"
+			allow_port $grpc_reality/tcp > /dev/null 2>&1
             node_remark="${isp}_vless_grpc_reality"
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1810,7 +1811,7 @@ EOF
     ]
 }
 EOF
-            allow_port "${anytls_port}/tcp"
+			allow_port $anytls_port/tcp > /dev/null 2>&1
             node_remark="${isp}_anytls"
             url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1828,7 +1829,6 @@ EOF
             4) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
-                yellow "正在配置 Socks5 (端口: $socks_port)..."
                 cat > /etc/sing-box/socks5.json << EOF
 {
   "inbounds": [
@@ -1847,7 +1847,7 @@ EOF
   ]
 }
 EOF
-			    allow_port "${socks_port}/tcp"
+				allow_port $socks_port/tcp > /dev/null 2>&1
 				node_remark="${isp}_socks5"
                 url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
                 if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1862,7 +1862,44 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-            5) yellow "正在配置 HTTP...";;
+            5) 
+			yellow "正在配置 HTTP 代理..."
+            generate_vars
+            server_ip=$(get_realip)
+            cat > /etc/sing-box/http.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "http",
+      "tag": "http-in",
+      "listen": "::",
+      "listen_port": $http_port,
+      "users": [
+        {
+          "username": "$username",
+          "password": "$password"
+        }
+      ]
+    }
+  ]
+}
+EOF
+            allow_port "$http_port/tcp" > /dev/null 2>&1     
+            node_remark="${isp}_http"
+            url="http://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
+            fi      
+            echo "$url" >> /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null            
+            restart_singbox
+            
+            green "==============================================="
+            green " HTTP 节点已添加!"
+            green " 节点链接: $url"
+            green "==============================================="
+            ;;
 			6) yellow "正在配置 vless-ws隧道..."
 			generate_vars
             mkdir -p /etc/sing-box
@@ -2002,7 +2039,7 @@ EOF
   ]
 }
 EOF
-            allow_port "${vless_wstls_cdn_port}/tcp"
+			allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
 			node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
@@ -2050,7 +2087,7 @@ EOF
   ]
 }
 EOF
-            allow_port "${vless_ws_cdn_port}/tcp"
+			allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
             node_remark="${isp}_vless_ws_cdn"
             vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspsksavxaszass#${node_remark}"         
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -2141,10 +2178,17 @@ EOF
                 fi
                 ;;
             55)
+                isp="_http"
                 if [ -f "$CONF_DIR/http.json" ]; then
                     rm -f "$CONF_DIR/http.json"
-                    green "HTTP 配置已移除"
+                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
                     restart_singbox
+                    green "已删除"
                 else
                     red "文件不存在"
                 fi
