@@ -1715,20 +1715,20 @@ manage_nodes_menu() {
   ]
 }
 EOF        
-                node_remark="${isp}vless_http_reality"
-                url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> "/etc/sing-box/url.txt"
-                echo "" >> "/etc/sing-box/url.txt"
-                base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-                restart_singbox 
-                green "==============================================="
-                green " H2 + Reality 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
+          node_remark="${isp}_vless_http_reality"
+          url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
+          if [ -f "/etc/sing-box/url.txt" ]; then
+           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+          fi
+          echo "$url" >> "/etc/sing-box/url.txt"
+          sed -i '/^$/d' "/etc/sing-box/url.txt" 
+          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+          restart_singbox 
+          green "==============================================="
+          green " H2 + Reality 节点已添加!"
+          green " 节点链接: $url"
+          green "==============================================="
+            ;;
             2) yellow "正在配置 gRPC + Reality..."
             generate_vars
             server_ip=$(get_realip)
@@ -1777,7 +1777,7 @@ EOF
 }
 EOF
 
-            node_remark="${isp}vless_grpc_reality"
+            node_remark="${isp}_vless_grpc_reality"
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
@@ -1818,7 +1818,7 @@ EOF
     ]
 }
 EOF
-            node_remark="${isp}anytls"
+            node_remark="${isp}_anytls"
             url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
@@ -1854,7 +1854,7 @@ EOF
   ]
 }
 EOF
-			    node_remark="${isp}socks5"
+			    node_remark="${isp}_socks5"
                 url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
@@ -1923,7 +1923,7 @@ EOF
   ]
 }
 EOF
-        node_remark="${isp}vless_ws_argo"
+        node_remark="${isp}_vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
             grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
@@ -2007,7 +2007,7 @@ EOF
   ]
 }
 EOF
-            node_remark="${isp}vless_ws_cdn"
+            node_remark="${isp}_vless_ws_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2027,7 +2027,7 @@ EOF
       
             # --- 完整的删除逻辑 ---
             51) 
-                isp="vless_http_reality"
+                isp="_vless_http_reality"
                 if [ -f "$CONF_DIR/h2-reality.json" ]; then
                     rm -f "$CONF_DIR/h2-reality.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2039,7 +2039,7 @@ EOF
                 fi
                 ;;
             52)
-            isp="vless_grpc_reality"
+            isp="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc_reality.json"
 
             if [ -f "$target_conf" ]; then
@@ -2060,7 +2060,7 @@ EOF
             fi
             ;;
             53)
-                isp="anytls"
+                isp="_anytls"
                 if [ -f "/etc/sing-box/anytls.json" ]; then
                     rm -f "/etc/sing-box/anytls.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2078,7 +2078,7 @@ EOF
                 fi
                 ;;
             54)
-                isp="socks5"
+                isp="_socks5"
                 if [ -f "$CONF_DIR/socks5.json" ]; then
                     rm -f "$CONF_DIR/socks5.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2103,7 +2103,7 @@ EOF
                 fi
                 ;;
 		     56) 
-				isp="vless_ws_argo"
+				isp="_vless_ws_argo"
                 config_file="/etc/sing-box/vless-ws-argo.json"
                 if [ -f "$config_file" ]; then
                     rm -f "$config_file"
