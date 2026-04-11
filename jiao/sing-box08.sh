@@ -1206,50 +1206,34 @@ change_config() {
                     green "\ntuic端口已修改为：${purple}${new_port}${re} ${green}请更新订阅或手动更改tuic端口${re}\n"
                     ;;
                 4)  
-                                purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围...\n"
-            reading "请输入跳跃起始端口 (默认随机): " min_port
-            [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
-            reading "请输入跳跃结束端口 (默认起始+100): " max_port
-            [ -z "$max_port" ] && max_port=$(($min_port + 100))           
-            
-            yellow "正在为 Iptables 配置端口跳跃..."
+                    reading "\n请输入vmess-argo端口 (回车跳过将使用随机端口): " new_port
+                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
+                    sed -i '/"type": "vmess"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
+                    allow_port $new_port/tcp > /dev/null 2>&1
+                    if command_exists rc-service; then
+                        if grep -q "localhost:" /etc/init.d/argo; then
+                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/init.d/argo
+                            get_quick_tunnel
+                            change_argo_domain 
+                        fi
+                    else
+                        if grep -q "localhost:" /etc/systemd/system/argo.service; then
+                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/systemd/system/argo.service
+                            get_quick_tunnel
+                            change_argo_domain 
+                        fi
+                    fi
 
-            # 1. 获取当前 SSH 端口 (必须准确)
-            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-            [ -z "$ssh_p" ] && ssh_p=22
+                    if [ -f /etc/sing-box/tunnel.yml ]; then
+                        sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/sing-box/tunnel.yml
+                        restart_argo
+                    fi
 
-            # 2. 【防断连核心】在任何操作前，先确保 INPUT 链最前面有这两条规则
-            # 无论你现在是“裸奔”还是“加固”，这两条能确保你当前的 SSH 绝对不断
-            iptables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-            iptables -I INPUT 2 -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
+                    if ([ -f /etc/systemd/system/argo.service ] && grep -q -- "--token" /etc/systemd/system/argo.service) || \
+                       ([ -f /etc/init.d/argo ] && grep -q -- "--token" /etc/init.d/argo); then
+                        yellow "请在cloudflared里也对应修改端口为：${purple}${new_port}${re}\n"
+                    fi
 
-            # 3. 开启内核转发
-            sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-            
-            # 4. 精准操作 NAT 表：删除旧的，添加新的
-            # 使用精准匹配删除，不使用 -F，不伤及无辜
-            iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
-            iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
-            
-            # 5. 【放行跳跃流量】即使你现在是“裸奔模式”，这一条也得加上
-            # 它是为了防止你以后切换到“加固模式”后，端口跳跃突然失效
-            iptables -I INPUT 3 -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
-
-            # 6. IPv6 同步处理
-            if command -v ip6tables &>/dev/null; then
-                sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
-                ip6tables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-                ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
-                ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
-                ip6tables -I INPUT 2 -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
-            fi
-
-            # 7. 保存到持久化配置
-            if [ -x "$(command -v netfilter-persistent)" ]; then
-                netfilter-persistent save >/dev/null 2>&1
-            elif [ -x "$(command -v service)" ]; then
-                service iptables save >/dev/null 2>&1
-            fi
                     restart_singbox
                     green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
                     ;;                    
@@ -1305,17 +1289,18 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-           purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围，否则可能造成节点不通\n"
+            purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围，否则可能造成节点不通\n"
             reading "请输入跳跃起始端口 (回车跳过将使用随机端口): " min_port
             [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
             yellow "你的起始端口为：$min_port"
             reading "\n请输入跳跃结束端口 (需大于起始端口): " max_port
             [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
             yellow "你的结束端口为：$max_port\n"
-            purple "正在安装依赖，并设置端口跳跃规则中，请稍等...\n"
+            purple "正在安装依赖，并设置端口跳跃规则中，请稍等...\n"         
             listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
-            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
-            command -v ip6tables &> /dev/null && ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
+            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -m comment --comment "PortHopping" -j DNAT --to-destination :$listen_port > /dev/null
+            command -v ip6tables &> /dev/null && ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -m comment --comment "PortHopping" -j DNAT --to-destination :$listen_port > /dev/null
+            
             if command_exists rc-service 2>/dev/null; then
                 iptables-save > /etc/iptables/rules.v4
                 command -v ip6tables &> /dev/null && ip6tables-save > /etc/iptables/rules.v6
@@ -1332,7 +1317,6 @@ start() {
     command -v ip6tables &> /dev/null && [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
 }
 EOF
-
                 chmod +x /etc/init.d/iptables && rc-update add iptables default && /etc/init.d/iptables start
             elif [ -f /etc/debian_version ]; then
                 DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent > /dev/null 2>&1 && netfilter-persistent save > /dev/null 2>&1 
@@ -1344,7 +1328,7 @@ EOF
                 systemctl enable ip6tables > /dev/null 2>&1 && systemctl start ip6tables > /dev/null 2>&1
             else
                 red "未知系统,请自行将跳跃端口转发到主端口" && exit 1
-            fi            
+            fi                     
             restart_singbox
             ip=$(get_realip)
             uuid=$(sed -n 's/.*hysteria2:\/\/\([^@]*\)@.*/\1/p' $client_dir)
@@ -1356,8 +1340,9 @@ EOF
             while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
             green "\nhysteria2端口跳跃已开启,跳跃端口为：${purple}$min_port-$max_port${re} ${green}请更新订阅或手动复制以上hysteria2节点${re}\n"
             ;;
+
         5)  
-            yellow "正在清理端口跳跃规则"           
+            yellow "正在清理端口跳跃规则..."           
             if [ -f /etc/ufw/before.rules ]; then
                 sed -i '/PortHopping/d' /etc/ufw/before.rules
                 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "active"; then
@@ -1368,20 +1353,30 @@ EOF
                 rule_num=$(iptables -t nat -L PREROUTING --line-numbers | grep "PortHopping" | awk '{print $1}' | head -n 1)
                 [ -n "$rule_num" ] && iptables -t nat -D PREROUTING $rule_num
             done
+            if command -v ip6tables &> /dev/null; then
+                while ip6tables -t nat -S | grep -q "PortHopping"; do
+                    rule_num=$(ip6tables -t nat -L PREROUTING --line-numbers | grep "PortHopping" | awk '{print $1}' | head -n 1)
+                    [ -n "$rule_num" ] && ip6tables -t nat -D PREROUTING $rule_num
+                done
+            fi
             if command -v netfilter-persistent >/dev/null 2>&1; then
                 netfilter-persistent save > /dev/null 2>&1
-            elif command -v service >/dev/null 2>&1 && [ -f /etc/redhat-release ]; then
+            elif [ -f /etc/redhat-release ]; then
                 service iptables save > /dev/null 2>&1
+                command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
+            elif [ -f /etc/init.d/iptables ]; then
+                iptables-save > /etc/iptables/rules.v4
+                command -v ip6tables &> /dev/null && ip6tables-save > /etc/iptables/rules.v6
             fi
-            sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
-            base64 -w0 $client_dir > /etc/sing-box/sub.txt
-            
+            sed -i '/hysteria2/s/[?&]mport=[^#&]*//g' $client_dir
+            sed -i 's/\?#/#/g; s/\?&/\?/g' $client_dir        
+            base64 -w0 $client_dir > /etc/sing-box/sub.txt           
             green "\n[✔] 端口跳跃规则已清除\n"
             ;;
-	                6)  change_cfip ;;
+           6)  change_cfip ;;
         0)  menu ;;
-        *)  echo "无效的选项！" ;; 
-    esac  
+        *)  read "无效的选项！" ;; 
+    esac
 }         
 
 
