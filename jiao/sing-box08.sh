@@ -2506,6 +2506,8 @@ iptables_ssl() {
     green "3. 开启拦截加固 (双栈同步加固)"
     green "4. 关闭拦截加固 (恢复默认放行)"
     green "5. 安装/更新 环境"
+	green "6. 停止运行"
+    green "7. 程序重启"
     purple "0. 返回主菜单"
     skyblue "------------"
     
@@ -2578,6 +2580,56 @@ iptables_ssl() {
             [ -x "$(command -v ip6tables)" ] && ip6tables -P INPUT ACCEPT
             green "已恢复放行所有" && sleep 1
             iptables_ssl ;;
+		5)
+            yellow "正在安装/更新环境..."
+            if [ -f /etc/debian_version ]; then
+                apt-get update && apt-get install -y iptables iptables-persistent
+            elif [ -f /etc/redhat-release ]; then
+                yum install -y iptables-services && systemctl enable iptables && systemctl start iptables
+            fi
+            green "环境配置完成！" && sleep 1
+            iptables_ssl
+            ;;
+		6)
+            yellow "正在停止防火墙并开放所有端口..."
+            # 设置默认策略为接受，防止清空规则后断连
+            iptables -P INPUT ACCEPT
+            iptables -P FORWARD ACCEPT
+            iptables -P OUTPUT ACCEPT
+            # 清空所有规则
+            iptables -F
+            iptables -t nat -F
+            iptables -X
+            
+            if command -v ip6tables &> /dev/null; then
+                ip6tables -P INPUT ACCEPT
+                ip6tables -P FORWARD ACCEPT
+                ip6tables -P OUTPUT ACCEPT
+                ip6tables -F
+                ip6tables -t nat -F
+                ip6tables -X
+            fi
+            green "防火墙已停止，所有端口已开放。" && sleep 1
+            iptables_ssl ;;
+        7)
+            yellow "正在重新启动防火墙服务..."
+            if [ -x "$(command -v netfilter-persistent)" ]; then
+                # Debian/Ubuntu 重载方式
+                netfilter-persistent reload
+                green "防火墙规则已重载 (netfilter-persistent)"
+            elif [ -f /etc/redhat-release ]; then
+                # CentOS/RedHat 重载方式
+                systemctl restart iptables
+                green "防火墙服务已重启 (systemctl)"
+            else
+                # 通用恢复方式
+                [ -f /etc/iptables/rules.v4 ] && iptables-restore < /etc/iptables/rules.v4
+                [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
+                green "防火墙规则已从备份文件恢复。"
+            fi
+            sleep 1
+            iptables_ssl ;;
+
         0) menu ;;
         *) iptables_ssl ;;
     esac
