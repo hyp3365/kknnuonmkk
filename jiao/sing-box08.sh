@@ -1377,10 +1377,12 @@ change_config() {
             
             green "\n[✔] 端口跳跃规则已清除\n"
             ;;
-		6)  change_cfip ;;
+	                6)  change_cfip ;;
         0)  menu ;;
-        *)  read "无效的选项！" ;; 
-}
+        *)  echo "无效的选项！" ;; 
+    esac  
+}         
+
 
 disable_open_sub() {
     local singbox_status=$(check_singbox 2>/dev/null)
