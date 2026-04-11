@@ -2048,10 +2048,11 @@ EOF
 		8) 
             generate_vars
             mkdir -p /etc/sing-box
-            read -p "请输入域名 (例如: b.a.com): " domain
+            read -p '请输入域名 (例如: b.a.com): ' domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
+            
             cat > /etc/sing-box/vless-ws-cdn.json << EOF
- {
+{
   "inbounds": [
     {
       "type": "vless",
@@ -2070,9 +2071,9 @@ EOF
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
-   ]
-  }
-  EOF
+  ]
+}
+EOF
  
                 node_remark="${isp}_vless_ws_cdn"
                 vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=sspsksavxaszass#${node_remark}"
