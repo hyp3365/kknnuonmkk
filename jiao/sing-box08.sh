@@ -2445,17 +2445,23 @@ iptables_ssl() {
     clear
     local tag="ScriptManaged"
     
+    # 1. 运行状态与拦截模式检测逻辑
     local status_text=""
+    local mode_text=""
+    # 提取 INPUT 链的默认策略
+    local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
+    # 统计实际规则行数（排除表头和空行）
     local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
+    # 检测服务状态
     local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
 
     if [ "$svc_status" == "active" ] || [ "$rule_count" -gt 0 ]; then
         status_text="\033[0;32m运行中\033[0m"
-        local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-        if [ "$policy" == "ACCEPT" ] && [ "$rule_count" -lt 3 ]; then
-            mode_text="\033[0;31m裸奔模式\033[0m"
-        else
+        # 只要默认策略是 DROP，就是加固模式（白名单模式）
+        if [ "$policy" == "DROP" ]; then
             mode_text="\033[0;32m加固模式\033[0m"
+        else
+            mode_text="\033[0;31m裸奔模式\033[0m"
         fi
     else
         status_text="\033[0;31m已停止\033[0m"
@@ -2472,7 +2478,7 @@ iptables_ssl() {
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
     
-    # 2. 已放行端口 (显示)
+    # 2. 已放行端口显示
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-12s %-15s\n" "端口号" "说明"
     local allowed_ports=""
@@ -2505,11 +2511,11 @@ iptables_ssl() {
     
     green "1. 放行新端口 (同步 IPv4/IPv6)"
     green "2. 取消放行端口 (同步 IPv4/IPv6)"
-    green "3. 开启拦截加固 (双栈同步加固)"
-    green "4. 关闭拦截加固 (恢复默认放行)"
+    green "3. 开启拦截加固 (白名单模式)"
+    green "4. 关闭拦截加固 (裸奔模式)"
     green "5. 安装/更新 环境"
-	green "6. 停止运行"
-    green "7. 程序重启"
+    green "6. 停止运行 (清空规则)"
+    green "7. 程序重启 (重载规则)"
     purple "0. 返回主菜单"
     skyblue "------------"
     
@@ -2518,48 +2524,32 @@ iptables_ssl() {
         1)
             reading "输入放行端口号: " port
             if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ]; then
-                # IPv4
                 iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                 iptables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
-                # IPv6 (判断是否存在 ip6tables)
                 if command -v ip6tables &> /dev/null; then
                     ip6tables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                     ip6tables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                 fi
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port (v4/v6) 已放行" && sleep 1
+                green "成功：端口 $port 已放行并保存" && sleep 1
             fi
             iptables_ssl ;;
          2)
             reading "输入要取消放行的端口号: " port
             if [[ "$port" =~ ^[0-9]+$ ]]; then
-                yellow "正在尝试清理端口 $port 的所有规则..."
-                
-                # --- IPv4 循环清理 ---
+                yellow "正在清理端口 $port 规则..."
                 while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                 while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
-                while iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
-                
-                # --- IPv6 循环清理 ---
                 if command -v ip6tables &> /dev/null; then
                     while ip6tables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                     while ip6tables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
-                    while ip6tables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
-                    while ip6tables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT 2>/dev/null; do :; done
                 fi
-
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "清理完成！该端口的所有规则已移除。"
-                sleep 1
-            else
-                red "错误：请输入有效的数字端口号"
-                sleep 1
+                green "清理完成！" && sleep 1
             fi
             iptables_ssl ;;
         3)
-            yellow "正在开启加固..."
-            # IPv4 加固
+            yellow "正在开启拦截加固 (白名单模式)..."
             iptables -P INPUT ACCEPT
             iptables -F INPUT
             iptables -A INPUT -i lo -j ACCEPT
@@ -2575,14 +2565,18 @@ iptables_ssl() {
                 ip6tables -P INPUT DROP
             fi
             [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-            green "加固完成！" && sleep 1
+            green "加固完成！当前仅放行 SSH 及已设端口。" && sleep 1
             iptables_ssl ;;
         4)
+            yellow "正在关闭拦截加固 (进入裸奔模式)..."
             iptables -P INPUT ACCEPT
-            [ -x "$(command -v ip6tables)" ] && ip6tables -P INPUT ACCEPT
-            green "已恢复放行所有" && sleep 1
+            if command -v ip6tables &> /dev/null; then
+                ip6tables -P INPUT ACCEPT
+            fi
+            [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+            green "已恢复裸奔模式：默认放行所有入站连接。" && sleep 1
             iptables_ssl ;;
-		5)
+        5)
             yellow "正在安装/更新环境..."
             if [ -f /etc/debian_version ]; then
                 apt-get update && apt-get install -y iptables iptables-persistent
@@ -2590,41 +2584,37 @@ iptables_ssl() {
                 yum install -y iptables-services && systemctl enable iptables && systemctl start iptables
             fi
             green "环境配置完成！" && sleep 1
-            iptables_ssl
-            ;;
-		6)
-            yellow "正在停止防火墙并清空规则..."
+            iptables_ssl ;;
+        6)
+            yellow "正在彻底停止防火墙并清空规则..."
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
             iptables -F
             iptables -t nat -F
             iptables -X
-            # 停止并禁用服务，确保检测逻辑能抓到 "inactive"
             systemctl stop netfilter-persistent > /dev/null 2>&1
             systemctl disable netfilter-persistent > /dev/null 2>&1
-            green "防火墙服务已停止，状态已重置。" && sleep 1
+            green "防火墙已停止，策略已设为放行。" && sleep 1
             iptables_ssl ;;
         7)
-            yellow "正在重启防火墙并强制加载规则..."
-            # 1. 启动服务
+            yellow "正在重启并重载持久化规则..."
             systemctl enable netfilter-persistent > /dev/null 2>&1
             systemctl start netfilter-persistent > /dev/null 2>&1
-            # 2. 强制从文件同步到内存
             if [ -f /etc/iptables/rules.v4 ]; then
                 iptables-restore < /etc/iptables/rules.v4
-                green "规则文件已强制同步到内存。"
+                [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
+                green "重载成功：规则已同步至内存。"
             else
-                yellow "未发现持久化文件，仅启动空服务。"
+                yellow "未发现规则备份文件。"
             fi
             sleep 1
             iptables_ssl ;;
-
         0) menu ;;
         *) iptables_ssl ;;
     esac
 }
-
+            
 
 # Argo 管理
 manage_argo() {
