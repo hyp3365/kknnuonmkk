@@ -2390,11 +2390,11 @@ vps_ssl() {
         2)
             read -p "请输入新的 SSH 端口号 (1024-65535): " new_port
             if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
-                sed -i "s/^#\?Port .*/Port $new_port/" /etc/ssh/sshd_config
-                green "端口已成功修改为 $new_port"
-                yellow "温馨提示：重启 SSH 前请确保防火墙已放行此端口。"
-            else
-                red "无效端口，范围请在 1024-65535 之间。"
+             sed -i '/^#\?Port/d' /etc/ssh/sshd_config
+             echo "Port $new_port" >> /etc/ssh/sshd_config
+             green "端口已成功修改为 $new_port"
+             else
+             red "无效端口"
             fi
             ;;
         3)
