@@ -1293,55 +1293,33 @@ change_config() {
             reading "请输入跳跃起始端口 (默认随机): " min_port
             [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
             reading "请输入跳跃结束端口 (默认起始+100): " max_port
-            [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
-            
+            [ -z "$max_port" ] && max_port=$(($min_port + 100))           
             yellow "正在配置规则..."
+            # 获取 Hysteria2 监听端口
             listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
-            if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "active"; then
-                # 【UFW 模式】
-                green "检测到 UFW 已激活。PortHopping 转发规则将由 UFW 管理。"
-                
-                # 备份并精准清理旧规则 (防止重复)
-                cp /etc/ufw/before.rules /etc/ufw/before.rules.bak
-                sed -i '/PortHopping/d' /etc/ufw/before.rules
+            [ -z "$listen_port" ] && { red "错误：未检测到 Hysteria2 监听端口"; return; }
 
-                # 确保 *nat 表存在并注入规则
+            if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "active"; then
+                # --- UFW 模式 ---
+                green "检测到 UFW 已激活，正在写入 before.rules..."
+                sed -i '/PortHopping/d' /etc/ufw/before.rules
                 if ! grep -q "\*nat" /etc/ufw/before.rules; then
-                    # 如果没有nat块，在文件开头添加
-                    sed -i '1i *nat\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n' /etc/ufw/before.rules
+                    sed -i '1i *nat\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\nCOMMIT\n' /etc/ufw/before.rules
                 fi
-                # 在 COMMIT 之前插入转发规则，打上 PortHopping 标签
                 sed -i '/\*nat/,/COMMIT/ { /COMMIT/i -A PREROUTING -p udp --dport '"$min_port"':'"$max_port"' -j DNAT --to-destination :'"$listen_port"' -m comment --comment "PortHopping"
                 }' /etc/ufw/before.rules
-                
-                if ufw reload > /dev/null 2>&1; then
-                    green "UFW 转发规则更新成功！"
-                else
-                    red "更新 UFW 规则失败，请手动检查 /etc/ufw/before.rules"
+                ufw reload > /dev/null 2>&1
+            else            
+                sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+                iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
+                iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
+                if command -v ip6tables &>/dev/null; then
+                    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+                    ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
+                    ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" -j DNAT --to-destination :"$listen_port" -m comment --comment "PortHopping"
                 fi
-            else
-                # 【原生 Iptables 模式】
-                yellow "未检测到活跃的 UFW，正在使用 iptables 方案..."
-                [ ! -x "$(command -v ufw)" ] || yellow "提示：UFW 已安装但未激活，规则已写入 iptables。"
-
-                # 保命措施：放行当前的 SSH 端口（防止被锁死）
-                ssh_p=$(grep "^Port" /etc/ssh/sshd_config | awk '{print $2}')
-                [ -z "$ssh_p" ] && ssh_p=22
-                iptables -I INPUT -p tcp --dport $ssh_p -j ACCEPT
-                
-                # 清理带标签的旧规则并添加新规则
-                while iptables -t nat -S | grep -q "PortHopping"; do
-                    rule_num=$(iptables -t nat -L PREROUTING --line-numbers | grep "PortHopping" | awk '{print $1}' | head -n 1)
-                    iptables -t nat -D PREROUTING $rule_num
-                done
-                iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port -m comment --comment "PortHopping"
-                
-                # 全量保存快照（持久化所有放行端口）
-                if [ -f /etc/debian_version ]; then
-                    apt install -y iptables-persistent > /dev/null 2>&1
-                    netfilter-persistent save > /dev/null 2>&1
-                elif [ -f /etc/redhat-release ]; then
-                    service iptables save > /dev/null 2>&1
+                if command -v netfilter-persistent &>/dev/null; then
+                    netfilter-persistent save >/dev/null 2>&1
                 fi
             fi
             restart_singbox
