@@ -2449,6 +2449,8 @@ vps_ssl() {
 }
 
 #Iptables简单管理工具
+辅助显示函数 (适配你脚本的颜色习惯)
+ipt_msg() { echo -e "${1}${2}\033[0m"; }
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
