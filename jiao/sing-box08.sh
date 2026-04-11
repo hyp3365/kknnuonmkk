@@ -2444,20 +2444,21 @@ ipt_msg() { echo -e "${1}${2}\033[0m"; }
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
-    
-    # 1. 运行状态与 SSH 端口检测
+
     local status_text=""
-    if ! command -v iptables &> /dev/null; then
-        status_text="\033[0;31m未安装\033[0m"
-        local mode_text="\033[0;31m未知\033[0m"
+    local service_active=false
+    if systemctl is-active --quiet netfilter-persistent || systemctl is-active --quiet iptables; then
+        service_active=true
+    fi
+    local rule_count=$(iptables -L INPUT -n | wc -l)
+    
+    if [ "$service_active" = true ] && [ "$rule_count" -gt 3 ]; then
+        status_text="\033[0;32m运行中\033[0m"
+        local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
+        [ "$policy" == "ACCEPT" ] && mode_text="\033[0;31m裸奔模式\033[0m" || mode_text="\033[0;32m加固模式\033[0m"
     else
-        if iptables -L INPUT -n &>/dev/null; then
-            status_text="\033[0;32m运行中\033[0m"
-            local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-            [ "$policy" == "ACCEPT" ] && mode_text="\033[0;31m裸奔模式\033[0m" || mode_text="\033[0;32m加固模式\033[0m"
-        else
-            status_text="\033[0;33m已停止\033[0m"
-        fi
+        status_text="\033[0;31m已停止\033[0m"
+        mode_text="\033[0;37m未拦截\033[0m"
     fi
 
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
@@ -2591,26 +2592,28 @@ iptables_ssl() {
             iptables_ssl
             ;;
 		6)
-            yellow "正在停止防火墙并开放所有端口..."
-            # 设置默认策略为接受，防止清空规则后断连
+            yellow "正在停止防火墙服务并开放所有端口..."
+            # 1. 设置策略为允许，防止自锁
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
-            # 清空所有规则
+            # 2. 清空规则
             iptables -F
             iptables -t nat -F
             iptables -X
-            
             if command -v ip6tables &> /dev/null; then
                 ip6tables -P INPUT ACCEPT
-                ip6tables -P FORWARD ACCEPT
-                ip6tables -P OUTPUT ACCEPT
                 ip6tables -F
-                ip6tables -t nat -F
-                ip6tables -X
             fi
-            green "防火墙已停止，所有端口已开放。" && sleep 1
+            # 3. 停止系统服务 (关键：停止后检测逻辑才会失效)
+            if [ -f /etc/debian_version ]; then
+                systemctl stop netfilter-persistent > /dev/null 2>&1
+            elif [ -f /etc/redhat-release ]; then
+                systemctl stop iptables > /dev/null 2>&1
+            fi
+            green "防火墙已彻底停止并放行所有流量。" && sleep 1
             iptables_ssl ;;
+
         7)
             yellow "正在重新启动防火墙服务..."
             if [ -x "$(command -v netfilter-persistent)" ]; then
