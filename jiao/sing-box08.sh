@@ -2485,33 +2485,33 @@ iptables_ssl() {
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
     
-    # 2. 已放行端口显示 (排除 ALL)
+    # 2. 已放行端口显示 (严格过滤：只显示 1-65535 的有效数字端口)
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-12s %-15s\n" "端口号" "说明"
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
-        allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); print b[1]}}' | sort -un)
+        # 预抓取所有放行的有效端口号
+        allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
+        
         iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
             port=""; 
             if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
-            if (port != "" && port != "ALL") {
+            # 严格判断：端口必须大于0且不是 ALL
+            if (port != "" && port != "ALL" && port > 0) {
                 note=($0 ~ tag) ? "脚本放行" : "系统/手动";
                 if (!seen[port]++) { printf "\033[0;32m%-12s %-15s\033[0m\n", port, note }
             }
         }'
     fi
     
-    # 3. 新增：显示正在使用但未放行的端口
+    # 3. 显示未放行的服务端口
     echo -e "\033[0;36m---------------------------\033[0m"
     ipt_msg "\033[0;35m" "检测到正在使用但【未放行】的端口:"
     printf "%-12s %-15s\n" "端口号" "所属服务"
     
-    # 使用 ss 命令获取监听端口 (比 lsof 更快更通用)
     ss -tunlp | grep -E 'LISTEN|UDP' | awk '{print $5}' | awk -F: '{print $NF}' | sort -un | while read -r used_port; do
-        [[ -z "$used_port" ]] && continue
-        # 如果该端口不在已放行列表中，则显示出来
+        [[ -z "$used_port" || "$used_port" -le 0 ]] && continue
         if ! echo "$allowed_ports" | grep -qw "$used_port"; then
-            # 获取进程名称
             local proc_name=$(ss -tunlp | grep ":$used_port " | awk '{print $7}' | cut -d'"' -f2 | head -n1)
             [ -z "$proc_name" ] && proc_name="未知服务"
             printf "\033[0;31m%-12s %-15s\033[0m\n" "$used_port" "$proc_name"
@@ -2530,27 +2530,28 @@ iptables_ssl() {
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
-            reading "输入需要放行的端口号: " port
-            if [[ "$port" =~ ^[0-9]+$ ]]; then
+            reading "输入需要放行的端口号 (1-65535): " port
+            if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ] && [ "$port" -le 65535 ]; then
                 iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                 iptables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port (TCP&UDP) 已放行" && sleep 1
+                green "成功：端口 $port 已放行" && sleep 1
             else
-                red "错误：请输入有效数字" && sleep 1
+                red "错误：请输入 1-65535 之间的有效端口" && sleep 1
             fi
             iptables_ssl ;;
         2)
             reading "输入要取消放行的端口号: " port
-            if [[ "$port" =~ ^[0-9]+$ ]]; then
+            # 这里即使输入 0，也会尝试清理，但增加了对空输入的防御
+            if [[ -n "$port" ]]; then
                 while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                 while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
                 [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port 相关规则已删除" && sleep 1
+                green "已尝试清理端口 $port 相关规则" && sleep 1
             fi
             iptables_ssl ;;
         3)
-            yellow "正在开启加固，确保 SSH 端口已放行..."
+            yellow "正在开启加固..."
             iptables -I INPUT 1 -i lo -j ACCEPT
             iptables -I INPUT 2 -m state --state RELATED,ESTABLISHED -j ACCEPT
             iptables -I INPUT 3 -p tcp --dport "$ssh_p" -j ACCEPT
@@ -2560,8 +2561,8 @@ iptables_ssl() {
             iptables_ssl ;;
         4)
             iptables -P INPUT ACCEPT
-            yellow "拦截已关闭，当前为放行所有模式" && sleep 1
-            iptables_ssl ;;
+            yellow "拦截已关闭" && sleep 1
+            iptables_ssl ;;            
         5)
             yellow "正在安装/更新环境..."
             if [ -f /etc/debian_version ]; then
@@ -2575,8 +2576,6 @@ iptables_ssl() {
         *) red "无效的选项！" && sleep 1 && iptables_ssl ;;
     esac
 }
-
-    
 
 # singbox 管理
 manage_singbox() {
