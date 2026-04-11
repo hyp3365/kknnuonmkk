@@ -1969,7 +1969,7 @@ EOF
                     break
                 fi
             done
-            read -p "请输入域名 (如 de5.net): " domain
+            read -p "请输入域名 (比如a.aa.net或通配符*.aa.net): " domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
             read -p "请输入 Cloudflare 登录邮箱: " cf_email
             [ -z "$cf_email" ] && red "邮箱不能为空!" && return 1
