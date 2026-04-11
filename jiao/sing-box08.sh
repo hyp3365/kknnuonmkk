@@ -2447,6 +2447,103 @@ vps_ssl() {
     done
 }
 
+#Iptables简单管理工具
+iptables_ssl() {
+    clear
+    local tag="ScriptManaged"
+    local policy=$(iptables -L INPUT -n 2>/dev/null | head -n 1 | awk '{print $4}' | tr -d ')')
+    local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    [ -z "$ssh_p" ] && ssh_p=22
+
+    echo ""
+    green "=== Iptables 防火墙管理 ==="
+    
+    if [ -z "$policy" ]; then
+        red "状态: 未安装或未运行 (请执行选项 5)"
+    elif [ "$policy" == "ACCEPT" ]; then
+        red "状态: 裸奔模式 (全部放行)"
+    else
+        green "状态: 加固模式 (仅放行白名单)"
+    fi
+    ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
+    skyblue "---------------------------"
+    ipt_msg "\033[0;33m" "已放行端口清单:"
+    if command -v iptables &> /dev/null; then
+        printf "%-12s %-15s\n" "端口号" "说明"
+        iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
+            port="ALL"; 
+            if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
+            note=($0 ~ tag) ? "脚本放行" : "系统/手动";
+            if (!seen[port]++) {
+                printf "\033[0;32m%-12s %-15s\033[0m\n", port, note
+            }
+        }'
+    fi
+    skyblue "---------------------------"
+    
+    green "1. 放行新端口 (TCP+UDP)"
+    green "2. 取消放行端口 (按端口号删除)"
+    green "3. 开启拦截加固 (拦截所有未放行端口)"
+    green "4. 关闭拦截加固 (恢复默认放行所有)"
+    green "5. 安装/更新 Iptables 环境"
+    purple "0. 返回主菜单"
+    skyblue "------------"
+    
+    reading "\n请输入选择: " ipt_choice
+    case "${ipt_choice}" in
+        1)
+            reading "输入需要放行的端口号: " port
+            if [[ "$port" =~ ^[0-9]+$ ]]; then
+                iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
+                iptables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
+                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+                green "成功：端口 $port (TCP&UDP) 已放行" && sleep 1
+            else
+                red "错误：请输入有效数字" && sleep 1
+            fi
+            iptables_ssl
+            ;;
+        2)
+            reading "输入要取消放行的端口号: " port
+            if [[ "$port" =~ ^[0-9]+$ ]]; then
+                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
+                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
+                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+                green "成功：端口 $port 相关规则已删除" && sleep 1
+            fi
+            iptables_ssl
+            ;;
+        3)
+            yellow "正在开启加固，确保 SSH 端口已放行..."
+            iptables -I INPUT 1 -i lo -j ACCEPT
+            iptables -I INPUT 2 -m state --state RELATED,ESTABLISHED -j ACCEPT
+            iptables -I INPUT 3 -p tcp --dport "$ssh_p" -j ACCEPT
+            iptables -P INPUT DROP
+            [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+            green "加固成功！" && sleep 1
+            iptables_ssl
+            ;;
+        4)
+            iptables -P INPUT ACCEPT
+            yellow "拦截已关闭，当前为放行所有模式" && sleep 1
+            iptables_ssl
+            ;;
+        5)
+            yellow "正在安装/更新环境..."
+            if [ -f /etc/debian_version ]; then
+                apt-get update && apt-get install -y iptables iptables-persistent
+            elif [ -f /etc/redhat-release ]; then
+                yum install -y iptables-services && systemctl enable iptables && systemctl start iptables
+            fi
+            green "环境配置完成！" && sleep 1
+            iptables_ssl
+            ;;
+        0) menu ;;
+        *) red "无效的选项！" && sleep 1 && iptables_ssl ;;
+    esac
+}
+
+
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -2748,11 +2845,12 @@ menu() {
    echo  "==============="
    purple "11. ssh综合工具箱"
    purple "12. 更新脚本"
-   purple "13. VPS秘钥登录"
+   purple "13. VPS秘钥登录配置"
+   purple "14. iptables简单管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-13): " choice
+   reading "请输入选择(0-14): " choice
    echo ""
 }
 
@@ -2806,8 +2904,9 @@ while true; do
            ;; 
 		12) update_script ;;
 		13) vps_ssl ;;
+		14) iptables_ssl ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 13" ;;
+        *) red "无效的选项，请输入 0 到 14" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
