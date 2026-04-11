@@ -1957,6 +1957,7 @@ EOF
         green "==============================================="
         green " VLESS-WS隧道 添加完成！"
         green " 节点链接: $VLESS_URL"
+		yellow " 节点如果不通 试着打开客服端ECH"
         green "==============================================="
         ;;
 		7) 
@@ -2028,7 +2029,8 @@ EOF
   ]
 }
 EOF
-            node_remark="${isp}_vless_wstls_cdn"
+            allow_port "${vless_ws_cdn_port}/tcp"
+			node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2044,6 +2046,7 @@ EOF
             yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vless_ws_cdn_port"
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
+			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
 			8) 
@@ -2087,11 +2090,12 @@ EOF
             restart_singbox      
           
             green "--------------------------------------------------"
-            echo " 节点连接 $VLESS_URL"
+            echo " 节点连接 $vless_url"
             green "--------------------------------------------------"
             yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vless_ws_cdn_port"
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活 (Flexible)'"
+			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
       
