@@ -700,13 +700,13 @@ get_info() {
   VMESS="{ \"v\": \"2\", \"ps\": \"${isp}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
 
   cat > ${work_dir}/url.txt <<EOF
-vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}
+vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}vless-reality
 
-vmess://$(echo "$VMESS" | base64 -w0)
+vmess://$(echo "$VMESS"vmess-ws-argo | base64 -w0)
 
-hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}
+hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}hysteria2
 
-tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}
+tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}tuic
 
 EOF
 echo ""
@@ -1714,9 +1714,9 @@ manage_nodes_menu() {
     }
   ]
 }
-EOF
-                isp="H2-Reality-Node_h2_reality"
-                url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${isp}"
+EOF        
+                node_remark="${isp}vless_http_reality"
+                url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
@@ -1777,8 +1777,8 @@ EOF
 }
 EOF
 
-            isp="grpc-Reality-Node_grpc_reality"
-            url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${isp}"
+            node_remark="${isp}vless_grpc_reality"
+            url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
             fi
@@ -1818,8 +1818,8 @@ EOF
     ]
 }
 EOF
-            isp="AnyTLS-Node_anytls"
-            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${isp}"
+            node_remark="${isp}anytls"
+            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
             fi
@@ -1854,8 +1854,8 @@ EOF
   ]
 }
 EOF
-            isp="Socks5-Node_socks5"
-                url="socks://${username}:${password}@${server_ip}:${socks_port}#${isp}"
+			    node_remark="${isp}socks5"
+                url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
@@ -2007,8 +2007,7 @@ EOF
   ]
 }
 EOF
-            isp_base=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "Node")
-            node_remark="${isp_base}_vless_ws_cdn_cdn"
+            node_remark="${isp}vless_ws_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2028,7 +2027,7 @@ EOF
       
             # --- 完整的删除逻辑 ---
             51) 
-                isp="H2-Reality-Node_h2_reality"
+                isp="vless_http_reality"
                 if [ -f "$CONF_DIR/h2-reality.json" ]; then
                     rm -f "$CONF_DIR/h2-reality.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2040,7 +2039,7 @@ EOF
                 fi
                 ;;
             52)
-            isp="grpc-Reality-Node_grpc_reality"
+            isp="vless_grpc_reality"
             target_conf="/etc/sing-box/grpc_reality.json"
 
             if [ -f "$target_conf" ]; then
@@ -2061,7 +2060,7 @@ EOF
             fi
             ;;
             53)
-                isp="AnyTLS-Node_anytls"
+                isp="anytls"
                 if [ -f "/etc/sing-box/anytls.json" ]; then
                     rm -f "/etc/sing-box/anytls.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2079,7 +2078,7 @@ EOF
                 fi
                 ;;
             54)
-                isp="Socks5-Node_socks5"
+                isp="socks5"
                 if [ -f "$CONF_DIR/socks5.json" ]; then
                     rm -f "$CONF_DIR/socks5.json"
                     [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
@@ -2125,7 +2124,7 @@ EOF
                 fi
                 ;;
 		    57) 
-                isp="_vless_ws_cdn_cdn"
+                isp="_vless_ws_cdn"
                 config_file="/etc/sing-box/vless-ws-cdn.json"
                 if [ -f "$config_file" ]; then
                     rm -f "$config_file"
