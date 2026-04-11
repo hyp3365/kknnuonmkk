@@ -43,6 +43,19 @@ generate_vars() {
             public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
         fi
     fi
+  # 获取国家代码
+  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
+  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
+      isp=$(printf $(echo "$cc" | awk '{
+          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+          i1 = index(chars, substr($0, 1, 1))
+          i2 = index(chars, substr($0, 2, 1))
+          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
+      }'))
+  else
+      isp="🌐" # 失败保底
+  fi
     h2_reality=$(shuf -i 10000-65000 -n 1)
 	socks_port=$(shuf -i 10000-65000 -n 1)
 	anytls_port=$(shuf -i 10000-65000 -n 1)
@@ -355,8 +368,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
-	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
-    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
 	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
@@ -671,24 +682,6 @@ get_info() {
   yellow "\nip检测中,请稍等...\n"
   server_ip=$(get_realip)
   clear
-# 1. 安全获取两位大写国家代码 (如 US, HK)
-  cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-
-# 2. 转换为国旗
-  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
-    hex_str=$(echo "$cc" | awk '{
-        chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        i1 = index(chars, substr($0, 1, 1))
-        i2 = index(chars, substr($0, 2, 1))
-        printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
-    }')
-    isp=$(printf "$hex_str")
-else
-    # 保底机制：如果 API 失败或者获取到乱码，统一显示地球图标，防止脚本崩溃
-    isp="🌐" 
-fi
-
   if [ -f "${work_dir}/argo.log" ]; then
       for i in {1..5}; do
           purple "第 $i 次尝试获取ArgoDoamin中..."
