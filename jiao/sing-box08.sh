@@ -716,11 +716,15 @@ get_info() {
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}vless-reality
 
+
 vmess://$(echo "$VMESS"| base64 -w0)
+
 
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}hysteria2
 
+
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}tuic
+
 
 EOF
 echo ""
@@ -1736,6 +1740,7 @@ EOF
           fi
           echo "$url" >> "/etc/sing-box/url.txt"
           sed -i '/^$/d' "/etc/sing-box/url.txt" 
+		  echo "" >> "/etc/sing-box/url.txt"
           base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
           restart_singbox 
           green "==============================================="
