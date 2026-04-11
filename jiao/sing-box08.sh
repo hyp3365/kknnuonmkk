@@ -2343,14 +2343,14 @@ update_script() {
 # 13. VPS 密钥登录
 vps_ssl() {
     clear
-    purple "=== VPS秘钥登录 ==="
-    echo -e "${GREEN}1.${PLAIN} 配置密钥 (生成/授权/彻底禁用密码)"
-    echo -e "${GREEN}2.${PLAIN} 修改SSH登录端口"
-    echo -e "${GREEN}3.${PLAIN} 安全组件更新 "
-    echo -e "${GREEN}4.${PLAIN} 重启SSH服务"
-    echo -e "${RED}0.${PLAIN} 返回主菜单"
-    echo "---------------------------"
-    read -p "请选择: " ssl_choice
+    green "=== VPS秘钥登录 ==="
+    green "1. 配置密钥 (生成/授权/彻底禁用密码)"
+    green "2. 修改SSH登录端口"
+    green "3. 安全组件更新 "
+    green "4. 重启SSH服务"
+    green "0. 返回主菜单"
+    skyblue "---------------------------"
+    reading "请选择: " ssl_choice
 
     case "${ssl_choice}" in
         1)
