@@ -60,6 +60,7 @@ generate_vars() {
 	socks_port=$(shuf -i 10000-65000 -n 1)
 	anytls_port=$(shuf -i 10000-65000 -n 1)
 	grpc_reality=$(shuf -i 10000-65000 -n 1)
+	vless_ws_cdn_tls_port=$(shuf -i 10000-65000 -n 1)
 	vless_ws_cdn_port=$(shuf -i 10000-65000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
