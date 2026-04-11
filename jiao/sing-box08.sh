@@ -2592,43 +2592,35 @@ iptables_ssl() {
             iptables_ssl
             ;;
 		6)
-            yellow "正在停止防火墙服务并开放所有端口..."
-            # 1. 设置策略为允许，防止自锁
+            yellow "正在彻底停止防火墙..."
+            # 1. 策略全部设为 ACCEPT，防止把自己锁死
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
-            # 2. 清空规则
+            
+            # 2. 清空所有表和自定义链
             iptables -F
             iptables -t nat -F
+            iptables -t mangle -F
             iptables -X
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -P INPUT ACCEPT
-                ip6tables -F
-            fi
-            # 3. 停止系统服务 (关键：停止后检测逻辑才会失效)
-            if [ -f /etc/debian_version ]; then
-                systemctl stop netfilter-persistent > /dev/null 2>&1
-            elif [ -f /etc/redhat-release ]; then
-                systemctl stop iptables > /dev/null 2>&1
-            fi
-            green "防火墙已彻底停止并放行所有流量。" && sleep 1
+            
+            # 3. 停止系统服务
+            systemctl stop netfilter-persistent > /dev/null 2>&1
+            systemctl disable netfilter-persistent > /dev/null 2>&1
+            
+            green "防火墙已停止并进入【裸奔模式】。" && sleep 1
             iptables_ssl ;;
-
         7)
-            yellow "正在重新启动防火墙服务..."
-            if [ -x "$(command -v netfilter-persistent)" ]; then
-                # Debian/Ubuntu 重载方式
-                netfilter-persistent reload
-                green "防火墙规则已重载 (netfilter-persistent)"
-            elif [ -f /etc/redhat-release ]; then
-                # CentOS/RedHat 重载方式
-                systemctl restart iptables
-                green "防火墙服务已重启 (systemctl)"
-            else
-                # 通用恢复方式
-                [ -f /etc/iptables/rules.v4 ] && iptables-restore < /etc/iptables/rules.v4
+            yellow "正在重新启动..."
+            systemctl enable netfilter-persistent > /dev/null 2>&1
+            systemctl start netfilter-persistent > /dev/null 2>&1
+            
+            if [ -f /etc/iptables/rules.v4 ]; then
+                iptables-restore < /etc/iptables/rules.v4
                 [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
-                green "防火墙规则已从备份文件恢复。"
+                green "成功：已恢复 IPv4/IPv6 持久化规则。"
+            else
+                red "错误：未发现备份文件 /etc/iptables/rules.v4，请先使用放行功能保存规则。"
             fi
             sleep 1
             iptables_ssl ;;
