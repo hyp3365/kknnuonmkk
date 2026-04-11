@@ -2506,15 +2506,29 @@ iptables_ssl() {
     
     # 3. 显示未放行的服务端口
     echo -e "\033[0;36m---------------------------\033[0m"
-    ipt_msg "\033[0;35m" "检测到正在使用但【未放行】的端口:"
-    printf "%-12s %-15s\n" "端口号" "所属服务"
-    
-    ss -tunlp | grep -E 'LISTEN|UDP' | awk '{print $5}' | awk -F: '{print $NF}' | sort -un | while read -r used_port; do
-        [[ -z "$used_port" || "$used_port" -le 0 ]] && continue
-        if ! echo "$allowed_ports" | grep -qw "$used_port"; then
-            local proc_name=$(ss -tunlp | grep ":$used_port " | awk '{print $7}' | cut -d'"' -f2 | head -n1)
-            [ -z "$proc_name" ] && proc_name="未知服务"
-            printf "\033[0;31m%-12s %-15s\033[0m\n" "$used_port" "$proc_name"
+    ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口:"
+    printf "%-18s %-10s %-15s\n" "端口"  "所属服务"  "监听IP"
+    ss -tulpn | awk 'NR>1' | sed 's/::ffff://g' | awk '{
+        # 提取本地地址列 $5 (例如 0.0.0.0:80 或 [::]:80)
+        split($5, addr, ":");
+        port = addr[length(addr)];
+        # 拼接 IP 部分
+        ip = ""; for(i=1; i<length(addr); i++) ip = (i==1 ? addr[i] : ip ":" addr[i]);
+        if(ip == "" || ip == "*") ip = "0.0.0.0";
+        if(ip == "[::]") ip = "[::] (IPv6)";
+
+        # 提取进程名 $7 (例如 users:(("nginx",pid=123,fd=4)))
+        split($7, p1, "\"");
+        name = p1[2];
+        if(name == "") name = "未知服务";
+
+        print ip, port, name
+    }' | sort -un | while read -r p_ip p_port p_name; do
+        if [[ "$p_port" =~ ^[0-9]+$ ]] && [ "$p_port" -gt 0 ]; then
+            if ! echo "$allowed_ports" | grep -qw "$p_port"; then
+                # 使用红色打印未放行的详细信息
+                printf "\033[0;31m%-18s %-10s %-15s\033[0m\n" "$p_ip" "$p_port" "$p_name"
+            fi
         fi
     done
     skyblue "---------------------------"
