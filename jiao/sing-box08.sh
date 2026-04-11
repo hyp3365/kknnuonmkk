@@ -278,6 +278,9 @@ get_realip() {
 
 # 处理防火墙
 allow_port() {
+    # 基础检测
+    command_exists() { command -v "$1" >/dev/null 2>&1; }
+
     local has_ufw=0
     local has_firewalld=0
     if command_exists ufw && ufw status | grep -q "active"; then
@@ -285,6 +288,7 @@ allow_port() {
     elif command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
         has_firewalld=1
     fi
+
     if [ "$has_ufw" -eq 1 ]; then
         for rule in "$@"; do
             port=${rule%/*}
@@ -292,7 +296,6 @@ allow_port() {
             ufw allow "${port}/${proto}" >/dev/null 2>&1
         done
         ufw reload >/dev/null 2>&1
-
     elif [ "$has_firewalld" -eq 1 ]; then
         for rule in "$@"; do
             port=${rule%/*}
@@ -300,36 +303,43 @@ allow_port() {
             firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null 2>&1
         done
         firewall-cmd --reload >/dev/null 2>&1
-
     else
+        # --- Iptables 核心防断连逻辑 ---
+        # 1. 确保状态追踪在第一行
         iptables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
         iptables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+        # 2. 确保 SSH 端口在前面
+        local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+        [ -z "$ssh_p" ] && ssh_p=22
+        iptables -C INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT 2 -p tcp --dport "$ssh_p" -j ACCEPT
 
         for rule in "$@"; do
             port=${rule%/*}
             proto=${rule#*/}
+            # 使用 -I 3 插入到 SSH 规则之后，DROP 规则之前
             if ! iptables -C INPUT -p "${proto}" --dport "${port}" -j ACCEPT 2>/dev/null; then
-                iptables -A INPUT -p "${proto}" --dport "${port}" -j ACCEPT
+                iptables -I INPUT 3 -p "${proto}" --dport "${port}" -j ACCEPT
             fi
             
             if command_exists ip6tables; then
+                ip6tables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+                ip6tables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+                
                 if ! ip6tables -C INPUT -p "${proto}" --dport "${port}" -j ACCEPT 2>/dev/null; then
-                    ip6tables -A INPUT -p "${proto}" --dport "${port}" -j ACCEPT
+                    ip6tables -I INPUT 2 -p "${proto}" --dport "${port}" -j ACCEPT
                 fi
             fi
         done
-        if [ -f /etc/debian_version ]; then
-            if ! command_exists netfilter-persistent; then
-                DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent >/dev/null 2>&1
-            fi
+
+        # 3. 仅在命令存在时保存，避免临时安装导致断连
+        if command -v netfilter-persistent >/dev/null 2>&1; then
             netfilter-persistent save >/dev/null 2>&1
-        elif [ -f /etc/redhat-release ]; then
-            [ -x "$(command -v service)" ] && service iptables save >/dev/null 2>&1
-        elif command_exists rc-service; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null
         fi
     fi
 }
+
 
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
