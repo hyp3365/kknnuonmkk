@@ -1735,7 +1735,8 @@ manage_nodes_menu() {
   ]
 }
 EOF
-          node_remark="${isp}_vless_http_reality"
+          allow_port "${h2_reality}/tcp"
+		  node_remark="${isp}_vless_http_reality"
           url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
           if [ -f "/etc/sing-box/url.txt" ]; then
            sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
@@ -1797,7 +1798,7 @@ EOF
     ]
 }
 EOF
-
+            allow_port "${grpc_reality}/tcp"
             node_remark="${isp}_vless_grpc_reality"
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1839,6 +1840,7 @@ EOF
     ]
 }
 EOF
+            allow_port "${anytls_port}/tcp"
             node_remark="${isp}_anytls"
             url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1875,7 +1877,8 @@ EOF
   ]
 }
 EOF
-			    node_remark="${isp}_socks5"
+			    allow_port "${socks_port}/tcp"
+				node_remark="${isp}_socks5"
                 url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
@@ -1944,7 +1947,7 @@ EOF
   ]
 }
 EOF
-        node_remark="${isp}_vless_ws_argo"
+		node_remark="${isp}_vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
             grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
@@ -2029,7 +2032,7 @@ EOF
   ]
 }
 EOF
-            allow_port "${vless_ws_cdn_port}/tcp"
+            allow_port "${vless_wstls_cdn_port}/tcp"
 			node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
@@ -2077,7 +2080,7 @@ EOF
   ]
 }
 EOF
-
+            allow_port "${vless_ws_cdn_port}/tcp"
             node_remark="${isp}_vless_ws_cdn"
             vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspsksavxaszass#${node_remark}"         
             if [ -f "/etc/sing-box/url.txt" ]; then
