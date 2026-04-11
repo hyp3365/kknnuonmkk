@@ -278,68 +278,58 @@ get_realip() {
 
 # 处理防火墙
 allow_port() {
-    # 基础检测
-    command_exists() { command -v "$1" >/dev/null 2>&1; }
+    has_ufw=0
+    has_firewalld=0
+    has_iptables=0
+    has_ip6tables=0
 
-    local has_ufw=0
-    local has_firewalld=0
-    if command_exists ufw && ufw status | grep -q "active"; then
-        has_ufw=1
-    elif command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
-        has_firewalld=1
-    fi
+    command_exists ufw && has_ufw=1
+    command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
+    command_exists iptables && has_iptables=1
+    command_exists ip6tables && has_ip6tables=1
 
-    if [ "$has_ufw" -eq 1 ]; then
-        for rule in "$@"; do
-            port=${rule%/*}
-            proto=${rule#*/}
-            ufw allow "${port}/${proto}" >/dev/null 2>&1
-        done
-        ufw reload >/dev/null 2>&1
-    elif [ "$has_firewalld" -eq 1 ]; then
-        for rule in "$@"; do
-            port=${rule%/*}
-            proto=${rule#*/}
-            firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null 2>&1
-        done
-        firewall-cmd --reload >/dev/null 2>&1
+    # 出站和基础规则
+    [ "$has_ufw" -eq 1 ] && ufw --force default allow outgoing >/dev/null 2>&1
+    [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --zone=public --set-target=ACCEPT >/dev/null 2>&1
+    [ "$has_iptables" -eq 1 ] && {
+        iptables -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables -I INPUT 3 -i lo -j ACCEPT
+        iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null || iptables -I INPUT 4 -p icmp -j ACCEPT
+        iptables -P FORWARD DROP 2>/dev/null || true
+        iptables -P OUTPUT ACCEPT 2>/dev/null || true
+    }
+    [ "$has_ip6tables" -eq 1 ] && {
+        ip6tables -C INPUT -i lo -j ACCEPT 2>/dev/null || ip6tables -I INPUT 3 -i lo -j ACCEPT
+        ip6tables -C INPUT -p icmp -j ACCEPT 2>/dev/null || ip6tables -I INPUT 4 -p icmp -j ACCEPT
+        ip6tables -P FORWARD DROP 2>/dev/null || true
+        ip6tables -P OUTPUT ACCEPT 2>/dev/null || true
+    }
+
+    # 入站
+    for rule in "$@"; do
+        port=${rule%/*}
+        proto=${rule#*/}
+        [ "$has_ufw" -eq 1 ] && ufw allow in ${port}/${proto} >/dev/null 2>&1
+        [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --add-port=${port}/${proto} >/dev/null 2>&1
+        [ "$has_iptables" -eq 1 ] && (iptables -C INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null || iptables -I INPUT 4 -p ${proto} --dport ${port} -j ACCEPT)
+        [ "$has_ip6tables" -eq 1 ] && (ip6tables -C INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null || ip6tables -I INPUT 4 -p ${proto} --dport ${port} -j ACCEPT)
+    done
+
+    [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
+
+    # 规则持久化
+    if command_exists rc-service 2>/dev/null; then
+        [ "$has_iptables" -eq 1 ] && iptables-save > /etc/iptables/rules.v4 2>/dev/null
+        [ "$has_ip6tables" -eq 1 ] && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
     else
-        # --- Iptables 核心防断连逻辑 ---
-        # 1. 确保状态追踪在第一行
-        iptables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-        # 2. 确保 SSH 端口在前面
-        local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-        [ -z "$ssh_p" ] && ssh_p=22
-        iptables -C INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT 2 -p tcp --dport "$ssh_p" -j ACCEPT
-
-        for rule in "$@"; do
-            port=${rule%/*}
-            proto=${rule#*/}
-            # 使用 -I 3 插入到 SSH 规则之后，DROP 规则之前
-            if ! iptables -C INPUT -p "${proto}" --dport "${port}" -j ACCEPT 2>/dev/null; then
-                iptables -I INPUT 3 -p "${proto}" --dport "${port}" -j ACCEPT
-            fi
-            
-            if command_exists ip6tables; then
-                ip6tables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-                ip6tables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-                
-                if ! ip6tables -C INPUT -p "${proto}" --dport "${port}" -j ACCEPT 2>/dev/null; then
-                    ip6tables -I INPUT 2 -p "${proto}" --dport "${port}" -j ACCEPT
-                fi
-            fi
-        done
-
-        # 3. 仅在命令存在时保存，避免临时安装导致断连
-        if command -v netfilter-persistent >/dev/null 2>&1; then
+        if ! command_exists netfilter-persistent; then
+            manage_packages install iptables-persistent || yellow "请手动安装netfilter-persistent或保存iptables规则" 
             netfilter-persistent save >/dev/null 2>&1
+        elif command_exists service; then
+            service iptables save 2>/dev/null
+            service ip6tables save 2>/dev/null
         fi
     fi
 }
-
 
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
@@ -1315,75 +1305,46 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-            # ===========================
-#   安全版端口跳跃（不掉线）
-# ===========================
+           purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围，否则可能造成节点不通\n"
+            reading "请输入跳跃起始端口 (回车跳过将使用随机端口): " min_port
+            [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
+            yellow "你的起始端口为：$min_port"
+            reading "\n请输入跳跃结束端口 (需大于起始端口): " max_port
+            [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
+            yellow "你的结束端口为：$max_port\n"
+            purple "正在安装依赖，并设置端口跳跃规则中，请稍等...\n"
+            listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
+            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
+            command -v ip6tables &> /dev/null && ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
+            if command_exists rc-service 2>/dev/null; then
+                iptables-save > /etc/iptables/rules.v4
+                command -v ip6tables &> /dev/null && ip6tables-save > /etc/iptables/rules.v6
 
-purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围...\n"
+                cat << 'EOF' > /etc/init.d/iptables
+#!/sbin/openrc-run
 
-reading "请输入跳跃起始端口 (默认随机): " min_port
-[ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
+depend() {
+    need net
+}
 
-reading "请输入跳跃结束端口 (默认起始+100): " max_port
-[ -z "$max_port" ] && max_port=$(($min_port + 100))
+start() {
+    [ -f /etc/iptables/rules.v4 ] && iptables-restore < /etc/iptables/rules.v4
+    command -v ip6tables &> /dev/null && [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
+}
+EOF
 
-yellow "正在为 Iptables 配置端口跳跃..."
-
-# 1. 获取 SSH 端口
-ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-[ -z "$ssh_p" ] && ssh_p=22
-
-# 2. 永久保护 SSH（先删旧再插入，确保永远在最前）
-iptables -D INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
-iptables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-
-iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-iptables -I INPUT -p tcp --dport "$ssh_p" -j ACCEPT
-
-# 3. 开启内核转发
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-
-# 4. 清理旧 NAT 跳跃规则（精准删除）
-iptables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/iptables -t nat -D/g' | bash
-
-# 5. 添加新的 NAT 跳跃规则
-iptables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" \
-    -j DNAT --to-destination :"$listen_port" \
-    -m comment --comment "PortHopping"
-
-# 6. 放行跳跃区间（先删旧再插入，避免重复）
-iptables -D INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT 2>/dev/null
-iptables -I INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
-
-# 7. IPv6 同步（若系统支持 NAT66）
-if command -v ip6tables &>/dev/null; then
-    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
-
-    ip6tables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-    ip6tables -D INPUT -p tcp --dport "$ssh_p" -j ACCEPT 2>/dev/null
-    ip6tables -D INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT 2>/dev/null
-
-    ip6tables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-    ip6tables -I INPUT -p tcp --dport "$ssh_p" -j ACCEPT
-    ip6tables -I INPUT -p udp --dport "$min_port":"$max_port" -j ACCEPT -m comment --comment "PortHopping"
-
-    # NAT66（如果系统支持）
-    ip6tables -t nat -S PREROUTING 2>/dev/null | grep "PortHopping" | sed 's/-A/ip6tables -t nat -D/g' | bash
-    ip6tables -t nat -A PREROUTING -p udp --dport "$min_port":"$max_port" \
-        -j DNAT --to-destination :"$listen_port" \
-        -m comment --comment "PortHopping" 2>/dev/null
-fi
-
-# 8. 持久化保存
-if [ -x "$(command -v netfilter-persistent)" ]; then
-    netfilter-persistent save >/dev/null 2>&1
-elif [ -x "$(command -v service)" ]; then
-    service iptables save >/dev/null 2>&1
-fi
-
-restart_singbox
-
-green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
+                chmod +x /etc/init.d/iptables && rc-update add iptables default && /etc/init.d/iptables start
+            elif [ -f /etc/debian_version ]; then
+                DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent > /dev/null 2>&1 && netfilter-persistent save > /dev/null 2>&1 
+                systemctl enable netfilter-persistent > /dev/null 2>&1 && systemctl start netfilter-persistent > /dev/null 2>&1
+            elif [ -f /etc/redhat-release ]; then
+                manage_packages install iptables-services > /dev/null 2>&1 && service iptables save > /dev/null 2>&1
+                systemctl enable iptables > /dev/null 2>&1 && systemctl start iptables > /dev/null 2>&1
+                command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
+                systemctl enable ip6tables > /dev/null 2>&1 && systemctl start ip6tables > /dev/null 2>&1
+            else
+                red "未知系统,请自行将跳跃端口转发到主端口" && exit 1
+            fi            
             restart_singbox
             ip=$(get_realip)
             uuid=$(sed -n 's/.*hysteria2:\/\/\([^@]*\)@.*/\1/p' $client_dir)
