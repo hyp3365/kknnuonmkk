@@ -2545,14 +2545,14 @@ iptables_ssl() {
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
-            reading -p "请输入开放的端口号: " o_port
+            read -p "请输入开放的端口号: " o_port
             sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
             sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
             iptables-restore < /etc/iptables/rules.v4
 
             ;;
         2)
-            reading -p "请输入关闭的端口号: " c_port
+            read -p "请输入关闭的端口号: " c_port
             sed -i "/--dport $c_port/d" /etc/iptables/rules.v4
             iptables-restore < /etc/iptables/rules.v4
             ;;
