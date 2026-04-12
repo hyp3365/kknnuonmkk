@@ -1289,74 +1289,99 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-          purple "端口跳跃需确保跳跃区间的端口没有被占用，nat鸡请注意可用端口范围，否则可能造成节点不通\n"
-            reading "请输入跳跃起始端口 (回车跳过将使用随机端口): " min_port
-            [ -z "$min_port" ] && min_port=$(shuf -i 50000-65000 -n 1)
-            yellow "你的起始端口为：$min_port"
-            reading "\n请输入跳跃结束端口 (需大于起始端口): " max_port
+            purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
+            local deps=("iptables" "curl" "shuf")
+            for dep in "${deps[@]}"; do
+                if ! command -v "$dep" &> /dev/null; then
+                    yellow "检测到缺少依赖 $dep，正在安装..."
+                    if [ -f /etc/debian_version ]; then
+                        apt-get update && apt-get install -y "$dep"
+                    elif [ -f /etc/redhat-release ]; then
+                        yum install -y "$dep"
+                    fi
+                fi
+            done
+		    reading "请输入跳跃起始端口: " min_port
+            while [ -z "$min_port" ]; do
+                red "不能为空，请重新输入: "
+                read min_port
+            done
+            yellow "起始端口为：$min_port"
+            reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
             [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
-            yellow "你的结束端口为：$max_port\n"
-            purple "正在安装依赖，并设置端口跳跃规则中，请稍等...\n"
-            listen_port=$(sed -n '/"tag": "hysteria2"/,/}/s/.*"listen_port": \([0-9]*\).*/\1/p' $config_dir)
-            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
-            command -v ip6tables &> /dev/null && ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port > /dev/null
-            if command_exists rc-service 2>/dev/null; then
+            yellow "结束端口为：$max_port\n"
+            listen_port=$(grep -A 15 '"tag": "hysteria2"' "$config_dir" | grep '"listen_port"' | head -n 1 | awk -F': ' '{print $2}' | tr -d ', ')
+            if [ -z "$listen_port" ]; then
+                red "无法自动获取 Hysteria2 监听端口，请检查配置文件！"
+                exit 1
+            fi
+            purple "正在设置端口跳跃规则..."
+            iptables -t nat -F PREROUTING > /dev/null 2>&1
+            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port
+            
+            if command -v ip6tables &> /dev/null; then
+                ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+                ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port 2>/dev/null
+            fi
+            if command -v rc-service &> /dev/null; then
+                mkdir -p /etc/iptables
                 iptables-save > /etc/iptables/rules.v4
-                command -v ip6tables &> /dev/null && ip6tables-save > /etc/iptables/rules.v6
-
+                [ -x "$(command -v ip6tables)" ] && ip6tables-save > /etc/iptables/rules.v6
                 cat << 'EOF' > /etc/init.d/iptables
 #!/sbin/openrc-run
-
-depend() {
-    need net
-}
-
+depend() { need net; }
 start() {
-    [ -f /etc/iptables/rules.v4 ] && iptables-restore < /etc/iptables/rules.v4
-    command -v ip6tables &> /dev/null && [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
+    iptables-restore < /etc/iptables/rules.v4
+    [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
 }
 EOF
-
-                chmod +x /etc/init.d/iptables && rc-update add iptables default && /etc/init.d/iptables start
+                chmod +x /etc/init.d/iptables && rc-update add iptables default
             elif [ -f /etc/debian_version ]; then
-                DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent > /dev/null 2>&1 && netfilter-persistent save > /dev/null 2>&1 
-                systemctl enable netfilter-persistent > /dev/null 2>&1 && systemctl start netfilter-persistent > /dev/null 2>&1
-            elif [ -f /etc/redhat-release ]; then
-                manage_packages install iptables-services > /dev/null 2>&1 && service iptables save > /dev/null 2>&1
-                systemctl enable iptables > /dev/null 2>&1 && systemctl start iptables > /dev/null 2>&1
-                command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
-                systemctl enable ip6tables > /dev/null 2>&1 && systemctl start ip6tables > /dev/null 2>&1
-            else
-                red "未知系统,请自行将跳跃端口转发到主端口" && exit 1
-            fi            
-            restart_singbox
-            ip=$(get_realip)
-            uuid=$(sed -n 's/.*hysteria2:\/\/\([^@]*\)@.*/\1/p' $client_dir)
-            line_number=$(grep -n 'hysteria2://' $client_dir | cut -d':' -f1)
-            isp=$(curl -s --max-time 2 https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed -e 's/ /_/g' || echo "vps")
-            sed -i.bak "/hysteria2:/d" $client_dir
-            sed -i "${line_number}i hysteria2://$uuid@$ip:$listen_port?peer=www.bing.com&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$isp" $client_dir
-            base64 -w0 $client_dir > /etc/sing-box/sub.txt
-            while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-            green "\nhysteria2端口跳跃已开启,跳跃端口为：${purple}$min_port-$max_port${re} ${green}请更新订阅或手动复制以上hysteria2节点${re}\n"
-            ;;
-        5)  
-            iptables -t nat -F PREROUTING  > /dev/null 2>&1
-            command -v ip6tables &> /dev/null && ip6tables -t nat -F PREROUTING  > /dev/null 2>&1
-            if command_exists rc-service 2>/dev/null; then
-                rc-update del iptables default && rm -rf /etc/init.d/iptables 
-            elif [ -f /etc/redhat-release ]; then
+                if ! dpkg -l | grep -q iptables-persistent; then
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
+                fi
                 netfilter-persistent save > /dev/null 2>&1
             elif [ -f /etc/redhat-release ]; then
-                service iptables save > /dev/null 2>&1
-                command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
-            else
-                manage_packages uninstall iptables ip6tables iptables-persistent iptables-service > /dev/null 2>&1
+                yum install -y iptables-services
+                systemctl enable iptables && service iptables save
+                command -v ip6tables &> /dev/null && systemctl enable ip6tables && service ip6tables save
             fi
-            sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
-            base64 -w0 $client_dir > /etc/sing-box/sub.txt
-            green "\n端口跳跃已删除\n"
+            restart_singbox
+            ip=$(get_realip)
+            uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
+            isp=$(curl -s --max-time 2 https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed 's/ /_/g' || echo "vps")
+            sed -i "/hysteria2:/d" "$client_dir"
+            echo "hysteria2://$uuid@$ip:$listen_port?peer=www.bing.com&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$isp" >> "$client_dir"
+            base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
+            green "\nHysteria2 端口跳跃已开启！"
+            purple "跳跃区间：$min_port-$max_port"
+            ;;          
+        5)  
+            purple "正在清理端口跳跃规则..."
+            iptables -t nat -F PREROUTING > /dev/null 2>&1
+            if command -v ip6tables &> /dev/null; then
+                ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+            fi
+            if command_exists rc-service 2>/dev/null; then
+                rc-update del iptables default > /dev/null 2>&1
+                rm -f /etc/init.d/iptables 
+            elif [ -f /etc/debian_version ]; then
+                if command -v netfilter-persistent &> /dev/null; then
+                    netfilter-persistent save > /dev/null 2>&1
+                fi
+            elif [ -f /etc/redhat-release ]; then
+                if command -v service &> /dev/null; then
+                    service iptables save > /dev/null 2>&1
+                    command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
+                fi
+            fi
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
+                base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
+            fi
+            green "\n[✔] 端口跳跃已关闭"
             ;;
+
         6)  change_cfip ;;
         0)  menu ;;
         *)  read "无效的选项！" ;; 
