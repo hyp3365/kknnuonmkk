@@ -2797,27 +2797,25 @@ base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
 purple "$new_vmess_url\n" 
 
-# --- 第二部分 & 第三部分：VLESS 的清理与重新生成 (判断文件存在才执行) ---
-    config_file="/etc/sing-box/vless-ws-argo.json"
-    isp_suffix="_vless_ws_argo"
+config_file="/etc/sing-box/vless-ws-argo.json"
+  isp="_vless_ws_argo"
+                config_file="/etc/sing-box/vless-ws-argo.json"
+                if [ -f "$config_file" ]; then
+                    rm -f "$config_file"
+                    if [ -f "/etc/sing-box/url.txt" ]; then
+                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
+                    fi
+                    if [ -s "/etc/sing-box/url.txt" ]; then
+                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                    else
+                        truncate -s 0 /etc/sing-box/sub.txt
+                    fi
 
-    if [ -f "$config_file" ]; then
-        yellow "检测到 VLESS 配置，正在执行重置..."
-        
-        # 1. 清理旧文件和旧订阅行
-        rm -f "$config_file"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            # 删除匹配备注的行及其下一行(空行)
-            sed -i "/#.*${isp_suffix}$/{N;d;}" /etc/sing-box/url.txt
-        fi
-
-        # 2. 重新获取域名 (你的第三部分逻辑)
-        # 优先从当前变量获取，若无则抓取日志
+        # 3. 重新获取域名
         argodomain="$ArgoDomain"
         if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
             argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
         fi
-
         # 3. 如果成功获取域名，则重建配置文件和连接
         if [ -n "$argodomain" ]; then
             # 生成 JSON
