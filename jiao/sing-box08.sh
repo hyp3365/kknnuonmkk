@@ -2544,48 +2544,83 @@ iptables_ssl() {
     
 
 	read -p $'\033[1;91m请输入你的选择: \033[0m' sub_choice
-    case $sub_choice in
-                      1)
-                      read -p "请输入开放的端口号: " o_port
-                      sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
-                      sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
-                      iptables-restore < /etc/iptables/rules.v4
+        case "${ipt_choice}" in
+        1)
+            read -p "请输入要开放的端口号: " o_port
+            if [[ "$o_port" =~ ^[0-9]+$ ]] && [ "$o_port" -gt 0 ]; then
+                # 检查文件中是否已存在该端口，避免重复添加
+                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4; then
+                    # 在 COMMIT 行之前插入规则
+                    sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
+                    sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
+                    # 同步 IPv6
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                    
+                    # 重新加载使生效
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    green "成功：端口 $o_port 已放行并持久化保存"
+                else
+                    yellow "端口 $o_port 规则已存在，无需重复添加"
+                fi
+            fi
+            sleep 1 && iptables_ssl ;;
 
-                          ;;
-                      2)
-                      read -p "请输入关闭的端口号: " c_port
-                      sed -i "/--dport $c_port/d" /etc/iptables/rules.v4
-                      iptables-restore < /etc/iptables/rules.v4
-                        ;;
+        2)
+            read -p "请输入要取消放行的端口号: " c_port
+            if [[ "$c_port" =~ ^[0-9]+$ ]]; then
+                yellow "正在从配置文件中清理端口 $c_port..."
+                # 删除包含该端口的所有行
+                sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
+                [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+                
+                # 重新加载使生效
+                iptables-restore < /etc/iptables/rules.v4
+                [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                green "清理完成！"
+            fi
+            sleep 1 && iptables_ssl ;;
 
         3)
-            yellow "正在开启拦截加固 (白名单模式)..."
-            iptables -P INPUT ACCEPT
-            iptables -F INPUT
-            iptables -A INPUT -i lo -j ACCEPT
-            iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-            iptables -A INPUT -p tcp --dport "$ssh_p" -m comment --comment "SSH_Port" -j ACCEPT
-            iptables -P INPUT DROP
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -P INPUT ACCEPT
-                ip6tables -F INPUT
-                ip6tables -A INPUT -i lo -j ACCEPT
-                ip6tables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-                ip6tables -A INPUT -p tcp --dport "$ssh_p" -m comment --comment "SSH_Port" -j ACCEPT
-                ip6tables -P INPUT DROP
-            fi
-            [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-            green "加固完成！当前仅放行 SSH，其他端口请通过选项1手动放行。" && sleep 1
+            yellow "正在开启拦截加固 (关闭所有端口，仅留 SSH)..."
+            # 重新获取 SSH 端口以防变更
+            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+            [ -z "$ssh_p" ] && ssh_p=22
+
+            # 直接重写持久化文件：默认 DROP
+            cat > /etc/iptables/rules.v4 << EOF
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+-A INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
+COMMIT
+EOF
+            iptables-restore < /etc/iptables/rules.v4
+            green "加固完成！当前默认丢弃所有入站包，仅放行端口 $ssh_p。" && sleep 2
             iptables_ssl ;;
+
         4)
-            yellow "正在关闭拦截加固 (进入裸奔模式)..."
-            iptables -P INPUT ACCEPT
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -P INPUT ACCEPT
-            fi
-            [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-            green "已恢复裸奔模式：默认放行所有入站连接。" && sleep 1
+            yellow "正在关闭拦截加固 (开启所有端口/裸奔模式)..."
+            # 直接重写持久化文件：默认 ACCEPT
+            cat > /etc/iptables/rules.v4 << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+COMMIT
+EOF
+            iptables-restore < /etc/iptables/rules.v4
+            green "已恢复裸奔模式：默认放行所有连接。" && sleep 2
             iptables_ssl ;;
+
+    
+
         5)
             yellow "正在安装/更新环境..."
             if [ -f /etc/debian_version ]; then
