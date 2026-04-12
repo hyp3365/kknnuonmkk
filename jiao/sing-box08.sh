@@ -2545,36 +2545,18 @@ iptables_ssl() {
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
-            reading "输入放行端口号: " port
-            if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ]; then
-                iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
-                iptables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
-                if command -v ip6tables &> /dev/null; then
-                    ip6tables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$tag" -j ACCEPT
-                    ip6tables -I INPUT 1 -p udp --dport "$port" -m comment --comment "$tag" -j ACCEPT
-                fi
-                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "成功：端口 $port 已放行并保存" && sleep 1
-            fi
-            iptables_ssl ;;
-         2)
-            reading "输入要取消放行的端口号: " port
-            if [[ "$port" =~ ^[0-9]+$ ]]; then
-                yellow "正在清理端口 $port 规则..."
-                iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" 2>/dev/null
-                iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" 2>/dev/null
-                while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done             
-                if command -v ip6tables &> /dev/null; then
-                    ip6tables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" 2>/dev/null
-                    ip6tables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" 2>/dev/null
-                    while ip6tables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
-                    while ip6tables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
-                fi
-                [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-                green "清理完成！" && sleep 1
-            fi
-            iptables_ssl ;;
+            reading -p "请输入开放的端口号: " o_port
+            sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
+            sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
+            iptables-restore < /etc/iptables/rules.v4
+
+            ;;
+        2)
+            reading -p "请输入关闭的端口号: " c_port
+            sed -i "/--dport $c_port/d" /etc/iptables/rules.v4
+            iptables-restore < /etc/iptables/rules.v4
+            ;;
+
         3)
             yellow "正在开启拦截加固 (白名单模式)..."
             iptables -P INPUT ACCEPT
