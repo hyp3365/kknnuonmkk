@@ -2783,6 +2783,7 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
+    # 处理 vmess 配置部分
     content=$(cat "$client_dir")
     vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
     if [ -n "$vmess_url" ]; then
@@ -2790,31 +2791,34 @@ change_argo_domain() {
         encoded_vmess="${vmess_url#"$vmess_prefix"}"
         decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
         updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
+        encoded_updated_vmess=$(echo "$updated_vmess" | base64 -w 0)
         new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
         content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
         echo "$content" > "$client_dir"
     fi
 
+    # 处理 vless 配置部分
     target_remark="${isp_base}_vless_ws_argo"
-    NEW_VLESS="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
+    NEW_VLESS="vless://${uuid}@${ArgoDomain}:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
     
     local files=("$client_dir" "${work_dir}/url.txt")
     for file in "${files[@]}"; do
         if [ -f "$file" ]; then
             if grep -q "#${target_remark}" "$file"; then
-                sed -i "/#${target_remark}/,+1d" "$file"
-                echo -e "${NEW_VLESS}\n" >> "$file"
+                sed -i "/#${target_remark}/,+1d" "$file"   
+                echo -e "${NEW_VLESS}\n" >> "$file"         
             else
-                : 
+                continue
             fi
         fi
     done
 
+    # 生成订阅文件
     if [ -f "${work_dir}/url.txt" ]; then
         base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
     fi
-    green "域名已更新"
+
+    echo "域名已更新"
 }
 
 
