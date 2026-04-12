@@ -2455,11 +2455,25 @@ vps_ssl() {
     
 #Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
+
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
-    local vps_ipv4=$(curl -s4m 3 api64.ipify.org || echo "未分配/检测失败")
-    local vps_ipv6=$(curl -s6m 3 api64.ipify.org || echo "未分配/检测失败")
+    local cache_file="/tmp/ipt_ip.cache"
+    if [ -f "$cache_file" ]; then
+        source "$cache_file"
+    fi
+    if [ -z "$vps_ipv4" ] || [ -z "$vps_ipv6" ]; then
+        vps_ipv4=$(curl -s4m 2 api64.ipify.org || echo "未分配/检测失败")
+        vps_ipv6=$(curl -s6m 2 api64.ipify.org || echo "未分配/检测失败")
+        echo "vps_ipv4='$vps_ipv4'" > "$cache_file"
+        echo "vps_ipv6='$vps_ipv6'" >> "$cache_file"
+    fi
+    local status_text=""
+    local mode_text=""
+    local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
+    local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
+    local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
     local status_text=""
     local mode_text=""
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
@@ -2488,10 +2502,8 @@ iptables_ssl() {
     echo -e " IPv6 地址: \033[1;36m${vps_ipv6}\033[0m"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
-    
-    # 2. 已放行端口显示
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
-    printf "%-12s %-15s\n" "端口号" "说明"
+    printf "%-12s %-15s\n" "端口号"   "说明"
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
         allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
