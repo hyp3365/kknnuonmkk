@@ -2783,52 +2783,87 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
-    # 1. 读取原始内容
-    content=$(cat "$client_dir")
+content=$(cat "$client_dir")
+vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
+vmess_prefix="vmess://"
+encoded_vmess="${vmess_url#"$vmess_prefix"}"
+decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
+updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
+encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
+new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
+new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
+echo "$new_content" > "$client_dir"
+base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
+green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
+purple "$new_vmess_url\n" 
 
-    # --- A. VMess 处理部分 (保留你原来的代码) ---
-    vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-    if [ -n "$vmess_url" ]; then
-        vmess_prefix="vmess://"
-        encoded_vmess="${vmess_url#"$vmess_prefix"}"
-        decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-        updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-        new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
-        # 更新变量中的 VMess
-        content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
+config_file="/etc/sing-box/vless-ws-argo.json"
+    node_remark="${isp}_vless_ws_argo"
+
+    if [ -f "$config_file" ]; then
+        rm -f "$config_file"
+        if [ -f "${work_dir}/url.txt" ]; then
+            # 删除旧节点及其可能随后的空行
+            sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+        fi
+        yellow "旧的 VLESS 配置已清理"
     fi
 
-    # --- B. VLESS 处理部分 (判断 -> 删除 -> 重新写入) ---
-    target_remark="vless_ws_argo"
-    if echo "$content" | grep -q "#${target_remark}"; then
-        # 1. 删除旧的 vless_ws_argo 行 (包括它后面的空行)
-        content=$(echo "$content" | sed "/#${target_remark}/d")
-        
-        # 2. 构造新的 VLESS 连接
-        NEW_VLESS="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
-        
-        # 3. 将新连接追加到内容中，并加一个空行
-        content=$(echo -e "${content}\n${NEW_VLESS}\n")
-        green "已重置并更新 VLESS Argo 节点"
-    else
-        yellow "未发现 VLESS 节点，跳过修改"
+    # --- 第三部分：重新生成 VLESS (衔接你提供的逻辑) ---
+    yellow "正在重新配置 VLESS-WS 隧道..."
+    mkdir -p /etc/sing-box
+    
+    # 尝试获取最新的域名 (优先使用当前传入的 ArgoDomain，如果为空则从日志抓取)
+    local final_domain="$ArgoDomain"
+    if [ -z "$final_domain" ]; then
+        if [ -f "${work_dir}/argo.log" ]; then
+            final_domain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
+        fi
     fi
 
-    # --- C. 写入文件并生成订阅 ---
-    # 写入两个关键文件
-    echo "$content" > "$client_dir"
-    echo "$content" > "${work_dir}/url.txt"
-
-    # 生成 Base64 订阅
-    if [ -f "${work_dir}/url.txt" ]; then
-        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-    fi
-
-    green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
-    [ -n "$new_vmess_url" ] && purple "$new_vmess_url\n"
+    if [ -n "$final_domain" ]; then
+        # 1. 生成新的 JSON 配置文件
+        cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-argo",
+      "listen": "127.0.0.1",
+      "listen_port": 8003,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/lPaxe1996Ko-5203aap",
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
 }
+EOF
+        # 2. 构造新的 VLESS URL
+        VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${final_domain}&type=ws&host=${final_domain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
+        
+        # 3. 写入文件并加空行格式化
+        echo "$VLESS_URL" >> "${work_dir}/url.txt"
+        echo "" >> "${work_dir}/url.txt"
+        
+        # 4. 重启服务并同步订阅
+        restart_singbox
+        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
 
+        green "==============================================="
+        green " VLESS-WS隧道 重新添加完成！"
+        green " 最新域名: $final_domain"
+        green "==============================================="
+    else
+        red "错误：无法获取有效的 Argo 域名，VLESS 节点未生成。"
+    fi
+}
 
 
 # 查看节点信息和订阅链接
