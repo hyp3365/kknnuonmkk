@@ -2543,7 +2543,7 @@ iptables_ssl() {
     skyblue "------------"
     
 
-	read -p $'\033[1;91m请输入你的选择: \033[0m' sub_choice
+	reading "\n请输入选择: " ipt_choice
         case "${ipt_choice}" in
         1)
             read -p "请输入要开放的端口号: " o_port
