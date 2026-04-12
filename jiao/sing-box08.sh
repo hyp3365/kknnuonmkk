@@ -2493,9 +2493,9 @@ iptables_ssl() {
     if [ "$svc_status" == "active" ] || [ "$rule_count" -gt 0 ]; then
         status_text="\033[0;32m运行中\033[0m"
         if [ "$policy" == "DROP" ]; then
-            mode_text="\033[0;32m加固模式\033[0m"
+            mode_text="\033[0;32m开启\033[0m"
         else
-            mode_text="\033[0;31m裸奔模式\033[0m"
+            mode_text="\033[0;31m关闭\033[0m"
         fi
     else
         status_text="\033[0;31m已停止\033[0m"
@@ -2939,7 +2939,7 @@ menu() {
    purple "11. ssh综合工具箱"
    purple "12. 更新脚本"
    purple "13. VPS秘钥登录配置"
-   purple "14. iptables简单管理"
+   purple "14. iptables管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
