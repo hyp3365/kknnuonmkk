@@ -2455,24 +2455,19 @@ vps_ssl() {
     
 #Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
-
 iptables_ssl() {
     clear
     local tag="ScriptManaged"
-    
-    # 1. 运行状态与拦截模式检测逻辑
+    local vps_ipv4=$(curl -s4m 3 api64.ipify.org || echo "未分配/检测失败")
+    local vps_ipv6=$(curl -s6m 3 api64.ipify.org || echo "未分配/检测失败")
     local status_text=""
     local mode_text=""
-    # 提取 INPUT 链的默认策略
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-    # 统计实际规则行数（排除表头和空行）
     local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
-    # 检测服务状态
     local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
 
     if [ "$svc_status" == "active" ] || [ "$rule_count" -gt 0 ]; then
         status_text="\033[0;32m运行中\033[0m"
-        # 只要默认策略是 DROP，就是加固模式（白名单模式）
         if [ "$policy" == "DROP" ]; then
             mode_text="\033[0;32m加固模式\033[0m"
         else
@@ -2482,14 +2477,15 @@ iptables_ssl() {
         status_text="\033[0;31m已停止\033[0m"
         mode_text="\033[0;37m未拦截\033[0m"
     fi
-
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
     echo ""
-    green "=== Iptables 防火墙管理 (双栈同步版) ==="
+    green "=== Iptables 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
+	echo -e " IPv4 地址: \033[1;36m${vps_ipv4}\033[0m"
+    echo -e " IPv6 地址: \033[1;36m${vps_ipv6}\033[0m"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
     
