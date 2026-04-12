@@ -2795,21 +2795,23 @@ new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 echo "$new_content" > "$client_dir"
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 
-config_file="/etc/sing-box/vless-ws-argo.json"
-url_file="/etc/sing-box/url.txt"
-isp_suffix="_vless_ws_argo"
-if [ -f "$config_file" ]; then
-    rm -f "$config_file"
-    if [ -f "$url_file" ]; then
-        sed -i "/${isp_suffix}/d" "$url_file"
-        sed -i '/^$/N;/\n$/D' "$url_file"
-        [ ! -s "$url_file" ] && truncate -s 0 "$url_file"
-    fi
-fi
+    config_file="/etc/sing-box/vless-ws-argo.json"
+    url_file="/etc/sing-box/url.txt"
+    isp_suffix="_vless_ws_argo"
+
+    if [ -f "$config_file" ]; then
+        rm -f "$config_file"
+        
+        if [ -f "$url_file" ]; then
+            sed -i "/${isp_suffix}/d" "$url_file"
+            sed -i '/^[[:space:]]*$/d' "$url_file"
+        fi
+
         argodomain="$ArgoDomain"
         if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
             argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
         fi
+
         if [ -n "$argodomain" ]; then
             cat > "$config_file" << EOF
 {
@@ -2831,19 +2833,12 @@ fi
 EOF
             node_remark="${isp}${isp_suffix}"
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
-            echo "$VLESS_URL" >> "/etc/sing-box/url.txt"
-            echo "" >> "/etc/sing-box/url.txt"     
+            
+            echo -e "\n$VLESS_URL" >> "$url_file"
             restart_singbox
-        else
+			green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
+            purple "$new_vmess_url\n" 
         fi
-    else
-        green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
-purple "$new_vmess_url\n" 
-    fi
-    if [ -s "/etc/sing-box/url.txt" ]; then
-        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-    else
-        truncate -s 0 /etc/sing-box/sub.txt
     fi
 }
 
