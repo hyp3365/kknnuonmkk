@@ -2543,41 +2543,19 @@ iptables_ssl() {
     skyblue "------------"
     
     reading "\n请输入选择: " ipt_choice
-    case "${ipt_choice}" in
-        1)
-            
-    # 修复 read 的语法，添加 -p
-    read -p "请输入开放的端口号: " o_port
-    
-    # 增加判断：如果变量为空则跳过，防止写坏配置文件
-    if [ -n "$o_port" ]; then
-        # 建议使用 ${o_port} 更加稳妥
-        # 确保 /etc/iptables/rules.v4 文件存在
-        if [ -f "/etc/iptables/rules.v4" ]; then
-            sed -i "/COMMIT/i -A INPUT -p tcp --dport ${o_port} -j ACCEPT" /etc/iptables/rules.v4
-            sed -i "/COMMIT/i -A INPUT -p udp --dport ${o_port} -j ACCEPT" /etc/iptables/rules.v4
-            
-            # 尝试恢复规则
-            iptables-restore < /etc/iptables/rules.v4
-            green "端口 ${o_port} 已添加"
-        else
-            red "错误：未发现 /etc/iptables/rules.v4 文件"
-        fi
-    else
-        yellow "未输入端口，操作取消"
-    fi
-    ;;
-2)
-    read -p "请输入关闭的端口号: " c_port
-    if [ -n "$c_port" ]; then
-        # 删除匹配该端口的所有行
-        sed -i "/--dport ${c_port}/d" /etc/iptables/rules.v4
-        iptables-restore < /etc/iptables/rules.v4
-        green "端口 ${c_port} 相关规则已删除"
-    else
-        yellow "未输入端口，操作取消"
-    fi
-    ;;
+    case $sub_choice in
+                      1)
+                      read -p "请输入开放的端口号: " o_port
+                      sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
+                      sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -j ACCEPT" /etc/iptables/rules.v4
+                      iptables-restore < /etc/iptables/rules.v4
+
+                          ;;
+                      2)
+                      read -p "请输入关闭的端口号: " c_port
+                      sed -i "/--dport $c_port/d" /etc/iptables/rules.v4
+                      iptables-restore < /etc/iptables/rules.v4
+                        ;;
 
         3)
             yellow "正在开启拦截加固 (白名单模式)..."
