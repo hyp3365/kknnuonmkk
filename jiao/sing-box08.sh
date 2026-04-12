@@ -2672,15 +2672,23 @@ EOF
                     systemctl start netfilter-persistent >/dev/null 2>&1
                 fi
             fi
+
+            # 2. 加载 IPv4 规则
             if [ -f "/etc/iptables/rules.v4" ]; then
                 iptables-restore < /etc/iptables/rules.v4
+                green "IPv4 规则重载成功。"
             else
+                yellow "未发现 IPv4 规则文件。"
             fi
+
+            # 3. 加载 IPv6 规则
             if [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables &> /dev/null; then
                 ip6tables-restore < /etc/iptables/rules.v6
-                green " 规则重载成功。"
+                green "IPv6 规则重载成功。"
             fi
+
             sleep 1 && iptables_ssl ;;
+
         0) menu ;;
         *) iptables_ssl ;;
     esac
