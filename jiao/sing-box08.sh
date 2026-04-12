@@ -1897,7 +1897,7 @@ EOF
 EOF
             allow_port "$http_port/tcp" > /dev/null 2>&1     
             node_remark="${isp}_http"
-            url="http://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
+            url="http://${username}:${password}@${server_ip}:${http_port}#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
             fi      
