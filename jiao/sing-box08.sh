@@ -2549,9 +2549,13 @@ iptables_ssl() {
             reading "输入要取消放行的端口号: " port
             if [[ "$port" =~ ^[0-9]+$ ]]; then
                 yellow "正在清理端口 $port 规则..."
+                iptables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" 2>/dev/null
+                iptables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" 2>/dev/null
                 while iptables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
+                while iptables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done             
                 if command -v ip6tables &> /dev/null; then
+                    ip6tables -D INPUT -p tcp --dport "$port" -m comment --comment "$tag" 2>/dev/null
+                    ip6tables -D INPUT -p udp --dport "$port" -m comment --comment "$tag" 2>/dev/null
                     while ip6tables -D INPUT -p tcp --dport "$port" 2>/dev/null; do :; done
                     while ip6tables -D INPUT -p udp --dport "$port" 2>/dev/null; do :; done
                 fi
@@ -2565,18 +2569,18 @@ iptables_ssl() {
             iptables -F INPUT
             iptables -A INPUT -i lo -j ACCEPT
             iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-            iptables -A INPUT -p tcp --dport "$ssh_p" -j ACCEPT
+            iptables -A INPUT -p tcp --dport "$ssh_p" -m comment --comment "SSH_Port" -j ACCEPT
             iptables -P INPUT DROP
             if command -v ip6tables &> /dev/null; then
                 ip6tables -P INPUT ACCEPT
                 ip6tables -F INPUT
                 ip6tables -A INPUT -i lo -j ACCEPT
                 ip6tables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-                ip6tables -A INPUT -p tcp --dport "$ssh_p" -j ACCEPT
+                ip6tables -A INPUT -p tcp --dport "$ssh_p" -m comment --comment "SSH_Port" -j ACCEPT
                 ip6tables -P INPUT DROP
             fi
             [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
-            green "加固完成！当前仅放行 SSH 及已设端口。" && sleep 1
+            green "加固完成！当前仅放行 SSH，其他端口请通过选项1手动放行。" && sleep 1
             iptables_ssl ;;
         4)
             yellow "正在关闭拦截加固 (进入裸奔模式)..."
