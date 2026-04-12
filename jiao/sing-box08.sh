@@ -713,7 +713,7 @@ get_info() {
 
   green "\nArgoDomain：${purple}$argodomain${re}\n"
 
-  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vless_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
+  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
 
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
@@ -2820,13 +2820,24 @@ change_argo_domain() {
 
 # 查看节点信息和订阅链接
 check_nodes() {
-    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
-    server_ip=$(get_realip)
-    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
-    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf")
-    base64_url="http://${server_ip}:${sub_port}/${lujing}"
-	green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接: ${purple}${base64_url}${re}\n"
+    if [ -f "${work_dir}/url.txt" ]; then
+        while IFS= read -r line; do 
+            purple "$line"
+        done < "${work_dir}/url.txt"
+    fi
+    local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
+    if [ -f "$nginx_conf" ]; then
+        server_ip=$(get_realip)
+        lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "$nginx_conf")
+        sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf")      
+        base64_url="http://${server_ip}:${sub_port}/${lujing}"        
+        green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Stash订阅链接: ${purple}${base64_url}${re}\n"
+    else
+        # 文件不存在
+        red "订阅服务未配置或订阅已关闭\n"
+    fi
 }
+
 
 change_cfip() {
     clear
