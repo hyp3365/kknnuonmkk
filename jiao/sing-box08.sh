@@ -2452,18 +2452,14 @@ vps_ssl() {
         read -n 1 -s -r -p $'\033[1;33m操作完成，按任意键菜单...\033[0m'
     done
 }
-    
-#Iptables简单管理工具
+
 # Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
-
-# 确保基础配置文件存在，防止 sed 插入失败
 check_rule_files() {
     local r4="/etc/iptables/rules.v4"
     if [ ! -d "/etc/iptables" ]; then
         mkdir -p /etc/iptables
     fi
-    # 如果文件不存在，初始化一个标准格式，否则 sed 无法定位 COMMIT
     if [ ! -f "$r4" ] || ! grep -q "COMMIT" "$r4"; then
         cat > "$r4" << EOF
 *filter
@@ -2474,14 +2470,11 @@ COMMIT
 EOF
     fi
 }
-
 iptables_ssl() {
     clear
     check_rule_files
     local tag="ScriptManaged"
     local cache_file="/tmp/ipt_ip.cache"
-    
-    # IP 缓存逻辑
     if [ -f "$cache_file" ]; then
         source "$cache_file"
     fi
@@ -2491,7 +2484,6 @@ iptables_ssl() {
         echo "vps_ipv4='$vps_ipv4'" > "$cache_file"
         echo "vps_ipv6='$vps_ipv6'" >> "$cache_file"
     fi
-
     local status_text=""
     local mode_text=""
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
@@ -2552,36 +2544,28 @@ iptables_ssl() {
     done
     skyblue "---------------------------"
     
-    green "1. 放行新端口 (同步 IPv4/IPv6)"
-    green "2. 取消放行端口 (同步 IPv4/IPv6)"
-    green "3. 开启拦截加固 (白名单模式)"
-    green "4. 关闭拦截加固 (裸奔模式)"
+    green "1. 开启端口"
+    green "2. 关闭端口"
+    green "3. 开启拦截 (白名单模式)"
+    green "4. 关闭拦截 (裸奔模式)"
     green "5. 安装/更新 环境"
     green "6. 停止运行 (清空规则)"
     green "7. 程序重启 (重载规则)"
     purple "0. 返回主菜单"
     skyblue "------------"
-
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
-            # 必须使用 -p 才能正确读取输入到变量 o_port
             read -p "请输入要开放的端口号: " o_port
-            
-            # 只有当用户输入了内容才执行
             if [ -z "$o_port" ]; then
                 yellow "未输入端口号，操作已取消。"
             else
-                # 检查文件中是否已存在该端口，避免重复添加导致 rules 文件越来越乱
                 if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
-                    # 确保只在包含 COMMIT 的行之前插入
                     sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
                     sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    
-                    # 尝试恢复，如果报错则提示
                     if iptables-restore < /etc/iptables/rules.v4; then
                         [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                        green "成功：端口 $o_port 已放行并保存"
+                        green "成功：端口 $o_port 已放行"
                     else
                         red "错误：iptables 配置文件格式损坏，请检查 /etc/iptables/rules.v4"
                     fi
@@ -2590,23 +2574,20 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-
         2)
-            read -p "请输入要取消放行的端口号: " c_port
+            read -p "请输入要关闭端口号: " c_port
             if [ -n "$c_port" ]; then
-                # 删除包含该端口的所有规则行
                 sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
                 [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
                 
                 iptables-restore < /etc/iptables/rules.v4
-                green "清理完成：端口 $c_port 已从规则中移除"
+                green "清理完成：端口 $c_port 已关闭"
             else
                 yellow "未输入端口号，操作取消"
             fi
             sleep 1 && iptables_ssl ;;
-
         3)
-            yellow "正在开启拦截加固 (仅留 SSH)..."
+            yellow "正在开启拦截 (仅留 SSH)..."
             cat > /etc/iptables/rules.v4 << EOF
 *filter
 :INPUT DROP [0:0]
@@ -2618,7 +2599,7 @@ iptables_ssl() {
 COMMIT
 EOF
             iptables-restore < /etc/iptables/rules.v4
-            green "加固完成！当前默认拦截，仅放行 SSH。" && sleep 1
+            green "完成！当前默认拦截，仅放行 SSH。" && sleep 1
             iptables_ssl ;;
         4)
             yellow "正在恢复裸奔模式..."
@@ -2660,8 +2641,6 @@ EOF
         *) iptables_ssl ;;
     esac
 }
-
-                    
 
 # singbox 管理
 manage_singbox() {
