@@ -2587,7 +2587,9 @@ iptables_ssl() {
             fi
             sleep 1 && iptables_ssl ;;
         3)
-            yellow "正在开启拦截 (仅留 SSH)..."
+            yellow "正在开启拦截 (仅留 SSH端口，"
+            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+            [ -z "$ssh_p" ] && ssh_p=22
             cat > /etc/iptables/rules.v4 << EOF
 *filter
 :INPUT DROP [0:0]
@@ -2599,10 +2601,24 @@ iptables_ssl() {
 COMMIT
 EOF
             iptables-restore < /etc/iptables/rules.v4
-            green "完成！当前默认拦截，仅放行 SSH。" && sleep 1
+            if command -v ip6tables &> /dev/null; then
+                cat > /etc/iptables/rules.v6 << EOF
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+-A INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
+COMMIT
+EOF
+                ip6tables-restore < /etc/iptables/rules.v6
+            fi
+            
+            green "开启拦截，仅放行 SSH端口。" && sleep 1
             iptables_ssl ;;
-        4)
-            yellow "正在恢复裸奔模式..."
+         4)
+            yellow "正在恢复裸奔模式 (全部放行)..."
             cat > /etc/iptables/rules.v4 << EOF
 *filter
 :INPUT ACCEPT [0:0]
@@ -2613,8 +2629,22 @@ EOF
 COMMIT
 EOF
             iptables-restore < /etc/iptables/rules.v4
-            green "已恢复裸奔模式。" && sleep 1
+            if command -v ip6tables &> /dev/null; then
+                cat > /etc/iptables/rules.v6 << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+COMMIT
+EOF
+                ip6tables-restore < /etc/iptables/rules.v6
+            fi
+
+            green "已恢复裸奔模式（所有端口已全部放行）。" && sleep 1
             iptables_ssl ;;
+
         5)
             yellow "正在配置环境..."
             if [ -f /etc/debian_version ]; then
@@ -2633,10 +2663,24 @@ EOF
             green "防火墙规则已清空。" && sleep 1
             iptables_ssl ;;
         7)
-            yellow "重载规则..."
-            iptables-restore < /etc/iptables/rules.v4
-            green "重载成功。" && sleep 1
-            iptables_ssl ;;
+            yellow "正在重载并激活防火墙规则..."
+            if [ -x "$(command -v systemctl)" ]; then
+                local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
+                if [ "$svc_status" != "active" ]; then
+                    yellow "检测到防火墙服务未运行，正在启动..."
+                    systemctl enable netfilter-persistent >/dev/null 2>&1
+                    systemctl start netfilter-persistent >/dev/null 2>&1
+                fi
+            fi
+            if [ -f "/etc/iptables/rules.v4" ]; then
+                iptables-restore < /etc/iptables/rules.v4
+            else
+            fi
+            if [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables &> /dev/null; then
+                ip6tables-restore < /etc/iptables/rules.v6
+                green " 规则重载成功。"
+            fi
+            sleep 1 && iptables_ssl ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
