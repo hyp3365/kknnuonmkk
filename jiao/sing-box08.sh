@@ -2794,31 +2794,22 @@ new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
 new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 echo "$new_content" > "$client_dir"
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
-purple "$new_vmess_url\n" 
 
 config_file="/etc/sing-box/vless-ws-argo.json"
-  isp="_vless_ws_argo"
-                config_file="/etc/sing-box/vless-ws-argo.json"
-                if [ -f "$config_file" ]; then
-                    rm -f "$config_file"
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    fi
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-
-        # 3. 重新获取域名
+url_file="/etc/sing-box/url.txt"
+isp_suffix="_vless_ws_argo"
+if [ -f "$config_file" ]; then
+    rm -f "$config_file"
+    if [ -f "$url_file" ]; then
+        sed -i "/${isp_suffix}/d" "$url_file"
+        sed -i '/^$/N;/\n$/D' "$url_file"
+        [ ! -s "$url_file" ] && truncate -s 0 "$url_file"
+    fi
         argodomain="$ArgoDomain"
         if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
             argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
         fi
-        # 3. 如果成功获取域名，则重建配置文件和连接
         if [ -n "$argodomain" ]; then
-            # 生成 JSON
             cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -2837,31 +2828,24 @@ config_file="/etc/sing-box/vless-ws-argo.json"
   ]
 }
 EOF
-            # 生成新连接
             node_remark="${isp}${isp_suffix}"
             VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
-            
-            # 写入文件
             echo "$VLESS_URL" >> "/etc/sing-box/url.txt"
-            echo "" >> "/etc/sing-box/url.txt"
-            
+            echo "" >> "/etc/sing-box/url.txt"     
             restart_singbox
-            green "VLESS-WS 隧道已重新配置完成！"
         else
-            red "错误：未能获取到 Argo 域名，无法重建 VLESS。"
         fi
     else
-        # 没有 JSON 文件，直接跳过第二、三部分
-        yellow "未检测到 VLESS 配置文件，跳过清理与重建。"
+        green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
+purple "$new_vmess_url\n" 
     fi
-
-    # --- 最后：刷新订阅文件 ---
     if [ -s "/etc/sing-box/url.txt" ]; then
         base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
     else
         truncate -s 0 /etc/sing-box/sub.txt
     fi
 }
+
 
 # 查看节点信息和订阅链接
 check_nodes() {
