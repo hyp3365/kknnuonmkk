@@ -2565,33 +2565,46 @@ iptables_ssl() {
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
         1)
+            # 必须使用 -p 才能正确读取输入到变量 o_port
             read -p "请输入要开放的端口号: " o_port
-            if [[ "$o_port" =~ ^[0-9]+$ ]] && [ "$o_port" -gt 0 ]; then
+            
+            # 只有当用户输入了内容才执行
+            if [ -z "$o_port" ]; then
+                yellow "未输入端口号，操作已取消。"
+            else
+                # 检查文件中是否已存在该端口，避免重复添加导致 rules 文件越来越乱
                 if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
+                    # 确保只在包含 COMMIT 的行之前插入
                     sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
                     sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    if [ -f "/etc/iptables/rules.v6" ]; then
-                        sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
-                        sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                    
+                    # 尝试恢复，如果报错则提示
+                    if iptables-restore < /etc/iptables/rules.v4; then
+                        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                        green "成功：端口 $o_port 已放行并保存"
+                    else
+                        red "错误：iptables 配置文件格式损坏，请检查 /etc/iptables/rules.v4"
                     fi
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                    green "成功：端口 $o_port 已放行并保存"
                 else
-                    yellow "端口 $o_port 规则已存在"
+                    yellow "端口 $o_port 规则已存在，无需重复添加"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
+
         2)
             read -p "请输入要取消放行的端口号: " c_port
-            if [[ "$c_port" =~ ^[0-9]+$ ]]; then
+            if [ -n "$c_port" ]; then
+                # 删除包含该端口的所有规则行
                 sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
                 [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+                
                 iptables-restore < /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                green "端口 $c_port 相关规则已移除"
+                green "清理完成：端口 $c_port 已从规则中移除"
+            else
+                yellow "未输入端口号，操作取消"
             fi
             sleep 1 && iptables_ssl ;;
+
         3)
             yellow "正在开启拦截加固 (仅留 SSH)..."
             cat > /etc/iptables/rules.v4 << EOF
