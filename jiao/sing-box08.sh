@@ -2454,12 +2454,34 @@ vps_ssl() {
 }
     
 #Iptables简单管理工具
+# Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
+
+# 确保基础配置文件存在，防止 sed 插入失败
+check_rule_files() {
+    local r4="/etc/iptables/rules.v4"
+    if [ ! -d "/etc/iptables" ]; then
+        mkdir -p /etc/iptables
+    fi
+    # 如果文件不存在，初始化一个标准格式，否则 sed 无法定位 COMMIT
+    if [ ! -f "$r4" ] || ! grep -q "COMMIT" "$r4"; then
+        cat > "$r4" << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+EOF
+    fi
+}
 
 iptables_ssl() {
     clear
+    check_rule_files
     local tag="ScriptManaged"
     local cache_file="/tmp/ipt_ip.cache"
+    
+    # IP 缓存逻辑
     if [ -f "$cache_file" ]; then
         source "$cache_file"
     fi
@@ -2469,11 +2491,7 @@ iptables_ssl() {
         echo "vps_ipv4='$vps_ipv4'" > "$cache_file"
         echo "vps_ipv6='$vps_ipv6'" >> "$cache_file"
     fi
-    local status_text=""
-    local mode_text=""
-    local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-    local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
-    local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
+
     local status_text=""
     local mode_text=""
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
@@ -2491,6 +2509,7 @@ iptables_ssl() {
         status_text="\033[0;31m已停止\033[0m"
         mode_text="\033[0;37m未拦截\033[0m"
     fi
+    
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
@@ -2498,10 +2517,11 @@ iptables_ssl() {
     green "=== Iptables 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
-	echo -e " IPv4 地址: \033[1;36m${vps_ipv4}\033[0m"
+    echo -e " IPv4 地址: \033[1;36m${vps_ipv4}\033[0m"
     echo -e " IPv6 地址: \033[1;36m${vps_ipv6}\033[0m"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
+    
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-12s %-15s\n" "端口号"   "说明"
     local allowed_ports=""
@@ -2541,54 +2561,39 @@ iptables_ssl() {
     green "7. 程序重启 (重载规则)"
     purple "0. 返回主菜单"
     skyblue "------------"
-    
 
-	reading "\n请输入选择: " ipt_choice
-        case "${ipt_choice}" in
+    reading "\n请输入选择: " ipt_choice
+    case "${ipt_choice}" in
         1)
             read -p "请输入要开放的端口号: " o_port
             if [[ "$o_port" =~ ^[0-9]+$ ]] && [ "$o_port" -gt 0 ]; then
-                # 检查文件中是否已存在该端口，避免重复添加
-                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4; then
-                    # 在 COMMIT 行之前插入规则
+                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
                     sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
                     sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    # 同步 IPv6
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
-                    
-                    # 重新加载使生效
+                    if [ -f "/etc/iptables/rules.v6" ]; then
+                        sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                        sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                    fi
                     iptables-restore < /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                    green "成功：端口 $o_port 已放行并持久化保存"
+                    green "成功：端口 $o_port 已放行并保存"
                 else
-                    yellow "端口 $o_port 规则已存在，无需重复添加"
+                    yellow "端口 $o_port 规则已存在"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-
         2)
             read -p "请输入要取消放行的端口号: " c_port
             if [[ "$c_port" =~ ^[0-9]+$ ]]; then
-                yellow "正在从配置文件中清理端口 $c_port..."
-                # 删除包含该端口的所有行
                 sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
                 [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
-                
-                # 重新加载使生效
                 iptables-restore < /etc/iptables/rules.v4
                 [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                green "清理完成！"
+                green "端口 $c_port 相关规则已移除"
             fi
             sleep 1 && iptables_ssl ;;
-
         3)
-            yellow "正在开启拦截加固 (关闭所有端口，仅留 SSH)..."
-            # 重新获取 SSH 端口以防变更
-            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-            [ -z "$ssh_p" ] && ssh_p=22
-
-            # 直接重写持久化文件：默认 DROP
+            yellow "正在开启拦截加固 (仅留 SSH)..."
             cat > /etc/iptables/rules.v4 << EOF
 *filter
 :INPUT DROP [0:0]
@@ -2600,12 +2605,10 @@ iptables_ssl() {
 COMMIT
 EOF
             iptables-restore < /etc/iptables/rules.v4
-            green "加固完成！当前默认丢弃所有入站包，仅放行端口 $ssh_p。" && sleep 2
+            green "加固完成！当前默认拦截，仅放行 SSH。" && sleep 1
             iptables_ssl ;;
-
         4)
-            yellow "正在关闭拦截加固 (开启所有端口/裸奔模式)..."
-            # 直接重写持久化文件：默认 ACCEPT
+            yellow "正在恢复裸奔模式..."
             cat > /etc/iptables/rules.v4 << EOF
 *filter
 :INPUT ACCEPT [0:0]
@@ -2616,49 +2619,36 @@ EOF
 COMMIT
 EOF
             iptables-restore < /etc/iptables/rules.v4
-            green "已恢复裸奔模式：默认放行所有连接。" && sleep 2
+            green "已恢复裸奔模式。" && sleep 1
             iptables_ssl ;;
-
-    
-
         5)
-            yellow "正在安装/更新环境..."
+            yellow "正在配置环境..."
             if [ -f /etc/debian_version ]; then
                 apt-get update && apt-get install -y iptables iptables-persistent
             elif [ -f /etc/redhat-release ]; then
                 yum install -y iptables-services && systemctl enable iptables && systemctl start iptables
             fi
+            check_rule_files
             green "环境配置完成！" && sleep 1
             iptables_ssl ;;
         6)
-            yellow "正在彻底停止防火墙并清空规则..."
+            yellow "彻底停止并清空规则..."
             iptables -P INPUT ACCEPT
-            iptables -P FORWARD ACCEPT
-            iptables -P OUTPUT ACCEPT
             iptables -F
-            iptables -t nat -F
-            iptables -X
-            systemctl stop netfilter-persistent > /dev/null 2>&1
-            systemctl disable netfilter-persistent > /dev/null 2>&1
-            green "防火墙已停止，策略已设为放行。" && sleep 1
+            systemctl stop netfilter-persistent 2>/dev/null
+            green "防火墙规则已清空。" && sleep 1
             iptables_ssl ;;
         7)
-            yellow "正在重启并重载持久化规则..."
-            systemctl enable netfilter-persistent > /dev/null 2>&1
-            systemctl start netfilter-persistent > /dev/null 2>&1
-            if [ -f /etc/iptables/rules.v4 ]; then
-                iptables-restore < /etc/iptables/rules.v4
-                [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
-                green "重载成功：规则已同步至内存。"
-            else
-                yellow "未发现规则备份文件。"
-            fi
-            sleep 1
+            yellow "重载规则..."
+            iptables-restore < /etc/iptables/rules.v4
+            green "重载成功。" && sleep 1
             iptables_ssl ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
 }
+
+                    
 
 # singbox 管理
 manage_singbox() {
