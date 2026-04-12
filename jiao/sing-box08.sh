@@ -2783,43 +2783,52 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
-    # 处理 vmess 配置部分
+    # 1. 读取原始内容
     content=$(cat "$client_dir")
+
+    # --- A. VMess 处理部分 (保留你原来的代码) ---
     vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
     if [ -n "$vmess_url" ]; then
         vmess_prefix="vmess://"
         encoded_vmess="${vmess_url#"$vmess_prefix"}"
         decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
         updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-        encoded_updated_vmess=$(echo "$updated_vmess" | base64 -w 0)
+        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
         new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
+        # 更新变量中的 VMess
         content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-        echo "$content" > "$client_dir"
     fi
 
-    # 处理 vless 配置部分
-    target_remark="${isp_base}_vless_ws_argo"
-    NEW_VLESS="vless://${uuid}@${ArgoDomain}:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
-    
-    local files=("$client_dir" "${work_dir}/url.txt")
-    for file in "${files[@]}"; do
-        if [ -f "$file" ]; then
-            if grep -q "#${target_remark}" "$file"; then
-                sed -i "/#${target_remark}/,+1d" "$file"   
-                echo -e "${NEW_VLESS}\n" >> "$file"         
-            else
-                continue
-            fi
-        fi
-    done
+    # --- B. VLESS 处理部分 (判断 -> 删除 -> 重新写入) ---
+    target_remark="vless_ws_argo"
+    if echo "$content" | grep -q "#${target_remark}"; then
+        # 1. 删除旧的 vless_ws_argo 行 (包括它后面的空行)
+        content=$(echo "$content" | sed "/#${target_remark}/d")
+        
+        # 2. 构造新的 VLESS 连接
+        NEW_VLESS="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
+        
+        # 3. 将新连接追加到内容中，并加一个空行
+        content=$(echo -e "${content}\n${NEW_VLESS}\n")
+        green "已重置并更新 VLESS Argo 节点"
+    else
+        yellow "未发现 VLESS 节点，跳过修改"
+    fi
 
-    # 生成订阅文件
+    # --- C. 写入文件并生成订阅 ---
+    # 写入两个关键文件
+    echo "$content" > "$client_dir"
+    echo "$content" > "${work_dir}/url.txt"
+
+    # 生成 Base64 订阅
     if [ -f "${work_dir}/url.txt" ]; then
         base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
     fi
 
-    echo "域名已更新"
+    green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
+    [ -n "$new_vmess_url" ] && purple "$new_vmess_url\n"
 }
+
 
 
 # 查看节点信息和订阅链接
