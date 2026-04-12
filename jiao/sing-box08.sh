@@ -2795,16 +2795,15 @@ new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 echo "$new_content" > "$client_dir"
 base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
 
-    config_file="/etc/sing-box/vless-ws-argo.json"
+config_file="/etc/sing-box/vless-ws-argo.json"
     url_file="/etc/sing-box/url.txt"
     isp_suffix="_vless_ws_argo"
 
     if [ -f "$config_file" ]; then
-        rm -f "$config_file"
-        
+        rm -f "$config_file"     
         if [ -f "$url_file" ]; then
             sed -i "/${isp_suffix}/d" "$url_file"
-            sed -i '/^[[:space:]]*$/d' "$url_file"
+            sed -i ':a; $ { /^$/ d; }; N; ba' "$url_file"
         fi
 
         argodomain="$ArgoDomain"
