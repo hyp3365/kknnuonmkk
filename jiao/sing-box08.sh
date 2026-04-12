@@ -2805,6 +2805,7 @@ if [ -f "$config_file" ]; then
         sed -i '/^$/N;/\n$/D' "$url_file"
         [ ! -s "$url_file" ] && truncate -s 0 "$url_file"
     fi
+fi
         argodomain="$ArgoDomain"
         if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
             argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
