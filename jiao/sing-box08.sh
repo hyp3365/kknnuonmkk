@@ -1982,7 +1982,7 @@ EOF
         green "==============================================="
         green " VLESS-WS隧道 添加完成！"
         green " 节点链接: $VLESS_URL"
-		yellow " 节点如果不通 试着打开客服端ECH"
+		green " 节点如果不通 试着打开客服端ECH"
         green "==============================================="
         ;;
 		7) 
@@ -2379,7 +2379,7 @@ EOF
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
-        echo -e "\n按任意键返回菜单..."
+        green -e "\n按任意键返回菜单..."
         read -n 1
     done
 }
