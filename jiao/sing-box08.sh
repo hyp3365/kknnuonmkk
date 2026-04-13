@@ -2671,11 +2671,16 @@ iptables_ssl() {
                 red "错误：端口号不能为 0"
             else
                 if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
-                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" -e "}" /etc/iptables/rules.v4
-                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" -e "}" /etc/iptables/rules.v4
+                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
+                    }" /etc/iptables/rules.v4
+                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
+                    }" /etc/iptables/rules.v4
+                    
                     if [ -f "/etc/iptables/rules.v6" ]; then
-                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" -e "}" /etc/iptables/rules.v6
-                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" -e "}" /etc/iptables/rules.v6
+                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
+                        }" /etc/iptables/rules.v6
+                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
+                        }" /etc/iptables/rules.v6
                     fi
 
                     if iptables-restore < /etc/iptables/rules.v4; then
