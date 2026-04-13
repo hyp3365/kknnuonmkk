@@ -2711,30 +2711,41 @@ iptables_ssl() {
             sleep 1 && iptables_ssl ;;
 
         3)
-            yellow "正在开启拦截..."
-            ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
-            [ -z "$ssh_p" ] && ssh_p=22
-            if ! iptables -C INPUT -p tcp --dport $ssh_p -j ACCEPT 2>/dev/null; then
-                iptables -I INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
+        yellow "正在开启拦截..."
+        ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+        [ -z "$ssh_ports" ] && ssh_ports=22
+        if ! iptables-save | grep -q "RELATED,ESTABLISHED"; then
+            iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+        fi
+        if ! iptables-save | grep -q "INPUT -i lo"; then
+            iptables -I INPUT -i lo -j ACCEPT
+        fi
+        for port in $ssh_ports; do
+            if ! iptables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
+                iptables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
             fi
-            if ! iptables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
-                iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+        done
+        iptables -P INPUT DROP
+        if command -v ip6tables &> /dev/null; then
+            if ! ip6tables-save | grep -q "RELATED,ESTABLISHED"; then
+                ip6tables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
             fi
-            if ! iptables -C INPUT -i lo -j ACCEPT 2>/dev/null; then
-                iptables -I INPUT -i lo -j ACCEPT
+            if ! ip6tables-save | grep -q "INPUT -i lo"; then
+                ip6tables -I INPUT -i lo -j ACCEPT
             fi
-            iptables -P INPUT DROP
-            if command -v ip6tables &> /dev/null; then
-                if ! ip6tables -C INPUT -p tcp --dport $ssh_p -j ACCEPT 2>/dev/null; then
-                    ip6tables -I INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
-                fi
-                ip6tables -P INPUT DROP
-            fi
-            iptables-save > /etc/iptables/rules.v4
-            [ -f "/etc/iptables/rules.v6" ] && ip6tables-save > /etc/iptables/rules.v6
             
-            green "开启拦截成功" && sleep 1
-            iptables_ssl ;;
+            for port in $ssh_ports; do
+                if ! ip6tables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
+                    ip6tables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
+                fi
+            done
+            ip6tables -P INPUT DROP
+        fi
+        iptables-save > /etc/iptables/rules.v4
+        [ -f "/etc/iptables/rules.v6" ] && ip6tables-save > /etc/iptables/rules.v6
+        
+        green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
+        iptables_ssl ;;
          4)
             yellow "正在关闭拦截..."
             iptables -P INPUT ACCEPT
