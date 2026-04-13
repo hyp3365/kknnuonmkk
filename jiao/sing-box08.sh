@@ -2657,8 +2657,8 @@ iptables_ssl() {
     green "3. 开启拦截 (白名单模式)"
     green "4. 关闭拦截 (裸奔模式)"
     green "5. 安装/更新 环境"
-    green "6. 停止运行 (清空规则)"
-    green "7. 程序重启 (重载规则)"
+    green "6. 停止运行"
+    green "7. 程序重启"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
