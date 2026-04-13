@@ -2149,26 +2149,26 @@ EOF
                 fi
                 ;;
             52)
-            isp="_vless_grpc_reality"
-            target_conf="/etc/sing-box/grpc-reality.json"
-
-            if [ -f "$target_conf" ]; then
-                rm -f "$target_conf"
-                [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox
-                
-                green "==============================================="
-                green " VLESS-gRPC-Reality 已删除!"
-                green "==============================================="
-            else
-                red "错误: 未找到该节点配置文件 ($target_conf)"
-            fi
-            ;;
+               target_suffix="_vless_grpc_reality"
+               target_conf="/etc/sing-box/grpc-reality.json"
+               if [ -f "$target_conf" ]; then
+                 rm -f "$target_conf"
+               if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i "/.*${target_suffix}/ {N;d;}" /etc/sing-box/url.txt
+               fi
+               if [ -s "/etc/sing-box/url.txt" ]; then
+                  base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+               else
+               truncate -s 0 /etc/sing-box/sub.txt
+               fi
+               restart_singbox
+               green "==============================================="
+               green " 节点已移除!"
+               green "==============================================="
+               else
+               red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+               fi
+			   ;;
             53)
                 isp="_anytls"
                 if [ -f "/etc/sing-box/anytls.json" ]; then
