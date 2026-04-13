@@ -74,7 +74,6 @@ server_name="sing-box"
 work_dir="/etc/sing-box"
 xurl_dir="/etc/sing-box/url"
 config_dir="${work_dir}/config.json"
-client_dir="${work_dir}/url.txt"
 export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
@@ -1139,7 +1138,7 @@ create_shortcut() {
 #create_shortcut() {
  # cat > "$work_dir/sb.sh" << EOF
 #!/usr/bin/env bash
-#bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh) \$1
+#bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box09.sh) \$1
 #EOF
   #chmod +x "$work_dir/sb.sh"
   #ln -sf "$work_dir/sb.sh" /usr/bin/sb
@@ -2856,6 +2855,7 @@ check_nodes() {
     green "V2rayN, Shadowrocket, Nekobox, Loon, Karing 订阅链接:"
     echo -e "${purple}${base64_url}${re}\n"
 }
+
 
 change_cfip() {
     clear
