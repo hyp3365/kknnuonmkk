@@ -2152,8 +2152,8 @@ EOF
 EOF
             allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
             node_remark="${isp}_vmess_ws_cdn"
-            vmess_json_config="{\"v\":\"2\",\"ps\":\"${node_remark}\",\"add\":\"cf.877774.xyz\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/sspsksavxaszassas\",\"tls\":\"tls\",\"sni\":\"${domain}\"}"
-            vmess_url="vmess://$(echo -n "$vmess_json_config" | base64 -w0)#${node_remark}"
+            VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_cdn\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
+            vmess_url://$(echo "$VMESS"| base64 -w0)
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
             fi                              
