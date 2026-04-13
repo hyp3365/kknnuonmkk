@@ -2847,6 +2847,16 @@ check_nodes() {
     else
         yellow "未找到节点目录 /etc/sing-box/url"
     fi
+    server_ip=$(get_realip)
+    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1 | awk '{print $1}' | tr -d ' {')
+    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1)
+    base64_url="http://${server_ip}:${sub_port}/${lujing}"
+
+    echo ""
+    green "V2rayN, Shadowrocket, Nekobox, Loon, Karing 订阅链接:"
+    echo -e "${purple}${base64_url}${re}\n"
+}
+
 change_cfip() {
     clear
     yellow "修改vmess-argo优选域名\n"
