@@ -2648,39 +2648,42 @@ iptables_ssl() {
     case "${ipt_choice}" in
         1)
             read -p "请输入要开放的端口号: " o_port
-            if [ -n "$o_port" ]; then
-                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
-                    sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    if [ -f "/etc/iptables/rules.v6" ]; then
-                        sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
-                        sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
-                    fi
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                    
-                    green "成功：端口 $o_port (v4/v6 & tcp/udp) 已放行"
-                else
-                    yellow "端口 $o_port 的规则已存在，无需重复添加"
+            if [[ "$o_port" =~ ^[0-9]+$ ]] && [ "$o_port" -ge 1 ] && [ "$o_port" -le 65535 ]; then
+                if ! iptables -C INPUT -p tcp --dport "$o_port" -j ACCEPT 2>/dev/null; then
+                    iptables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
+                    iptables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
                 fi
+                if command -v ip6tables >/dev/null && [ -f /proc/net/if_inet6 ]; then
+                    if ! ip6tables -C INPUT -p tcp --dport "$o_port" -j ACCEPT 2>/dev/null; then
+                        ip6tables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
+                        ip6tables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
+                    fi
+                fi
+                [ ! -d "/etc/iptables" ] && mkdir -p /etc/iptables
+                iptables-save > /etc/iptables/rules.v4
+                [ -f "/proc/net/if_inet6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
+                
+                green "成功：端口 $o_port 已放行"
             else
-                yellow "未输入端口号，操作取消"
+                red "错误：请输入 1-65535 之间的有效端口号！"
             fi
             sleep 1 && iptables_ssl ;;
+
         2)
             read -p "请输入要关闭的端口号: " c_port
-            if [ -n "$c_port" ]; then
-                sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
-                if [ -f "/etc/iptables/rules.v6" ]; then
-                    sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+            if [[ "$c_port" =~ ^[0-9]+$ ]] && [ "$c_port" -ge 1 ] && [ "$c_port" -le 65535 ]; then
+                while iptables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
+                while iptables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done      
+                if command -v ip6tables >/dev/null; then
+                    while ip6tables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
+                    while ip6tables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
                 fi
-                iptables-restore < /etc/iptables/rules.v4
-                if [ -f "/etc/iptables/rules.v6" ]; then
-                    ip6tables-restore < /etc/iptables/rules.v6
-                fi                
-                green "清理完成：端口 $c_port (IPv4 & IPv6) 已从防火墙移除"
+                iptables-save > /etc/iptables/rules.v4
+                [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
+                
+                green "清理完成：端口 $c_port 已关闭。"
             else
-                yellow "未输入端口号，操作取消"
+                yellow "输入无效或范围错误，操作取消。"
             fi
             sleep 1 && iptables_ssl ;;
         3)
