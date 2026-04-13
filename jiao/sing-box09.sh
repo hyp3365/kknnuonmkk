@@ -1644,9 +1644,9 @@ disable_open_sub() {
 
 
 
-manage_nodes_menu() {
+Manage_nodes_menu() {
     while true; do
-        local CONF_DIR="/etc/sing-box/url/"
+        local CONF_DIR="/etc/sing-box/url"
         local width=45
         local node_list=(
             "h2-reality.json|http-Reality|1"
@@ -1654,9 +1654,9 @@ manage_nodes_menu() {
             "anytls.json|anytls|3"
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
-			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
-			"vless-ws-cdn.json|vless-ws-cdn|8"
+            "vless-ws-argo.json|vless-ws-argo|6"
+            "vless-wstls-cdn.json|vless-ws-tls-cdn|7"
+            "vless-ws-cdn.json|vless-ws-cdn|8"
         )
 
         clear
@@ -1669,11 +1669,10 @@ manage_nodes_menu() {
             local file=$(echo $item | cut -d'|' -f1)
             local name=$(echo $item | cut -d'|' -f2)
             local id=$(echo $item | cut -d'|' -f3)
-            
             if [ ! -f "$CONF_DIR/$file" ]; then
                 local left_text=" ${id}. ${name}节点"
                 local right_text="(未添加) -> 输入 ${id} 开始配置"
-                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(red "$right_text")"
+                printf "%-30s %s\n" "$left_text" "$(red "$right_text")"
                 has_unadded=true
             fi
         done
@@ -1687,11 +1686,10 @@ manage_nodes_menu() {
             local name=$(echo $item | cut -d'|' -f2)
             local id=$(echo $item | cut -d'|' -f3)
             local del_id=$((id + 50))
-            
             if [ -f "$CONF_DIR/$file" ]; then
                 local left_text=" ${del_id}. ${name}节点"
                 local right_text="(已添加) -> 输入 ${del_id} 删除节点"
-                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(green "$right_text")"
+                printf "%-30s %s\n" "$left_text" "$(green "$right_text")"
                 has_added=true
             fi
         done
@@ -1700,13 +1698,14 @@ manage_nodes_menu() {
         yellow "============================================="
         echo -e " 0. 返回上一级菜单"
         echo -ne "\n"
-        reading "请选择操作: " choice
-		case "${choice}" in
-        1) 
+        reading "请选择操作: " choice       
+        case "${choice}" in
+            0) break ;;
+            1)
                 generate_vars
                 server_ip=$(get_realip)  
                 yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
-                cat > /etc/sing-box/url/h2-reality.json << EOF
+                cat > "$CONF_DIR/h2-reality.json" << EOF
 {
   "inbounds": [
     {
@@ -1748,19 +1747,16 @@ manage_nodes_menu() {
   ]
 }
 EOF
-          allow_port $h2_reality/tcp > /dev/null 2>&1
-		  node_remark="${isp}_vless_http_reality"
-		  individual_file="${xurl_dir}/h2-reality.txt"
-          url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
-          echo "$url" > "$individual_file"
-          sed -i '/^$/d' "$individual_file"
-          cat "${xurl_dir}"/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "${work_dir}/sub.txt"
-          restart_singbox 
-          green "==============================================="
-          green " H2 + Reality 节点已添加!"
-          green " 节点链接: $url"
-          green "==============================================="
-            ;;
+                node_remark="${isp}_vless_http_reality"
+                url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
+                echo "$url" > "$CONF_DIR/h2-reality.txt"
+                cat "$CONF_DIR"/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "/etc/sing-box/sub.txt"
+                restart_singbox      
+                green "==============================================="
+                green " H2 + Reality 节点已添加!"
+                green " 节点链接: $url"
+                green "==============================================="
+                ;;
             2) yellow "正在配置 gRPC + Reality..."
             generate_vars
             server_ip=$(get_realip)
@@ -2148,18 +2144,14 @@ EOF
             green "--------------------------------------------------"
             ;;
       
-            # --- 完整的删除逻辑 ---
-            51) 
-                isp="_vless_http_reality"
-                if [ -f "$CONF_DIR/h2-reality.json" ]; then
-                    rm -f "$CONF_DIR/h2-reality.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    restart_singbox
-                    green "已删除"
-                else
-                    red "文件不存在"
-                fi
+            # --- 删除 ---     
+			51) 
+                rm -f "$CONF_DIR/h2-reality.json"
+                rm -f "$CONF_DIR/h2-reality.txt"
+                cat "$CONF_DIR"/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "/etc/sing-box/sub.txt"
+                restart_singbox
+                yellow "节点已删除！"
+                sleep 2
                 ;;
             52)
             isp="_vless_grpc_reality"
