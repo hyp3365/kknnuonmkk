@@ -2659,43 +2659,51 @@ iptables_ssl() {
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
-        1)
+         1)
             read -p "请输入要开放的端口号: " o_port
-            if [[ "$o_port" =~ ^[0-9]+$ ]] && [ "$o_port" -ge 1 ] && [ "$o_port" -le 65535 ]; then
-                if ! iptables -C INPUT -p tcp --dport "$o_port" -j ACCEPT 2>/dev/null; then
-                    iptables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
-                    iptables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
-                fi
-                if [ "$vps_ipv6" != "未分配/检测失败" ] && command -v ip6tables >/dev/null; then
-                    if ! ip6tables -C INPUT -p tcp --dport "$o_port" -j ACCEPT 2>/dev/null; then
-                        ip6tables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
-                        ip6tables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
-                    fi
-                fi
-                iptables-save > /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
-                ipt_msg "\033[0;32m" "成功：端口 $o_port 已放行。"
+            if [ -z "$o_port" ]; then
+                yellow "未输入端口号，操作已取消。"
+            elif [ "$o_port" -eq 0 ] 2>/dev/null; then
+                red "错误：端口号不能为 0"
             else
-                ipt_msg "\033[0;31m" "错误：请输入 1-65535 之间的有效端口！"
+                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
+                    # 写入 IPv4 规则
+                    sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
+                    sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
+                    
+                    # 写入 IPv6 规则 (如果文件存在)
+                    if [ -f "/etc/iptables/rules.v6" ]; then
+                        sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                        sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                    fi
+
+                    if iptables-restore < /etc/iptables/rules.v4; then
+                        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                        green "成功：端口 $o_port 已放行 (IPv4/IPv6)"
+                    else
+                        red "错误：iptables 配置文件格式损坏，请检查 /etc/iptables/rules.v4"
+                    fi
+                else
+                    yellow "端口 $o_port 规则已存在，无需重复添加"
+                fi
+            fi
+            sleep 1 && iptables_ssl ;;
+        2)
+            read -p "请输入要关闭端口号: " c_port
+            if [ -z "$c_port" ]; then
+                yellow "未输入端口号，操作取消"
+            elif [ "$c_port" -eq 0 ] 2>/dev/null; then
+                red "错误：端口号不能为 0"
+            else
+                sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
+                [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+                
+                iptables-restore < /etc/iptables/rules.v4
+                [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                green "清理完成：端口 $c_port 已关闭"
             fi
             sleep 1 && iptables_ssl ;;
 
-        2)
-            read -p "请输入要关闭的端口号: " c_port
-            if [[ "$c_port" =~ ^[0-9]+$ ]] && [ "$c_port" -ge 1 ] && [ "$c_port" -le 65535 ]; then
-                while iptables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
-                if command -v ip6tables >/dev/null; then
-                    while ip6tables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
-                    while ip6tables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
-                fi
-                iptables-save > /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
-                ipt_msg "\033[0;32m" "完成：端口 $c_port 已关闭。"
-            else
-                ipt_msg "\033[0;33m" "无效输入，操作已取消。"
-            fi
-            sleep 1 && iptables_ssl ;;
         3)
             yellow "正在开启拦截 (仅留 SSH端口，"
             ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
