@@ -56,13 +56,14 @@ generate_vars() {
   else
       isp="🌐" # 失败保底
   fi
-    h2_reality=$(shuf -i 10000-65000 -n 1)
-	socks_port=$(shuf -i 10000-65000 -n 1)
-	http_port=$(shuf -i 10000-65000 -n 1)
-	anytls_port=$(shuf -i 10000-65000 -n 1)
-	grpc_reality=$(shuf -i 10000-65000 -n 1)
-	vless_wstls_cdn_port=$(shuf -i 10000-65000 -n 1)
-	vless_ws_cdn_port=$(shuf -i 10000-65000 -n 1)
+    h2_reality=$(shuf -i 10000-60000 -n 1)
+	socks_port=$(shuf -i 10000-60000 -n 1)
+	http_port=$(shuf -i 10000-60000 -n 1)
+	anytls_port=$(shuf -i 10000-60000 -n 1)
+	grpc_reality=$(shuf -i 10000-60000 -n 1)
+	vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
+	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+	vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -74,7 +75,7 @@ server_name="sing-box"
 work_dir="/etc/sing-box"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
-export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
+export vless_port=${PORT:-$(shuf -i 1000-59000 -n 1)}
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 
@@ -366,7 +367,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
    # 生成随机端口和密码
-    nginx_port=$(($vless_port + 1)) 
+    nginx_port=$(($vless_portvless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
@@ -1637,6 +1638,7 @@ manage_nodes_menu() {
 			"vless-ws-argo.json|vless-ws-argo|6"
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
 			"vless-ws-cdn.json|vless-ws-cdn|8"
+			"vmess-ws-cdn.json|vmess-ws-cdn|9"
         )
 
         clear
@@ -2130,7 +2132,73 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-      
+	      9) 
+            generate_vars
+            mkdir -p /etc/sing-box
+            read -p '请输入域名 (例如: b.a.com): ' domain
+            [ -z "$domain" ] && red "域名不能为空!" && return 1
+            cat > /etc/sing-box/vmess-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-cdn",
+      "listen": "::",
+      "listen_port": $vmess_ws_cdn_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "alterId": 0
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/sspsksavxaszassas",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+            allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
+            node_remark="${isp}_vmess_ws_cdn"
+            vmess_json_config=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "${node_remark}",
+  "add": "cf.877774.xyz",
+  "port": "443",
+  "id": "${uuid}",
+  "aid": "0",
+  "scy": "auto",
+  "net": "ws",
+  "type": "none",
+  "host": "${domain}",
+  "path": "/sspsksavxaszassas",
+  "tls": "tls",
+  "sni": "${domain}",
+  "alpn": ""
+}
+EOF
+)
+            vmess_url="vmess://$(echo -n "$vmess_json_config" | base64 -w0)#${node_remark}"
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
+            fi                                   
+            echo "$vmess_url" >> /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                   
+            restart_singbox              
+            green "--------------------------------------------------"
+            echo " 节点连接: $vmess_url"
+            green "--------------------------------------------------"
+            yellow " 已生成 VMess 节点，请去 Cloudflare 添加端口回源规则："
+            yellow " 回源端口: $vmess_ws_cdn_port"
+            yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活 (Flexible)'"
+            yellow " 节点如果不通 试着打开客户端 ECH"
+            green "--------------------------------------------------"
+            ;;      
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_http_reality"
@@ -2282,6 +2350,27 @@ EOF
 			58) 
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;	
+		    59) 
+			target="_vmess_ws_cdn"
+            target_conf="/etc/sing-box/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
