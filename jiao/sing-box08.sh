@@ -2119,7 +2119,7 @@ EOF
             green "--------------------------------------------------"
             yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vless_ws_cdn_port"
-			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活 (Flexible)'"
+			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
@@ -2167,7 +2167,7 @@ EOF
             green "--------------------------------------------------"
             yellow " 已生成 VMess 节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vmess_ws_cdn_port"
-            yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活 (Flexible)'"
+            yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
             yellow " 节点如果不通 试着打开客户端 ECH"
             green "--------------------------------------------------"
             ;;      
