@@ -1680,8 +1680,8 @@ manage_nodes_menu() {
         [ "$has_added" = false ] && echo -e " (当前无运行中节点)"
 
         yellow "============================================="
-        green -e " 0. 返回上一级菜单"
-        green -ne "\n"
+		echo -e "\033[31m 0. 返回上一级菜单\033[0m"
+        echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
         1) 
@@ -2379,7 +2379,7 @@ EOF
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
-        green -e "\n按任意键返回菜单..."
+        echo -e "\n\033[31m按任意键返回菜单...\033[0m"
         read -n 1
     done
 }
