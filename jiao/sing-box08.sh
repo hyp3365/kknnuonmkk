@@ -2577,17 +2577,7 @@ iptables_ssl() {
     clear
     check_rule_files
     local tag="ScriptManaged"
-    local cache_file="/tmp/ipt_ip.cache"
-    if [ -f "$cache_file" ]; then
-        source "$cache_file"
-    fi
-    if [[ -z "$vps_ipv4" || "$vps_ipv4" == *"失败"* || -z "$vps_ipv6" || "$vps_ipv6" == *"失败"* ]]; then
-        vps_ipv4=$(curl -s4m 2 api64.ipify.org || echo "未分配/检测失败")
-        vps_ipv6=$(curl -s6m 2 api64.ipify.org || echo "未分配/检测失败")
-        echo "vps_ipv4='$vps_ipv4'" > "$cache_file"
-        echo "vps_ipv6='$vps_ipv6'" >> "$cache_file"
-    fi
-
+    
     local status_text=""
     local mode_text=""
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
@@ -2613,8 +2603,6 @@ iptables_ssl() {
     green "=== Iptables 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
-    echo -e " IPv4 地址: \033[1;36m${vps_ipv4}\033[0m"
-    echo -e " IPv6 地址: \033[1;36m${vps_ipv6}\033[0m"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
     skyblue "---------------------------"
     
