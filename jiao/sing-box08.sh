@@ -715,7 +715,7 @@ get_info() {
   green "\nArgoDomain：${purple}$argodomain${re}\n"
 
   VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
-
+    
   cat > ${work_dir}/url.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
 
@@ -1925,37 +1925,28 @@ EOF
             green "==============================================="
             ;;
 			6) yellow "正在配置 vless-ws隧道..."
-			generate_vars
+		    Generate_vars
             mkdir -p /etc/sing-box
-            if [ -f "${work_dir}/argo.log" ]; then
-                argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
-            fi
-
-            # 2. 第二优先级：日志失效时，从 url.txt 的历史 VMess 节点中解码提取
-            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
-                purple "正在获取cf隧道域名..."
+            if [ -f "${work_dir}/url.txt" ]; then
                 argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
-                    decoded=$(echo "${line#vmess://}" | base64 -d 2>/dev/null)
-                    echo "$decoded" | grep -oE '"host":\s*"[^"]+"' | cut -d'"' -f4 | grep "trycloudflare.com"
-                done | head -n 1)
+                    encoded_part=$(echo "$line" | sed 's/vmess:\/\///' | cut -d'#' -f1)
+                    decoded=$(echo "$encoded_part" | base64 -d 2>/dev/null)
+                    if echo "$decoded" | grep -q "_vmess_ws_argo"; then
+                        echo "$decoded" | grep -oE '"host":\s*"[^"]+"' | head -n 1 | cut -d'"' -f4
+                        break
+                    fi
+                done)
             fi
-
-            # 3. 第三优先级：从现有的 VLESS/明文链接获取
-            if [ -z "$argodomain" ] && [ -f "${work_dir}/url.txt" ]; then
-                argodomain=$(grep "trycloudflare.com" "${work_dir}/url.txt" | grep -oE "(sni|host)=[^&]+" | head -n 1 | cut -d'=' -f2)
-            fi
-
-            # 4. 报错退出机制
+            if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
+                argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
+            fi   
             if [ -z "$argodomain" ]; then
                 red "======================================================"
-                red " 错误：无法获取 Argo 域名！"
-                red " 请检查：1. argo.log 是否存在； 2. url.txt 是否有旧节点。"
-                red " 为了系统安全，程序已停止，未生成新的隧道域名。"
+                red " 错误：无法获取任何 Argo 域名（固定或临时）！"
+                red " 请检查隧道运行状态或 url.txt 记录。"
                 red "======================================================"
-                break # 在菜单循环中使用 break 而不是 return
+                return 1
             fi
-
-            # 5. 生成配置文件 (关键步骤)
             cat > /etc/sing-box/vless-ws-argo.json << EOF
 {
   "inbounds": [
@@ -2132,7 +2123,7 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-	      9) 
+	      9)
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2153,9 +2144,7 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "/sspsksavxaszassas",
-        "max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
+        "path": "/sspsksavxaszassas"
       }
     }
   ]
@@ -2163,33 +2152,15 @@ EOF
 EOF
             allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
             node_remark="${isp}_vmess_ws_cdn"
-            vmess_json_config=$(cat <<EOF
-{
-  "v": "2",
-  "ps": "${node_remark}",
-  "add": "cf.877774.xyz",
-  "port": "443",
-  "id": "${uuid}",
-  "aid": "0",
-  "scy": "auto",
-  "net": "ws",
-  "type": "none",
-  "host": "${domain}",
-  "path": "/sspsksavxaszassas",
-  "tls": "tls",
-  "sni": "${domain}",
-  "alpn": ""
-}
-EOF
-)
+            vmess_json_config="{\"v\":\"2\",\"ps\":\"${node_remark}\",\"add\":\"cf.877774.xyz\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/sspsksavxaszassas\",\"tls\":\"tls\",\"sni\":\"${domain}\"}"
             vmess_url="vmess://$(echo -n "$vmess_json_config" | base64 -w0)#${node_remark}"
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
-            fi                                   
+            fi                              
             echo "$vmess_url" >> /etc/sing-box/url.txt
             echo "" >> /etc/sing-box/url.txt
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                   
-            restart_singbox              
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                    
+            restart_singbox                            
             green "--------------------------------------------------"
             echo " 节点连接: $vmess_url"
             green "--------------------------------------------------"
