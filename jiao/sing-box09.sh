@@ -1699,8 +1699,6 @@ Manage_nodes_menu() {
         echo -e " 0. 返回上一级菜单"
         echo -ne "\n"
         reading "请选择操作: " choice       
-        case "${choice}" in
-            0) break ;;
             1)
                 generate_vars
                 server_ip=$(get_realip)  
