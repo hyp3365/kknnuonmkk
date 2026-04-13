@@ -2741,25 +2741,24 @@ EOF
 
             green "已恢复裸奔模式（所有端口已全部放行）。" && sleep 1
             iptables_ssl ;;
-        5)
+		5)
         Yellow "正在配置环境..."
-        [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1
+        [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
         if [ -f /etc/debian_version ]; then
-            # Debian/Ubuntu
             apt-get update -y
             echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
             echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
             apt-get install -y iptables iptables-persistent
         elif [ -f /etc/redhat-release ]; then
-            # CentOS/RedHat
             yum install -y iptables-services
             systemctl enable iptables && systemctl start iptables
             systemctl enable ip6tables && systemctl start ip6tables
         fi
-        [ ! -d "/etc/iptables" ] && mkdir -p /etc/iptables        
         check_rule_files
-        green "环境配置完成！已开启防火墙。" && sleep 1
-        iptables_ssl ;;
+        iptables-restore < /etc/iptables/rules.v4
+        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6     
+        green "环境配置完成！已初始化规则文件并开启防火墙。" 
+        sleep 1 && iptables_ssl ;;
 		6)
             yellow "正在停止防火墙并清空内存规则..."
             systemctl stop netfilter-persistent 2>/dev/null
