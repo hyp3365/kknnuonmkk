@@ -2761,33 +2761,62 @@ EOF
         green "环境配置完成！已开启防火墙。" && sleep 1
         iptables_ssl ;;
 		6)
-            yellow "彻底停止并清空规则..."
-            iptables -P INPUT ACCEPT
-            iptables -F
+            yellow "正在停止防火墙并清空内存规则..."
             systemctl stop netfilter-persistent 2>/dev/null
-            green "防火墙规则已清空。" && sleep 1
-            iptables_ssl ;;
+            systemctl stop iptables 2>/dev/null
+            systemctl stop ip6tables 2>/dev/null
+            iptables -P INPUT ACCEPT
+            iptables -P FORWARD ACCEPT
+            iptables -P OUTPUT ACCEPT
+            iptables -F
+            iptables -X
+            iptables -Z
+            if command -v ip6tables >/dev/null; then
+                ip6tables -P INPUT ACCEPT
+                ip6tables -P FORWARD ACCEPT
+                ip6tables -P OUTPUT ACCEPT
+                ip6tables -F
+                ip6tables -X
+                ip6tables -Z
+            fi
+            green "防火墙已停止，内存规则已清空。重启系统服务可恢复。"
+            sleep 1 && iptables_ssl ;;
         7)
             yellow "正在重载并激活防火墙规则..."
-            if [ -x "$(command -v systemctl)" ]; then
-                local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
-                if [ "$svc_status" != "active" ]; then
-                    yellow "检测到防火墙服务未运行，正在启动..."
-                    systemctl enable netfilter-persistent >/dev/null 2>&1
-                    systemctl start netfilter-persistent >/dev/null 2>&1
-                fi
+            if command -v systemctl >/dev/null 2>&1; then
+                for svc in netfilter-persistent iptables ip6tables; do
+                    if systemctl list-unit-files | grep -q "^$svc.service"; then
+                        if [ "$(systemctl is-active $svc)" != "active" ]; then
+                            yellow "检测到 $svc 服务未运行，正在启动..."
+                            systemctl enable $svc >/dev/null 2>&1
+                            systemctl start $svc >/dev/null 2>&1
+                        fi
+                    fi
+                done
             fi
             if [ -f "/etc/iptables/rules.v4" ]; then
-                iptables-restore < /etc/iptables/rules.v4
-                green "IPv4 规则重载成功。"
+                if iptables-restore < /etc/iptables/rules.v4; then
+                    green "IPv4 规则已从 rules.v4 同步至内存。"
+                else
+                    red "错误：IPv4 规则文件格式异常，加载失败。"
+                fi
             else
-                yellow "未发现 IPv4 规则文件。"
+                yellow "未发现 IPv4 规则文件，略过加载。"
             fi
-            if [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables &> /dev/null; then
-                ip6tables-restore < /etc/iptables/rules.v6
-                green "IPv6 规则重载成功。"
+            if [ -f "/etc/iptables/rules.v6" ]; then
+                if command -v ip6tables-restore >/dev/null 2>&1; then
+                    if ip6tables-restore < /etc/iptables/rules.v6; then
+                        green "IPv6 规则已从 rules.v6 同步至内存。"
+                    else
+                        red "错误：IPv6 规则文件格式异常，加载失败。"
+                    fi
+                else
+                    yellow "系统不支持 ip6tables-restore 命令，略过加载。"
+                fi
+            else
+                [ -f /proc/net/if_inet6 ] && yellow "未发现 IPv6 规则文件，略过加载。"
             fi
-
+            green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
 
         0) menu ;;
