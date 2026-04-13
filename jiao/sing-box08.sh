@@ -2136,154 +2136,174 @@ EOF
             ;;
       
             # --- 完整的删除逻辑 ---
-            51) 
-                isp="_vless_http_reality"
-                if [ -f "$CONF_DIR/h2-reality.json" ]; then
-                    rm -f "$CONF_DIR/h2-reality.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
+            11) 
+			target_suffix="_vless_http_reality"
+            target_conf="/etc/sing-box/h2-reality.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    restart_singbox
-                    green "已删除"
                 else
-                    red "文件不存在"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-            52)
-               target_suffix="_vless_grpc_reality"
-               target_conf="/etc/sing-box/grpc-reality.json"
-               if [ -f "$target_conf" ]; then
-                 rm -f "$target_conf"
-               if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i "/.*${target_suffix}/ {N;d;}" /etc/sing-box/url.txt
-               fi
-               if [ -s "/etc/sing-box/url.txt" ]; then
-                  base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-               else
-               truncate -s 0 /etc/sing-box/sub.txt
-               fi
-               restart_singbox
-               green "==============================================="
-               green " 节点已移除!"
-               green "==============================================="
-               else
-               red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-               fi
-			   ;;
-            53)
-                isp="_anytls"
-                if [ -f "/etc/sing-box/anytls.json" ]; then
-                    rm -f "/etc/sing-box/anytls.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "==============================================="
-                    green " AnyTLS已删除!"
-                    green "==============================================="
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+            12)
+            target_suffix="_vless_grpc_reality"
+            target_conf="/etc/sing-box/grpc-reality.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "错误: 未找到 AnyTLS 配置文件 (/etc/sing-box/anytls.json)"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-            54)
-                isp="_socks5"
-                if [ -f "$CONF_DIR/socks5.json" ]; then
-                    rm -f "$CONF_DIR/socks5.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "已删除"
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+            13)
+			target_suffix="_anytls"
+            target_conf="/etc/sing-box/anytls.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "文件不存在"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-            55)
-                isp="_http"
-                if [ -f "$CONF_DIR/http.json" ]; then
-                    rm -f "$CONF_DIR/http.json"
-                    [ -f "/etc/sing-box/url.txt" ] && sed -i "/#${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "已删除"
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+            14)
+			target_suffix="_socks5"
+            target_conf="/etc/socks5.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "文件不存在"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-		     56) 
-				isp="_vless_ws_argo"
-                config_file="/etc/sing-box/vless-ws-argo.json"
-                if [ -f "$config_file" ]; then
-                    rm -f "$config_file"
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    fi
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "==============================================="
-                    green " VLESS-WS-ARGO 隧道配置及节点已删除！"
-                    green "==============================================="
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+            15)
+			target_suffix="_http"
+            target_conf="/etc/sing-box/http.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "错误: 未找到配置文件 ($config_file)"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-		    57) 
-                isp="_vless_wstls_cdn"
-                config_file="/etc/sing-box/vless-wstls-cdn.json"
-                if [ -f "$config_file" ]; then
-                    rm -f "$config_file"
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    fi
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "==============================================="
-                    green " vless-ws-cdn 已删除!"
-                    green "==============================================="
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+		    16) 
+			target_suffix="_vless_ws_argo"
+            target_conf="/etc/sing-box/vless-ws-argo.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "错误: 未找到配置文件 ($config_file)"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-			58) 
-                isp="_vless_ws_cdn"
-                config_file="/etc/sing-box/vless-ws-cdn.json"
-                if [ -f "$config_file" ]; then
-                    rm -f "$config_file"
-                    if [ -f "/etc/sing-box/url.txt" ]; then
-                        sed -i "/#.*${isp}$/{N;d;}" /etc/sing-box/url.txt
-                    fi
-                    if [ -s "/etc/sing-box/url.txt" ]; then
-                        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                    else
-                        truncate -s 0 /etc/sing-box/sub.txt
-                    fi
-                    restart_singbox
-                    green "==============================================="
-                    green " vless-ws-cdn 已删除!"
-                    green "==============================================="
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+		    17) 
+			target_suffix="_vless_wstls_cdn"
+            target_conf="/etc/sing-box/vless-wstls-cdn.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
-                    red "错误: 未找到配置文件 ($config_file)"
+                    truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                ;;
-
-		
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+			18) 
+			target_suffix="_vless_ws_cdn"
+            target_conf="/etc/sing-box/vless-ws-cdn.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;	
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac
