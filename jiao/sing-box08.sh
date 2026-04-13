@@ -2599,11 +2599,24 @@ iptables_ssl() {
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
+	local nat_rules=$(iptables -t nat -L PREROUTING -n --line-numbers | grep -E "dpt|dpts" | awk '{
+        port=""; to=""; 
+        for(i=1;i<=NF;i++){
+            if($i~/dpt:|dpts:/) port=$(i+1);
+            if($i~/to:/) to=$(i+1);
+        }
+        gsub(/^:/, "", to);
+        gsub(/:/, "-", port);
+        print " ID:"$1 " | 端口:" port " -> 转发至:" to
+    }')
+    [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
+	
     echo ""
     green "=== Iptables 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
+	echo -e "\033[0;33m$nat_rules\033[0m"
     skyblue "---------------------------"
     
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
@@ -2693,62 +2706,44 @@ iptables_ssl() {
             sleep 1 && iptables_ssl ;;
 
         3)
-            yellow "正在开启拦截 (仅留 SSH端口，"
+            yellow "正在开启拦截..."
             ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
             [ -z "$ssh_p" ] && ssh_p=22
-            cat > /etc/iptables/rules.v4 << EOF
-*filter
-:INPUT DROP [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
--A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
--A INPUT -i lo -j ACCEPT
--A INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
-COMMIT
-EOF
-            iptables-restore < /etc/iptables/rules.v4
-            if command -v ip6tables &> /dev/null; then
-                cat > /etc/iptables/rules.v6 << EOF
-*filter
-:INPUT DROP [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
--A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
--A INPUT -i lo -j ACCEPT
--A INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
-COMMIT
-EOF
-                ip6tables-restore < /etc/iptables/rules.v6
+            if ! iptables -C INPUT -p tcp --dport $ssh_p -j ACCEPT 2>/dev/null; then
+                iptables -I INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
             fi
+            if ! iptables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+                iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+            fi
+            if ! iptables -C INPUT -i lo -j ACCEPT 2>/dev/null; then
+                iptables -I INPUT -i lo -j ACCEPT
+            fi
+            iptables -P INPUT DROP
+            if command -v ip6tables &> /dev/null; then
+                if ! ip6tables -C INPUT -p tcp --dport $ssh_p -j ACCEPT 2>/dev/null; then
+                    ip6tables -I INPUT -p tcp --dport $ssh_p -m comment --comment "SSH_Port" -j ACCEPT
+                fi
+                ip6tables -P INPUT DROP
+            fi
+            iptables-save > /etc/iptables/rules.v4
+            [ -f "/etc/iptables/rules.v6" ] && ip6tables-save > /etc/iptables/rules.v6
             
-            green "开启拦截，仅放行 SSH端口。" && sleep 1
+            green "开启拦截成功" && sleep 1
             iptables_ssl ;;
          4)
-            yellow "正在恢复裸奔模式 (全部放行)..."
-            cat > /etc/iptables/rules.v4 << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
--A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
--A INPUT -i lo -j ACCEPT
-COMMIT
-EOF
-            iptables-restore < /etc/iptables/rules.v4
+            yellow "正在关闭拦截..."
+            iptables -P INPUT ACCEPT
+            iptables -P FORWARD ACCEPT
+            iptables -P OUTPUT ACCEPT
+            iptables-save > /etc/iptables/rules.v4
             if command -v ip6tables &> /dev/null; then
-                cat > /etc/iptables/rules.v6 << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
--A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
--A INPUT -i lo -j ACCEPT
-COMMIT
-EOF
-                ip6tables-restore < /etc/iptables/rules.v6
+                ip6tables -P INPUT ACCEPT
+                ip6tables -P FORWARD ACCEPT
+                ip6tables -P OUTPUT ACCEPT
+                # 只有当 rules.v6 文件存在或需要持久化时才保存
+                ip6tables-save > /etc/iptables/rules.v6
             fi
-
-            green "已恢复裸奔模式（所有端口已全部放行）。" && sleep 1
+            green "已关闭拦截" && sleep 1
             iptables_ssl ;;
 		5)
         yellow "正在配置环境..."
