@@ -1925,7 +1925,7 @@ EOF
             green "==============================================="
             ;;
 			6) yellow "正在配置 vless-ws隧道..."
-		    Generate_vars
+		    generate_vars
             mkdir -p /etc/sing-box
             if [ -f "${work_dir}/url.txt" ]; then
                 argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
