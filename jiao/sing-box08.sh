@@ -2150,7 +2150,7 @@ EOF
                 ;;
             52)
             isp="_vless_grpc_reality"
-            target_conf="/etc/sing-box/grpc_reality.json"
+            target_conf="/etc/sing-box/grpc-reality.json"
 
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
