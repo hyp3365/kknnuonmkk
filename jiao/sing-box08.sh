@@ -2163,7 +2163,7 @@ EOF
             
             restart_singbox                            
             green "--------------------------------------------------"
-            echo " 节点连接: $vmess_url"
+            green " 节点连接: $vmess_url"
             green "--------------------------------------------------"
             yellow " 已生成 VMess 节点，请去 Cloudflare 添加端口回源规则："
             yellow " 回源端口: $vmess_ws_cdn_port"
