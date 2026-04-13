@@ -742,15 +742,19 @@ get_info() {
 
 cat > ${xurl_dir}/vless-tcp-reality.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
+
 EOF
 cat > ${xurl_dir}/hysteria2.txt <<EOF
 hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}_hysteria2
+
 EOF
 cat > ${xurl_dir}/tuic.txt <<EOF
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
+
 EOF
 cat > ${xurl_dir}/vmess-ws-argo.txt <<EOF
 vmess://$(echo "$VMESS" | base64 -w0)
+
 EOF
 
 echo ""
@@ -2833,22 +2837,16 @@ change_argo_domain() {
 check_nodes() {
     echo ""
     if [ -d "/etc/sing-box/url" ]; then
-        cat /etc/sing-box/url/*.txt 2>/dev/null | sed '/^$/d' | while IFS= read -r line; do
-            echo -e "${purple}$line\033[0m"
-        done
+        if ls /etc/sing-box/url/*.txt >/dev/null 2>&1; then
+            echo -e "${purple}--- 当前节点列表 ---${re}"
+            cat /etc/sing-box/url/*.txt | sed '/^$/d'
+            echo -e "--------------------"
+        else
+            yellow "文件夹 /etc/sing-box/url 内没有 .txt 文件"
+        fi
     else
         yellow "未找到节点目录 /etc/sing-box/url"
     fi
-    server_ip=$(get_realip)
-    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1)
-    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1)
-    base64_url="http://${server_ip}:${sub_port}/${lujing}"
-
-    echo ""
-    green "V2rayN, Shadowrocket, Nekobox, Loon, Karing订阅链接:"
-    echo -e "${purple}${base64_url}${re}\n"
-}
-
 change_cfip() {
     clear
     yellow "修改vmess-argo优选域名\n"
