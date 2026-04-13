@@ -2136,7 +2136,7 @@ EOF
             ;;
       
             # --- 完整的删除逻辑 ---
-            11) 
+            51) 
 			target="_vless_http_reality"
             target_conf="/etc/sing-box/h2-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2157,7 +2157,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            12)
+            52)
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2178,7 +2178,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            13)
+            53)
 			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
             if [ -f "$target_conf" ]; then
@@ -2199,7 +2199,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            14)
+            54)
 			target="_socks5"
             target_conf="/etc/socks5.json"
             if [ -f "$target_conf" ]; then
@@ -2220,7 +2220,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            15)
+            55)
 			target="_http"
             target_conf="/etc/sing-box/http.json"
             if [ -f "$target_conf" ]; then
@@ -2241,7 +2241,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    16) 
+		    56) 
 			target="_vless_ws_argo"
             target_conf="/etc/sing-box/vless-ws-argo.json"
             if [ -f "$target_conf" ]; then
@@ -2262,7 +2262,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    17) 
+		    57) 
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2283,7 +2283,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-			18) 
+			58) 
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
