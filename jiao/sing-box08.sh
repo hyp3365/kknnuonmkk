@@ -2599,15 +2599,20 @@ iptables_ssl() {
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
-	local nat_rules=$(iptables -t nat -L PREROUTING -n --line-numbers | grep -E "dpt|dpts" | awk '{
+    local nat_rules=$(iptables -t nat -L PREROUTING -n --line-numbers | grep -E "dpt|dpts" | awk '{
         port=""; to=""; 
         for(i=1;i<=NF;i++){
             if($i~/dpt:|dpts:/) port=$(i+1);
             if($i~/to:/) to=$(i+1);
         }
-        gsub(/^:/, "", to);
+        if(port==""){
+            for(i=1;i<=NF;i++) if($i~/^dpt:/ || $i~/^dpts:/) {split($i,a,":"); port=a[2]}
+        }
         gsub(/:/, "-", port);
-        print " ID:"$1 " | 端口:" port " -> 转发至:" to
+        sub(/^to:/, "", to); 
+        sub(/^:/, "", to);   
+        
+        if(port != "") print " ID:"$1 " | 端口:" port " -> 转发至:" to
     }')
     [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
 	
