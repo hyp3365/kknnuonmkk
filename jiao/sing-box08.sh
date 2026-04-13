@@ -2137,12 +2137,12 @@ EOF
       
             # --- 完整的删除逻辑 ---
             11) 
-			target_suffix="_vless_http_reality"
+			target="_vless_http_reality"
             target_conf="/etc/sing-box/h2-reality.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2158,12 +2158,12 @@ EOF
             fi
             ;;
             12)
-            target_suffix="_vless_grpc_reality"
+            target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2179,12 +2179,12 @@ EOF
             fi
             ;;
             13)
-			target_suffix="_anytls"
+			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2200,12 +2200,12 @@ EOF
             fi
             ;;
             14)
-			target_suffix="_socks5"
+			target="_socks5"
             target_conf="/etc/socks5.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2221,12 +2221,12 @@ EOF
             fi
             ;;
             15)
-			target_suffix="_http"
+			target="_http"
             target_conf="/etc/sing-box/http.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2242,12 +2242,12 @@ EOF
             fi
             ;;
 		    16) 
-			target_suffix="_vless_ws_argo"
+			target="_vless_ws_argo"
             target_conf="/etc/sing-box/vless-ws-argo.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2263,12 +2263,12 @@ EOF
             fi
             ;;
 		    17) 
-			target_suffix="_vless_wstls_cdn"
+			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2284,12 +2284,12 @@ EOF
             fi
             ;;
 			18) 
-			target_suffix="_vless_ws_cdn"
+			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/#.*${target_suffix}$/{N;d;}" /etc/sing-box/url.txt
+                    sed -i "/#.*${target}$/{N;d;}" /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
