@@ -2150,16 +2150,29 @@ EOF
   ]
 }
 EOF
+                        # 1. 开放端口
             allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
+            
+            # 2. 定义备注和 JSON 字符串 (修正了 allowInsecure 和 false 的拼写)
             node_remark="${isp}_vmess_ws_cdn"
-            VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_cdn\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
-            vmess_url://$(echo "$VMESS"| base64 -w0)
+            VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+
+            # 3. 修正变量赋值：vmess_url="vmess://..." 
+            # 并在末尾加上 #备注 供 sed 精准删除
+            vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)#${node_remark}"
+
+            # 4. 精准删除旧节点 (匹配包含备注且以备注结尾的行及其下一行空行)
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
             fi                              
+
+            # 5. 写入文件
             echo "$vmess_url" >> /etc/sing-box/url.txt
             echo "" >> /etc/sing-box/url.txt
+
+            # 6. 更新 Base64 订阅
             base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                    
+            
             restart_singbox                            
             green "--------------------------------------------------"
             echo " 节点连接: $vmess_url"
