@@ -72,6 +72,7 @@ generate_vars() {
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
+xurl_dir="/etc/sing-box/url"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
@@ -351,6 +352,8 @@ install_singbox() {
     latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
     work_dir=${work_dir:-/etc/sing-box}
 mkdir -p "$work_dir"
+mkdir -p "$xurl_dir"
+chmod 777 "$xurl_dir"
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
 if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
@@ -410,89 +413,6 @@ cat > "${config_dir}" << EOF
         "server_port": 123,
         "interval": "60m"
    },
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-reality",
-      "listen": "::",
-      "listen_port": $vless_port,
-      "users": [
-        {
-          "uuid": "$uuid",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "www.iij.ad.jp",
-            "server_port": 443
-          },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-        }
-      }
-    },
-    {
-         "type": "vmess",
-         "tag": "vmess-ws",
-         "listen": "127.0.0.1",
-         "listen_port": 8002, 
-         "users": [
-           {
-            "uuid": "$uuid"
-           }
-          ],
-        "transport": {
-          "type": "ws",
-          "path": "/mPaxe1996Ko-5203aap",
-          "early_data_header_name": "Sec-WebSocket-Protocol"
-         }
-     },
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $hy2_port,
-      "users": [
-        {
-          "password": "$uuid"
-        }
-      ],
-      "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "min_version": "1.3",
-        "max_version": "1.3",
-        "certificate_path": "$work_dir/cert.pem",
-        "key_path": "$work_dir/private.key"
-      }
-    },
-    {
-      "type": "tuic",
-      "tag": "tuic",
-      "listen": "::",
-      "listen_port": $tuic_port,
-      "users": [
-        {
-          "uuid": "$uuid",
-          "password": "$password"
-        }
-      ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "$work_dir/cert.pem",
-        "key_path": "$work_dir/private.key"
-      }
-    }
-  ],
   "endpoints": [
     {
       "type": "wireguard",
@@ -597,6 +517,111 @@ cat > "${config_dir}" << EOF
   }
 }
 EOF
+cat > /etc/sing-box/url/vless-tcp-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-reality",
+      "listen": "::",
+      "listen_port": $vless_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      }
+    }
+  ]
+}
+EOF
+cat > /etc/sing-box/url/vmess-ws-argo.json << EOF
+{
+  "inbounds": [
+    {
+         "type": "vmess",
+         "tag": "vmess-ws",
+         "listen": "127.0.0.1",
+         "listen_port": 8002, 
+         "users": [
+           {
+            "uuid": "$uuid"
+           }
+          ],
+        "transport": {
+          "type": "ws",
+          "path": "/mPaxe1996Ko-5203aap",
+          "early_data_header_name": "Sec-WebSocket-Protocol"
+         }
+     }
+  ]
+}
+EOF
+cat > /etc/sing-box/url/hysteria2.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $hy2_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "ignore_client_bandwidth": false,
+      "masquerade": "https://bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "min_version": "1.3",
+        "max_version": "1.3",
+        "certificate_path": "$work_dir/cert.pem",
+        "key_path": "$work_dir/private.key"
+      }
+    }
+  ]
+}
+EOF
+cat > /etc/sing-box/url/tuic.json << EOF
+{
+  "inbounds": [
+     {
+      "type": "tuic",
+      "tag": "tuic",
+      "listen": "::",
+      "listen_port": $tuic_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "password": "$password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "$work_dir/cert.pem",
+        "key_path": "$work_dir/private.key"
+      }
+    }
+  ]
+}
+EOF
 }
 # debian/ubuntu/centos 守护进程
 main_systemd_services() {
@@ -611,7 +636,7 @@ User=root
 WorkingDirectory=/etc/sing-box
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/
+ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/ -C /etc/sing-box/url/
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
@@ -715,26 +740,29 @@ get_info() {
 
   VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vless_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
 
-  cat > ${work_dir}/url.txt <<EOF
+cat > ${xurl_dir}/vless-tcp-reality.txt <<EOF
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
-
-
-vmess://$(echo "$VMESS"| base64 -w0)
-
-
-hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}_hysteria2
-
-
-tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
-
-
 EOF
+cat > ${xurl_dir}/hysteria2.txt <<EOF
+hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}_hysteria2
+EOF
+cat > ${xurl_dir}/tuic.txt <<EOF
+tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
+EOF
+cat > ${xurl_dir}/vmess-ws-argo.txt <<EOF
+vmess://$(echo "$VMESS" | base64 -w0)
+EOF
+
 echo ""
-while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-chmod 644 ${work_dir}/sub.txt
+    if [ -d "${xurl_dir}" ]; then
+        cat "${xurl_dir}"/*.txt 2>/dev/null | sed '/^$/d' | while IFS= read -r line; do
+            echo -e "${purple}$line"
+        done
+    fi
+    cat "${xurl_dir}"/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "${work_dir}/sub.txt"
+    chmod 644 "${work_dir}/sub.txt"
 yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
-green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
+green "V2rayN,Shadowrocket,Nekobox,Loon,Karing订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
 }
 
 # nginx订阅配置
@@ -1615,7 +1643,7 @@ disable_open_sub() {
 
 manage_nodes_menu() {
     while true; do
-        local CONF_DIR="/etc/sing-box"
+        local CONF_DIR="/etc/sing-box/url/"
         local width=45
         local node_list=(
             "h2-reality.json|http-Reality|1"
@@ -1673,9 +1701,9 @@ manage_nodes_menu() {
 		case "${choice}" in
         1) 
                 generate_vars
-                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)                
+                server_ip=$(get_realip)  
                 yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
-                cat > /etc/sing-box/h2-reality.json << EOF
+                cat > /etc/sing-box/url/h2-reality.json << EOF
 {
   "inbounds": [
     {
@@ -1719,14 +1747,11 @@ manage_nodes_menu() {
 EOF
           allow_port $h2_reality/tcp > /dev/null 2>&1
 		  node_remark="${isp}_vless_http_reality"
+		  individual_file="${xurl_dir}/h2-reality.txt"
           url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
-          if [ -f "/etc/sing-box/url.txt" ]; then
-           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
-          fi
-          echo "$url" >> "/etc/sing-box/url.txt"
-          sed -i '/^$/d' "/etc/sing-box/url.txt" 
-		  echo "" >> "/etc/sing-box/url.txt"
-          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+          echo "$url" > "$individual_file"
+          sed -i '/^$/d' "$individual_file"
+          cat "${xurl_dir}"/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "${work_dir}/sub.txt"
           restart_singbox 
           green "==============================================="
           green " H2 + Reality 节点已添加!"
@@ -2783,49 +2808,45 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
-    content=$(cat "$client_dir")
-    vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-    if [ -n "$vmess_url" ]; then
-        vmess_prefix="vmess://"
-        encoded_vmess="${vmess_url#"$vmess_prefix"}"
-        decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-        updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-        encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-        new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
-        content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-        echo "$content" > "$client_dir"
+    local vmess_file="/etc/sing-box/url/vmess-ws-argo.txt"
+    if [ -f "$vmess_file" ]; then
+        vmess_url=$(cat "$vmess_file" | grep -o 'vmess://[^ ]*')
+        if [ -n "$vmess_url" ]; then
+            decoded_vmess=$(echo "${vmess_url#vmess://}" | base64 --decode)
+            updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
+            encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
+            echo "vmess://${encoded_updated_vmess}" > "$vmess_file"
+        fi
     fi
-
+    local vless_file="/etc/sing-box/url/vless-ws-argo.txt"
     target_remark="${isp_base}_vless_ws_argo"
     NEW_VLESS="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${ArgoDomain}&type=ws&host=${ArgoDomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${target_remark}"
-    
-    local files=("$client_dir" "${work_dir}/url.txt")
-    for file in "${files[@]}"; do
-        if [ -f "$file" ]; then
-            if grep -q "#${target_remark}" "$file"; then
-                sed -i "/#${target_remark}/,+1d" "$file"
-                echo -e "${NEW_VLESS}\n" >> "$file"
-            else
-                : 
-            fi
-        fi
-    done
-
-    if [ -f "${work_dir}/url.txt" ]; then
-        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+    if [ -f "$vless_file" ]; then
+        echo "$NEW_VLESS" > "$vless_file"
     fi
-    green "域名已更新"
+    cat /etc/sing-box/url/*.txt 2>/dev/null | sed '/^$/d' | base64 -w0 > "${work_dir}/sub.txt"
+    
+    green "Argo 域名已更新，订阅文件已同步"
 }
-
 
 # 查看节点信息和订阅链接
 check_nodes() {
-    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
+    echo ""
+    if [ -d "/etc/sing-box/url" ]; then
+        cat /etc/sing-box/url/*.txt 2>/dev/null | sed '/^$/d' | while IFS= read -r line; do
+            echo -e "${purple}$line\033[0m"
+        done
+    else
+        yellow "未找到节点目录 /etc/sing-box/url"
+    fi
     server_ip=$(get_realip)
-    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
-    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf")
+    lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1)
+    sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "/etc/nginx/conf.d/sing-box.conf" | head -n 1)
     base64_url="http://${server_ip}:${sub_port}/${lujing}"
-	green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接: ${purple}${base64_url}${re}\n"
+
+    echo ""
+    green "V2rayN, Shadowrocket, Nekobox, Loon, Karing订阅链接:"
+    echo -e "${purple}${base64_url}${re}\n"
 }
 
 change_cfip() {
