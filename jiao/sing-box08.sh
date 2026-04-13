@@ -2648,31 +2648,37 @@ iptables_ssl() {
     case "${ipt_choice}" in
         1)
             read -p "请输入要开放的端口号: " o_port
-            if [ -z "$o_port" ]; then
-                yellow "未输入端口号，操作已取消。"
-            else
+            if [ -n "$o_port" ]; then
                 if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
                     sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
                     sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v4
-                    if iptables-restore < /etc/iptables/rules.v4; then
-                        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
-                        green "成功：端口 $o_port 已放行"
-                    else
-                        red "错误：iptables 配置文件格式损坏，请检查 /etc/iptables/rules.v4"
+                    if [ -f "/etc/iptables/rules.v6" ]; then
+                        sed -i "/COMMIT/i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
+                        sed -i "/COMMIT/i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT" /etc/iptables/rules.v6
                     fi
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    
+                    green "成功：端口 $o_port (v4/v6 & tcp/udp) 已放行"
                 else
-                    yellow "端口 $o_port 规则已存在，无需重复添加"
+                    yellow "端口 $o_port 的规则已存在，无需重复添加"
                 fi
+            else
+                yellow "未输入端口号，操作取消"
             fi
             sleep 1 && iptables_ssl ;;
         2)
-            read -p "请输入要关闭端口号: " c_port
+            read -p "请输入要关闭的端口号: " c_port
             if [ -n "$c_port" ]; then
                 sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
-                
+                if [ -f "/etc/iptables/rules.v6" ]; then
+                    sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+                fi
                 iptables-restore < /etc/iptables/rules.v4
-                green "清理完成：端口 $c_port 已关闭"
+                if [ -f "/etc/iptables/rules.v6" ]; then
+                    ip6tables-restore < /etc/iptables/rules.v6
+                fi                
+                green "清理完成：端口 $c_port (IPv4 & IPv6) 已从防火墙移除"
             else
                 yellow "未输入端口号，操作取消"
             fi
@@ -2735,18 +2741,26 @@ EOF
 
             green "已恢复裸奔模式（所有端口已全部放行）。" && sleep 1
             iptables_ssl ;;
-
         5)
-            yellow "正在配置环境..."
-            if [ -f /etc/debian_version ]; then
-                apt-get update && apt-get install -y iptables iptables-persistent
-            elif [ -f /etc/redhat-release ]; then
-                yum install -y iptables-services && systemctl enable iptables && systemctl start iptables
-            fi
-            check_rule_files
-            green "环境配置完成！" && sleep 1
-            iptables_ssl ;;
-        6)
+        Yellow "正在配置环境..."
+        [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1
+        if [ -f /etc/debian_version ]; then
+            # Debian/Ubuntu
+            apt-get update -y
+            echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+            echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+            apt-get install -y iptables iptables-persistent
+        elif [ -f /etc/redhat-release ]; then
+            # CentOS/RedHat
+            yum install -y iptables-services
+            systemctl enable iptables && systemctl start iptables
+            systemctl enable ip6tables && systemctl start ip6tables
+        fi
+        [ ! -d "/etc/iptables" ] && mkdir -p /etc/iptables        
+        check_rule_files
+        green "环境配置完成！已开启防火墙。" && sleep 1
+        iptables_ssl ;;
+		6)
             yellow "彻底停止并清空规则..."
             iptables -P INPUT ACCEPT
             iptables -F
@@ -2763,16 +2777,12 @@ EOF
                     systemctl start netfilter-persistent >/dev/null 2>&1
                 fi
             fi
-
-            # 2. 加载 IPv4 规则
             if [ -f "/etc/iptables/rules.v4" ]; then
                 iptables-restore < /etc/iptables/rules.v4
                 green "IPv4 规则重载成功。"
             else
                 yellow "未发现 IPv4 规则文件。"
             fi
-
-            # 3. 加载 IPv6 规则
             if [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables &> /dev/null; then
                 ip6tables-restore < /etc/iptables/rules.v6
                 green "IPv6 规则重载成功。"
