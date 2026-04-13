@@ -2546,8 +2546,10 @@ vps_ssl() {
 
 # Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
+
 check_rule_files() {
     local r4="/etc/iptables/rules.v4"
+    local r6="/etc/iptables/rules.v6"
     if [ ! -d "/etc/iptables" ]; then
         mkdir -p /etc/iptables
     fi
@@ -2560,7 +2562,17 @@ check_rule_files() {
 COMMIT
 EOF
     fi
+    if [ ! -f "$r6" ] || ! grep -q "COMMIT" "$r6"; then
+        cat > "$r6" << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+EOF
+    fi
 }
+
 iptables_ssl() {
     clear
     check_rule_files
@@ -2569,12 +2581,13 @@ iptables_ssl() {
     if [ -f "$cache_file" ]; then
         source "$cache_file"
     fi
-    if [ -z "$vps_ipv4" ] || [ -z "$vps_ipv6" ]; then
+    if [[ -z "$vps_ipv4" || "$vps_ipv4" == *"失败"* || -z "$vps_ipv6" || "$vps_ipv6" == *"失败"* ]]; then
         vps_ipv4=$(curl -s4m 2 api64.ipify.org || echo "未分配/检测失败")
         vps_ipv6=$(curl -s6m 2 api64.ipify.org || echo "未分配/检测失败")
         echo "vps_ipv4='$vps_ipv4'" > "$cache_file"
         echo "vps_ipv6='$vps_ipv6'" >> "$cache_file"
     fi
+
     local status_text=""
     local mode_text=""
     local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
@@ -2653,19 +2666,17 @@ iptables_ssl() {
                     iptables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
                     iptables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
                 fi
-                if command -v ip6tables >/dev/null && [ -f /proc/net/if_inet6 ]; then
+                if [ "$vps_ipv6" != "未分配/检测失败" ] && command -v ip6tables >/dev/null; then
                     if ! ip6tables -C INPUT -p tcp --dport "$o_port" -j ACCEPT 2>/dev/null; then
                         ip6tables -I INPUT -p tcp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
                         ip6tables -I INPUT -p udp --dport "$o_port" -m comment --comment "$tag" -j ACCEPT
                     fi
                 fi
-                [ ! -d "/etc/iptables" ] && mkdir -p /etc/iptables
                 iptables-save > /etc/iptables/rules.v4
-                [ -f "/proc/net/if_inet6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
-                
-                green "成功：端口 $o_port 已放行"
+                [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
+                ipt_msg "\033[0;32m" "成功：端口 $o_port 已放行。"
             else
-                red "错误：请输入 1-65535 之间的有效端口号！"
+                ipt_msg "\033[0;31m" "错误：请输入 1-65535 之间的有效端口！"
             fi
             sleep 1 && iptables_ssl ;;
 
@@ -2673,17 +2684,16 @@ iptables_ssl() {
             read -p "请输入要关闭的端口号: " c_port
             if [[ "$c_port" =~ ^[0-9]+$ ]] && [ "$c_port" -ge 1 ] && [ "$c_port" -le 65535 ]; then
                 while iptables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
-                while iptables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done      
+                while iptables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
                 if command -v ip6tables >/dev/null; then
                     while ip6tables -D INPUT -p tcp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
                     while ip6tables -D INPUT -p udp --dport "$c_port" -j ACCEPT 2>/dev/null; do :; done
                 fi
                 iptables-save > /etc/iptables/rules.v4
                 [ -f "/etc/iptables/rules.v6" ] && command -v ip6tables-save >/dev/null && ip6tables-save > /etc/iptables/rules.v6
-                
-                green "清理完成：端口 $c_port 已关闭。"
+                ipt_msg "\033[0;32m" "完成：端口 $c_port 已关闭。"
             else
-                yellow "输入无效或范围错误，操作取消。"
+                ipt_msg "\033[0;33m" "无效输入，操作已取消。"
             fi
             sleep 1 && iptables_ssl ;;
         3)
@@ -2745,7 +2755,7 @@ EOF
             green "已恢复裸奔模式（所有端口已全部放行）。" && sleep 1
             iptables_ssl ;;
 		5)
-        Yellow "正在配置环境..."
+        yellow "正在配置环境..."
         [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
         if [ -f /etc/debian_version ]; then
             apt-get update -y
