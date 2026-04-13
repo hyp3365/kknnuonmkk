@@ -2830,8 +2830,12 @@ check_nodes() {
     if [ -d "/etc/sing-box/url" ]; then
         if ls /etc/sing-box/url/*.txt >/dev/null 2>&1; then
             echo -e "${purple}--- 当前节点列表 ---${re}"
-            cat /etc/sing-box/url/*.txt | sed '/^$/d'
-            echo -e "--------------------"
+            cat /etc/sing-box/url/*.txt | sed '/^$/d' | while IFS= read -r line; do
+                echo -e "${purple}${line}${re}"
+                echo "" 
+            done
+            echo -e "${purple}--------------------${re}"
+            cat /etc/sing-box/url/*.txt | sed '/^$/d' | sed 'G' | base64 -w0 > "${work_dir}/sub.txt"
         else
             yellow "文件夹 /etc/sing-box/url 内没有 .txt 文件"
         fi
