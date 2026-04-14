@@ -318,17 +318,31 @@ allow_port() {
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
 
     # 规则持久化
-    if command_exists rc-service 2>/dev/null; then
-        [ "$has_iptables" -eq 1 ] && iptables-save > /etc/iptables/rules.v4 2>/dev/null
-        [ "$has_ip6tables" -eq 1 ] && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
-    else
-        if ! command_exists netfilter-persistent; then
-            manage_packages install iptables-persistent || yellow "请手动安装netfilter-persistent或保存iptables规则" 
-            netfilter-persistent save >/dev/null 2>&1
-        elif command_exists service; then
-            service iptables save 2>/dev/null
-            service ip6tables save 2>/dev/null
+    mkdir -p /etc/iptables
+    for rule in "$@"; do
+        p_port=${rule%/*}
+        p_proto=${rule#*/}
+        tag="ScriptManaged"
+        [ ! -f /etc/iptables/rules.v4 ] && iptables-save > /etc/iptables/rules.v4 2>/dev/null
+        if [ -f /etc/iptables/rules.v4 ]; then
+            if ! grep -q "\--dport $p_port " /etc/iptables/rules.v4 2>/dev/null; then
+                sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
+                }" /etc/iptables/rules.v4
+            fi
         fi
+        [ ! -f /etc/iptables/rules.v6 ] && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+        if [ -f /etc/iptables/rules.v6 ]; then
+            if ! grep -q "\--dport $p_port " /etc/iptables/rules.v6 2>/dev/null; then
+                sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
+                }" /etc/iptables/rules.v6
+            fi
+        fi
+    done
+    if command_exists netfilter-persistent; then
+        netfilter-persistent save >/dev/null 2>&1
+    elif command_exists service; then
+        service iptables save 2>/dev/null
+        service ip6tables save 2>/dev/null
     fi
 }
 
