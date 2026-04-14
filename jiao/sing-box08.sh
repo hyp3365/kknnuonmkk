@@ -3211,14 +3211,13 @@ menu() {
    green  "9. 添加删除节点"
    green  "10. 开启BBR加速"
    echo  "==============="
-   purple "11. ssh综合工具箱"
-   purple "12. 更新脚本"
-   purple "13. VPS秘钥登录配置"
-   purple "14. iptables管理"
+   purple "11. 更新脚本"
+   purple "12. VPS秘钥登录配置"
+   purple "13. iptables管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-14): " choice
+   reading "请输入选择(0-13): " choice
    echo ""
 }
 
@@ -3266,15 +3265,11 @@ while true; do
 		   ;;
 		9) manage_nodes_menu ;;
 	    10) enable_bbr ;;
-        11) 
-           clear
-           bash <(curl -Ls ssh_tool.eooce.com)
-           ;; 
-		12) update_script ;;
-		13) vps_ssl ;;
-		14) iptables_ssl ;;
+		11) update_script ;;
+		12) vps_ssl ;;
+		13) iptables_ssl ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 14" ;;
+        *) red "无效的选项，请输入 0 到 13" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
