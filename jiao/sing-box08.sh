@@ -2639,11 +2639,14 @@ iptables_ssl() {
     
     local status_text=""
     local mode_text=""
-    local policy=$(iptables -L INPUT -n | head -n 1 | awk '{print $4}' | tr -d ')')
-    local rule_count=$(iptables -L INPUT -n | grep -vE "^Chain|^target|^$" | wc -l)
+    local policy=$(iptables -L INPUT -n 2>/dev/null | head -n 1 | awk '{print $4}' | tr -d ')')
+    local rule_count=$(iptables -L INPUT -n 2>/dev/null | grep -vE "^Chain|^target|^$" | wc -l)
     local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
 
-    if [ "$svc_status" == "active" ] || [ "$rule_count" -gt 0 ]; then
+    if ! command -v iptables &> /dev/null; then
+        status_text="\033[0;31m未安装\033[0m"
+        mode_text="\033[0;37m未知\033[0m"
+    elif [ "$rule_count" -gt 0 ] || [ "$svc_status" == "active" ]; then
         status_text="\033[0;32m运行中\033[0m"
         if [ "$policy" == "DROP" ]; then
             mode_text="\033[0;32m开启\033[0m"
@@ -2654,7 +2657,7 @@ iptables_ssl() {
         status_text="\033[0;31m已停止\033[0m"
         mode_text="\033[0;37m未拦截\033[0m"
     fi
-    
+	
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
