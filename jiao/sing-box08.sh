@@ -345,6 +345,46 @@ allow_port() {
         service ip6tables save 2>/dev/null
     fi
 }
+# 关闭端口放行
+close_port() {
+    has_ufw=0
+    has_firewalld=0
+    has_iptables=0
+    has_ip6tables=0
+
+    command_exists ufw && has_ufw=1
+    command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
+    command_exists iptables && has_iptables=1
+    command_exists ip6tables && has_ip6tables=1
+
+    for rule in "$@"; do
+        port=${rule%/*}
+        proto=${rule#*/}
+        [ "$has_ufw" -eq 1 ] && ufw delete allow in ${port}/${proto} >/dev/null 2>&1
+        [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --remove-port=${port}/${proto} >/dev/null 2>&1
+        [ "$has_iptables" -eq 1 ] && iptables -D INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null
+        [ "$has_ip6tables" -eq 1 ] && ip6tables -D INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null
+    done
+
+    [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
+
+    for rule in "$@"; do
+        p_port=${rule%/*}
+        if [ -f "/etc/iptables/rules.v4" ]; then
+            sed -i "/--dport $p_port /d" /etc/iptables/rules.v4
+        fi
+        if [ -f "/etc/iptables/rules.v6" ]; then
+            sed -i "/--dport $p_port /d" /etc/iptables/rules.v6
+        fi
+    done
+
+    if command_exists netfilter-persistent; then
+        netfilter-persistent save >/dev/null 2>&1
+    elif command_exists service; then
+        service iptables save 2>/dev/null
+        service ip6tables save 2>/dev/null
+    fi
+}
 
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
@@ -1983,6 +2023,7 @@ EOF
   ]
 }
 EOF
+		allow_port "8003/tcp" "8003/udp" > /dev/null 2>&1
 		node_remark="${isp}_vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
@@ -2187,6 +2228,9 @@ EOF
             ;;      
             # --- 完整的删除逻辑 ---
             51) 
+			if [ -n "$h2_reality" ]; then
+                close_port "${h2_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_vless_http_reality"
             target_conf="/etc/sing-box/h2-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2208,6 +2252,9 @@ EOF
             fi
             ;;
             52)
+			if [ -n "$grpc_reality" ]; then
+                close_port "${grpc_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2229,6 +2276,9 @@ EOF
             fi
             ;;
             53)
+			if [ -n "$anytls_port" ]; then
+                close_port "${anytls_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
             if [ -f "$target_conf" ]; then
@@ -2250,6 +2300,9 @@ EOF
             fi
             ;;
             54)
+			if [ -n "$socks_port" ]; then
+                close_port "${socks_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_socks5"
             target_conf="/etc/socks5.json"
             if [ -f "$target_conf" ]; then
@@ -2271,6 +2324,9 @@ EOF
             fi
             ;;
             55)
+			if [ -n "$http_port" ]; then
+                close_port "${http_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_http"
             target_conf="/etc/sing-box/http.json"
             if [ -f "$target_conf" ]; then
@@ -2292,6 +2348,7 @@ EOF
             fi
             ;;
 		    56) 
+			close_port "8003/tcp" "8003/udp" > /dev/null 2>&1
 			target="_vless_ws_argo"
             target_conf="/etc/sing-box/vless-ws-argo.json"
             if [ -f "$target_conf" ]; then
@@ -2313,6 +2370,9 @@ EOF
             fi
             ;;
 		    57) 
+			if [ -n "$vless_wstls_cdn_port" ]; then
+                close_port "${vless_wstls_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2334,6 +2394,9 @@ EOF
             fi
             ;;
 			58) 
+			if [ -n "$vless_ws_cdn_port" ]; then
+                close_port "${vless_ws_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2355,6 +2418,9 @@ EOF
             fi
             ;;	
 		    59) 
+			if [ -n "$vmess_ws_cdn_port" ]; then
+                close_port "${vmess_ws_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+            fi
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
