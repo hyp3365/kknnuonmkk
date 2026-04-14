@@ -2463,11 +2463,11 @@ update_script() {
     fi
 }
 
-# 13. VPS 密钥登录
+# 13. SSH
 vps_ssl() {
     while true; do
         clear
-        green  "=== VPS秘钥配置 ==="
+        green  "=== SSH配置 ==="
         skyblue "-----------------------"
         green  "1. 配置密钥 (生成秘钥/禁用密码)"
         skyblue "-----------------------"
