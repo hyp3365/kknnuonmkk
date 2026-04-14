@@ -2428,55 +2428,17 @@ EOF
 }
 
 
-# 一键开启 BBR2 + FQ 加速
+# BBR2管理
 enable_bbr() {
     clear
-    # 1. 检查是否已经安装并开启
-    local current_control=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
-    
-    if [[ "$current_control" == "bbr" || "$current_control" == "bbr2" ]]; then
-        green "==============================================="
-        green " 检测到系统已开启 BBR 加速!"
-        green " 当前算法: $current_control"
-        green " 无需重复安装。"
-        green "==============================================="
-        return 0
+    local script_path="./tcpx.sh"
+    if [ ! -f "$script_path" ]; then
+        [[ ! -x "$(command -v wget)" ]] && apt-get update && apt-get install -y wget
+        wget --no-check-certificate -O "$script_path" https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh
+        chmod +x "$script_path"
     fi
 
-    yellow "正在检测系统环境并配置 BBR 加速..."
-
-    # 2. 自动识别并安装缺失依赖
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update && apt-get install -y procps ca-certificates
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y procps ca-certificates
-    elif command -v apk >/dev/null 2>&1; then
-        apk add --no-cache procps ca-certificates
-    fi
-
-    # 3. 策略选择 (优先 bbr2)
-    local strategy="bbr"
-    if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q "bbr2"; then
-        strategy="bbr2"
-    fi
-
-    cat > /etc/sysctl.d/99-bbr.conf << EOF
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = $strategy
-EOF
-
-    sysctl --system > /dev/null 2>&1
-
-    # 6. 最终验证
-    local final_control=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
-    if [[ "$final_control" == "bbr" || "$final_control" == "bbr2" ]]; then
-        green "==============================================="
-        green " 成功！BBR 加速已开启。"
-        green " 当前算法: $final_control"
-        green "==============================================="
-    else
-        red "开启失败，请检查内核版本是否支持 BBR。"
-    fi
+    ./tcpx.sh
 }
 
 update_script() {
@@ -2903,55 +2865,27 @@ iptables_ssl() {
 
 # 其他
 vps_s() {
-    
-    clear
-    echo ""
-    green "=== 其他 ===\n"
-	skyblue "-------------------"
-    green "1. 本机信息"
-    green "2. BBR管理"
-    skyblue "-------------------"
-    purple "0. 返回主菜单"
-    skyblue "------------"
-    reading "\n请输入选择: " choice
-    case "${choice}" in
-        1)
-    clear
-    ip_address
-    
+    ip_address    
     if [ "$(uname -m)" == "x86_64" ]; then
       cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
     else
       cpu_info=$(lscpu | grep 'Model name' | sed -e 's/Model name[[:space:]]*: //')
     fi
-
     cpu_usage=$(top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}')
     cpu_usage_percent=$(printf "%.2f" "$cpu_usage")%
-
     cpu_cores=$(nproc)
-
     mem_info=$(free -b | awk 'NR==2{printf "%.2f/%.2f MB (%.2f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}')
-
     disk_info=$(df -h | awk '$NF=="/"{printf "%d/%dGB (%s)", $3,$2,$5}')
-
     country=$(curl -s ipinfo.io/country)
     city=$(curl -s ipinfo.io/city)
-
     isp_info=$(curl -s ipinfo.io/org)
-
     cpu_arch=$(uname -m)
-
     hostname=$(hostname)
-
     kernel_version=$(uname -r)
-
     congestion_algorithm=$(sysctl -n net.ipv4.tcp_congestion_control)
     queue_algorithm=$(sysctl -n net.core.default_qdisc)
-
     # 尝试使用 lsb_release 获取系统信息
     os_info=$(lsb_release -ds 2>/dev/null)
-
-    # 如果 lsb_release 命令失败，则尝试其他方法
     if [ -z "$os_info" ]; then
       # 检查常见的发行文件
       if [ -f "/etc/os-release" ]; then
@@ -3022,19 +2956,6 @@ vps_s() {
     echo "------------------------"
     echo -e "${white}系统运行时长: ${purple}${runtime}${re}"
     echo
-    ;;
-        2)
-    clear
-    install wget
-    wget --no-check-certificate -O tcpx.sh https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh && chmod +x tcpx.sh && ./tcpx.sh
-    rm tcpx.sh
-    break_end
-    main_menu
-    ;;
-        3) restart_singbox ;;
-        0) menu ;;
-        *) red "无效的选项！" && sleep 1 && manage_singbox;;
-    esac
 }            
 
 # singbox 管理
@@ -3329,12 +3250,12 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
-   green  "10. 开启BBR加速"
+   green  "10. BBR管理"
    echo  "==============="
    purple "11. 更新脚本"
    purple "12. VPS秘钥登录配置"
    purple "13. iptables管理"
-   purple "14. 其他"
+   purple "14. 本机信息"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
