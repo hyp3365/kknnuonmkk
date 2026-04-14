@@ -240,20 +240,25 @@ manage_packages() {
 
 # 获取ip
 get_realip() {
-    ipv4_address=$(curl -4 -sm 2 ip.sb || curl -4 -sm 2 ifconfig.me || curl -4 -sm 2 icanhazip.com)
-    ipv6_address=$(curl -6 -sm 2 ip.sb || curl -6 -sm 2 icanhazip.com || curl -6 -sm 2 api64.ipify.org)
-    if [ -n "$ipv4_address" ]; then
-        echo -e "${white}公网IPv4地址: ${purple}${ipv4_address}${re}"
+    ip=$(curl -4 -sm 2 ip.sb)
+    ipv6() { curl -6 -sm 2 ip.sb; }
+    if [ -z "$ip" ]; then
+        echo "[$(ipv6)]"
+    elif curl -4 -sm 2 http://ipinfo.io/org | grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
+        echo "[$(ipv6)]"
     else
-        echo -e "${white}公网IPv4地址: ${red}未获取到IPv4${re}"
+        resp=$(curl -sm 8 "https://status.eooce.com/api/$ip" | jq -r '.status')
+        if [ "$resp" = "Available" ]; then
+            echo "$ip"
+        else
+            v6=$(ipv6)
+            [ -n "$v6" ] && echo "[$v6]" || echo "$ip"
+        fi
     fi
-
-    if [ -n "$ipv6_address" ]; then
-        echo -e "${white}公网IPv6地址: ${purple}${ipv6_address}${re}"
-    else
-        echo -e "${white}公网IPv6地址: ${red}未获取到IPv6${re}"
-    fi
-	main_ip=${ipv4_address:-$ipv6_address}
+}
+ip_address() {
+    ipv4_address=$(curl -s -m 2 ipv4.ip.sb)
+    ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
 
 # 处理防火墙
@@ -2912,7 +2917,7 @@ vps_s() {
     case "${choice}" in
         1)
     clear
-    get_realip
+    ip_address
     
     if [ "$(uname -m)" == "x86_64" ]; then
       cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
