@@ -2623,7 +2623,7 @@ iptables_ssl() {
     skyblue "---------------------------"
 
 	    ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
-    printf "%-20s %-30s %-30s\n" "端口号" "所属服务" "说明"   
+    printf "%-15s %-20s %-15s\n" "端口号" "所属服务" "说明"   
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
         allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
@@ -2642,7 +2642,7 @@ iptables_ssl() {
                         }
                     }
                     close(cmd)
-                    printf "\033[0;32m%-20s %-30s %-30s\033[0m\n", port, name, note
+                    printf "\033[0;32m%-15s %-20s %-15s\033[0m\n", port, name, note
                 }
             }
         }'
@@ -2650,7 +2650,7 @@ iptables_ssl() {
     
     echo -e "\033[0;36m---------------------------\033[0m"
     ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口 (已隐藏IPv6):"
-    printf "%-20s %-30s %-30s\n" "端口号"    "所属服务"    "监听IP"    
+    printf "%-15s %-20s %-15s\n" "端口号"    "所属服务"    "监听IP"    
     ss -tunlp | awk 'NR>1 {
         addr = $5; n = split(addr, a, ":"); port = a[n];
         ip = ""; for(i=1; i<n; i++) ip = (ip == "" ? a[i] : ip ":" a[i]);
@@ -2659,7 +2659,7 @@ iptables_ssl() {
         name = "未知服务"; if ($NF ~ /"/) { split($NF, s, "\""); name = s[2] }
         if (port ~ /^[0-9]+$/ && port > 0) print port, name, ip}' | sort -un | sort -n -k1,1 | while read -r p_port p_name p_ip; do
         if ! echo "$allowed_ports" | grep -qw "$p_port"; then
-            printf "\033[0;31m%-20s %-30s %-30s\033[0m\n" "$p_port" "$p_name" "$p_ip"
+            printf "\033[0;31m%-15s %-20s %-15s\033[0m\n" "$p_port" "$p_name" "$p_ip"
         fi
     done
     skyblue "---------------------------"
