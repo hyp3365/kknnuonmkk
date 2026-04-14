@@ -2432,12 +2432,13 @@ EOF
 enable_bbr() {
     clear
     local script_path="./tcpx.sh"
+    [[ ! -x "$(command -v wget)" ]] && apt-get update && apt-get install -y wget
+    [[ ! -x "$(command -v lsmod)" ]] && apt-get update && apt-get install -y kmod
+
     if [ ! -f "$script_path" ]; then
-        [[ ! -x "$(command -v wget)" ]] && apt-get update && apt-get install -y wget
         wget --no-check-certificate -O "$script_path" https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh
         chmod +x "$script_path"
     fi
-
     ./tcpx.sh
 }
 
