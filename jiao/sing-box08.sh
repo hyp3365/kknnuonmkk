@@ -2232,7 +2232,7 @@ EOF
             ;;
             52)
 			if [ -n "$grpc_reality" ]; then
-                close_port "${grpc_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${grpc_reality}/tcp" "${grpc_reality}/udp" > /dev/null 2>&1
             fi
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
@@ -2256,7 +2256,7 @@ EOF
             ;;
             53)
 			if [ -n "$anytls_port" ]; then
-                close_port "${anytls_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${anytls_port}/tcp" "${anytls_port}/udp" > /dev/null 2>&1
             fi
 			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
@@ -2280,7 +2280,7 @@ EOF
             ;;
             54)
 			if [ -n "$socks_port" ]; then
-                close_port "${socks_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${socks_port}/tcp" "${socks_port}/udp" > /dev/null 2>&1
             fi
 			target="_socks5"
             target_conf="/etc/socks5.json"
@@ -2304,7 +2304,7 @@ EOF
             ;;
             55)
 			if [ -n "$http_port" ]; then
-                close_port "${http_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${http_port}/tcp" "${http_port}/udp" > /dev/null 2>&1
             fi
 			target="_http"
             target_conf="/etc/sing-box/http.json"
@@ -2350,7 +2350,7 @@ EOF
             ;;
 		    57) 
 			if [ -n "$vless_wstls_cdn_port" ]; then
-                close_port "${vless_wstls_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${vless_wstls_cdn_port}/tcp" "${vless_wstls_cdn_port}/udp" > /dev/null 2>&1
             fi
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
@@ -2374,7 +2374,7 @@ EOF
             ;;
 			58) 
 			if [ -n "$vless_ws_cdn_port" ]; then
-                close_port "${vless_ws_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${vless_ws_cdn_port}/tcp" "${vless_ws_cdn_port}/udp" > /dev/null 2>&1
             fi
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
@@ -2398,7 +2398,7 @@ EOF
             ;;	
 		    59) 
 			if [ -n "$vmess_ws_cdn_port" ]; then
-                close_port "${vmess_ws_cdn_port}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
+                close_port "${vmess_ws_cdn_port}/tcp" "${vmess_ws_cdn_port}/udp" > /dev/null 2>&1
             fi
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/vmess-ws-cdn.json"
