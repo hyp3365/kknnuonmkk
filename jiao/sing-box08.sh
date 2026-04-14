@@ -2228,6 +2228,7 @@ EOF
             ;;      
             # --- 完整的删除逻辑 ---
             51) 
+			generate_vars
 			if [ -n "$h2_reality" ]; then
                 close_port "${h2_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
             fi
