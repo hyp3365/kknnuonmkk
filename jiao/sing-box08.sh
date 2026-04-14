@@ -2923,11 +2923,9 @@ vps_s() {
     clear
     echo ""
     green "=== 其他 ===\n"
+	skyblue "-------------------"
     green "1. 本机信息"
-    skyblue "-------------------"
-    green "2. 停止sing-box服务"
-    skyblue "-------------------"
-    green "3. 重启sing-box服务"
+    green "2. BBR管理"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -3041,7 +3039,14 @@ vps_s() {
     echo -e "${white}系统运行时长: ${purple}${runtime}${re}"
     echo
     ;;
-        2) stop_singbox ;;
+        2)
+    clear
+    install wget
+    wget --no-check-certificate -O tcpx.sh https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh && chmod +x tcpx.sh && ./tcpx.sh
+    rm tcpx.sh
+    break_end
+    main_menu
+    ;;
         3) restart_singbox ;;
         0) menu ;;
         *) red "无效的选项！" && sleep 1 && manage_singbox;;
