@@ -345,44 +345,23 @@ allow_port() {
         service ip6tables save 2>/dev/null
     fi
 }
-# 关闭端口放行
+
 close_port() {
-    has_ufw=0
-    has_firewalld=0
-    has_iptables=0
-    has_ip6tables=0
-
-    command_exists ufw && has_ufw=1
-    command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
-    command_exists iptables && has_iptables=1
-    command_exists ip6tables && has_ip6tables=1
-
-    for rule in "$@"; do
-        port=${rule%/*}
-        proto=${rule#*/}
-        [ "$has_ufw" -eq 1 ] && ufw delete allow in ${port}/${proto} >/dev/null 2>&1
-        [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --remove-port=${port}/${proto} >/dev/null 2>&1
-        [ "$has_iptables" -eq 1 ] && iptables -D INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null
-        [ "$has_ip6tables" -eq 1 ] && ip6tables -D INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null
-    done
-
-    [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
-
+    mkdir -p /etc/iptables
+    
     for rule in "$@"; do
         p_port=${rule%/*}
         if [ -f "/etc/iptables/rules.v4" ]; then
-            sed -i "/--dport $p_port /d" /etc/iptables/rules.v4
+            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/iptables/rules.v4
         fi
         if [ -f "/etc/iptables/rules.v6" ]; then
-            sed -i "/--dport $p_port /d" /etc/iptables/rules.v6
+            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/iptables/rules.v6
         fi
     done
-
+    [ -f "/etc/iptables/rules.v4" ] && iptables-restore < /etc/iptables/rules.v4 2>/dev/null
+    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6 2>/dev/null
     if command_exists netfilter-persistent; then
         netfilter-persistent save >/dev/null 2>&1
-    elif command_exists service; then
-        service iptables save 2>/dev/null
-        service ip6tables save 2>/dev/null
     fi
 }
 
@@ -2228,7 +2207,6 @@ EOF
             ;;      
             # --- 完整的删除逻辑 ---
             51) 
-			generate_vars
 			if [ -n "$h2_reality" ]; then
                 close_port "${h2_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
             fi
