@@ -2621,24 +2621,36 @@ iptables_ssl() {
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
 	echo -e "\033[0;33m$nat_rules\033[0m"
     skyblue "---------------------------"
-    
-    ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
-    printf "%-12s %-15s\n" "端口号"   "说明"
+
+	    ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
+    printf "%-20s %-30s %-30s\n" "端口号" "所属服务" "说明"   
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
         allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
         iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
             port=""; if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
             if (port != "" && port != "ALL" && port > 0) {
-                note=($0 ~ tag) ? "脚本放行" : "系统/手动";
-                if (!seen[port]++) { printf "\033[0;32m%-12s %-15s\033[0m\n", port, note }
+                if (!seen[port]++) {
+                    # 标识说明
+                    note=($0 ~ tag) ? "脚本放行" : "系统/手动";
+                    cmd = "ss -tunlp | grep \":" port " \" | head -n1"
+                    name = "未运行"
+                    if ((cmd | getline ss_line) > 0) {
+                        if (ss_line ~ /"/) {
+                            split(ss_line, s, "\"");
+                            name = s[2];
+                        }
+                    }
+                    close(cmd)
+                    printf "\033[0;32m%-20s %-30s %-30s\033[0m\n", port, name, note
+                }
             }
         }'
     fi
     
     echo -e "\033[0;36m---------------------------\033[0m"
     ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口 (已隐藏IPv6):"
-    printf "%-12s %-15s %-18s\n" "端口号"    "所属服务"    "监听IP"    
+    printf "%-20s %-30s %-30s\n" "端口号"    "所属服务"    "监听IP"    
     ss -tunlp | awk 'NR>1 {
         addr = $5; n = split(addr, a, ":"); port = a[n];
         ip = ""; for(i=1; i<n; i++) ip = (ip == "" ? a[i] : ip ":" a[i]);
@@ -2647,7 +2659,7 @@ iptables_ssl() {
         name = "未知服务"; if ($NF ~ /"/) { split($NF, s, "\""); name = s[2] }
         if (port ~ /^[0-9]+$/ && port > 0) print port, name, ip}' | sort -un | sort -n -k1,1 | while read -r p_port p_name p_ip; do
         if ! echo "$allowed_ports" | grep -qw "$p_port"; then
-            printf "\033[0;31m%-12s %-15s %-18s\033[0m\n" "$p_port" "$p_name" "$p_ip"
+            printf "\033[0;31m%-20s %-30s %-30s\033[0m\n" "$p_port" "$p_name" "$p_ip"
         fi
     done
     skyblue "---------------------------"
