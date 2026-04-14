@@ -2649,7 +2649,7 @@ iptables_ssl() {
     fi
     
     echo -e "\033[0;36m---------------------------\033[0m"
-    ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口 (已隐藏IPv6):"
+    ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口"
     printf "%-13s %-19s %-15s\n" "端口号"    "所属服务"    "监听IP"    
     ss -tunlp | awk 'NR>1 {
         addr = $5; n = split(addr, a, ":"); port = a[n];
@@ -2666,12 +2666,12 @@ iptables_ssl() {
     
     green "1. 开启端口"
     green "2. 关闭端口"
-    green "3. 开启拦截 (白名单模式)"
-    green "4. 关闭拦截 (裸奔模式)"
-    green "5. 安装/更新 环境"
+    green "3. 开启拦截"
+    green "4. 关闭拦截"
+    green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
-    purple "0. 返回主菜单"
+    purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
