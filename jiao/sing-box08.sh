@@ -240,41 +240,20 @@ manage_packages() {
 
 # 获取ip
 get_realip() {
-    local ip=""
-    local v6=""
-    local resp=""
-    # 依次尝试：ip.sb, ifconfig.me, icanhazip.com
-    ip=$(curl -4 -sm 5 ip.sb || curl -4 -sm 5 ifconfig.me || curl -4 -sm 5 icanhazip.com)
-    get_v6() {
-        curl -6 -sm 5 ip.sb || curl -6 -sm 5 icanhazip.com || curl -6 -sm 5 api64.ipify.org
-    }
-    if [ -z "$ip" ]; then
-        v6=$(get_v6)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-        else
-            echo "error_network_down"
-        fi
-        return
-    fi
-    local org
-    org=$(curl -4 -sm 5 http://ipinfo.io/org 2>/dev/null)    
-    if echo "$org" | grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        v6=$(get_v6)
-        [ -n "$v6" ] && echo "[$v6]" || echo "$ip"
+    ipv4_address=$(curl -4 -sm 2 ip.sb || curl -4 -sm 2 ifconfig.me || curl -4 -sm 2 icanhazip.com)
+    ipv6_address=$(curl -6 -sm 2 ip.sb || curl -6 -sm 2 icanhazip.com || curl -6 -sm 2 api64.ipify.org)
+    if [ -n "$ipv4_address" ]; then
+        echo -e "${white}公网IPv4地址: ${purple}${ipv4_address}${re}"
     else
-        resp=$(curl -sm 5 "https://status.eooce.com/api/$ip" 2>/dev/null | jq -r '.status' 2>/dev/null)       
-        if [ "$resp" = "Available" ]; then
-            echo "$ip"
-        else
-            v6=$(get_v6)
-            if [ -n "$v6" ]; then
-                echo "[$v6]"
-            else
-                echo "$ip"
-            fi
-        fi
+        echo -e "${white}公网IPv4地址: ${red}未获取到IPv4${re}"
     fi
+
+    if [ -n "$ipv6_address" ]; then
+        echo -e "${white}公网IPv6地址: ${purple}${ipv6_address}${re}"
+    else
+        echo -e "${white}公网IPv6地址: ${red}未获取到IPv6${re}"
+    fi
+	main_ip=${ipv4_address:-$ipv6_address}
 }
 
 # 处理防火墙
