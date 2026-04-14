@@ -2935,7 +2935,7 @@ vps_s() {
     case "${choice}" in
         1)
     clear
-    ip_address
+    get_realip
     
     if [ "$(uname -m)" == "x86_64" ]; then
       cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
