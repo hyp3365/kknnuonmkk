@@ -2134,7 +2134,7 @@ EOF
 			allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
 			node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
-            VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${encoded_path}%3Fed%3D2560#${node_remark}"
+            VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspaasksavxssaszass%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
                 grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
             fi
