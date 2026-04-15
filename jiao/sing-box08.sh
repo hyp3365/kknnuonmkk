@@ -1877,7 +1877,6 @@ EOF
            sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
           fi
           echo "$url" >> "/etc/sing-box/url.txt"
-          sed -i '/^$/d' "/etc/sing-box/url.txt" 
 		  echo "" >> "/etc/sing-box/url.txt"
           base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
           restart_singbox 
