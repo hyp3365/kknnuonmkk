@@ -363,7 +363,7 @@ check_and_issue_ssl() {
             fi
         fi
     fi
-    echo -e "未检测到可用证书，请选择申请方式："
+    echo -e "未检测到可用证书，请选择申请方式"
 	echo -e "通过80端口申请 确保域名已解析到服务器并且已关闭代理模式"
     echo -e "1) 通过 80 端口申请 "
     echo -e "2) 通过 Cloudflare DNS API"
@@ -1776,7 +1776,7 @@ manage_nodes_menu() {
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
+			"vless-wstls-cdn.json|vless-wstls-cdn|7"
 			"vless-ws-cdn.json|vless-ws-cdn|8"
 			"vmess-ws-cdn.json|vmess-ws-cdn|9"
         )
