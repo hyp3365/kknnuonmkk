@@ -297,40 +297,92 @@ run_ssl_task() {
 
 # Cloudflare DNS API 模式申请证书函数
 issue_cf_dns_cert() {
-    reading "请输入域名 (支持通配符如 *.example.com): " domain
+    if [[ -z "$domain" ]]; then
+        reading "请输入域名 (支持通配符如 *.example.com): " domain
+    fi
     [[ -z "$domain" ]] && red "域名不能为空" && return 1    
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
     reading "请输入 Cloudflare Global API Key: " cf_key
-    [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1   
+    [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1      
     export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
-    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')    
-    manage_packages "install" "curl" "socat" "cron" "psmisc"   
+    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')      
+    manage_packages "install" "curl" "socat" "cron" "psmisc"     
     if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
         skyblue "正在安装 acme.sh..."
         curl https://get.acme.sh | sh -s email="$CF_Email" >/dev/null 2>&1
-    fi    
-    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1    
+    fi      
+    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1      
     local save_path="/root/cert/${domain}"
-    mkdir -p "$save_path"
+    mkdir -p "$save_path"  
     skyblue "正在通过 DNS API 为 ${domain} 申请证书..."
-    "$HOME/.acme.sh/acme.sh" --issue --dns dns_cf -d "$domain" --keylength ec-256 --force
+    "$HOME/.acme.sh/acme.sh" --issue --dns dns_cf -d "$domain" --keylength ec-256 --force   
     if [ $? -eq 0 ]; then
         "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" --ecc \
             --key-file "${save_path}/privkey.pem" \
-            --fullchain-file "${save_path}/fullchain.pem"          
+            --fullchain-file "${save_path}/fullchain.pem"                
         chmod 600 "${save_path}/privkey.pem"
         cert_file="${save_path}/fullchain.pem"
-        key_file="${save_path}/privkey.pem"
+        key_file="${save_path}/privkey.pem"        
         green "申请成功！"
         green "证书: ${cert_file}"
         green "私钥: ${key_file}"      
         "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
     else
-        red "申请失败，请检查 CF 邮箱/Key 是否正确，或API频率限制。"
+        red "申请失败，请检查 CF 邮箱/Key 是否正确，或 API 频率限制。"
         return 1
     fi
 }
+
+# 综合证书检查与申请 调用check_and_issue_ssl || return 1
+check_and_issue_ssl() {
+    local input_domain="$1"
+    [[ -z "$input_domain" ]] && reading "请输入域名: " input_domain
+    [[ -z "$input_domain" ]] && red "域名不能为空!" && return 1  
+    domain="$input_domain"
+    cert_file="/root/cert/${domain}/fullchain.pem"
+    key_file="/root/cert/${domain}/privkey.pem"
+
+    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+        skyblue "检测到域名 ${domain} 的证书已存在，直接使用。"
+        return 0
+    fi
+    if [[ "$domain" == *.*.* ]]; then
+        local parent_domain=$(echo "$domain" | cut -d'.' -f2-)
+        local p_cert="/root/cert/${parent_domain}/fullchain.pem"
+        local p_key="/root/cert/${parent_domain}/privkey.pem"
+
+        if [[ -f "$p_cert" && -f "$p_key" ]]; then
+            yellow "当前域名无证书，但检测到父域名 ${parent_domain} 已有证书。"
+            reading "是否直接使用父域名证书？(y/n): " use_parent
+            if [[ "$use_parent" == "y" ]]; then
+                cert_file="$p_cert"
+                key_file="$p_key"
+                green "已选择使用 ${parent_domain} 的证书。"
+                return 0
+            fi
+        fi
+    fi
+    echo -e "未检测到可用证书，请选择申请方式："
+	echo -e "通过80端口申请 确保域名已解析到服务器并且已关闭代理模式"
+    echo -e "1) 通过 80 端口申请 "
+    echo -e "2) 通过 Cloudflare DNS API"
+    reading "请输入选择 [1-2]: " ssl_choice
+
+    case "$ssl_choice" in
+        1) run_ssl_task "$domain" ;;
+        2) issue_cf_dns_cert "$domain" ;;
+        *) red "无效选择"; return 1 ;;
+    esac
+    if [[ $? -eq 0 && -f "$cert_file" ]]; then
+        green "证书申请成功并已就绪！"
+        return 0
+    else
+        red "证书申请失败，请检查日志。"
+        return 1
+    fi
+}
+
 
 # 处理防火墙
 allow_port() {
@@ -2075,37 +2127,9 @@ EOF
         green "==============================================="
         ;;
 		7)
-        reading "请输入域名 (比如 a.aa.net): " domain
-    [[ -z "$domain" ]] && red "域名不能为空!" && return 1
-    cert_file="/root/cert/${domain}/fullchain.pem"
-    key_file="/root/cert/${domain}/privkey.pem"
-    if [[ -f "$cert_file" && -f "$key_file" ]]; then
-        skyblue "检测到域名 ${domain} 的证书已存在，跳过申请步骤，直接使用现有证书。"
-    else
-        echo -e "未检测到有效证书，请选择申请方式："
-        echo -e "1) 通过 80 端口申请 (HTTP Standalone)"
-        echo -e "2) 通过 Cloudflare DNS API 申请 (支持通配符)"
-        reading "请输入选择 [1-2]: " ssl_choice
-        case "$ssl_choice" in
-            1)
-                run_ssl_task "$domain"
-                ;;
-            2)
-                issue_cf_dns_cert
-                ;;
-            *)
-                red "无效选择，操作已取消。"
-                return 1
-                ;;
-        esac
-        if [ $? -ne 0 ]; then
-            red "证书申请失败，无法继续生成配置文件。"
-            return 1
-        fi
-    fi
-	
-    generate_vars
-    mkdir -p /etc/sing-box
+        check_and_issue_ssl || return 1
+        generate_vars
+        mkdir -p /etc/sing-box
         cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
 {
   "inbounds": [
