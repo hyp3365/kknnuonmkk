@@ -2075,25 +2075,37 @@ EOF
         green "==============================================="
         ;;
 		7)
-            echo -e "请选择证书申请方式："
-    echo -e "1) 通过 80 端口申请 (HTTP Standalone)"
-    echo -e "2) 通过 Cloudflare DNS API 申请 ("
-    reading "请输入选择 [1-2]: " ssl_choice
-    case "$ssl_choice" in
-        1)
-            run_ssl_task
-            ;;
-        2)
-            issue_cf_dns_cert
-            ;;
-        *)
-            red "无效选择，退出申请。"
+        reading "请输入域名 (比如 a.aa.net): " domain
+    [[ -z "$domain" ]] && red "域名不能为空!" && return 1
+    cert_file="/root/cert/${domain}/fullchain.pem"
+    key_file="/root/cert/${domain}/privkey.pem"
+    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+        skyblue "检测到域名 ${domain} 的证书已存在，跳过申请步骤，直接使用现有证书。"
+    else
+        echo -e "未检测到有效证书，请选择申请方式："
+        echo -e "1) 通过 80 端口申请 (HTTP Standalone)"
+        echo -e "2) 通过 Cloudflare DNS API 申请 (支持通配符)"
+        reading "请输入选择 [1-2]: " ssl_choice
+        case "$ssl_choice" in
+            1)
+                run_ssl_task "$domain"
+                ;;
+            2)
+                issue_cf_dns_cert
+                ;;
+            *)
+                red "无效选择，操作已取消。"
+                return 1
+                ;;
+        esac
+        if [ $? -ne 0 ]; then
+            red "证书申请失败，无法继续生成配置文件。"
             return 1
-            ;;
-    esac
-    if [ $? -eq 0 ]; then
-        generate_vars
-        mkdir -p /etc/sing-box
+        fi
+    fi
+	
+    generate_vars
+    mkdir -p /etc/sing-box
         cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
 {
   "inbounds": [
