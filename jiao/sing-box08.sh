@@ -1776,7 +1776,7 @@ manage_nodes_menu() {
             "socks5.json|Socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-wstls-cdn.json|vless-wstls-cdn|7"
+			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
 			"vless-ws-cdn.json|vless-ws-cdn|8"
 			"vmess-ws-cdn.json|vmess-ws-cdn|9"
         )
@@ -2130,7 +2130,7 @@ EOF
         check_and_issue_ssl || return 1
         generate_vars
         mkdir -p /etc/sing-box
-        cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
+        cat > /etc/sing-box/vless-wstls-cdn.json << EOF
 {
   "inbounds": [
     {
