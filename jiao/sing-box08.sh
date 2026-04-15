@@ -261,46 +261,76 @@ ip_address() {
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
 
-
-# 证书申请1
+# 80 端口申请模式
 run_ssl_task() {
     local domain="$1"
-    if [[ -z "$domain" ]]; then
-        reading "请输入域名: " domain
-    fi
-    if [[ -z "$domain" ]]; then
-        red "域名不能为空"
-        return 1
-    fi
+    [[ -z "$domain" ]] && reading "请输入域名: " domain
+    [[ -z "$domain" ]] && red "域名不能为空" && return 1
     manage_packages "install" "curl" "socat"
     if command -v ss >/dev/null 2>&1; then
         local occupant=$(ss -ntlp | grep ":80 " | awk -F'users:\\(\\("' '{print $2}' | awk -F'"' '{print $1}' | head -n1)
-        if [ -n "$occupant" ]; then
-            red "错误: 80 端口正被 [${occupant}] 占用，请先停止该服务"
-            return 1
-        fi
+        [[ -n "$occupant" ]] && red "错误: 80 端口正被 [${occupant}] 占用" && return 1
     fi
-    if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
-        skyblue "正在安装 acme.sh..."
-        curl -s https://get.acme.sh | sh >/dev/null 2>&1
-    fi
-    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1
-    mkdir -p "/root/cert/${domain}"    
+    [[ ! -f "$HOME/.acme.sh/acme.sh" ]] && skyblue "正在安装 acme.sh..." && curl -s https://get.acme.sh | sh >/dev/null 2>&1
+    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1    
+    local save_path="/root/cert/${domain}"
+    mkdir -p "$save_path"    
     skyblue "正在为 ${domain} 申请证书..."
-    "$HOME/.acme.sh/acme.sh" --issue -d "$domain" --standalone --httpport 80 --force    
+    "$HOME/.acme.sh/acme.sh" --issue -d "$domain" --standalone --httpport 80 --force        
     if [ $? -eq 0 ]; then
         "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" \
-            --key-file "/root/cert/${domain}/privkey.pem" \
-            --fullchain-file "/root/cert/${domain}/fullchain.pem"
+            --key-file "${save_path}/privkey.pem" \
+            --fullchain-file "${save_path}/fullchain.pem"
         
-        chmod 600 "/root/cert/${domain}/privkey.pem"
-        green "申请成功！证书路径: /root/cert/${domain}"      
+        chmod 600 "${save_path}/privkey.pem"
+        cert_file="${save_path}/fullchain.pem"
+        key_file="${save_path}/privkey.pem"
+        green "申请成功！"
+        green "证书: ${cert_file}"
+        green "私钥: ${key_file}"      
         "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
     else
         red "申请失败，请检查域名解析和 80 端口"
+        return 1
     fi
 }
 
+# Cloudflare DNS API 模式申请证书函数
+issue_cf_dns_cert() {
+    reading "请输入域名 (支持通配符如 *.example.com): " domain
+    [[ -z "$domain" ]] && red "域名不能为空" && return 1    
+    reading "请输入 Cloudflare 登录邮箱: " cf_email
+    [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
+    reading "请输入 Cloudflare Global API Key: " cf_key
+    [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1   
+    export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
+    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')    
+    manage_packages "install" "curl" "socat" "cron" "psmisc"   
+    if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
+        skyblue "正在安装 acme.sh..."
+        curl https://get.acme.sh | sh -s email="$CF_Email" >/dev/null 2>&1
+    fi    
+    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1    
+    local save_path="/root/cert/${domain}"
+    mkdir -p "$save_path"
+    skyblue "正在通过 DNS API 为 ${domain} 申请证书..."
+    "$HOME/.acme.sh/acme.sh" --issue --dns dns_cf -d "$domain" --keylength ec-256 --force
+    if [ $? -eq 0 ]; then
+        "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" --ecc \
+            --key-file "${save_path}/privkey.pem" \
+            --fullchain-file "${save_path}/fullchain.pem"          
+        chmod 600 "${save_path}/privkey.pem"
+        cert_file="${save_path}/fullchain.pem"
+        key_file="${save_path}/privkey.pem"
+        green "申请成功！"
+        green "证书: ${cert_file}"
+        green "私钥: ${key_file}"      
+        "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
+    else
+        red "申请失败，请检查 CF 邮箱/Key 是否正确，或API频率限制。"
+        return 1
+    fi
+}
 
 # 处理防火墙
 allow_port() {
@@ -2044,51 +2074,27 @@ EOF
 		green " 节点如果不通 试着打开客服端ECH"
         green "==============================================="
         ;;
-		7) 
-		    generate_vars
-            mkdir -p /etc/sing-box
-            green "正在启动 Cloudflare DNS API 模式申请证书..."
-            # 1. 检查依赖
-            for cmd in curl socat crontab; do
-                if ! command -v $cmd >/dev/null 2>&1; then
-                    green "安装依赖: $cmd ..."
-                    apt update && apt install curl socat cron psmisc -y || yum install curl socat crontabs psmisc -y
-                    break
-                fi
-            done
-            read -p "请输入域名 (比如a.aa.net或通配符*.aa.net): " domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
-            read -p "请输入 Cloudflare 登录邮箱: " cf_email
-            [ -z "$cf_email" ] && red "邮箱不能为空!" && return 1
-            read -p "请输入 Cloudflare Global API Key: " cf_key
-            [ -z "$cf_key" ] && red "API Key 不能为空!" && return 1
-            export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
-            export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')
-            export LANG=en_US.UTF-8
-            if [ ! -f ~/.acme.sh/acme.sh ]; then
-                green "安装 acme.sh..."
-                curl https://get.acme.sh | sh -s email="$CF_Email"
-            fi
-            green "正在向 Let's Encrypt 发起申请..."
-            ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-            ~/.acme.sh/acme.sh --issue --dns dns_cf -d "$domain" --keylength ec-256 --force
-            
-            if [ $? -ne 0 ]; then
-                red "申请失败！请检查 CF 信息或域名解析。"
-                return 1
-            fi
-            ssl_dir="/etc/sing-box/ssl"
-            [ ! -d "$ssl_dir" ] && mkdir -p "$ssl_dir"          
-            cert_path="${ssl_dir}/${domain}.pem"
-            key_path="${ssl_dir}/${domain}.key"
-            ws_path="/sspaasksavxssaszass"
-            green "正在安装证书到: $ssl_dir"
-            ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
-                --fullchain-file "$cert_path" \
-                --key-file "$key_path"
-
-            green "正在生成 sing-box 配置文件..."
-			cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
+		7)
+            echo -e "请选择证书申请方式："
+    echo -e "1) 通过 80 端口申请 (HTTP Standalone)"
+    echo -e "2) 通过 Cloudflare DNS API 申请 ("
+    reading "请输入选择 [1-2]: " ssl_choice
+    case "$ssl_choice" in
+        1)
+            run_ssl_task
+            ;;
+        2)
+            issue_cf_dns_cert
+            ;;
+        *)
+            red "无效选择，退出申请。"
+            return 1
+            ;;
+    esac
+    if [ $? -eq 0 ]; then
+        generate_vars
+        mkdir -p /etc/sing-box
+        cat > /etc/sing-box/vless-wstsl-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2100,12 +2106,12 @@ EOF
       "tls": {
         "enabled": true,
         "server_name": "$domain",
-        "certificate_path": "$cert_path",
-        "key_path": "$key_path"
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file"
       },
       "transport": {
         "type": "ws",
-        "path": "$ws_path",
+        "path": "/sspaasksavxssaszass",
         "max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
