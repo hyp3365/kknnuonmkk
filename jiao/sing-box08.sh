@@ -1773,7 +1773,7 @@ manage_nodes_menu() {
             "h2-reality.json|http-Reality|1"
             "grpc-reality.json|gRPC-Reality|2"
             "anytls.json|anytls|3"
-            "socks5.json|Socks5|4"
+            "socks5.json|socks5|4"
             "http.json|HTTP|5"
 			"vless-ws-argo.json|vless-ws-argo|6"
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
@@ -2352,7 +2352,7 @@ EOF
                 close_port "${socks_port}/tcp" "${socks_port}/udp" > /dev/null 2>&1
             fi
 			target="_socks5"
-            target_conf="/etc/socks5.json"
+            target_conf="/etc/sing-box/socks5.json"
             if [ -f "$target_conf" ]; then
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
@@ -2771,7 +2771,6 @@ iptables_ssl() {
     green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
-	green "8. 证书测试"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -2950,7 +2949,6 @@ iptables_ssl() {
             fi
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
-        8) run_ssl_task ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
