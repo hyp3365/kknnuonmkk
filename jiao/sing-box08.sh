@@ -261,6 +261,47 @@ ip_address() {
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
 
+
+# 证书申请1
+run_ssl_task() {
+    local domain="$1"
+    if [[ -z "$domain" ]]; then
+        reading "请输入域名: " domain
+    fi
+    if [[ -z "$domain" ]]; then
+        red "域名不能为空"
+        return 1
+    fi
+    manage_packages "install" "curl" "socat"
+    if command -v ss >/dev/null 2>&1; then
+        local occupant=$(ss -ntlp | grep ":80 " | awk -F'users:\\(\\("' '{print $2}' | awk -F'"' '{print $1}' | head -n1)
+        if [ -n "$occupant" ]; then
+            red "错误: 80 端口正被 [${occupant}] 占用，请先停止该服务"
+            return 1
+        fi
+    fi
+    if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
+        skyblue "正在安装 acme.sh..."
+        curl -s https://get.acme.sh | sh >/dev/null 2>&1
+    fi
+    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1
+    mkdir -p "/root/cert/${domain}"    
+    skyblue "正在为 ${domain} 申请证书..."
+    "$HOME/.acme.sh/acme.sh" --issue -d "$domain" --standalone --httpport 80 --force    
+    if [ $? -eq 0 ]; then
+        "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" \
+            --key-file "/root/cert/${domain}/privkey.pem" \
+            --fullchain-file "/root/cert/${domain}/fullchain.pem"
+        
+        chmod 600 "/root/cert/${domain}/privkey.pem"
+        green "申请成功！证书路径: /root/cert/${domain}"      
+        "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
+    else
+        red "申请失败，请检查域名解析和 80 端口"
+    fi
+}
+
+
 # 处理防火墙
 allow_port() {
     has_ufw=0
@@ -2680,6 +2721,7 @@ iptables_ssl() {
     green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
+	green "8. 证书测试"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -2858,7 +2900,7 @@ iptables_ssl() {
             fi
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
-
+        8) run_ssl_task ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
