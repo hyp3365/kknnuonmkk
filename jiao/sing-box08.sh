@@ -54,7 +54,7 @@ generate_vars() {
           printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
       }'))
   else
-      isp="🌐" # 失败保底
+      isp="🌐" 
   fi
     h2_reality=$(shuf -i 10000-60000 -n 1)
 	socks_port=$(shuf -i 10000-60000 -n 1)
@@ -384,7 +384,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
    # 生成随机端口和密码
-    nginx_port=$(($vless_portvless_port + 1)) 
+    nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
