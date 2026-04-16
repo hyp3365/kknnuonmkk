@@ -1802,9 +1802,11 @@ EOF
 	  nginx -t && systemctl reload nginx
       echo -e "访问地址: https://${domain}:$sub_port/${password}"
         ;;
-		0)  menu ;; 
-        *)  red "无效的选项！" ;;
-    esac
+	  0) menu; return ;;
+      *) red "无效选项" ;;
+        esac
+        read -p "按回车键继续..." pause
+    done
 }
 
 
