@@ -1253,21 +1253,6 @@ uninstall_singbox() {
    esac
 }
 
-# 创建快捷指令
-#create_shortcut() {
- # cat > "$work_dir/sb.sh" << EOF
-#!/usr/bin/env bash
-#bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh) \$1
-#EOF
-  #chmod +x "$work_dir/sb.sh"
-  #ln -sf "$work_dir/sb.sh" /usr/bin/sb
-  #if [ -s /usr/bin/sb ]; then
-    #green "\n快捷指令 sb 创建成功\n"
-  #else
-    #red "\n快捷指令创建失败\n"
-  #fi
-#}
-
 # 适配alpine运行argo报错用户组和dns的问题
 change_hosts() {
     sh -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
