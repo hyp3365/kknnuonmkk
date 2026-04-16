@@ -133,7 +133,7 @@ while true; do
     echo -e "1) ${GREEN}更新 sing-box${RESET} [ ${YELLOW}稳定版: ${v_stable:-获取中}${RESET} ]"
     echo -e "2) ${GREEN}更新 sing-box${RESET} [ ${YELLOW}测试版: ${v_pre:-获取中}${RESET} ]"
     echo -e "3) ${GREEN}更新 argo    ${RESET} [ ${YELLOW}最新版: ${v_argo:-获取中}${RESET} ]"
-    echo -e "4) ${RED}退出程序${RESET}"
+    echo -e "0) ${RED}退出程序${RESET}"
     echo
 
     read -p "请选择序号后回车: " choice
@@ -141,7 +141,7 @@ while true; do
         1) update_sb "$v_stable" ;;
         2) update_sb "$v_pre" ;;
         3) update_argo ;;
-        4) exit 0 ;;
+        0) exit 0 ;;
         *) echo -e "${RED}输入错误${RESET}" ;;
     esac
     echo
