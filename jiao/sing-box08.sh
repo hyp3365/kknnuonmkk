@@ -2531,7 +2531,7 @@ enable_bbr() {
     ./tcpx.sh
 }
 
-Update_script() {
+update_script() {
     local work_dir="/etc/sing-box"
     local local_file="${work_dir}/sb.sh"
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
