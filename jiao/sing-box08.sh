@@ -1549,11 +1549,13 @@ disable_open_sub() {
     skyblue "------------"
 	green "4. nginx配置"
     skyblue "------------"
-    green "5. 关闭节点订阅"
+	green "5. HTTPS订阅"
     skyblue "------------"
-    green "6. 开启节点订阅"
+    green "6. 关闭节点订阅"
     skyblue "------------"
-    green "7. 更换订阅端口"
+    green "7. 开启节点订阅"
+    skyblue "------------"
+    green "8. 更换订阅端口"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1572,6 +1574,61 @@ disable_open_sub() {
             green "Nginx 服务已重启"
             ;;
 		4)
+          check_and_issue_ssl
+          mkdir -p /etc/nginx/conf.d/
+          echo -ne "\033[31m请输入 Nginx 监听端口 (1-65535)\033[0m "
+          read -p "(直接回车将随机生成): " input_port                 
+          if [[ -z "$input_port" ]]; then
+              sub_port=$(shuf -i 1000-65000 -n 1)
+              echo -e "已启用随机端口: \033[31m${sub_port}\033[0m"
+          else
+              sub_port=$input_port
+              echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
+          fi
+          [[ -z "${domain}" ]] && reading "请输入域名: " domain         
+          password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
+          cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+    listen ${sub_port} ssl;
+    listen [::]:${sub_port} ssl;
+    server_name ${domain};
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /${password} {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    location / {
+        return 404;
+    }
+
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF                 
+          if nginx -t > /dev/null 2>&1; then
+              systemctl reload nginx
+              echo -e "-------------------------------------------------------"
+              echo -e "配置成功！"
+              echo -e "访问地址: \033[32mhttps://${domain}:${sub_port}/${password}\033[0m"
+              echo -e "-------------------------------------------------------"
+          else
+              echo -e "\033[31m错误：Nginx 配置语法检查失败，请检查端口占用或证书路径！\033[0m"
+          fi
+          ;;
+		5)
             while true; do
                 clear
                 green "=== Nginx配置 ==="
@@ -1655,7 +1712,7 @@ disable_open_sub() {
                 sleep 2
             done
             ;;
-        5)
+        6)
               if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
                 rm -f "/etc/nginx/conf.d/sing-box.conf"
@@ -1669,7 +1726,7 @@ disable_open_sub() {
                 yellow "未发现 /etc/nginx/conf.d/sing-box.conf 文件，无需操作"
             fi
             ;; 
-        6)
+        7)
                 
             echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
             bak_file=$(ls /etc/nginx/conf.d/sing-box.conf.bak* 2>/dev/null | sort -r | head -n 1)
@@ -1711,7 +1768,7 @@ disable_open_sub() {
             green "新的节点订阅链接：$link\n"
             ;;
 
-        7)
+        8)
             reading "请输入新的订阅端口[1-65535]:" sub_port
             [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
 
@@ -1758,61 +1815,6 @@ disable_open_sub() {
                 return 1
             fi
             ;; 
-		8)
-          check_and_issue_ssl
-          mkdir -p /etc/nginx/conf.d/
-          echo -ne "\033[31m请输入 Nginx 监听端口 (1-65535)\033[0m "
-          read -p "(直接回车将随机生成): " input_port                 
-          if [[ -z "$input_port" ]]; then
-              sub_port=$(shuf -i 1000-65000 -n 1)
-              echo -e "已启用随机端口: \033[31m${sub_port}\033[0m"
-          else
-              sub_port=$input_port
-              echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
-          fi
-          [[ -z "${domain}" ]] && reading "请输入域名: " domain         
-          password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
-          cat > /etc/nginx/conf.d/sing-box.conf << EOF
-server {
-    listen ${sub_port} ssl;
-    listen [::]:${sub_port} ssl;
-    server_name ${domain};
-    ssl_certificate ${cert_file};
-    ssl_certificate_key ${key_file};
-
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-
-    location = /${password} {
-        alias /etc/sing-box/sub.txt;
-        default_type 'text/plain; charset=utf-8';
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-        add_header Pragma "no-cache";
-        add_header Expires "0";
-    }
-
-    location / {
-        return 404;
-    }
-
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF                 
-          if nginx -t > /dev/null 2>&1; then
-              systemctl reload nginx
-              echo -e "-------------------------------------------------------"
-              echo -e "配置成功！"
-              echo -e "访问地址: \033[32mhttps://${domain}:${sub_port}/${password}\033[0m"
-              echo -e "-------------------------------------------------------"
-          else
-              echo -e "\033[31m错误：Nginx 配置语法检查失败，请检查端口占用或证书路径！\033[0m"
-          fi
-          ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
