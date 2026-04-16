@@ -274,6 +274,7 @@ sui_panel_menu() {
         echo "--------------"
         purple "0. 返回上一级菜单"
         reading "请输入选择 [0-2]: " sub_choice
+		case $cr_choice in
                   1)
                     bash <(curl -Ls https://raw.githubusercontent.com/alireza0/s-ui/master/install.sh)
                     ;;
