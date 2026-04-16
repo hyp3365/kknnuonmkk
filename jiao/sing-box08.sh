@@ -1762,8 +1762,8 @@ disable_open_sub() {
           [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
 		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
-    listen $nginx_port;
-    listen [::]:$nginx_port;
+    listen $nginx_port ssl;
+    listen [::]:$nginx_port ssl;
     server_name ${domain};
     ssl_certificate ${cert_file};
     ssl_certificate_key ${key_file};
@@ -1791,7 +1791,7 @@ server {
 }
 EOF
       nginx -t && systemctl reload nginx
-      echo -e "访问地址: https://${domain}/$sub_port/${password}"
+      echo -e "访问地址: https://${domain}/${nginx_port}/${password}"
         ;;
 		0)  menu ;; 
         *)  red "无效的选项！" ;;
