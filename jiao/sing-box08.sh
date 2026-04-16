@@ -2532,27 +2532,36 @@ enable_bbr() {
 }
 
 update_script() {
-    local work_dir="/etc/sing-box"
-    local local_file="${work_dir}/sb.sh"
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
-    if curl -fsSL "$remote_url" -o "${local_file}.tmp"; then
+    local local_file="/etc/sing-box/sb.sh"
+
+    yellow "\n正在检查脚本更新..."
+    # 1. 下载到临时位置，防止下载失败把旧脚本搞坏
+    if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
         if [ -s "${local_file}.tmp" ]; then
+            # 2. 移动并覆盖正式位置
             mv -f "${local_file}.tmp" "$local_file"
             chmod +x "$local_file"
-            ln -sf "$local_file" /usr/local/bin/sb >/dev/null 2>&1
-            ln -sf "$local_file" /usr/local/bin/b >/dev/null 2>&1           
-            echo -e "\033[32m\n脚本已更新！...\033[0m"
+            
+            # 3. 重新建立快捷链接（确保路径一致）
+            ln -sf "$local_file" /usr/local/bin/sb
+            ln -sf "$local_file" /usr/local/bin/b
+            
+            green "\n脚本已更新成功！"
+            yellow "正在自动重新启动菜单...\n"
             sleep 1
-            bash "$local_file"
-            exit 0
+            
+            # 4. 关键：用新脚本替换当前进程
+            exec bash "$local_file"
         else
             rm -f "${local_file}.tmp"
-            echo -e "\033[31m\n更新失败：下载内容为空\033[0m"
+            red "\n更新失败：下载的文件为空，请检查 URL"
         fi
     else
-        echo -e "\033[31m\n更新失败：网络连接超时\033[0m"
+        red "\n更新失败：无法连接到 Github，请检查网络"
     fi
 }
+
 
 # 13. SSH
 vps_ssl() {
@@ -3411,3 +3420,4 @@ while true; do
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
+menu_loop
