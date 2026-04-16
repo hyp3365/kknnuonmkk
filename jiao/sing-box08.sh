@@ -1791,12 +1791,9 @@ server {
 }
 EOF
       nginx -t && systemctl reload nginx
-    green "Nginx 配置已自动更新并开启 HTTPS！"
-    echo -e "访问地址: https://${domain}/$sub_port/${password}"
-else
-    red "证书申请失败，未更新 Nginx 配置。"
-fi
-        0)  menu ;; 
+      echo -e "访问地址: https://${domain}/$sub_port/${password}"
+        ;;
+		0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
 }
