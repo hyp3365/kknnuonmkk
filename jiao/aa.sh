@@ -216,6 +216,22 @@ add_swap() {
     read -n 1 -s -r -p "按任意键返回菜单..."
 }
 
+# 查看内存占用排行
+check_memory_usage() {
+    clear
+    purple "=== 系统进程内存占用排行 (Top 10) ==="
+    echo "--------------------------------------"
+    printf "%-25s %-15s\n" "程序名称" "占用内存 (MB)"
+    echo "--------------------------------------"
+    ps aux --sort=-rss | awk 'NR>1 {print $11, $6/1024}' | head -n 10 | while read -r proc mem; do
+        proc_name=$(basename "$proc")
+        printf "%-25s %-15.1f MB\n" "$proc_name" "$mem"
+    done
+    echo "--------------------------------------"
+    echo ""
+    read -n 1 -s -r -p "按任意键返回菜单..."
+}
+
 clean_system() {
     clear
     purple "=== 系统清理 ==="
@@ -479,10 +495,11 @@ while true; do
    clear
    echo ""
    green "1. 虚拟内存"
-   green "2. 系统清理"
-   green "3. S-UI面板"
-   green "4. 3X-UI面板"
-   green "5. Cloudreve云盘"
+   green "2. 内存占用"
+   green "3. 系统清理"
+   green "4. S-UI面板"
+   green "5. 3X-UI面板"
+   green "6. Cloudreve云盘"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -493,16 +510,19 @@ while true; do
         1)
             add_swap
             ;;
-        2)
-            clean_system
+		2)
+            check_memory_usage
             ;;
         3)
+            clean_system
+            ;;
+        4)
             sui_panel_menu
             ;;
-		4)
+		5)
             xui_panel_menu
             ;;
-        5)
+        6)
             cloudreve_menu
             ;;
         0)
