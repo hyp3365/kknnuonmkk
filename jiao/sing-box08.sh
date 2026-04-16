@@ -1769,7 +1769,6 @@ disable_open_sub() {
             echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
           fi
           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
-          [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
 		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
     listen $sub_port ssl;
