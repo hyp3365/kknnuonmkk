@@ -296,6 +296,50 @@ sui_panel_menu() {
     done
 }
 
+# 3x-ui面板
+xui_panel_menu() {
+    while true; do
+        clear
+        purple "=== 3x-ui 面板 ==="
+        echo "--------------"
+        green  "1. 安装 3x-ui "
+        red    "2. 卸载 3x-ui "
+        echo "--------------"
+        purple "0. 返回上一级菜单"
+        echo "--------------"
+        reading "请输入选择 [0-2]: " sub_choice
+        case $sub_choice in
+            1)
+                yellow "正在获取 3x-ui 安装脚本..."
+                bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+                echo ""
+                read -n 1 -s -r -p "按任意键继续..."
+                ;;
+            2)
+                yellow "正在卸载 3x-ui 并清理所有数据..."
+                systemctl stop x-ui >/dev/null 2>&1
+                systemctl disable x-ui >/dev/null 2>&1
+                rm -f /etc/systemd/system/x-ui.service
+                systemctl daemon-reload
+                rm -rf /usr/local/x-ui
+                rm -f /usr/bin/x-ui
+
+                clear
+                green "3x-ui 面板已卸载。"
+                sleep 2
+                break # 卸载完成返回上一级
+                ;;
+            0) 
+                break 
+                ;;
+            *)
+                red "无效输入，请输入 0-2"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
 cloudreve_menu() {
     while true; do
         clear
@@ -437,7 +481,8 @@ while true; do
    green "1. 虚拟内存"
    green "2. 系统清理"
    green "3. S-UI面板"
-   green "4. Cloudreve云盘"
+   green "4. 3X-UI面板"
+   green "5. Cloudreve云盘"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -454,7 +499,10 @@ while true; do
         3)
             sui_panel_menu
             ;;
-        4)
+		4)
+            xui_panel_menu
+            ;;
+        5)
             cloudreve_menu
             ;;
         0)
