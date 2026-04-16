@@ -1758,6 +1758,52 @@ disable_open_sub() {
                 return 1
             fi
             ;; 
+			8)
+		  check_and_issue_ssl
+		  mkdir -p /etc/nginx/conf.d/
+          echo -ne "\033[31m请输入 Nginx 监听端口 (1-65535)\033[0m "
+          read -p "(直接回车将随机生成): " input_port       
+          if [[ -z "$input_port" ]]; then
+            sub_port=$(shuf -i 10000-65000 -n 1)
+            echo -e "已启用随机端口: \033[31m${sub_port}\033[0m"
+          else
+            sub_port=$input_port
+            echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
+          fi
+          password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
+		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+    listen $sub_port ssl;
+    listen [::]:$sub_port ssl;
+    server_name ${domain};
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /$password {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    location / {
+        return 404;
+    }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF     
+	  nginx -t && systemctl reload nginx
+      echo -e "访问地址: https://${domain}:$sub_port/${password}"
+        ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
