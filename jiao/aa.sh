@@ -102,6 +102,37 @@ clean_system() {
     echo ""
     read -n 1 -s -r -p "按任意键返回菜单..."
 }
+#s-ui面板
+sui_panel_menu() {
+    while true; do
+        clear
+        purple "=== Sui 面板==="
+        echo "--------------"
+        green  "1. 安装 sui 面板"
+        red    "2. 卸载 sui 面板"
+        echo "--------------"
+        purple "0. 返回上一级菜单"
+        reading "请输入选择 [0-2]: " sub_choice
+                  1)
+                    bash <(curl -Ls https://raw.githubusercontent.com/alireza0/s-ui/master/install.sh)
+                    ;;
+                  2)
+                    systemctl disable sing-box --now
+                    systemctl disable s-ui --now
+
+                    rm -f /etc/systemd/system/s-ui.service
+                    rm -f /etc/systemd/system/sing-box.service
+                    systemctl daemon-reload
+
+                    rm -fr /usr/local/s-ui
+                    clear
+                    echo -e "${green}sui面板已卸载${re}"
+                    break_end
+                    ;;
+            0) break ;;
+        esac
+    done
+}
 
 
 # --- 主菜单与逻辑循环 ---
@@ -110,6 +141,7 @@ while true; do
    echo ""
    green "1. 虚拟内存"
    green "2. 系统清理"
+   green "3. S-UI面板"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -122,6 +154,9 @@ while true; do
             ;;
         2)
             clean_system
+            ;;
+        3)
+            sui_panel_menu
             ;;
         0)
             echo "退出脚本"
