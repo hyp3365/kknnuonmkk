@@ -1759,6 +1759,7 @@ disable_open_sub() {
 		8)
 		  check_and_issue_ssl
 		  mkdir -p /etc/nginx/conf.d/
+		  install_singbox
           [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
 		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
