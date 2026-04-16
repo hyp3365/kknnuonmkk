@@ -1554,7 +1554,6 @@ disable_open_sub() {
     green "6. 开启节点订阅"
     skyblue "------------"
     green "7. 更换订阅端口"
-	green "8. 更换订阅端口"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1759,47 +1758,6 @@ disable_open_sub() {
                 return 1
             fi
             ;; 
-	   8)
-		  check_and_issue_ssl
-          mkdir -p /etc/nginx/conf.d/         
-          password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
-          cat > /etc/nginx/conf.d/sing-box.conf << EOF
-server {
-    listen ${sub_port} ssl;
-    listen [::]:${sub_port} ssl;
-    server_name ${domain};
-    ssl_certificate ${cert_file};
-    ssl_certificate_key ${key_file};
-
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-
-    location = /${password} {
-        alias /etc/sing-box/sub.txt;
-        default_type 'text/plain; charset=utf-8';
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-        add_header Pragma "no-cache";
-        add_header Expires "0";
-    }
-
-    location / {
-        return 404;
-    }
-
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF                 
-              systemctl reload nginx
-              echo -e "-------------------------------------------------------"
-              echo -e "配置成功！"
-              echo -e "访问地址: \033[32mhttps://${domain}:${sub_port}/${password}\033[0m"
-              echo -e "-------------------------------------------------------"
-          ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
