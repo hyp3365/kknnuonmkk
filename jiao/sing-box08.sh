@@ -3343,14 +3343,15 @@ menu() {
    green  "9. 添加删除节点"
    green  "10. BBR管理"
    echo  "==============="
-   purple "11. 更新脚本"
-   purple "12. SSH配置"
-   purple "13. iptables"
-   purple "14. 本机信息"
+   red    "11. 更新脚本"
+   red    "12. SSH配置"
+   red    "13. iptables"
+   red    "14. 本机信息"
+   red    "15. 快捷指令"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-14): " choice
+   reading "请输入选择(0-15): " choice
    echo ""
 }
 
@@ -3402,8 +3403,12 @@ while true; do
 		12) vps_ssl ;;
 		13) iptables_ssl ;;
 		14) vps_s ;;
+		8) 
+           clear
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/aa.sh)
+		   ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 14" ;;
+        *) red "无效的选项，请输入 0 到 15" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
