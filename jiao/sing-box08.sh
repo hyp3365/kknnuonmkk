@@ -82,6 +82,28 @@ export CFPORT=${CFPORT:-'443'}
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
 
+# 创建快捷指令（自动下载脚本到本地保存）
+create_shortcut() {
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
+    local local_file="$work_dir/sb.sh"
+    if [ ! -s "$local_file" ]; then
+        mkdir -p "$work_dir"
+        curl -Lss "$remote_url" -o "$local_file"
+    fi
+    if [ -s "$local_file" ]; then
+        chmod +x "$local_file"
+        ln -sf "$local_file" /usr/bin/sb
+		ln -sf "$local_file" /usr/bin/b
+        if [ -x /usr/bin/sb ]; then
+            green "\n快捷指令 sb 已创建\n"
+			green "\n快捷指令 b 已创建\n"
+        fi
+    else
+        red "\n本地化保存失败，请检查网络后重新运行\n"
+        rm -f "$local_file" 
+    fi
+}
+
 # 检查命令是否存在
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -1221,26 +1243,8 @@ uninstall_singbox() {
            ;;
    esac
 }
-# 创建快捷指令（自动下载脚本到本地保存）
-create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
-    local local_file="$work_dir/sb.sh"
-    if [ ! -s "$local_file" ]; then
-        mkdir -p "$work_dir"
-        curl -Lss "$remote_url" -o "$local_file"
-    fi
-    if [ -s "$local_file" ]; then
-        chmod +x "$local_file"
-        ln -sf "$local_file" /usr/bin/sb
-        if [ -x /usr/bin/sb ]; then
-            green "\n快捷指令 sb 已创建\n"
-        fi
-    else
-        red "\n本地化保存失败，请检查网络后重新运行\n"
-        rm -f "$local_file" 
-    fi
-}
-# 创建快捷指令远程
+
+# 创建快捷指令
 #create_shortcut() {
  # cat > "$work_dir/sb.sh" << EOF
 #!/usr/bin/env bash
