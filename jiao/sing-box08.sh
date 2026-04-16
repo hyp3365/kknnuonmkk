@@ -3322,8 +3322,8 @@ menu() {
    clear
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
-   green "YouTube频道: ${purple}https://youtube.com/@eooce${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
+   green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
    purple "---Argo 状态: ${argo_status}"   
    purple "--Nginx 状态: ${nginx_status}"
@@ -3382,7 +3382,6 @@ while true; do
                 sleep 5
                 get_info
                 add_nginx_conf
-                create_shortcut
             fi
            ;;
         2) uninstall_singbox ;;
