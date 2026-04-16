@@ -1791,7 +1791,7 @@ server {
 }
 EOF
       nginx -t && systemctl reload nginx
-      echo -e "访问地址: https://${domain}/${nginx_port}/${password}"
+      echo -e "访问地址: https://${domain}:${nginx_port}/${password}"
         ;;
 		0)  menu ;; 
         *)  red "无效的选项！" ;;
