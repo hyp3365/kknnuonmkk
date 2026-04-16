@@ -1618,15 +1618,11 @@ server {
     }
 }
 EOF                 
-          if nginx -t > /dev/null 2>&1; then
               systemctl reload nginx
               echo -e "-------------------------------------------------------"
               echo -e "配置成功！"
               echo -e "访问地址: \033[32mhttps://${domain}:${sub_port}/${password}\033[0m"
               echo -e "-------------------------------------------------------"
-          else
-              echo -e "\033[31m错误：Nginx 配置语法检查失败，请检查端口占用或证书路径！\033[0m"
-          fi
           ;;
 		5)
             while true; do
