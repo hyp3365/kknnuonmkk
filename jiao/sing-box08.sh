@@ -24,10 +24,25 @@ reading() { read -p "$(red "$1")" "$2"; }
 generate_vars() {
     mkdir -p /etc/sing-box
     local config_file="/etc/sing-box/config.json"
+    local client_file="/etc/sing-box/url.txt"
+    local work_dir="/usr/local/bin"
     if [ -f "$config_file" ]; then
         uuid=$(grep -m 1 '"uuid":' "$config_file" | awk -F '"' '{print $4}')
     fi
     [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid)
+    if [ -f "$config_file" ]; then
+        private_key=$(grep -m 1 '"private_key":' "$config_file" | awk -F '"' '{print $4}')
+    fi
+    if [ -f "$client_file" ]; then
+        public_key=$(grep -m 1 'pbk=' "$client_file" | sed -n 's/.*pbk=\([^&]*\).*/\1/p')
+    fi
+    if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+        if [ -f "${work_dir}/sing-box" ]; then
+            output=$(${work_dir}/sing-box generate reality-keypair)
+            private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+            public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+        fi
+    fi
   # 获取国家代码
   local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
   [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
@@ -41,8 +56,18 @@ generate_vars() {
   else
       isp="🌐" 
   fi
+    h2_reality=$(shuf -i 10000-60000 -n 1)
+	socks_port=$(shuf -i 10000-60000 -n 1)
+	http_port=$(shuf -i 10000-60000 -n 1)
+	anytls_port=$(shuf -i 10000-60000 -n 1)
+	grpc_reality=$(shuf -i 10000-60000 -n 1)
+	vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
+	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+	vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+    short_id=$(openssl rand -hex 6)
 }
-
 
 # 定义常量
 server_name="sing-box"
@@ -53,25 +78,6 @@ export vless_port=${PORT:-$(shuf -i 1000-59000 -n 1)}
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 
-# 生成随机端口和密码
-nginx_port=$(($vless_port + 1)) 
-tuic_port=$(($vless_port + 2))
-hy2_port=$(($vless_port + 3)) 
-uuid=$(cat /proc/sys/kernel/random/uuid)
-output=$(/etc/sing-box/sing-box generate reality-keypair)
-short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
-username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
-password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-h2_reality=$(shuf -i 10000-60000 -n 1)
-socks_port=$(shuf -i 10000-60000 -n 1)
-http_port=$(shuf -i 10000-60000 -n 1)
-anytls_port=$(shuf -i 10000-60000 -n 1)
-grpc_reality=$(shuf -i 10000-60000 -n 1)
-vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
-vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
-vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
@@ -499,6 +505,18 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
   
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
+
+	# 生成随机端口和密码
+    nginx_port=$(($vless_port + 1)) 
+    tuic_port=$(($vless_port + 2))
+    hy2_port=$(($vless_port + 3)) 
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    output=$(/etc/sing-box/sing-box generate reality-keypair)
+	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
+	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+    private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+    public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
     allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
@@ -1741,12 +1759,12 @@ disable_open_sub() {
 		8)
 		  check_and_issue_ssl
 		  mkdir -p /etc/nginx/conf.d/
-		  install_singbox
+          sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
           [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
 		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
-    listen $nginx_port ssl;
-    listen [::]:$nginx_port ssl;
+    listen $sub_port ssl;
+    listen [::]:$sub_port ssl;
     server_name ${domain};
     ssl_certificate ${cert_file};
     ssl_certificate_key ${key_file};
@@ -1773,8 +1791,10 @@ server {
     }
 }
 EOF
-      nginx -t && systemctl reload nginx
-      echo -e "访问地址: https://${domain}:${nginx_port}/${password}"
+      password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+      sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf     
+	  nginx -t && systemctl reload nginx
+      echo -e "访问地址: https://${domain}:$sub_port/${password}"
         ;;
 		0)  menu ;; 
         *)  red "无效的选项！" ;;
