@@ -224,8 +224,13 @@ check_memory_usage() {
     local mem_used=$(free -m | awk '/Mem:/ {print $3}')
     local swap_total=$(free -m | awk '/Swap:/ {print $2}')
     local swap_used=$(free -m | awk '/Swap:/ {print $3}')
-    red "总物理内存: ${mem_used}MB / ${mem_total}MB"
-    red "总虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB"
+	local disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $5}')
+    local disk_total=$(echo $disk_info | awk '{print $1}')
+    local disk_used=$(echo $disk_info | awk '{print $2}')
+    local disk_perc=$(echo $disk_info | awk '{print $3}')
+    red "物理内存: ${mem_used}MB / ${mem_total}MB"
+    red "虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB"
+	red "硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})"
     echo "--------------------------------------"
     purple "=== 进程内存占用排行 (Top 10) ==="
     printf "%-25s %-15s\n" "程序名称" "占用内存"
