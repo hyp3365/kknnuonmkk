@@ -1759,7 +1759,16 @@ disable_open_sub() {
 		8)
 		  check_and_issue_ssl
 		  mkdir -p /etc/nginx/conf.d/
-          sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
+          echo -ne "\033[31m请输入 Nginx 监听端口 (1-65535)\033[0m "
+          read -p "(直接回车将随机生成): " input_port       
+          if [[ -z "$input_port" ]]; then
+            sub_port=$(shuf -i 10000-65000 -n 1)
+            echo -e "已启用随机端口: \033[31m${sub_port}\033[0m"
+          else
+            sub_port=$input_port
+            echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
+          fi
+          password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
           [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
 		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
@@ -1790,9 +1799,7 @@ server {
         log_not_found off;
     }
 }
-EOF
-      password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-      sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf     
+EOF     
 	  nginx -t && systemctl reload nginx
       echo -e "访问地址: https://${domain}:$sub_port/${password}"
         ;;
