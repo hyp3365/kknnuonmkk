@@ -4,14 +4,15 @@
 re='\033[0m'
 red='\033[1;31m'
 green='\033[1;32m'
+yellow='\033[1;33m'  
 purple='\033[1;35m'
 
-# --- 定义基础函数 ---
+# --- 定义颜色打印函数 ---
 green() { echo -e "${green}$1${re}"; }
 purple() { echo -e "${purple}$1${re}"; }
 red() { echo -e "${red}$1${re}"; }
+yellow() { echo -e "${yellow}$1${re}"; } 
 reading() { read -p "$(echo -e "${green}$1${re}")" "$2"; }
-
 ip_address() {
     ipv4_address=$(curl -s -m 2 ipv4.ip.sb)
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
