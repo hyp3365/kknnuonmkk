@@ -1575,17 +1575,7 @@ disable_open_sub() {
             ;;
 		4)
           check_and_issue_ssl
-          mkdir -p /etc/nginx/conf.d/
-          echo -ne "\033[31m请输入 Nginx 监听端口 (1-65535)\033[0m "
-          read -p "(直接回车将随机生成): " input_port                 
-          if [[ -z "$input_port" ]]; then
-              sub_port=$(shuf -i 1000-65000 -n 1)
-              echo -e "已启用随机端口: \033[31m${sub_port}\033[0m"
-          else
-              sub_port=$input_port
-              echo -e "已使用指定端口: \033[31m${sub_port}\033[0m"
-          fi
-          [[ -z "${domain}" ]] && reading "请输入域名: " domain         
+          mkdir -p /etc/nginx/conf.d/         
           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32)
           cat > /etc/nginx/conf.d/sing-box.conf << EOF
 server {
