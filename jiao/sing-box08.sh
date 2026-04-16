@@ -804,6 +804,7 @@ create_shortcut() {
     if [ -s "$local_file" ]; then
         chmod +x "$local_file"
         ln -sf "$local_file" /usr/bin/sb
+		ln -sf "$local_file" /usr/bin/b
         if [ -x /usr/bin/sb ]; then
             green "\n快捷指令 sb 已创建\n"
         fi
