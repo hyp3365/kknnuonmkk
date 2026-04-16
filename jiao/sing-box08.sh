@@ -1555,6 +1555,8 @@ disable_open_sub() {
     green "6. 开启节点订阅"
     skyblue "------------"
     green "7. 更换订阅端口"
+	skyblue "------------"
+	green "8. HTTPS订阅"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1723,22 +1725,17 @@ disable_open_sub() {
                [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
             done
 
-
-            # 备份当前配置
             if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
             fi
             
-            # 更新端口配置
             sed -i 's/listen [0-9]\+;/listen '$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
             sed -i 's/listen \[::\]:[0-9]\+;/listen [::]:'$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
             path=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
             server_ip=$(get_realip)
             
-            # 放行新端口
             allow_port $sub_port/tcp > /dev/null 2>&1
             
-            # 测试nginx配置
             if nginx -t > /dev/null 2>&1; then
                 # 尝试重新加载配置
                 if nginx -s reload > /dev/null 2>&1; then
@@ -1759,6 +1756,46 @@ disable_open_sub() {
                 return 1
             fi
             ;; 
+		8)
+		  check_and_issue_ssl
+		  mkdir -p /etc/nginx/conf.d/
+          [ -f "/etc/nginx/conf.d/sing-box.conf" ] && rm -f "/etc/nginx/conf.d/sing-box.conf"
+		  cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+    listen $nginx_port;
+    listen [::]:$nginx_port;
+    server_name ${domain};
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /$password {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    location / {
+        return 404;
+    }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+      nginx -t && systemctl reload nginx
+    green "Nginx 配置已自动更新并开启 HTTPS！"
+    echo -e "访问地址: https://${domain}/$sub_port/${password}"
+else
+    red "证书申请失败，未更新 Nginx 配置。"
+fi
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
