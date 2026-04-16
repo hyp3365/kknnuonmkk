@@ -2533,35 +2533,24 @@ enable_bbr() {
 
 update_script() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
-    local local_file="/etc/sing-box/sb.sh"
+    local local_file="$work_dir/sb.sh"
 
-    yellow "\n正在检查脚本更新..."
-    # 1. 下载到临时位置，防止下载失败把旧脚本搞坏
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
         if [ -s "${local_file}.tmp" ]; then
-            # 2. 移动并覆盖正式位置
             mv -f "${local_file}.tmp" "$local_file"
             chmod +x "$local_file"
-            
-            # 3. 重新建立快捷链接（确保路径一致）
-            ln -sf "$local_file" /usr/local/bin/sb
-            ln -sf "$local_file" /usr/local/bin/b
-            
-            green "\n脚本已更新成功！"
-            yellow "正在自动重新启动菜单...\n"
+            ln -sf "$local_file" /usr/bin/sb
+            green "\n脚本已更新！"
             sleep 1
-            
-            # 4. 关键：用新脚本替换当前进程
             exec bash "$local_file"
         else
             rm -f "${local_file}.tmp"
-            red "\n更新失败：下载的文件为空，请检查 URL"
+            red "\n更新失败：下载的文件为空"
         fi
     else
-        red "\n更新失败：无法连接到 Github，请检查网络"
+        red "\n更新失败：请检查网络连接"
     fi
 }
-
 
 # 13. SSH
 vps_ssl() {
@@ -3393,6 +3382,7 @@ while true; do
                 sleep 5
                 get_info
                 add_nginx_conf
+				create_shortcut
             fi
            ;;
         2) uninstall_singbox ;;
@@ -3420,4 +3410,3 @@ while true; do
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
-start_menu
