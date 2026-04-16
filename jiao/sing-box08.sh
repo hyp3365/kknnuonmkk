@@ -2535,23 +2535,22 @@ update_script() {
     local work_dir="/etc/sing-box"
     local local_file="${work_dir}/sb.sh"
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
-    mkdir -p "$work_dir" >/dev/null 2>&1
     if curl -fsSL "$remote_url" -o "${local_file}.tmp"; then
         if [ -s "${local_file}.tmp" ]; then
             mv -f "${local_file}.tmp" "$local_file"
             chmod +x "$local_file"
-            ln -sf "$local_file" /usr/local/bin/sb
-            ln -sf "$local_file" /usr/local/bin/b
-            hash -r >/dev/null 2>&1      
-            echo -e "\033[32m\n脚本已更新 快捷方式 (sb/b)！\033[0m"
+            ln -sf "$local_file" /usr/local/bin/sb >/dev/null 2>&1
+            ln -sf "$local_file" /usr/local/bin/b >/dev/null 2>&1           
+            echo -e "\033[32m\n脚本已更新！...\033[0m"
             sleep 1
-            exec bash "$local_file"
+            bash "$local_file"
+            exit 0
         else
             rm -f "${local_file}.tmp"
-            echo -e "\033[31m\n更新失败：下载的文件为空\033[0m"
+            echo -e "\033[31m\n更新失败：下载内容为空\033[0m"
         fi
     else
-        echo -e "\033[31m\n更新失败：请检查网络连接或 URL 是否有效\033[0m"
+        echo -e "\033[31m\n更新失败：网络连接超时\033[0m"
     fi
 }
 
