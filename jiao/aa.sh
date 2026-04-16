@@ -284,7 +284,6 @@ sui_panel_menu() {
                     systemctl disable s-ui --now
 
                     rm -f /etc/systemd/system/s-ui.service
-                    rm -f /etc/systemd/system/sing-box.service
                     systemctl daemon-reload
 
                     rm -fr /usr/local/s-ui
