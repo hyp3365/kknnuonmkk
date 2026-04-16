@@ -807,6 +807,9 @@ create_shortcut() {
         if [ -x /usr/bin/sb ]; then
             green "\n快捷指令 sb 已创建\n"
         fi
+		if [ -x /usr/bin/b ]; then
+            green "\n快捷指令 b 已创建\n"
+        fi
     else
         red "\n本地化保存失败，请检查网络后重新运行\n"
         rm -f "$local_file" 
