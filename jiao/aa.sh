@@ -277,7 +277,8 @@ sui_panel_menu() {
 		case $cr_choice in
                   1)
                     bash <(curl -Ls https://raw.githubusercontent.com/alireza0/s-ui/master/install.sh)
-                    ;;
+                    read -n 1 -s -r -p "按任意键继续..."
+					;;
                   2)
                     systemctl disable sing-box --now
                     systemctl disable s-ui --now
