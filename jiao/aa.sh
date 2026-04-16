@@ -219,14 +219,23 @@ add_swap() {
 # 查看内存占用排行
 check_memory_usage() {
     clear
-    purple "=== 系统进程内存占用排行 (Top 10) ==="
+    purple "=== 系统内存使用概况 ==="
+    local mem_total=$(free -m | awk '/Mem:/ {print $2}')
+    local mem_used=$(free -m | awk '/Mem:/ {print $3}')
+    local swap_total=$(free -m | awk '/Swap:/ {print $2}')
+    local swap_used=$(free -m | awk '/Swap:/ {print $3}')
+    red "总物理内存: ${mem_used}MB / ${mem_total}MB"
+    red "总虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB"
     echo "--------------------------------------"
-    printf "%-25s %-15s\n" "程序名称" "占用内存 (MB)"
+    purple "=== 进程内存占用排行 (Top 10) ==="
+    printf "%-25s %-15s\n" "程序名称" "占用内存"
     echo "--------------------------------------"
-    ps aux --sort=-rss | awk 'NR>1 {print $11, $6/1024}' | head -n 10 | while read -r proc mem; do
-        proc_name=$(basename "$proc")
-        printf "%-25s %-15.1f MB\n" "$proc_name" "$mem"
-    done
+    ps aux --sort=-rss | awk 'NR>1 {
+        proc=$11;
+        if (proc !~ /^\[.*\]$/) { sub(/.*\//, "", proc) }
+        printf "\033[32m%-25s\033[0m %-10.1f MB\n", proc, $6/1024
+    }' | head -n 10
+
     echo "--------------------------------------"
     echo ""
     read -n 1 -s -r -p "按任意键返回菜单..."
