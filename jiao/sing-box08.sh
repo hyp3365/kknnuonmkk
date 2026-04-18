@@ -1759,7 +1759,7 @@ disable_open_sub() {
 		   check_and_issue_ssl
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-		   cat > /etc/nginx/conf.d/sing-box.conf << EOF
+		   cat > /etc/nginx/conf.d/sing-box1.conf << EOF
 server {
     listen $nginx2_port ssl;
     listen [::]:$nginx2_port ssl;
