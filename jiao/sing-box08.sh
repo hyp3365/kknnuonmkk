@@ -3280,8 +3280,10 @@ check_nodes() {
             purple "$line"
         done < "${work_dir}/url.txt"
     fi
+
     local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
-	local domain_conf="/etc/nginx/conf.d/sing-box1.conf"
+    local domain_conf="/etc/nginx/conf.d/sing-box1.conf"
+    local found_any=false 
     if [ -f "$domain_conf" ]; then
         local sub_domain=$(sed -n 's/^\s*server_name\s\+\([^;]\+\);.*/\1/p' "$domain_conf" | tr -d ' ')
         local sub_port=$(sed -n 's/^\s*listen\s\+\([0-9]\+\).*/\1/p' "$domain_conf" | head -n 1)
@@ -3289,7 +3291,8 @@ check_nodes() {
         
         if [ -n "$sub_domain" ] && [ "$sub_domain" != "_" ]; then
             local domain_url="https://${sub_domain}:${sub_port}/${sub_path}"
-            green "域名订阅链接: ${purple}${domain_url}${re}"
+            green "订阅链接: ${purple}${domain_url}${re}"
+            found_any=true
         fi
     fi
     if [ -f "$nginx_conf" ]; then
@@ -3297,9 +3300,10 @@ check_nodes() {
         lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "$nginx_conf")
         sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf")      
         base64_url="http://${server_ip}:${sub_port}/${lujing}"        
-        green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Stash订阅链接: ${purple}${base64_url}${re}\n"
-    else
-        # 文件不存在
+        green "订阅链接: ${purple}${base64_url}${re}\n"
+        found_any=true
+    fi
+    if [ "$found_any" = false ]; then
         red "订阅服务未配置或订阅已关闭\n"
     fi
 }
