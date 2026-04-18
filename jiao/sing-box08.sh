@@ -3292,6 +3292,16 @@ check_nodes() {
         done < "${work_dir}/url.txt"
     fi
     local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
+	local domain_conf="/etc/nginx/conf.d/sing-box1.conf"
+	if [ -f "$domain_conf" ]; then
+        local sub_domain=$(sed -n 's/^\s*server_name\s\+\([^;]\+\);.*/\1/p' "$domain_conf" | tr -d ' ')
+        local sub_port=$(sed -n 's/^\s*listen\s\+\([0-9]\+\).*/\1/p' "$domain_conf" | head -n 1)
+        local sub_path=$(sed -n 's|.*location = /\([^ {]*\).*|\1|p' "$domain_conf")     
+        if [ -n "$sub_domain" ] && [ "$sub_domain" != "_" ]; then
+            local domain_url="https://${sub_domain}:${sub_port}/${sub_path}"
+            green "域名订阅链接: ${purple}${domain_url}${re}"
+        fi
+    fi
     if [ -f "$nginx_conf" ]; then
         server_ip=$(get_realip)
         lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "$nginx_conf")
