@@ -1650,13 +1650,12 @@ disable_open_sub() {
             done
             ;;
         5)
-           rm -f /etc/nginx/conf.d/sing-box1.conf
-           rm -f /etc/nginx/conf.d/sing-box1.conf.bak*
+           rm -f /etc/nginx/conf.d/sing-box.conf
 		   restart_nginx
-		   green "节点订阅已关闭"
+		   green "节点订阅已删除"
 		   ;;
         6)
-		   nginx_port=$(shuf -i 1000-60000 -n 1)
+		   nginx_port=$(shuf -i 1000-65000 -n 1)
 		   server_ip=$(get_realip)
            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
 		   cat > /etc/nginx/conf.d/sing-box.conf << EOF
@@ -1694,7 +1693,7 @@ EOF
 		7)
 		   stop_nginx
 		   check_and_issue_ssl
-		   nginx2_port=$(shuf -i 1000-60000 -n 1)
+		   nginx2_port=$(shuf -i 1000-65000 -n 1)
            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
 		   cat > /etc/nginx/conf.d/sing-box1.conf << EOF
 server {
@@ -1733,8 +1732,8 @@ EOF
 		    ;;
 		8)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
-           rm -f /etc/nginx/conf.d/sing-box1.conf.bak*
 		   restart_nginx
+		   green "域名订阅已删除"
 		   ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
