@@ -2496,19 +2496,41 @@ EOF
 }
 
 
-# BBR2管理
+# BBR
 enable_bbr() {
-    clear
-    local script_path="./tcpx.sh"
-    [[ ! -x "$(command -v wget)" ]] && apt-get update && apt-get install -y wget
-    [[ ! -x "$(command -v lsmod)" ]] && apt-get update && apt-get install -y kmod
-
-    if [ ! -f "$script_path" ]; then
-        wget --no-check-certificate -O "$script_path" https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh
-        chmod +x "$script_path"
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]] && [[ $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
+        echo -e "${green}BBR is already enabled!${plain}"
+        before_show_menu
     fi
-    ./tcpx.sh
-}
+
+    # Enable BBR
+    if [ -d "/etc/sysctl.d/" ]; then
+        {
+            echo "#$(sysctl -n net.core.default_qdisc):$(sysctl -n net.ipv4.tcp_congestion_control)"
+            echo "net.core.default_qdisc = fq"
+            echo "net.ipv4.tcp_congestion_control = bbr"
+        } > "/etc/sysctl.d/99-bbr-x-ui.conf"
+        if [ -f "/etc/sysctl.conf" ]; then
+            # Backup old settings from sysctl.conf, if any
+            sed -i 's/^net.core.default_qdisc/# &/'          /etc/sysctl.conf
+            sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+        fi
+        sysctl --system
+    else
+        sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+        sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+        echo "net.core.default_qdisc=fq" | tee -a /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" | tee -a /etc/sysctl.conf
+        sysctl -p
+    fi
+
+    # Verify that BBR is enabled
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
+        echo -e "${green}BBR has been enabled successfully.${plain}"
+    else
+        echo -e "${red}Failed to enable BBR. Please check your system configuration.${plain}"
+    fi
+}  
 
 update_script() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
@@ -3333,7 +3355,7 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
-   green  "10. BBR管理"
+   green  "10. 开启BBR"
    echo  "==============="
    red    "11. 更新脚本"
    red    "12. SSH配置"
