@@ -1543,13 +1543,11 @@ disable_open_sub() {
     skyblue "------------"
     green "5. 关闭节点订阅"
     skyblue "------------"
-    green "6. 开启节点订阅"
+    green "6. 开启重置订阅"
     skyblue "------------"
-    green "7. 更换订阅端口"
+	green "7. 启用域名订阅"
     skyblue "------------"
-	green "8. 启用域名订阅"
-    skyblue "------------"
-	green "9. 删除域名订阅"
+	green "8. 删除域名订阅"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1652,109 +1650,48 @@ disable_open_sub() {
             done
             ;;
         5)
-              if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak_$(date +%Y%m%d_%H%M%S)"
-                rm -f "/etc/nginx/conf.d/sing-box.conf"
-                if command_exists rc-service 2>/dev/null; then
-                    rc-service nginx restart
-                else 
-                    systemctl restart nginx
-                fi
-                green "节点订阅已关闭"
-            else
-                yellow "未发现 /etc/nginx/conf.d/sing-box.conf 文件，无需操作"
-            fi
-            ;; 
+           rm -f /etc/nginx/conf.d/sing-box1.conf
+           rm -f /etc/nginx/conf.d/sing-box1.conf.bak*
+		   restart_nginx
+		   green "节点订阅已关闭"
+		   ;;
         6)
-                
-            echo -e "\n\033[1;33m[系统排错] 正在寻找备份文件...\033[0m"
-            bak_file=$(ls /etc/nginx/conf.d/sing-box.conf.bak* 2>/dev/null | sort -r | head -n 1)
-            
-            if [ -n "$bak_file" ] && [ -f "$bak_file" ]; then
-                \cp -f "$bak_file" "/etc/nginx/conf.d/sing-box.conf"
-    
-                if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                    echo -e "\033[1;32m[系统排错] 恢复成功！原配置已就位。\033[0m"
-                    # 清理多余的备份文件
-                    rm -f /etc/nginx/conf.d/sing-box.conf.bak*
-                else
-                    echo -e "\033[1;91m[系统排错] 严重错误：复制命令已执行，但 sing-box.conf 依然不存在！请检查目录权限。\033[0m"
-                    return 1
-                fi
-            else
-                if [ ! -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                    echo -e "\033[1;91m[系统排错] 致命错误：找不到备份文件，且原配置文件也不存在！\033[0m"
-                    echo -e "\033[1;33m[系统排错] 当前 /etc/nginx/conf.d/ 目录下的内容如下：\033[0m"
-                    ls -la /etc/nginx/conf.d/
-                    return 1
-                fi
-            fi
-            server_ip=$(get_realip)
-            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-            sed -i "s|location = /[^ {]*|location = /$password|g" /etc/nginx/conf.d/sing-box.conf
-            
-            sub_port=$(grep -E 'listen [0-9]+;' "/etc/nginx/conf.d/sing-box.conf" | awk '{print $2}' | tr -d ';' | head -n 1)
-            
-            restart_nginx
-            green "\n已开启节点订阅并重新生成链接"
-            
-            if [ "$sub_port" = "80" ] || [ -z "$sub_port" ]; then
-                link="http://$server_ip/$password"
-            else
-                green "订阅端口：$sub_port"
-                link="http://$server_ip:$sub_port/$password"
-            fi
-            green "新的节点订阅链接：$link\n"
-            ;;
+		   nginx_port=$(shuf -i 1000-60000 -n 1)
+		   server_ip=$(get_realip)
+           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+		   cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+    listen $nginx_port;
+    listen [::]:$nginx_port;
+    server_name _;
 
-        7)
-            reading "请输入新的订阅端口[1-65535]:" sub_port
-            [ -z "$sub_port" ] && sub_port=$(shuf -i 2000-65000 -n 1)
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
 
-			# 检查端口是否被占用
-            while netstat -tunl | grep -q ":$sub_port "; do
-               echo -e "${red}端口 $sub_port 已经被占用，请更换端口重试${re}"
-               read -p "请输入新的订阅端口(1-65535，回车随机生成): " sub_port
-               [[ -z $sub_port ]] && sub_port=$(shuf -i 2000-65000 -n 1)
-            done
+    location = /$password {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
 
-
-            # 备份当前配置
-            if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
-            fi
-            
-            # 更新端口配置
-            sed -i 's/listen [0-9]\+;/listen '$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
-            sed -i 's/listen \[::\]:[0-9]\+;/listen [::]:'$sub_port';/g' "/etc/nginx/conf.d/sing-box.conf"
-            path=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "/etc/nginx/conf.d/sing-box.conf")
-            server_ip=$(get_realip)
-            
-            # 放行新端口
-            allow_port $sub_port/tcp > /dev/null 2>&1
-            
-            # 测试nginx配置
-            if nginx -t > /dev/null 2>&1; then
-                # 尝试重新加载配置
-                if nginx -s reload > /dev/null 2>&1; then
-                    green "nginx配置已重新加载，端口更换成功"
-                else
-                    yellow "配置重新加载失败，尝试重启nginx服务..."
-                    restart_nginx
-                fi
-                green "\n订阅端口更换成功\n"
-                green "新的订阅链接为：http://$server_ip:$sub_port/$path\n"
-            else
-                red "nginx配置测试失败，正在恢复原有配置..."
-                if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
-                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak.* | head -1)
-                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box.conf"
-                    yellow "已恢复原有nginx配置"
-                fi
-                return 1
-            fi
-            ;; 
-		8)
+    location / {
+        return 404;
+    }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+		   allow_port $nginx_port/tcp > /dev/null 2>&1   
+           restart_nginx
+           green "新的订阅链接为：http://$server_ip:$sub_port/$password"
+		    ;;
+		7)
 		   stop_nginx
 		   check_and_issue_ssl
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
@@ -1794,7 +1731,7 @@ EOF
            restart_nginx
            green "域名订阅链接为：https://$domain:$nginx2_port/$password"
 		    ;;
-		9)
+		8)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
            rm -f /etc/nginx/conf.d/sing-box1.conf.bak*
 		   restart_nginx
