@@ -2498,39 +2498,44 @@ EOF
 
 # BBR
 enable_bbr() {
-    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]] && [[ $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
-        echo -e "${green}BBR is already enabled!${plain}"
-        before_show_menu
-    fi
-
-    # Enable BBR
-    if [ -d "/etc/sysctl.d/" ]; then
-        {
-            echo "#$(sysctl -n net.core.default_qdisc):$(sysctl -n net.ipv4.tcp_congestion_control)"
-            echo "net.core.default_qdisc = fq"
-            echo "net.ipv4.tcp_congestion_control = bbr"
-        } > "/etc/sysctl.d/99-bbr-x-ui.conf"
-        if [ -f "/etc/sysctl.conf" ]; then
-            # Backup old settings from sysctl.conf, if any
-            sed -i 's/^net.core.default_qdisc/# &/'          /etc/sysctl.conf
-            sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+    local kernel_ver=$(uname -r)
+    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
+    local current_qdisc=$(sysctl -n net.core.default_qdisc)
+    if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
+        echo -e "${green}BBR 已经处于启用状态。${plain}"
+    else
+        echo -e "${yellow}检测到 BBR 未开启，正在为您自动配置...${plain}"
+        if [ -d "/etc/sysctl.d/" ]; then
+            {
+                echo "# Optimized BBR Config"
+                echo "net.core.default_qdisc = fq"
+                echo "net.ipv4.tcp_congestion_control = bbr"
+            } > "/etc/sysctl.d/99-bbr-x-ui.conf"
+            if [ -f "/etc/sysctl.conf" ]; then
+                sed -i 's/^net.core.default_qdisc/# &/'          /etc/sysctl.conf
+                sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+            fi
+            sysctl --system >/dev/null 2>&1
+        else
+            sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+            sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+            sysctl -p >/dev/null 2>&1
         fi
-        sysctl --system
-    else
-        sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-        sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-        echo "net.core.default_qdisc=fq" | tee -a /etc/sysctl.conf
-        echo "net.ipv4.tcp_congestion_control=bbr" | tee -a /etc/sysctl.conf
-        sysctl -p
+        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
+        current_qdisc=$(sysctl -n net.core.default_qdisc)
     fi
+    echo -e "---------------------------------------"
+    echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
+    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
+    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
+    echo -e "---------------------------------------"
+    if [[ "$current_cc" != "bbr" ]]; then
+        echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
+    fi
+}
 
-    # Verify that BBR is enabled
-    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
-        echo -e "${green}BBR has been enabled successfully.${plain}"
-    else
-        echo -e "${red}Failed to enable BBR. Please check your system configuration.${plain}"
-    fi
-}  
 
 update_script() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
