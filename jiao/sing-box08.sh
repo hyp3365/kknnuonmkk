@@ -1547,6 +1547,8 @@ disable_open_sub() {
     skyblue "------------"
     green "7. 更换订阅端口"
     skyblue "------------"
+	green "8. 阅端口"
+    skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
@@ -1750,6 +1752,17 @@ disable_open_sub() {
                 return 1
             fi
             ;; 
+		8)
+		   check_and_issue_ssl
+		   nginx2_port=$(shuf -i 1000-60000 -n 1)
+           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+           sed -i 's/listen [0-9]\+;/listen '$nginx2_port' ssl;/g' "/etc/nginx/conf.d/sing-box.conf"
+           sed -i 's/listen \[::\]:[0-9]\+;/listen [::]:'$nginx2_port' ssl;/g' "/etc/nginx/conf.d/sing-box.conf"
+           sed -i "s/server_name _;/server_name $domain;/g" "/etc/nginx/conf.d/sing-box.conf"
+           sed -i "/server_name/a \    ssl_certificate ${cert_file};\n    ssl_certificate_key ${key_file};" "/etc/nginx/conf.d/sing-box.conf"
+           restart_nginx
+		   green "新的订阅链接为：https://$domain:$nginx2_port/$password"
+		   ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
