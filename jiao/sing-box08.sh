@@ -1755,9 +1755,6 @@ disable_open_sub() {
             fi
             ;; 
 		8)
-		   if [ -f "/etc/nginx/conf.d/sing-box1.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box1.conf" "/etc/nginx/conf.d/sing-box1.conf.bak.$(date +%Y%m%d)"
-           fi
 		   stop_nginx
 		   check_and_issue_ssl
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
@@ -1793,24 +1790,9 @@ server {
     }
 }
 EOF
-		   allow_port $nginx2_port/tcp > /dev/null 2>&1
-		   if nginx -t > /dev/null 2>&1; then
-                if nginx -s reload > /dev/null 2>&1; then
-                    green "nginx配置已重新加载"
-                else
-                    yellow "配置重新加载失败，尝试重启nginx服务..."
-                    restart_nginx
-                fi
-                green "新的订阅链接为：https://$domain:$nginx2_port/$password"
-            else
-                red "nginx配置测试失败，正在恢复原有配置..."
-                if [ -f "/etc/nginx/conf.d/sing-box1.conf.bak."* ]; then
-                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box1.conf.bak.* | head -1)
-                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box1.conf"
-                    yellow "已恢复原有nginx配置"
-                fi
-                return 1
-            fi
+		   allow_port $nginx2_port/tcp > /dev/null 2>&1   
+           restart_nginx
+           green "域名订阅链接为：https://$domain:$nginx2_port/$password"
 		    ;;
 		9)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
