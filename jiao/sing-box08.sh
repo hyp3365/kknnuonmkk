@@ -1758,13 +1758,14 @@ disable_open_sub() {
            fi
 		   stop_nginx
 		   check_and_issue_ssl
+		   sub_domain="$domain"
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
-           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-		   cat > /etc/nginx/conf.d/sing-box.conf << EOF
+           password2=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+		   cat > /etc/nginx/conf.d/sing-box1.conf << EOF
 server {
     listen $nginx2_port ssl;
     listen [::]:$nginx2_port ssl;
-    server_name $domain;
+    server_name $sub_domain;
 
     ssl_certificate $cert_file;
     ssl_certificate_key $key_file;
@@ -1773,7 +1774,7 @@ server {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
 
-    location = /$password {
+    location = /$password2 {
         alias /etc/sing-box/sub.txt;
         default_type 'text/plain; charset=utf-8';
         add_header Cache-Control "no-cache, no-store, must-revalidate";
@@ -1798,7 +1799,7 @@ EOF
                     yellow "配置重新加载失败，尝试重启nginx服务..."
                     restart_nginx
                 fi
-                green "新的订阅链接为：https://$domain:$nginx2_port/$password"
+                green "新的订阅链接为：https://$sub_domain:$nginx2_port/$password2"
             else
                 red "nginx配置测试失败，正在恢复原有配置..."
                 if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
@@ -3297,6 +3298,7 @@ check_nodes() {
         sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf")      
         base64_url="http://${server_ip}:${sub_port}/${lujing}"        
         green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Stash订阅链接: ${purple}${base64_url}${re}\n"
+		green "域名链接为：https://$sub_domain:$nginx2_port/$password2"
     else
         # 文件不存在
         red "订阅服务未配置或订阅已关闭\n"
