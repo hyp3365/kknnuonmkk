@@ -1753,8 +1753,8 @@ disable_open_sub() {
             fi
             ;; 
 		8)
-		   if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
+		   if [ -f "/etc/nginx/conf.d/sing-box1.conf" ]; then
+                cp "/etc/nginx/conf.d/sing-box1.conf" "/etc/nginx/conf.d/sing-box1.conf.bak.$(date +%Y%m%d)"
            fi
 		   stop_nginx
 		   check_and_issue_ssl
@@ -1801,9 +1801,9 @@ EOF
                 green "新的订阅链接为：https://$domain:$nginx2_port/$password"
             else
                 red "nginx配置测试失败，正在恢复原有配置..."
-                if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
-                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak.* | head -1)
-                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box.conf"
+                if [ -f "/etc/nginx/conf.d/sing-box1.conf.bak."* ]; then
+                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box1.conf.bak.* | head -1)
+                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box1.conf"
                     yellow "已恢复原有nginx配置"
                 fi
                 return 1
