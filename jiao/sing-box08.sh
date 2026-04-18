@@ -1753,19 +1753,15 @@ disable_open_sub() {
             fi
             ;; 
 		8)
-		   if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
-                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
-           fi
 		   stop_nginx
 		   check_and_issue_ssl
-		   sub_domain="$domain"
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
-           password2=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
 		   cat > /etc/nginx/conf.d/sing-box1.conf << EOF
 server {
     listen $nginx2_port ssl;
     listen [::]:$nginx2_port ssl;
-    server_name $sub_domain;
+    server_name $domain;
 
     ssl_certificate $cert_file;
     ssl_certificate_key $key_file;
@@ -1791,24 +1787,9 @@ server {
         log_not_found off;
     }
 }
-EOF
-		   if nginx -t > /dev/null 2>&1; then
-                if nginx -s reload > /dev/null 2>&1; then
-                    green "nginx配置已重新加载"
-                else
-                    yellow "配置重新加载失败，尝试重启nginx服务..."
-                    restart_nginx
-                fi
-                green "新的订阅链接为：https://$sub_domain:$nginx2_port/$password"
-            else
-                red "nginx配置测试失败，正在恢复原有配置..."
-                if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
-                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak.* | head -1)
-                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box.conf"
-                    yellow "已恢复原有nginx配置"
-                fi
-                return 1
-            fi
+EOF	   
+        restart_nginx
+        green "新的订阅链接为：https://$domain:$nginx2_port/$password"
 		    ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
