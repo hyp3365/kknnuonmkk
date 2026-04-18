@@ -1753,16 +1753,61 @@ disable_open_sub() {
             fi
             ;; 
 		8)
+		   if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
+                cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
+           fi
 		   check_and_issue_ssl
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-           sed -i 's/listen [0-9]\+;/listen '$nginx2_port' ssl;/g' "/etc/nginx/conf.d/sing-box.conf"
-           sed -i 's/listen \[::\]:[0-9]\+;/listen [::]:'$nginx2_port' ssl;/g' "/etc/nginx/conf.d/sing-box.conf"
-           sed -i "s/server_name _;/server_name $domain;/g" "/etc/nginx/conf.d/sing-box.conf"
-           sed -i "/server_name/a \    ssl_certificate ${cert_file};\n    ssl_certificate_key ${key_file};" "/etc/nginx/conf.d/sing-box.conf"
-           restart_nginx
-		   green "新的订阅链接为：https://$domain:$nginx2_port/$password"
-		   ;;
+		   cat > /etc/nginx/conf.d/sing-box.conf << EOF
+server {
+    listen $nginx2_port ssl;
+    listen [::]:$nginx2_port ssl;
+    server_name $domain;
+
+    ssl_certificate $cert_file;
+    ssl_certificate_key $key_file;
+
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /$password {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    location / {
+        return 404;
+    }
+	location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+		   if nginx -t > /dev/null 2>&1; then
+                if nginx -s reload > /dev/null 2>&1; then
+                    green "nginx配置已重新加载"
+                else
+                    yellow "配置重新加载失败，尝试重启nginx服务..."
+                    restart_nginx
+                fi
+                green "新的订阅链接为：https://$domain:$nginx2_port/$password"
+            else
+                red "nginx配置测试失败，正在恢复原有配置..."
+                if [ -f "/etc/nginx/conf.d/sing-box.conf.bak."* ]; then
+                    latest_backup=$(ls -t /etc/nginx/conf.d/sing-box.conf.bak.* | head -1)
+                    cp "$latest_backup" "/etc/nginx/conf.d/sing-box.conf"
+                    yellow "已恢复原有nginx配置"
+                fi
+                return 1
+            fi
+		    ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
