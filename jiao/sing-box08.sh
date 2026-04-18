@@ -1547,7 +1547,7 @@ disable_open_sub() {
     skyblue "------------"
     green "7. 更换订阅端口"
     skyblue "------------"
-	green "8. 阅端口"
+	green "8. 启用域名订阅"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1756,6 +1756,7 @@ disable_open_sub() {
 		   if [ -f "/etc/nginx/conf.d/sing-box.conf" ]; then
                 cp "/etc/nginx/conf.d/sing-box.conf" "/etc/nginx/conf.d/sing-box.conf.bak.$(date +%Y%m%d)"
            fi
+		   stop_nginx
 		   check_and_issue_ssl
 		   nginx2_port=$(shuf -i 1000-60000 -n 1)
            password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
