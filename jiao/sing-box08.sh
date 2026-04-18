@@ -1549,6 +1549,8 @@ disable_open_sub() {
     skyblue "------------"
 	green "8. 启用域名订阅"
     skyblue "------------"
+	green "9. 删除域名订阅"
+    skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
@@ -1791,6 +1793,7 @@ server {
     }
 }
 EOF
+		   allow_port $nginx2_port/tcp > /dev/null 2>&1
 		   if nginx -t > /dev/null 2>&1; then
                 if nginx -s reload > /dev/null 2>&1; then
                     green "nginx配置已重新加载"
@@ -1809,6 +1812,11 @@ EOF
                 return 1
             fi
 		    ;;
+		9)
+		   rm -f /etc/nginx/conf.d/sing-box1.conf
+           rm -f /etc/nginx/conf.d/sing-box1.conf.bak*
+		   restart_nginx
+		   ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
