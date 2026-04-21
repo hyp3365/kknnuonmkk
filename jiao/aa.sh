@@ -431,6 +431,18 @@ EOF
                     sleep 2 ; continue
                 fi               
                 domain_name="$domain"
+				local cl_conf="/usr/local/cloudreve/conf.ini"              
+                if [ -f "$cl_conf" ]; then
+                    if grep -q "Listen =" "$cl_conf"; then
+                        sed -i 's/Listen =.*/Listen = 127.0.0.1:5212/' "$cl_conf"
+                    else
+                        echo -e "\n[System]\nListen = 127.0.0.1:5212" >> "$cl_conf"
+                    fi
+                    systemctl restart cloudreve
+                else
+                    red "未找到 Cloudreve 配置文件 $cl_conf，请先安装！"
+                    sleep 2 && continue
+                fi
                 if ! command -v nginx &>/dev/null; then
                     yellow "正在安装 Nginx..."
                     manage_packages "install" "nginx"
