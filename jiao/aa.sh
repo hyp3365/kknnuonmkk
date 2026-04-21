@@ -571,8 +571,6 @@ EOF
                 [[ ! -x "$(command -v nginx)" ]] && manage_packages "install" "nginx"
                 local conf_file="/etc/nginx/conf.d/filebrowser.conf"
                 [[ -d "/etc/nginx/sites-available" ]] && conf_file="/etc/nginx/sites-available/filebrowser.conf"
-				filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 127.0.0.1 >/dev/null 2>&1
-                systemctl restart filebrowser
                 cat > "$conf_file" <<EOF
 server {
     listen 80;
@@ -580,7 +578,8 @@ server {
     return 301 https://\$host\$request_uri;
 }
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on; 
     server_name $domain_name;
     ssl_certificate $cert_file;
     ssl_certificate_key $key_file;
@@ -591,6 +590,10 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         client_max_body_size 1024m;
+
+		proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 EOF
