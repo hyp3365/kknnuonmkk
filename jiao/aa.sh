@@ -520,17 +520,28 @@ filebrowser_menu() {
         case $fb_choice in
                         1)
                 clear
-                purple "=== 开始安装 File Browser ==="
+                purple "=== 开始安装 File Browser (安全加强版) ==="
                 
                 # 1. 官方脚本下载安装
                 yellow "正在执行官方安装脚本..."
                 curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
                 
-                # 2. 仅创建必要的数据存放目录
+                # 2. 准备目录并清理旧数据库
                 mkdir -p /usr/local/filebrowser
+                rm -f /usr/local/filebrowser/filebrowser.db
                 
-                # 3. 配置自启动服务
-                # 注意：我们让它启动时在指定目录自动生成数据库
+                # 3. 初始化并配置
+                yellow "正在强制初始化管理员账号..."
+                # 初始化数据库
+                filebrowser -d /usr/local/filebrowser/filebrowser.db config init >/dev/null 2>&1
+                filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 0.0.0.0 --port 8080 >/dev/null 2>&1
+                
+                # 核心修复：使用超过 10 位的密码以满足新版安全要求
+                # 尝试添加，如果添加失败则尝试更新密码
+                filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin123456 --perm.admin >/dev/null 2>&1 || \
+                filebrowser -d /usr/local/filebrowser/filebrowser.db users update admin --password admin123456 >/dev/null 2>&1
+
+                # 4. 配置自启动服务
                 yellow "正在配置 Systemd 守护服务..."
                 cat > /etc/systemd/system/filebrowser.service <<EOF
 [Unit]
@@ -539,35 +550,36 @@ After=network.target
 
 [Service]
 User=root
-# 指定工作目录，程序会自动在这里生成 filebrowser.db 和配置文件
 WorkingDirectory=/usr/local/filebrowser
-ExecStart=/usr/local/bin/filebrowser --address 0.0.0.0 --port 8080 --database /usr/local/filebrowser/filebrowser.db
+ExecStart=/usr/local/bin/filebrowser -d /usr/local/filebrowser/filebrowser.db
 Restart=on-abnormal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-                # 4. 启动并显示状态
+                # 5. 启动服务
                 systemctl daemon-reload
                 systemctl enable filebrowser --now
                 
                 echo ""
                 if systemctl is-active --quiet filebrowser; then
                     green "================================================"
-                    green "      File Browser 安装完成并已启动！"
+                    green "      File Browser 安装成功！"
                     green "================================================"
                     green "访问地址: http://$(curl -s ipv4.icanhazip.com):8080"
-                    yellow "初始账号: admin"
-                    yellow "初始密码: admin"
-                    echo "提示：如果登录失败，请尝试重启服务或手动初始化。"
+                    yellow "管理员账号: admin"
+                    yellow "初始密码: admin123456"
+                    echo "------------------------------------------------"
+                    yellow "注意：新版要求密码长度需大于 10 位。"
                     green "================================================"
                 else
-                    red "服务启动失败，请检查 8080 端口是否被占用。"
+                    red "服务启动失败，请检查端口 8080 是否被占用。"
                 fi
                 
                 read -n 1 -s -r -p "按任意键返回菜单..."
                 ;;
+
 
 
             2)
