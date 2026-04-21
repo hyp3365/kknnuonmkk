@@ -520,30 +520,28 @@ filebrowser_menu() {
         case $fb_choice in
                        1)
                 clear
-                purple "=== 安装 File Browser (解除密码长度限制) ==="
+                purple "=== 安装 File Browser (官方 12 位安全合规版) ==="
                 
-                # 1. 下载并安装
+                # 1. 彻底清理
+                systemctl stop filebrowser >/dev/null 2>&1
+                rm -rf /usr/local/filebrowser
+                mkdir -p /usr/local/filebrowser
+                
+                # 2. 下载并安装
                 yellow "正在执行官方安装脚本..."
                 curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
                 
-                # 2. 准备目录
-                mkdir -p /usr/local/filebrowser
-                rm -f /usr/local/filebrowser/filebrowser.db
+                # 3. 强制初始化并添加【合规密码】
+                # 密码设置为：admin12345678 (刚好12位)
+                yellow "正在创建合规管理员账号 (12位密码)..."
                 
-                # 3. 核心修复：初始化时将最小密码长度设为 1
-                yellow "正在强制初始化管理员账号 (admin/admin)..."
-                
-                # 初始化数据库
                 filebrowser -d /usr/local/filebrowser/filebrowser.db config init >/dev/null 2>&1
+                filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 0.0.0.0 --port 8080 >/dev/null 2>&1
                 
-                # 修改设置：允许 1 位以上的密码，并设置监听地址和端口
-                filebrowser -d /usr/local/filebrowser/filebrowser.db config set --minimumPasswordLength 1 --address 0.0.0.0 --port 8080 >/dev/null 2>&1
-                
-                # 现在可以放心添加 admin/admin 了
-                filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin --perm.admin >/dev/null 2>&1
+                # 这里我们直接给 12 位，不挑战它的默认规则
+                filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin12345678 --perm.admin >/dev/null 2>&1
 
                 # 4. 配置自启动
-                yellow "正在配置 Systemd 守护服务..."
                 cat > /etc/systemd/system/filebrowser.service <<EOF
 [Unit]
 Description=File Browser
@@ -570,7 +568,9 @@ EOF
                     green "================================================"
                     green "访问地址: http://$(curl -s ipv4.icanhazip.com):8080"
                     yellow "管理员账号: admin"
-                    yellow "初始密码: admin"
+                    yellow "初始密码: admin12345678"
+                    echo "------------------------------------------------"
+                    red "注意：密码必须输入完整的 admin12345678"
                     green "================================================"
                 else
                     red "服务启动失败，请检查端口 8080 是否被占用。"
