@@ -568,7 +568,22 @@ EOF
                 check_and_issue_ssl
                 [[ $? -ne 0 ]] && sleep 2 && continue
                 domain_name="$domain"
-                [[ ! -x "$(command -v nginx)" ]] && manage_packages "install" "nginx"
+                cat > /etc/systemd/system/filebrowser.service <<EOF
+[Unit]
+Description=File Browser
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/usr/local/filebrowser
+ExecStart=/usr/local/bin/filebrowser -d /usr/local/filebrowser/filebrowser.db --address 127.0.0.1 --port 8080
+Restart=on-abnormal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+                systemctl daemon-reload
+                systemctl restart filebrowser
                 local conf_file="/etc/nginx/conf.d/filebrowser.conf"
                 [[ -d "/etc/nginx/sites-available" ]] && conf_file="/etc/nginx/sites-available/filebrowser.conf"
                 cat > "$conf_file" <<EOF
@@ -579,30 +594,39 @@ server {
 }
 server {
     listen 443 ssl;
-    http2 on; 
+    http2 on;
     server_name $domain_name;
+
     ssl_certificate $cert_file;
     ssl_certificate_key $key_file;
+
+    client_max_body_size 1024m;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        client_max_body_size 1024m;
-
-		proxy_http_version 1.1;
+        
+        proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
 }
 EOF
                 [[ -d "/etc/nginx/sites-enabled" ]] && ln -sf "$conf_file" "/etc/nginx/sites-enabled/"
-                nginx -t && systemctl restart nginx
-                green "HTTPS 配置成功！访问: https://$domain_name"
+                
+                if nginx -t; then
+                    systemctl restart nginx
+                    echo "------------------------------------------------"
+                    green "访问地址: https://$domain_name"
+                    echo "------------------------------------------------"
+                else
+                    red "Nginx 配置错误，请检查！"
+                fi
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
-
             3)
                 yellow "正在彻底卸载 File Browser..."
                 systemctl disable filebrowser --now >/dev/null 2>&1
