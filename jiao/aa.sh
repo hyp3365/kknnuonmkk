@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # --- 定义颜色代码 ---
-re='\033[0m'
-red='\033[1;31m'
-green='\033[1;32m'
-yellow='\033[1;33m'  
-purple='\033[1;35m'
-
-# --- 定义颜色打印函数 ---
-green() { echo -e "${green}$1${re}"; }
-purple() { echo -e "${purple}$1${re}"; }
-red() { echo -e "${red}$1${re}"; }
-yellow() { echo -e "${yellow}$1${re}"; } 
-reading() { read -p "$(echo -e "${green}$1${re}")" "$2"; }
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 
 ip_address() {
     ipv4_address=$(curl -s -m 2 ipv4.ip.sb)
