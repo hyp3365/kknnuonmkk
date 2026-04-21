@@ -518,30 +518,31 @@ filebrowser_menu() {
         reading "请输入选择 [0-3]: " fb_choice
 
         case $fb_choice in
-                        1)
+                       1)
                 clear
-                purple "=== 开始安装 File Browser (安全加强版) ==="
+                purple "=== 安装 File Browser (解除密码长度限制) ==="
                 
-                # 1. 官方脚本下载安装
+                # 1. 下载并安装
                 yellow "正在执行官方安装脚本..."
                 curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
                 
-                # 2. 准备目录并清理旧数据库
+                # 2. 准备目录
                 mkdir -p /usr/local/filebrowser
                 rm -f /usr/local/filebrowser/filebrowser.db
                 
-                # 3. 初始化并配置
-                yellow "正在强制初始化管理员账号..."
+                # 3. 核心修复：初始化时将最小密码长度设为 1
+                yellow "正在强制初始化管理员账号 (admin/admin)..."
+                
                 # 初始化数据库
                 filebrowser -d /usr/local/filebrowser/filebrowser.db config init >/dev/null 2>&1
-                filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 0.0.0.0 --port 8080 >/dev/null 2>&1
                 
-                # 核心修复：使用超过 10 位的密码以满足新版安全要求
-                # 尝试添加，如果添加失败则尝试更新密码
-                filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin123456 --perm.admin >/dev/null 2>&1 || \
-                filebrowser -d /usr/local/filebrowser/filebrowser.db users update admin --password admin123456 >/dev/null 2>&1
+                # 修改设置：允许 1 位以上的密码，并设置监听地址和端口
+                filebrowser -d /usr/local/filebrowser/filebrowser.db config set --minimumPasswordLength 1 --address 0.0.0.0 --port 8080 >/dev/null 2>&1
+                
+                # 现在可以放心添加 admin/admin 了
+                filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin --perm.admin >/dev/null 2>&1
 
-                # 4. 配置自启动服务
+                # 4. 配置自启动
                 yellow "正在配置 Systemd 守护服务..."
                 cat > /etc/systemd/system/filebrowser.service <<EOF
 [Unit]
@@ -558,7 +559,7 @@ Restart=on-abnormal
 WantedBy=multi-user.target
 EOF
 
-                # 5. 启动服务
+                # 5. 重载并启动
                 systemctl daemon-reload
                 systemctl enable filebrowser --now
                 
@@ -569,9 +570,7 @@ EOF
                     green "================================================"
                     green "访问地址: http://$(curl -s ipv4.icanhazip.com):8080"
                     yellow "管理员账号: admin"
-                    yellow "初始密码: admin123456"
-                    echo "------------------------------------------------"
-                    yellow "注意：新版要求密码长度需大于 10 位。"
+                    yellow "初始密码: admin"
                     green "================================================"
                 else
                     red "服务启动失败，请检查端口 8080 是否被占用。"
