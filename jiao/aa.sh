@@ -431,7 +431,7 @@ EOF
                     sleep 2 ; continue
                 fi               
                 domain_name="$domain"
-				local cl_conf="/usr/local/cloudreve/conf.ini"              
+				local cl_conf="/usr/local/cloudreve/data/conf.ini"          
                 if [ -f "$cl_conf" ]; then
                     if grep -q "Listen =" "$cl_conf"; then
                         sed -i 's/Listen =.*/Listen = 127.0.0.1:5212/' "$cl_conf"
