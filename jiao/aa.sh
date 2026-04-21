@@ -509,39 +509,27 @@ filebrowser_menu() {
         clear
         purple "=== File Browser 网盘管理 ==="
         echo "--------------"
-        green  "1. 安装 File Browser (自动最新版)"
-        green  "2. 配置域名访问 (Nginx + SSL)"
-        red    "3. 彻底卸载 File Browser"
+        green  "1. 安装 File Browser"
+        green  "2. 配置域名访问"
+        red    "3. 卸载 File Browser"
         echo "--------------"
         purple "0. 返回上一级菜单"
         echo "--------------"
         reading "请输入选择 [0-3]: " fb_choice
 
         case $fb_choice in
-                       1)
+            1)
                 clear
-                purple "=== 安装 File Browser (官方 12 位安全合规版) ==="
-                
-                # 1. 彻底清理
+                purple "=== 安装 File Browser ==="
                 systemctl stop filebrowser >/dev/null 2>&1
                 rm -rf /usr/local/filebrowser
                 mkdir -p /usr/local/filebrowser
-                
-                # 2. 下载并安装
                 yellow "正在执行官方安装脚本..."
                 curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
-                
-                # 3. 强制初始化并添加【合规密码】
-                # 密码设置为：admin12345678 (刚好12位)
-                yellow "正在创建合规管理员账号 (12位密码)..."
-                
+                yellow "正在创建管理员账号 ..."          
                 filebrowser -d /usr/local/filebrowser/filebrowser.db config init >/dev/null 2>&1
                 filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 0.0.0.0 --port 8080 >/dev/null 2>&1
-                
-                # 这里我们直接给 12 位，不挑战它的默认规则
                 filebrowser -d /usr/local/filebrowser/filebrowser.db users add admin admin12345678 --perm.admin >/dev/null 2>&1
-
-                # 4. 配置自启动
                 cat > /etc/systemd/system/filebrowser.service <<EOF
 [Unit]
 Description=File Browser
@@ -556,8 +544,6 @@ Restart=on-abnormal
 [Install]
 WantedBy=multi-user.target
 EOF
-
-                # 5. 重载并启动
                 systemctl daemon-reload
                 systemctl enable filebrowser --now
                 
@@ -569,8 +555,6 @@ EOF
                     green "访问地址: http://$(curl -s ipv4.icanhazip.com):8080"
                     yellow "管理员账号: admin"
                     yellow "初始密码: admin12345678"
-                    echo "------------------------------------------------"
-                    red "注意：密码必须输入完整的 admin12345678"
                     green "================================================"
                 else
                     red "服务启动失败，请检查端口 8080 是否被占用。"
@@ -578,24 +562,17 @@ EOF
                 
                 read -n 1 -s -r -p "按任意键返回菜单..."
                 ;;
-
-
-
             2)
                 clear
                 purple "=== 配置 File Browser 域名 SSL ==="
-                # 直接调用你的证书函数
                 check_and_issue_ssl
                 [[ $? -ne 0 ]] && sleep 2 && continue
                 domain_name="$domain"
-
-                # 安装 Nginx
                 [[ ! -x "$(command -v nginx)" ]] && manage_packages "install" "nginx"
-
-                # Nginx 配置 (1G 上传限制)
                 local conf_file="/etc/nginx/conf.d/filebrowser.conf"
                 [[ -d "/etc/nginx/sites-available" ]] && conf_file="/etc/nginx/sites-available/filebrowser.conf"
-
+				filebrowser -d /usr/local/filebrowser/filebrowser.db config set --address 127.0.0.1 >/dev/null 2>&1
+                systemctl restart filebrowser
                 cat > "$conf_file" <<EOF
 server {
     listen 80;
@@ -634,14 +611,13 @@ EOF
                 rm -f /etc/nginx/sites-available/filebrowser.conf
                 rm -f /etc/nginx/sites-enabled/filebrowser.conf
                 systemctl restart nginx >/dev/null 2>&1
-                green "卸载完成，数据已全部抹除。"
+                green "卸载完成"
                 sleep 2 ; break
                 ;;
             0) break ;;
         esac
     done
 }
-
 
 
 # --- 主菜单与逻辑循环 ---
