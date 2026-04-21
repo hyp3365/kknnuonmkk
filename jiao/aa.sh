@@ -503,6 +503,127 @@ EOF
     done
 }
 
+# File Browser 网盘
+filebrowser_menu() {
+    while true; do
+        clear
+        purple "=== File Browser 网盘管理 ==="
+        echo "--------------"
+        green  "1. 安装 File Browser (自动最新版)"
+        green  "2. 配置域名访问 (Nginx + SSL)"
+        red    "3. 彻底卸载 File Browser"
+        echo "--------------"
+        purple "0. 返回上一级菜单"
+        echo "--------------"
+        reading "请输入选择 [0-3]: " fb_choice
+
+        case $fb_choice in
+            1)
+                yellow "正在安装 File Browser..."
+                # 官方一键安装脚本
+                curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
+                
+                # 初始化配置
+                mkdir -p /usr/local/filebrowser
+                cd /usr/local/filebrowser
+                if [ ! -f "filebrowser.db" ]; then
+                    filebrowser -d filebrowser.db config init >/dev/null 2>&1
+                    filebrowser -d filebrowser.db config set --address 0.0.0.0 >/dev/null 2>&1
+                    filebrowser -d filebrowser.db config set --port 8080 >/dev/null 2>&1
+                    filebrowser -d filebrowser.db config set --log /var/log/filebrowser.log >/dev/null 2>&1
+                    # 创建默认管理员 admin/admin
+                    filebrowser -d filebrowser.db users add admin admin --perm.admin >/dev/null 2>&1
+                fi
+
+                # 配置自启动
+                cat > /etc/systemd/system/filebrowser.service <<EOF
+[Unit]
+Description=File Browser
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/usr/local/filebrowser
+ExecStart=/usr/local/bin/filebrowser -d /usr/local/filebrowser/filebrowser.db
+Restart=on-abnormal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+                systemctl daemon-reload
+                systemctl enable filebrowser --now >/dev/null 2>&1
+
+                green "File Browser 安装并启动成功！"
+                echo "------------------------------------------------"
+                green "访问地址: http://$(curl -s ipv4.icanhazip.com):8080"
+                yellow "默认账号: admin"
+                yellow "默认密码: admin"
+                echo "------------------------------------------------"
+                read -n 1 -s -r -p "按任意键返回菜单..."
+                ;;
+
+            2)
+                clear
+                purple "=== 配置 File Browser 域名 SSL ==="
+                # 直接调用你的证书函数
+                check_and_issue_ssl
+                [[ $? -ne 0 ]] && sleep 2 && continue
+                domain_name="$domain"
+
+                # 安装 Nginx
+                [[ ! -x "$(command -v nginx)" ]] && manage_packages "install" "nginx"
+
+                # Nginx 配置 (1G 上传限制)
+                local conf_file="/etc/nginx/conf.d/filebrowser.conf"
+                [[ -d "/etc/nginx/sites-available" ]] && conf_file="/etc/nginx/sites-available/filebrowser.conf"
+
+                cat > "$conf_file" <<EOF
+server {
+    listen 80;
+    server_name $domain_name;
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    server_name $domain_name;
+    ssl_certificate $cert_file;
+    ssl_certificate_key $key_file;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        client_max_body_size 1024m;
+    }
+}
+EOF
+                [[ -d "/etc/nginx/sites-enabled" ]] && ln -sf "$conf_file" "/etc/nginx/sites-enabled/"
+                nginx -t && systemctl restart nginx
+                green "HTTPS 配置成功！访问: https://$domain_name"
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+
+            3)
+                yellow "正在彻底卸载 File Browser..."
+                systemctl disable filebrowser --now >/dev/null 2>&1
+                rm -f /etc/systemd/system/filebrowser.service
+                rm -f /usr/local/bin/filebrowser
+                rm -rf /usr/local/filebrowser
+                # 清理 Nginx
+                rm -f /etc/nginx/conf.d/filebrowser.conf
+                rm -f /etc/nginx/sites-available/filebrowser.conf
+                rm -f /etc/nginx/sites-enabled/filebrowser.conf
+                systemctl restart nginx >/dev/null 2>&1
+                green "卸载完成，数据已全部抹除。"
+                sleep 2 ; break
+                ;;
+            0) break ;;
+        esac
+    done
+}
+
+
 
 # --- 主菜单与逻辑循环 ---
 while true; do
@@ -514,6 +635,7 @@ while true; do
    green "4. S-UI面板"
    green "5. 3X-UI面板"
    green "6. Cloudreve云盘"
+   green "7. FileBrowser网盘"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -538,6 +660,9 @@ while true; do
             ;;
         6)
             cloudreve_menu
+            ;;
+		7)
+            filebrowser_menu
             ;;
         0)
             echo "退出脚本"
