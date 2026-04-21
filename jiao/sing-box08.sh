@@ -2260,6 +2260,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2285,6 +2286,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2310,6 +2312,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2335,6 +2338,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2360,6 +2364,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2383,6 +2388,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
 					sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2408,6 +2414,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                      sed -i "/${target}/d" /etc/sing-box/url.txt
                      sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					 echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -2433,6 +2440,7 @@ EOF
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
                 fi
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
