@@ -2519,12 +2519,18 @@ EOF
             fi
 			;;
 			60) 
-			generate_vars
-			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v4
-			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v6
 			target="_hysteria2"
             target_conf="/etc/sing-box/hysteria2.json"
             if [ -f "$target_conf" ]; then
+				hy2_port=$(grep '"listen"' "$target_conf" | head -n 1 | sed -E 's/.*:([0-9]+).*/\1/')
+                if [ -z "$hy2_port" ]; then
+                    yellow "警告: 无法从配置文件中提取端口，尝试跳过防火墙清理。"
+                else
+                    sed -i "/--dport $hy2_port\b/d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port\b/d" /etc/iptables/rules.v6
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
