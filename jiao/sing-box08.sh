@@ -2526,10 +2526,10 @@ EOF
                 if [ -z "$hy2_port" ]; then
                     yellow "警告: 无法从配置文件中提取端口，尝试跳过防火墙清理。"
                 else
-                    sed -i "/--dport $hy2_port\b/d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port\b/d" /etc/iptables/rules.v6
+				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
                     iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6        
                 fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
