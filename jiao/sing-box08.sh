@@ -2857,7 +2857,9 @@ iptables_ssl() {
             if ! ip6tables-save | grep -q "INPUT -i lo"; then
                 ip6tables -I INPUT -i lo -j ACCEPT
             fi
-            
+			if ! ip6tables-save | grep -q "INPUT -p ipv6-icmp -j ACCEPT"; then
+            ip6tables -I INPUT -p ipv6-icmp -j ACCEPT
+            fi           
             for port in $ssh_ports; do
                 if ! ip6tables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
                     ip6tables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
