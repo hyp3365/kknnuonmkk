@@ -51,18 +51,16 @@ get_current_version() {
     fi
 }
 
+# --- 版本获取 ---
 get_latest_stable() {
     curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
-
 get_latest_prerelease() {
     curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep '"tag_name":' | head -n 10 | grep -E "alpha|beta|rc" | head -n 1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
-
 get_latest_awg() {
     curl -s "https://api.github.com/repos/hoaxisr/amnezia-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
-
 get_latest_argo() {
     curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
