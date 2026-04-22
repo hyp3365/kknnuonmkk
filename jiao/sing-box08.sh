@@ -2256,7 +2256,7 @@ EOF
   ]
 }
 EOF
-				allow_port $hy2_port/tcp > /dev/null 2>&1
+				allow_port $hy2_port/udp > /dev/null 2>&1
 				node_remark="${isp}_hysteria2"
                 url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${node_remark}"								
                 if [ -f "/etc/sing-box/url.txt" ]; then
@@ -2519,9 +2519,8 @@ EOF
             fi
 			;;
 			60) 
-			if [ -n "$hy2_port" ]; then
-                close_port "${hy2_port}/tcp" "${hy2_port}/udp" > /dev/null 2>&1
-            fi
+			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v4
+			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v6
 			target="_hysteria2"
             target_conf="/etc/sing-box/hysteria2.json"
             if [ -f "$target_conf" ]; then
