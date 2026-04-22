@@ -58,9 +58,6 @@ get_latest_stable() {
 get_latest_prerelease() {
     curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep '"tag_name":' | head -n 10 | grep -E "alpha|beta|rc" | head -n 1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
-get_latest_awg() {
-    curl -s "https://api.github.com/repos/hoaxisr/amnezia-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
-}
 get_latest_argo() {
     curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
@@ -82,31 +79,6 @@ update_sb() {
     fi
     rm -rf "$tmp"
 }
-
-update_awg_sb() {
-    tag="$1"
-    [ -z "$tag" ] && return
-    local ver_no_v="${tag#v}"
-    url="https://github.com/hoaxisr/amnezia-box/releases/download/${tag}/sing-box-${ver_no_v}-linux-${ARCH}"   
-    tmp=$(mktemp -d)
-    echo -e "${PURPLE}▶ 正在从分支源下载文件 [ ${tag} ]...${RESET}"
-    echo -e "${BLUE}URL: $url${RESET}"
-    if curl -L -f -o "$tmp/sing-box" "$url"; then
-        # 备份原文件
-        [ -f "$SB_BIN" ] && cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
-        mv "$tmp/sing-box" "$SB_BIN"
-        chmod +x "$SB_BIN"
-        systemctl restart sing-box 2>/dev/null
-        echo -e "${GREEN}✅ hoaxisr 分支版更新成功!${RESET}"
-    else
-        echo -e "${RED}❌ 下载失败!${RESET}"
-        echo -e "${RED}请检查该地址是否有效: ${RESET}$url"
-    fi
-
-    rm -rf "$tmp"
-}
-
-
 
 update_argo() {
     tag=$(get_latest_argo)
@@ -150,7 +122,6 @@ while true; do
     echo -e "1) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方稳定版: ${v_stable:-获取中}${RESET} ]"
     echo -e "2) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方测试版: ${v_pre:-获取中}${RESET} ]"
     echo -e "3) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
-    echo -e "4) ${PURPLE}更新 sing-box${RESET} [ ${YELLOW}hoaxisr分支版: ${v_awg:-获取中}${RESET} ]"
     echo -e "0) ${RED}退出程序${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo
@@ -159,7 +130,6 @@ while true; do
         1) update_sb "$v_stable" ;;
         2) update_sb "$v_pre" ;;
         3) update_argo ;;
-        4) update_awg_sb "$v_awg" ;;
         0) exit 0 ;;
         *) echo -e "${RED}输入错误，请输入 0-4 之间的数字。${RESET}" ;;
     esac
