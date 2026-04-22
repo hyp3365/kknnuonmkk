@@ -65,7 +65,6 @@ generate_vars() {
 	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 	vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 	hy2_port=$(shuf -i 10000-60000 -n 1)
-	wireguard_port=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -1734,9 +1733,7 @@ manage_nodes_menu() {
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
 			"vless-ws-cdn.json|vless-ws-cdn|8"
 			"vmess-ws-cdn.json|vmess-ws-cdn|9"
-			"hysteria2.json|hysteria2|10"
-			"wireguardwg2.json|AmneziaWG 2.0|11"
-			
+			"hysteria2.json|hysteria2|10"		
         )
 
         clear
@@ -2270,62 +2267,6 @@ EOF
                 restart_singbox
                 green "==============================================="
                 green " hysteria2 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
-			11) yellow "正在配置 AmneziaWG 2.0..."
-                generate_vars
-                server_ip=$(get_realip)
-                cat > /etc/sing-box/wireguardwg2.json << EOF
-{
-  "inbounds": [
-      {
-      "type": "wireguard",
-      "tag": "awg-in",
-      "listen": "::",
-      "listen_port": $wireguard_port,
-      "sniff": true,
-      "local_address": [
-        "10.0.0.1/24",
-        "fd00::1/128"
-      ],
-      "private_key": "$private_key",
-      "mtu": 1280,
-      "amneziawg": {
-        "jc": 4,
-        "jmin": 40,
-        "jmax": 70,
-        "s1": 45,
-        "s2": 72,
-        "s3": 110,
-        "s4": 150,
-        "h1": 12345678,
-        "h2": 87654321,
-        "h3": 13572468,
-        "h4": 24681357,
-        "i1": 15,
-        "i2": 25,
-        "i3": 35,
-        "i4": 40,
-        "i5": 50,
-        "c": 1
-      },
-      "peers": [
-        {
-          "name": "user_pc",
-          "public_key": "$public_key",
-          "allowed_ips": [
-            "10.0.0.2/32"
-          ]
-        }
-      ]
-    }
-  ]
-}
-EOF
-                restart_singbox
-                green "==============================================="
-                green " AmneziaWG 2.0 节点已添加!"
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
