@@ -2527,7 +2527,6 @@ EOF
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
                     iptables-restore < /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6        
-                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
