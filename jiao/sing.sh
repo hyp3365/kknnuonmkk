@@ -126,14 +126,15 @@ while true; do
     detect_arch
     
     echo -e "${YELLOW}=================================================${RESET}"
-    echo -e "           ${GREEN}SING-BOX 管理与更新助手${RESET}"
+    echo -e "           ${GREEN}SING-BOX 更新${RESET}"
     echo -e "${YELLOW}=================================================${RESET}"
     echo -e "${BLUE}程序路径:${RESET}"
     echo -e "  sing-box:  ${RED}${SB_BIN:-未找到}${RESET}"
     echo -e "  argo:      ${RED}${ARGO_BIN:-未找到}${RESET}"
     echo
-    echo -e "${BLUE}版本信息:${RESET}"
-    echo -e "  当前版本:  ${RED}$(get_current_version "$SB_BIN")${RESET}"
+    echo -e "${BLUE}当前版本信息:${RESET}"
+    echo -e "  sing-box:  ${RED}$(get_current_version "$SB_BIN")${RESET}"
+    echo -e "  argo:      ${RED}$(get_current_version "$ARGO_BIN")${RESET}"
     echo -e "  系统架构:  ${RED}$ARCH${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo -e "${GREEN}正在获取云端版本信息...${RESET}"
