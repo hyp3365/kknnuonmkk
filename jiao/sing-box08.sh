@@ -2063,7 +2063,6 @@ EOF
   ]
 }
 EOF
-		allow_port "8003/tcp" "8003/udp" > /dev/null 2>&1
 		node_remark="${isp}_vless_ws_argo"
         VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
         if [ -f "${work_dir}/url.txt" ]; then
@@ -2273,12 +2272,14 @@ EOF
                 ;;
             # --- 完整的删除逻辑 ---
             51) 
-			if [ -n "$h2_reality" ]; then
-                close_port "${h2_reality}/tcp" "${h2_reality}/udp" > /dev/null 2>&1
-            fi
 			target="_vless_http_reality"
             target_conf="/etc/sing-box/h2-reality.json"
             if [ -f "$target_conf" ]; then
+			    h2_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2299,12 +2300,14 @@ EOF
             fi
             ;;
             52)
-			if [ -n "$grpc_reality" ]; then
-                close_port "${grpc_reality}/tcp" "${grpc_reality}/udp" > /dev/null 2>&1
-            fi
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
             if [ -f "$target_conf" ]; then
+			    grpc_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2325,12 +2328,14 @@ EOF
             fi
             ;;
             53)
-			if [ -n "$anytls_port" ]; then
-                close_port "${anytls_port}/tcp" "${anytls_port}/udp" > /dev/null 2>&1
-            fi
 			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
             if [ -f "$target_conf" ]; then
+			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2351,12 +2356,14 @@ EOF
             fi
             ;;
             54)
-			if [ -n "$socks_port" ]; then
-                close_port "${socks_port}/tcp" "${socks_port}/udp" > /dev/null 2>&1
-            fi
 			target="_socks5"
             target_conf="/etc/sing-box/socks5.json"
             if [ -f "$target_conf" ]; then
+			    socks_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $socks_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $socks_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2377,12 +2384,14 @@ EOF
             fi
             ;;
             55)
-			if [ -n "$http_port" ]; then
-                close_port "${http_port}/tcp" "${http_port}/udp" > /dev/null 2>&1
-            fi
 			target="_http"
             target_conf="/etc/sing-box/http.json"
             if [ -f "$target_conf" ]; then
+			    http_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $http_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $http_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2403,7 +2412,6 @@ EOF
             fi
             ;;
 		    56) 
-			close_port "8003/tcp" "8003/udp" > /dev/null 2>&1
 			target="_vless_ws_argo"
             target_conf="/etc/sing-box/vless-ws-argo.json"
             if [ -f "$target_conf" ]; then
@@ -2427,12 +2435,14 @@ EOF
             fi
             ;;
 		    57) 
-			if [ -n "$vless_wstls_cdn_port" ]; then
-                close_port "${vless_wstls_cdn_port}/tcp" "${vless_wstls_cdn_port}/udp" > /dev/null 2>&1
-            fi
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
+			    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                      sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2453,12 +2463,14 @@ EOF
             fi
             ;;
 			58) 
-			if [ -n "$vless_ws_cdn_port" ]; then
-                close_port "${vless_ws_cdn_port}/tcp" "${vless_ws_cdn_port}/udp" > /dev/null 2>&1
-            fi
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
+			    vless_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2479,12 +2491,14 @@ EOF
             fi
             ;;	
 		    59) 
-			if [ -n "$vmess_ws_cdn_port" ]; then
-                close_port "${vmess_ws_cdn_port}/tcp" "${vmess_ws_cdn_port}/udp" > /dev/null 2>&1
-            fi
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
+			    vmess_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     new_urls=$(while read -r line; do
