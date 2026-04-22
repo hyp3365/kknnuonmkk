@@ -137,7 +137,7 @@ while true; do
     echo -e "  argo:      ${RED}$(get_current_version "$ARGO_BIN")${RESET}"
     echo -e "  系统架构:  ${RED}$ARCH${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
-    echo -e "${GREEN}正在获取云端版本信息...${RESET}"
+    echo -e "${GREEN}正在获取版本信息...${RESET}"
     v_stable=$(get_latest_stable)
     v_pre=$(get_latest_prerelease)
     v_awg=$(get_latest_awg)
