@@ -2519,6 +2519,7 @@ EOF
             fi
 			;;
 			60) 
+			generate_vars
 			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v4
 			sed -i -E "/--dport +$hy2_port([^0-9]|$)/d" /etc/iptables/rules.v6
 			target="_hysteria2"
