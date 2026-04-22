@@ -88,19 +88,24 @@ update_awg_sb() {
     [ -z "$tag" ] && return
     url="https://github.com/hoaxisr/amnezia-box/releases/download/${tag}/sing-box-linux-${ARCH}.tar.gz"    
     tmp=$(mktemp -d)
-    echo -e "${PURPLE}▶ 正在更新hoaxisr分支版 [ ${tag} ]...${RESET}"
+    echo -e "${PURPLE}▶ 正在更新 hoaxisr 分支版 [ ${tag} ]...${RESET}"
     if curl -L -f -o "$tmp/awg.tgz" "$url"; then
         if tar -xzf "$tmp/awg.tgz" -C "$tmp"; then
             [ -f "$SB_BIN" ] && cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
             find "$tmp" -type f -name "sing-box" -exec mv {} "$SB_BIN" \;
             chmod +x "$SB_BIN"
             systemctl restart sing-box 2>/dev/null
-        echo -e "${GREEN}✅ hoaxisr分支版更新成功!${RESET}"
+            echo -e "${GREEN}✅ hoaxisr 分支版更新成功!${RESET}"
+        else
+            echo -e "${RED}❌ 解压失败，下载的文件可能不是有效的 gzip 格式。${RESET}"
+        fi # 补齐这里的 fi
     else
         echo -e "${RED}❌ 下载失败，请确保该版本包含 ${ARCH} 架构文件。${RESET}"
-    fi
+    fi # 补齐这里的 fi
+    
     rm -rf "$tmp"
 }
+
 
 update_argo() {
     tag=$(get_latest_argo)
