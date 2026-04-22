@@ -116,7 +116,6 @@ while true; do
     echo -e "${GREEN}正在获取版本信息...${RESET}"
     v_stable=$(get_latest_stable)
     v_pre=$(get_latest_prerelease)
-    v_awg=$(get_latest_awg)
     v_argo=$(get_latest_argo)
 
     echo -e "1) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方稳定版: ${v_stable:-获取中}${RESET} ]"
