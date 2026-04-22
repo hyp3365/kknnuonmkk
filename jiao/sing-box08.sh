@@ -64,6 +64,7 @@ generate_vars() {
 	vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
 	vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 	vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+	hy2_port=$(shuf -i 10000-60000 -n 1)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     short_id=$(openssl rand -hex 6)
@@ -509,7 +510,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
    # 生成随机端口和密码
     nginx_port=$(($vless_port + 1)) 
     tuic_port=$(($vless_port + 2))
-    hy2_port=$(($vless_port + 3)) 
     uuid=$(cat /proc/sys/kernel/random/uuid)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
 	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
@@ -519,7 +519,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
+    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -594,27 +594,6 @@ cat > "${config_dir}" << EOF
          }
      },
     {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $hy2_port,
-      "users": [
-        {
-          "password": "$uuid"
-        }
-      ],
-      "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "min_version": "1.3",
-        "max_version": "1.3",
-        "certificate_path": "$work_dir/cert.pem",
-        "key_path": "$work_dir/private.key"
-      }
-    },
-    {
       "type": "tuic",
       "tag": "tuic",
       "listen": "::",
@@ -673,8 +652,8 @@ cat > "${config_dir}" << EOF
    {
      "type": "direct",
      "tag": "he-out",
-     "bind_interface": "he-ipv6"#he隧道网卡 没啥用的
-	 #在/etc/network/interfaces 文件最后添加  没什么大用
+     "bind_interface": "he-ipv6"#he隧道网卡 
+	 #在/etc/network/interfaces 文件最后添加  
     },
 	{
       "type": "socks",
@@ -885,8 +864,6 @@ get_info() {
 vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
 
 vmess://$(echo "$VMESS"| base64 -w0)
-
-hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${isp}_hysteria2
 
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
 
@@ -1756,11 +1733,12 @@ manage_nodes_menu() {
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
 			"vless-ws-cdn.json|vless-ws-cdn|8"
 			"vmess-ws-cdn.json|vmess-ws-cdn|9"
+			"hysteria2.json|hysteria2|10"
         )
 
         clear
         yellow "============================================="
-        echo -e "             添加删除节点               "
+        echo -e "             添加节点               "
         yellow "============================================="
         echo -e "\e[1;34m[ 未添加节点 ]\033[0m"
         local has_unadded=false
@@ -1803,7 +1781,7 @@ manage_nodes_menu() {
 		case "${choice}" in
         1) 
                 generate_vars
-                server_ip=$(curl -sS4 ip.sb || curl -sS4 ifconfig.me)                
+                server_ip=$(get_realip)                
                 yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
@@ -2247,7 +2225,52 @@ EOF
             yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
             yellow " 节点如果不通 试着打开客户端 ECH"
             green "--------------------------------------------------"
-            ;;      
+            ;;   
+		10) yellow "正在配置 hysteria2..."
+                generate_vars
+                server_ip=$(get_realip)
+                cat > /etc/sing-box/hysteria2.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $hy2_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "ignore_client_bandwidth": false,
+      "masquerade": "https://bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "min_version": "1.3",
+        "max_version": "1.3",
+        "certificate_path": "$work_dir/cert.pem",
+        "key_path": "$work_dir/private.key"
+      }
+    }
+  ]
+}
+EOF
+				allow_port $hy2_port/tcp > /dev/null 2>&1
+				node_remark="${isp}_hysteria2"
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${node_remark}"								
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                restart_singbox
+                green "==============================================="
+                green " hysteria2 节点已添加!"
+                green " 节点链接: $url"
+                green "==============================================="
+                ;;
             # --- 完整的删除逻辑 ---
             51) 
 			if [ -n "$h2_reality" ]; then
@@ -2495,6 +2518,32 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
 			;;
+			60) 
+			if [ -n "$hy2_port" ]; then
+                close_port "${hy2_port}/tcp" "${hy2_port}/udp" > /dev/null 2>&1
+            fi
+			target="_hysteria2"
+            target_conf="/etc/sing-box/hysteria2.json"
+            if [ -f "$target_conf" ]; then
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;	
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
