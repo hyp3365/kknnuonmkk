@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.9 (2026.04.11)'
+VERSION='v1.3.10 (2026.04.25)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -17,8 +17,8 @@ MAX_PORT=65520
 MIN_HOPPING_PORT=10000
 MAX_HOPPING_PORT=65535
 TLS_SERVER_DEFAULT=addons.mozilla.org
-PROTOCOL_LIST=("XTLS + reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "vmess + ws" "vless + ws + tls" "H2 + reality" "gRPC + reality" "AnyTLS")
-NODE_TAG=("xtls-reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "vmess-ws" "vless-ws-tls" "h2-reality" "grpc-reality" "anytls")
+PROTOCOL_LIST=("XTLS + reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "vmess + ws" "vless + ws + tls" "H2 + reality" "gRPC + reality" "AnyTLS" "naive")
+NODE_TAG=("xtls-reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "vmess-ws" "vless-ws-tls" "h2-reality" "grpc-reality" "anytls" "naive")
 CONSECUTIVE_PORTS=${#PROTOCOL_LIST[@]}
 CDN_DOMAIN=("skk.moe" "ip.sb" "time.is" "cfip.xxxxxxxx.tk" "bestcf.top" "cdn.2020111.xyz" "xn--b6gac.eu.org" "cf.090227.xyz")
 SUBSCRIBE_TEMPLATE="https://raw.githubusercontent.com/fscarmen/client_template/main"
@@ -39,8 +39,8 @@ mkdir -p "$TEMP_DIR"
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. remove pre-install UFW blocking logic, fallback to iptables when inactive; 2. avoid unnecessary sing-box restart for CDN / bandwidth / port hopping changes; 3. reduce redundant single-use functions"
-C[1]="1. 移除安装前 UFW 强制校验，inactive 自动回退 iptables; 2. 优选地址 / 带宽 / 端口跳跃修改不再重启 sing-box; 3. 清理单次调用函数，提升结构可读性"
+E[1]="Added native protocol, but client support is extremely limited, with Shadowrocket offering the best compatibility. For the sing-box core, you must use the -glibc or -musl version according to the requirements; refer to the official documentation for details: https://sing-box.sagernet.org/configuration/outbound/naive/"
+C[1]="增加 native 协议，支持该协议的客户端极少，Shadowrocket 支持最好。sing-box 内核需要按说明使用-glibc 或者 -musl 版本，详见官方说明 https://sing-box.sagernet.org/zh/configuration/outbound/naive/"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -331,6 +331,8 @@ E[145]="UFW is not active. PortHopping forwarding rules were written, but you sh
 C[145]="UFW 未处于激活状态。PortHopping 转发规则已写入，但建议手动启用 UFW 以确保策略生效"
 E[146]="Failed to update UFW PortHopping forwarding rules. Please check UFW configuration files manually."
 C[146]="更新 UFW 的 PortHopping 转发规则失败，请手动检查 UFW 配置文件"
+E[147]="NaiveProxy outbound is only available on Apple platforms, Android, Windows and certain Linux builds. See https://sing-box.sagernet.org/configuration/outbound/naive for more details."
+C[147]="NaiveProxy 出站仅在 Apple 平台、Android、Windows 和特定 Linux 构建上可用。详见 https://sing-box.sagernet.org/zh/configuration/outbound/naive/"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -596,7 +598,7 @@ change_config() {
     change_start_port
     return
   elif [ "$KEY" = "hy2bw" ]; then
-    # 修改 Hysteria2 带宽 - 内联实现
+    # 修改 Hysteria2 带宽
     local HY2_UP HY2_DOWN
     while true; do
       reading " $(text 141) " HY2_UP
@@ -614,7 +616,7 @@ change_config() {
     export_list
     return
   elif [ "$KEY" = "hy2hopping" ]; then
-    # 修改 Hysteria2 端口跳跃 - 内联实现
+    # 修改 Hysteria2 端口跳跃
     check_port_hopping_nat
     local OLD_START="$PORT_HOPPING_START" OLD_END="$PORT_HOPPING_END"
     hint "\n $(text 97) \n"
@@ -1647,7 +1649,7 @@ sing-box_variables() {
   STEP_NUM=0
   # 预先用全选协议计算最大总步骤数，用于协议选择提示时显示 (1/?)
   local _saved_protocols=("${INSTALL_PROTOCOLS[@]}")
-  INSTALL_PROTOCOLS=(b c d e f g h i j k l)
+  INSTALL_PROTOCOLS=(b c d e f g h i j k l m)
   calc_install_steps
   INSTALL_PROTOCOLS=("${_saved_protocols[@]}")
 
@@ -2460,11 +2462,23 @@ ingress:
 EOF
 }
 
-# 生成100年的自签证书，区分使用 IPv4 / IPv6 / 域名
+# 生成自签证书，区分使用 IPv4 / IPv6 / 域名
+# 默认同时更新 cert.pem(36500天) 和 cert_200.pem(200天)
+# 传参 naive_only 时，仅检测 cert_200.pem 是否缺失 / 过期 / SNI 不一致，符合条件才更新
 ssl_certificate() {
   local TLS_SERVER="$1"
+  local CERT_MODE="$2"
+  local CERT_200_FILE="${WORK_DIR}/cert/cert_200.pem"
+  local CERT_200_SNI
+
   [ ! -d ${WORK_DIR}/cert ] && mkdir -p ${WORK_DIR}/cert
-  openssl ecparam -genkey -name prime256v1 -out ${WORK_DIR}/cert/private.key
+
+  if [ "$CERT_MODE" != 'naive_only' ]; then
+    openssl ecparam -genkey -name prime256v1 -out ${WORK_DIR}/cert/private.key
+  elif [ ! -s ${WORK_DIR}/cert/private.key ] || [ ! -s ${WORK_DIR}/cert/cert.pem ]; then
+    CERT_MODE=''
+    openssl ecparam -genkey -name prime256v1 -out ${WORK_DIR}/cert/private.key
+  fi
 
   cat > ${WORK_DIR}/cert/cert.conf << EOF
 [req]
@@ -2482,12 +2496,18 @@ subjectAltName = @alt_names
 DNS = ${TLS_SERVER}
 EOF
 
-  openssl req -new -x509 -days 36500 -key ${WORK_DIR}/cert/private.key -out ${WORK_DIR}/cert/cert.pem -config ${WORK_DIR}/cert/cert.conf -extensions v3_req
+  if [ "$CERT_MODE" != 'naive_only' ]; then
+    openssl req -new -x509 -days 36500 -key ${WORK_DIR}/cert/private.key -out ${WORK_DIR}/cert/cert.pem -config ${WORK_DIR}/cert/cert.conf -extensions v3_req
+    openssl req -new -x509 -days 200 -key ${WORK_DIR}/cert/private.key -out ${WORK_DIR}/cert/cert_200.pem -config ${WORK_DIR}/cert/cert.conf -extensions v3_req
+  else
+    CERT_200_SNI=$(openssl x509 -noout -ext subjectAltName -in "$CERT_200_FILE" 2>/dev/null | awk -F 'DNS:' '/DNS:/{gsub(/,.*/, "", $2); print $2}')
+    if [ ! -s "$CERT_200_FILE" ] || ! openssl x509 -checkend 0 -noout -in "$CERT_200_FILE" >/dev/null 2>&1 || [ "$CERT_200_SNI" != "$TLS_SERVER" ]; then
+      openssl req -new -x509 -days 200 -key ${WORK_DIR}/cert/private.key -out ${WORK_DIR}/cert/cert_200.pem -config ${WORK_DIR}/cert/cert.conf -extensions v3_req
+    fi
+  fi
 
   rm -f ${WORK_DIR}/cert/cert.conf
 }
-
-# 处理防火墙规则
 
 # Nginx 配置文件
 export_nginx_conf_file() {
@@ -2830,6 +2850,9 @@ EOF
 
   # 获取自签名证书的域名
   TLS_SERVER=$(openssl x509 -noout -ext subjectAltName -in ${WORK_DIR}/cert/cert.pem 2>/dev/null | awk -F 'DNS:' '/DNS:/{gsub(/,.*/, "", $2); print $2}')
+
+  # naive 在 -r 新增协议时，如 cert_200.pem 过期 / 缺失 / SNI 不一致则自动更新
+  [[ "${INSTALL_PROTOCOLS[@]}" =~ 'm' ]] && ssl_certificate "$TLS_SERVER" naive_only
 
   # 生成 2022-blake3-aes-128-gcm 的 password
   local SIP022_PASSWORD=${SIP022_PASSWORD:-"$(openssl rand -base64 16)"}
@@ -3285,7 +3308,7 @@ EOF
     "inbounds":[
         {
             "type":"anytls",
-            "tag":"${NODE_NAME[21]} anytls",
+            "tag":"${NODE_NAME[21]} ${NODE_TAG[10]}",
             "listen":"::",
             "listen_port":$PORT_ANYTLS,
             "users":[
@@ -3297,6 +3320,37 @@ EOF
             "tls":{
                 "enabled":true,
                 "certificate_path":"${WORK_DIR}/cert/cert.pem",
+                "key_path":"${WORK_DIR}/cert/private.key"
+            }
+        }
+    ]
+}
+EOF
+  fi
+
+  # 生成 naive 配置
+  CHECK_PROTOCOLS=$(asc "$CHECK_PROTOCOLS" ++)
+  if [[ "${INSTALL_PROTOCOLS[@]}" =~ "$CHECK_PROTOCOLS" ]]; then
+    [ -z "$PORT_NAIVE" ] && PORT_NAIVE=$[START_PORT+$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}")]
+    NODE_NAME[22]=${NODE_NAME[22]:-"$NODE_NAME_CONFIRM"} && UUID[22]=${UUID[22]:-"$UUID_CONFIRM"}
+
+    cat > ${WORK_DIR}/conf/22_${NODE_TAG[11]}_inbounds.json << EOF
+{
+    "inbounds":[
+        {
+            "type":"naive",
+            "tag":"${NODE_NAME[22]} ${NODE_TAG[11]}",
+            "listen":"::",
+            "listen_port":$PORT_NAIVE,
+            "users":[
+                {
+                    "username":"${UUID[22]}",
+                    "password":"${UUID[22]}"
+                }
+            ],
+            "tls":{
+                "enabled":true,
+                "certificate_path":"${WORK_DIR}/cert/cert_200.pem",
                 "key_path":"${WORK_DIR}/cert/private.key"
             }
         }
@@ -3465,7 +3519,7 @@ EOF
 
 # 获取原有各协议的参数，先清空所有的 key-value
 fetch_nodes_value() {
-  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
+  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS PORT_NAIVE SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
 
   # 获取公共数据
   ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1 && SERVER_IP=$(awk -F '"' '/"WS_SERVER_IP_SHOW"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json) || SERVER_IP=$(grep -A1 '"tag"' ${WORK_DIR}/list | sed -E '/-ws(-tls)*",$/{N;d}' | awk -F '"' '/"server"/{count++; if (count == 1) {print $4; exit}}')
@@ -3513,6 +3567,9 @@ fetch_nodes_value() {
 
   # 获取 anytls key-value
   [ -s ${WORK_DIR}/conf/*_${NODE_TAG[10]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[10]}_inbounds.json) && NODE_NAME[21]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[10]}.*/\1/p" <<< "$JSON") && PORT_ANYTLS=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[21]=$(awk -F '"' '/"password"/{print $4}' <<< "$JSON")
+
+  # 获取 naive key-value
+  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[11]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[11]}_inbounds.json) && NODE_NAME[22]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[11]}.*/\1/p" <<< "$JSON") && PORT_NAIVE=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[22]=$(awk -F '"' '/"username"/{print $4; exit}' <<< "$JSON")
 }
 
 # 获取 Argo 临时隧道域名
@@ -3646,6 +3703,18 @@ export_list() {
 
   # 从自签证书的 SAN 中读取当前使用的 SNI，优先取 SAN，退回到 CN
   local TLS_SERVER=$(openssl x509 -noout -ext subjectAltName -in ${WORK_DIR}/cert/cert.pem 2>/dev/null | awk -F 'DNS:' '/DNS:/{gsub(/,.*/, "", $2); print $2}')
+
+  # naive 协议的特殊处理
+  if [ -n "$PORT_NAIVE" ]; then
+    # 在 -n 查看节点时，如 cert_200.pem 过期 / 缺失 / SNI 不一致则自动更新
+    ssl_certificate "$TLS_SERVER" naive_only
+
+    # 读取 naive 自签证书并格式化为 JSON 字符串数组内容；多行/单行位置共用这一个变量
+    local CERT200_JSON=$(awk 'BEGIN{sep=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\"%s\"", sep, $0; sep=",\n"}' "${WORK_DIR}/cert/cert_200.pem")
+
+    # 获取 naive 自签名证书的指纹
+    local SELF_SIGNED_200_FINGERPRINT_SHA256=$(openssl x509 -fingerprint -noout -sha256 -in ${WORK_DIR}/cert/cert_200.pem | awk -F '=' '{print $NF}')
+  fi
 
   # 生成各订阅文件
   # 生成 Clash proxy providers 订阅文件
@@ -3829,6 +3898,11 @@ vless://$(echo -n "auto:${UUID[20]}@${SERVER_IP_2}:${PORT_GRPC_REALITY}" | base6
   [ -n "$PORT_ANYTLS" ] && local SHADOWROCKET_SUBSCRIBE+="
 anytls://${UUID[21]}@${SERVER_IP_1}:${PORT_ANYTLS}?peer=${TLS_SERVER}&udp=1&hpkp=${SELF_SIGNED_FINGERPRINT_SHA256}#${NODE_NAME[21]// /%20}%20${NODE_TAG[10]}
 "
+  [ -n "$PORT_NAIVE" ] && local SHADOWROCKET_SUBSCRIBE+="
+http2://$(echo -n "${UUID[22]}:${UUID[22]}@${SERVER_IP_2}:${PORT_NAIVE}" | base64 -w0)?peer=${TLS_SERVER}&padding=1&hpkp=${SELF_SIGNED_200_FINGERPRINT_SHA256}#${NODE_NAME[22]// /%20}%20${NODE_TAG[11]}%20http2
+
+http3://$(echo -n "${UUID[22]}:${UUID[22]}@${SERVER_IP_2}:${PORT_NAIVE}" | base64 -w0)?peer=${TLS_SERVER}&padding=1&hpkp=${SELF_SIGNED_200_FINGERPRINT_SHA256}#${NODE_NAME[22]// /%20}%20${NODE_TAG[11]}%20http3
+"
   echo -n "$SHADOWROCKET_SUBSCRIBE" | sed -E '/^[ ]*#|^--/d' | sed '/^$/d' | base64 -w0 > ${WORK_DIR}/subscribe/shadowrocket
 
   # 生成 V2rayN 订阅文件
@@ -3853,25 +3927,23 @@ tuic://${UUID[13]}:${TUIC_PASSWORD}@${SERVER_IP_1}:${PORT_TUIC}?sni=${TLS_SERVER
 # $(text 54)
 
 {
-    \"log\":{
-        \"level\":\"warn\"
+    \"log\": {
+        \"level\": \"warn\"
     },
-    \"inbounds\":[
+    \"inbounds\": [
         {
-            \"listen\":\"127.0.0.1\",
-            \"listen_port\":${PORT_SHADOWTLS},
-            \"sniff\":true,
-            \"sniff_override_destination\":false,
+            \"listen\": \"127.0.0.1\",
+            \"listen_port\": ${PORT_SHADOWTLS},
             \"tag\": \"${PROTOCOL_LIST[3]}\",
-            \"type\":\"mixed\"
+            \"type\": \"mixed\"
         }
     ],
-    \"outbounds\":[
+    \"outbounds\": [
         {
-            \"detour\":\"shadowtls-out\",
-            \"method\":\"$SHADOWTLS_METHOD\",
-            \"password\":\"$SHADOWTLS_PASSWORD\",
-            \"type\":\"shadowsocks\",
+            \"detour\": \"shadowtls-out\",
+            \"method\": \"$SHADOWTLS_METHOD\",
+            \"password\": \"$SHADOWTLS_PASSWORD\",
+            \"type\": \"shadowsocks\",
             \"udp_over_tcp\": false,
             \"multiplex\": {
               \"enabled\": true,
@@ -3882,20 +3954,20 @@ tuic://${UUID[13]}:${TUIC_PASSWORD}@${SERVER_IP_1}:${PORT_TUIC}?sni=${TLS_SERVER
             }
         },
         {
-            \"password\":\"${UUID[14]}\",
-            \"server\":\"${SERVER_IP}\",
-            \"server_port\":${PORT_SHADOWTLS},
+            \"password\": \"${UUID[14]}\",
+            \"server\": \"${SERVER_IP}\",
+            \"server_port\": ${PORT_SHADOWTLS},
             \"tag\": \"shadowtls-out\",
-            \"tls\":{
-                \"enabled\":true,
-                \"server_name\":\"${TLS_SERVER}\",
+            \"tls\": {
+                \"enabled\": true,
+                \"server_name\": \"${TLS_SERVER}\",
                 \"utls\": {
                   \"enabled\": true,
                   \"fingerprint\": \"firefox\"
                 }
             },
-            \"type\":\"shadowtls\",
-            \"version\":3
+            \"type\": \"shadowtls\",
+            \"version\": 3
         }
     ]
 }"
@@ -3954,6 +4026,41 @@ vless://${UUID[20]}@${SERVER_IP_1}:${PORT_GRPC_REALITY}?encryption=none&security
   [ -n "$PORT_ANYTLS" ] && local V2RAYN_SUBSCRIBE+="
 ----------------------------
 anytls://${UUID[21]}@${SERVER_IP_1}:${PORT_ANYTLS}?security=tls&sni=${TLS_SERVER}&fp=firefox&insecure=1&allowInsecure=1&type=tcp#${NODE_NAME[21]// /%20}%20${NODE_TAG[10]}"
+
+  [ -n "$PORT_NAIVE" ] && local V2RAYN_SUBSCRIBE+="
+----------------------------
+# $(text 147)
+
+{
+    \"log\": {
+        \"level\": \"warn\"
+    },
+    \"inbounds\": [
+        {
+            \"listen\": \"127.0.0.1\",
+            \"listen_port\": ${PORT_NAIVE},
+            \"tag\": \" ${PROTOCOL_LIST[11]}\",
+            \"type\": \"mixed\"
+        }
+    ],
+    \"outbounds\": [
+        {
+            \"type\": \"${PROTOCOL_LIST[11]}\",
+            \"tag\": \"${NODE_NAME[22]} ${NODE_TAG[11]}\",
+            \"server\": \"${SERVER_IP}\",
+            \"server_port\": ${PORT_NAIVE},
+            \"username\": \"${UUID[22]}\",
+            \"password\": \"${UUID[22]}\",
+            \"tls\": {
+                \"enabled\": true,
+                \"certificate\": [
+$(sed 's/^/                    /' <<< "$CERT200_JSON")
+                ],
+                \"server_name\": \"${TLS_SERVER}\"
+            }
+        }
+    ]
+}"
 
   echo -n "$V2RAYN_SUBSCRIBE" | sed -E '/^[ ]*#|^[ ]+|^--|^\{|^\}/d' | sed '/^$/d' | base64 -w0 > ${WORK_DIR}/subscribe/v2rayn
 
@@ -4116,6 +4223,10 @@ anytls://${UUID[21]}@${SERVER_IP_1}:${PORT_ANYTLS}?security=tls&sni=${TLS_SERVER
   [ -n "$PORT_ANYTLS" ] &&
   local OUTBOUND_REPLACE+=" { \"type\": \"anytls\", \"tag\": \"${NODE_NAME[21]} ${NODE_TAG[10]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_ANYTLS}, \"password\": \"${UUID[21]}\", \"idle_session_check_interval\": \"30s\", \"idle_session_timeout\": \"30s\", \"min_idle_session\": 5, \"tls\": { \"enabled\": true, \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"server_name\": \"${TLS_SERVER}\", \"utls\": { \"enabled\": true, \"fingerprint\": \"firefox\" } } }," &&
   local NODE_REPLACE+="\"${NODE_NAME[21]} ${NODE_TAG[10]}\","
+
+  [ -n "$PORT_NAIVE" ] &&
+  local OUTBOUND_REPLACE+=" { \"type\": \"naive\", \"tag\": \"${NODE_NAME[22]} ${NODE_TAG[11]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_NAIVE}, \"username\": \"${UUID[22]}\", \"password\": \"${UUID[22]}\", \"tls\": { \"enabled\": true, \"certificate\": [$(tr -d '\n' <<< "$CERT200_JSON")], \"server_name\": \"${TLS_SERVER}\" } }," &&
+  local NODE_REPLACE+="\"${NODE_NAME[22]} ${NODE_TAG[11]}\","
 
   {
     # 生成 sing-box SFM SFA SFI 订阅文件
@@ -4600,6 +4711,15 @@ change_protocols() {
     PORT_ANYTLS=${REINSTALL_PORTS[POSITION]}
   else
     unset PORT_ANYTLS
+  fi
+
+  # 获取 naive 端口
+  CHECK_PROTOCOLS=$(asc "$CHECK_PROTOCOLS" ++)
+  if [[ "${INSTALL_PROTOCOLS[@]}" =~ "$CHECK_PROTOCOLS" ]]; then
+    POSITION=$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}")
+    PORT_NAIVE=${REINSTALL_PORTS[POSITION]}
+  else
+    unset PORT_NAIVE
   fi
 
   # 停止 sing-box 服务
