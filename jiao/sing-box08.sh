@@ -1416,7 +1416,7 @@ change_config() {
             reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
             [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
             yellow "结束端口为：$max_port\n"
-            listen_port=$(grep -A 15 '"tag": "hysteria2"' "$config_dir" | grep '"listen_port"' | head -n 1 | awk -F': ' '{print $2}' | tr -d ', ')
+			listen_port=$(grep -A 15 '"tag": "hysteria2"' "/etc/sing-box/hysteria2.json" | grep '"listen_port"' | head -n 1 | awk -F': ' '{print $2}' | tr -d ', ')
             if [ -z "$listen_port" ]; then
                 red "无法自动获取 Hysteria2 监听端口，请检查配置文件！"
                 exit 1
