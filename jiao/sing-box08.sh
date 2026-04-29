@@ -22,11 +22,6 @@ skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
 
 generate_vars() {
-    mkdir -p /etc/sing-box
-    local config_file="/etc/sing-box/config.json"
-    local client_file="/etc/sing-box/url.txt"
-    local work_dir="/usr/local/bin"
-  # 获取国家代码
   local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
   [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
   if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
@@ -40,7 +35,7 @@ generate_vars() {
       isp="🌐" 
   fi
     uuid=$(cat /proc/sys/kernel/random/uuid)
-    output=$(${work_dir}/sing-box generate reality-keypair)
+	output=$(/etc/sing-box/sing-box generate reality-keypair)
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
     xtls_reality=$(shuf -i 10000-60000 -n 1)
