@@ -2640,48 +2640,6 @@ EOF
     done
 }
 
-
-# BBR
-enable_bbr() {
-    local kernel_ver=$(uname -r)
-    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
-    local current_qdisc=$(sysctl -n net.core.default_qdisc)
-    if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
-        echo -e "${green}BBR 已经处于启用状态。${plain}"
-    else
-        echo -e "${yellow}检测到 BBR 未开启，正在为您自动配置...${plain}"
-        if [ -d "/etc/sysctl.d/" ]; then
-            {
-                echo "# Optimized BBR Config"
-                echo "net.core.default_qdisc = fq"
-                echo "net.ipv4.tcp_congestion_control = bbr"
-            } > "/etc/sysctl.d/99-bbr-x-ui.conf"
-            if [ -f "/etc/sysctl.conf" ]; then
-                sed -i 's/^net.core.default_qdisc/# &/'          /etc/sysctl.conf
-                sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
-            fi
-            sysctl --system >/dev/null 2>&1
-        else
-            sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-            sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-            sysctl -p >/dev/null 2>&1
-        fi
-        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
-        current_qdisc=$(sysctl -n net.core.default_qdisc)
-    fi
-    echo -e "---------------------------------------"
-    echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
-    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
-    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
-    echo -e "---------------------------------------"
-    if [[ "$current_cc" != "bbr" ]]; then
-        echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
-    fi
-}
-
-
 update_script() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
     local local_file="$work_dir/sb.sh"
@@ -3564,7 +3522,14 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
-	    10) enable_bbr ;;
+	    10) 
+		   clear
+           install wget
+           wget --no-check-certificate -O tcpx.sh https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcpx.sh && chmod +x tcpx.sh && ./tcpx.sh
+           rm tcpx.sh
+           break_end
+           main_menu
+           ;;
 		11) update_script ;;
 		12) vps_ssl ;;
 		13) iptables_ssl ;;
