@@ -612,6 +612,67 @@ manage_service() {
     esac
 }
 
+# BBR
+enable_bbr() {
+    local kernel_ver=$(uname -r)
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case $ID in
+            alpine)
+                echo -e "${yellow}正在初始化内核模块...${plain}"      
+                for module in tcp_bbr sch_fq; do
+                    if ! lsmod | grep -q "$module"; then
+                        modprobe $module >/dev/null 2>&1
+                        if ! grep -q "$module" /etc/modules 2>/dev/null; then
+                            echo "$module" >> /etc/modules
+                        fi
+                    fi
+                done
+                ;;
+        esac
+    fi
+    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+    local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
+    if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
+        echo -e "${green}BBR 已经处于启用状态。${plain}"
+    else
+        echo -e "${yellow}正在为 ${ID:-系统} 配置 BBR...${plain}"
+        if [ -d "/etc/sysctl.d/" ]; then
+            cat > "/etc/sysctl.d/99-bbr-x-ui.conf" <<EOF
+# Optimized BBR Config
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+            if [ -f "/etc/sysctl.conf" ]; then
+                sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+                sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            fi
+            sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1
+        else
+            sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+            sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+            sysctl -p >/dev/null 2>&1
+        fi
+        
+        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
+        current_qdisc=$(sysctl -n net.core.default_qdisc)
+    fi
+    echo -e "---------------------------------------"
+    echo -e "${green}系统类型:${plain}  ${yellow}${ID:-Unknown}${plain}"
+    echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
+    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
+    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
+    echo -e "---------------------------------------"
+
+    if [[ "$current_cc" != "bbr" ]]; then
+        echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
+    else
+        echo -e "${green}BBR 开启成功！${plain}"
+    fi
+}
+
 # 启动 sing-box
 start_singbox() {
     manage_service "sing-box" "start"
@@ -655,22 +716,15 @@ uninstall_singbox() {
                 rc-update del sing-box default
                 rc-update del argo default
            else
-                # 停止 sing-box和 argo 服务
                 systemctl stop "${server_name}"
                 systemctl stop argo
-                # 禁用 sing-box 服务
                 systemctl disable "${server_name}"
                 systemctl disable argo
-
-                # 重新加载 systemd
                 systemctl daemon-reload || true
             fi
            # 删除配置文件和日志
            rm -rf "${work_dir}" || true
-           rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
-           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1      
-
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
        *)
@@ -955,20 +1009,16 @@ new_encoded_part=$(echo "$updated_json" | base64 -w0)
 new_vmess_url="vmess://$new_encoded_part"
 new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 echo "$new_content" > "$client_dir"
-base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-green "\nvmess节点优选域名已更新为：${purple}${cfip}:${cfport},${green}更新订阅或手动复制以下vmess-argo节点${re}\n"
 purple "$new_vmess_url\n"
 }
 
 # 主菜单
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
-   nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
    
    clear
    echo ""
-   green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box精简版 ===\n"
@@ -982,12 +1032,13 @@ menu() {
    echo  "==============="
    green  "5. 查看节点信息"
    green  "6. 更新sing-box"
+   green  "7. 开启BBR"
    echo  "==============="
-   red    "7. 更新脚本"
+   red    "8. 更新脚本"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-7): " choice
+   reading "请输入选择(0-8): " choice
    echo ""
 }
 
@@ -1003,7 +1054,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages install tar coreutils
+                manage_packages jq install tar coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
@@ -1030,10 +1081,10 @@ while true; do
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
-
-		7) update_script ;;
+        7) enable_bbr ;;
+		8) update_script ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 7" ;;
+        *) red "无效的选项，请输入 0 到 8" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
