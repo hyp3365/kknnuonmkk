@@ -717,11 +717,6 @@ EOF
     systemctl start argo
 }
 
-
-output=$(${work_dir}/sing-box generate reality-keypair)
-private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
@@ -1684,6 +1679,11 @@ manage_nodes_menu() {
 			"vless-ws-cdn.json|vless-ws-cdn|10"
 			"vmess-ws-cdn.json|vmess-ws-cdn|11"			
         )
+
+		output=$(${work_dir}/sing-box generate reality-keypair)
+        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+
 
         clear
         yellow "============================================="
