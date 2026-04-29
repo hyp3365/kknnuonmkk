@@ -617,29 +617,25 @@ enable_bbr() {
     local kernel_ver=$(uname -r)
     [ -f /etc/os-release ] && . /etc/os-release
     local sys_id=${ID:-Unknown}
-
     if [[ "$sys_id" == "alpine" ]]; then
-        if [ ! -d "/lib/modules/$kernel_ver/kernel/net/ipv4/tcp_bbr.ko" ] && \
-           [ ! -d "/lib/modules/$kernel_ver/kernel/net/ipv4/tcp_bbr.ko.gz" ] && \
-           [ ! -f "/lib/modules/$kernel_ver/modules.dep" ]; then
+        if [ ! -f "/lib/modules/$kernel_ver/modules.dep" ]; then
             sed -i 's/dl-cdn.alpinelinux.org/mirror.cloudflare.com/g' /etc/apk/repositories
             apk update >/dev/null 2>&1
             apk add linux-virt >/dev/null 2>&1 || apk add linux-lts >/dev/null 2>&1
             depmod -a >/dev/null 2>&1
-        else
         fi
         for module in tcp_bbr sch_fq; do
             if ! lsmod | grep -q "$module"; then
                 modprobe $module >/dev/null 2>&1
-                [ $? -eq 0 ] && grep -q "$module" /etc/modules || echo "$module" >> /etc/modules
+                [ $? -eq 0 ] && ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
             fi
         done
     fi
+
     local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
     local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
-    if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
-        echo -e "${green}BBR 已经处于启用状态。${plain}"
-    else    
+
+    if [[ "$current_cc" != "bbr" ]] || [[ ! "$current_qdisc" =~ ^(fq|cake)$ ]]; then
         if [ -d "/etc/sysctl.d/" ]; then
             echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" > /etc/sysctl.d/99-bbr.conf
             [ -f /etc/sysctl.conf ] && sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
@@ -653,7 +649,9 @@ enable_bbr() {
         current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
         current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     fi
-    [ -z "$current_qdisc" ] && current_qdisc=$(tc qdisc show | awk '{print $3}' | head -n 1)
+
+    [ -z "$current_qdisc" ] && current_qdisc=$(tc qdisc show 2>/dev/null | awk '/default/ {print $3}' | head -n 1)
+    [ -z "$current_qdisc" ] && current_qdisc=$(tc qdisc show 2>/dev/null | awk '{print $3}' | head -n 1)
 
     echo -e "---------------------------------------"
     echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
@@ -668,7 +666,6 @@ enable_bbr() {
         echo -e "${red}错误: 无法开启 BBR，请检查虚拟化架构是否支持。${plain}"
     fi
 }
-
 
 
 # 启动 sing-box
