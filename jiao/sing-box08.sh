@@ -2310,8 +2310,12 @@ EOF
 				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6        
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi        
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2339,8 +2343,12 @@ EOF
 			    h2_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2367,8 +2375,12 @@ EOF
 			    grpc_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2395,8 +2407,12 @@ EOF
 			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2423,8 +2439,12 @@ EOF
 			    socks_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $socks_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $socks_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2451,8 +2471,12 @@ EOF
 			    http_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $http_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $http_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2502,8 +2526,12 @@ EOF
 			    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                      sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2530,8 +2558,12 @@ EOF
 			    vless_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2558,8 +2590,12 @@ EOF
 			    vmess_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     new_urls=$(while read -r line; do
