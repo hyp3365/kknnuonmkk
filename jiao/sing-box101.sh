@@ -613,7 +613,7 @@ manage_service() {
 }
 
 # BBR
-Enable_bbr() {
+enable_bbr() {
     local kernel_ver=$(uname -r)
     [ -f /etc/os-release ] && . /etc/os-release
     local sys_id=${ID:-Unknown}
