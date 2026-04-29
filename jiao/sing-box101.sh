@@ -1054,7 +1054,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
-                manage_packages jq install tar coreutils
+                manage_packages install jq tar coreutils
                 install_singbox
                 if command_exists systemctl; then
                     main_systemd_services
