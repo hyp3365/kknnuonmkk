@@ -650,9 +650,9 @@ enable_bbr() {
         current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     fi
 
-    [ -z "$current_qdisc" ] && current_qdisc=$(tc qdisc show 2>/dev/null | awk '/default/ {print $3}' | head -n 1)
-    [ -z "$current_qdisc" ] && current_qdisc=$(tc qdisc show 2>/dev/null | awk '{print $3}' | head -n 1)
-
+    if [ -z "$current_qdisc" ] || [[ "$current_qdisc" == *":"* ]]; then
+    current_qdisc=$(tc qdisc show 2>/dev/null | grep -v "noqueue" | awk '{print $2}' | head -n 1)
+    fi
     echo -e "---------------------------------------"
     echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
     echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
