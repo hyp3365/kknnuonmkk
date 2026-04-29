@@ -26,23 +26,6 @@ generate_vars() {
     local config_file="/etc/sing-box/config.json"
     local client_file="/etc/sing-box/url.txt"
     local work_dir="/usr/local/bin"
-    if [ -f "$config_file" ]; then
-        uuid=$(grep -m 1 '"uuid":' "$config_file" | awk -F '"' '{print $4}')
-    fi
-    [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid)
-    if [ -f "$config_file" ]; then
-        private_key=$(grep -m 1 '"private_key":' "$config_file" | awk -F '"' '{print $4}')
-    fi
-    if [ -f "$client_file" ]; then
-        public_key=$(grep -m 1 'pbk=' "$client_file" | sed -n 's/.*pbk=\([^&]*\).*/\1/p')
-    fi
-    if [ -z "$private_key" ] || [ -z "$public_key" ]; then
-        if [ -f "${work_dir}/sing-box" ]; then
-            output=$(${work_dir}/sing-box generate reality-keypair)
-            private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-            public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-        fi
-    fi
   # 获取国家代码
   local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
   [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
@@ -56,6 +39,10 @@ generate_vars() {
   else
       isp="🌐" 
   fi
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    output=$(${work_dir}/sing-box generate reality-keypair)
+    private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+    public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
     xtls_reality=$(shuf -i 10000-60000 -n 1)
     h2_reality=$(shuf -i 10000-60000 -n 1)
 	socks_port=$(shuf -i 10000-60000 -n 1)
@@ -1760,7 +1747,7 @@ manage_nodes_menu() {
                 cat > /etc/sing-box/xtls-reality.json << EOF
 {
   "inbounds": [
-        {
+      {
       "type": "vless",
       "tag": "vless-reality",
       "listen": "::",
