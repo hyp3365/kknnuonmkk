@@ -423,7 +423,7 @@ EOF
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box101.sh"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
         mkdir -p "$work_dir"
@@ -744,7 +744,7 @@ change_hosts() {
 }
 
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box101.sh"
     local local_file="$work_dir/sb.sh"
 
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
