@@ -613,65 +613,68 @@ manage_service() {
 }
 
 # BBR
-enable_bbr() {
+Enable_bbr() {
     local kernel_ver=$(uname -r)
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        case $ID in
-            alpine)
-                echo -e "${yellow}正在初始化内核模块...${plain}"      
-                for module in tcp_bbr sch_fq; do
-                    if ! lsmod | grep -q "$module"; then
-                        modprobe $module >/dev/null 2>&1
-                        if ! grep -q "$module" /etc/modules 2>/dev/null; then
-                            echo "$module" >> /etc/modules
-                        fi
+    [ -f /etc/os-release ] && . /etc/os-release
+    local sys_id=${ID:-Unknown}
+
+    if [[ "$sys_id" == "alpine" ]]; then   
+        if [ ! -d "/lib/modules/$kernel_ver" ]; then
+            echo -e "${yellow}正在下载内核模块文件 (linux-virt/lts)...${plain}"
+            apk update >/dev/null 2>&1
+            apk add linux-virt >/dev/null 2>&1 || apk add linux-lts >/dev/null 2>&1
+        fi
+        for module in tcp_bbr sch_fq; do
+            if ! lsmod | grep -q "$module"; then
+                modprobe $module >/dev/null 2>&1 || {
+                    depmod -a >/dev/null 2>&1
+                    modprobe $module >/dev/null 2>&1
+                }
+                if lsmod | grep -q "$module"; then
+                    if ! grep -q "$module" /etc/modules 2>/dev/null; then
+                        echo "$module" >> /etc/modules
                     fi
-                done
-                ;;
-        esac
+                fi
+            fi
+        done
     fi
     local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
     local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
+
     if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
         echo -e "${green}BBR 已经处于启用状态。${plain}"
     else
-        echo -e "${yellow}正在为 ${ID:-系统} 配置 BBR...${plain}"
+        echo -e "${yellow}正在为 $sys_id 配置 BBR...${plain}"
         if [ -d "/etc/sysctl.d/" ]; then
             cat > "/etc/sysctl.d/99-bbr-x-ui.conf" <<EOF
-# Optimized BBR Config
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
-            if [ -f "/etc/sysctl.conf" ]; then
-                sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-                sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-            fi
-            sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1
+            [ -f /etc/sysctl.conf ] && sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            sysctl -p "/etc/sysctl.d/99-bbr-x-ui.conf" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1
         else
-            sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-            sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
             echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
             echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
             sysctl -p >/dev/null 2>&1
         fi
         
-        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
-        current_qdisc=$(sysctl -n net.core.default_qdisc)
+        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+        current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     fi
     echo -e "---------------------------------------"
-    echo -e "${green}系统类型:${plain}  ${yellow}${ID:-Unknown}${plain}"
+    echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
     echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
-    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
-    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
+    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc:-未知}${plain}"
+    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc:-未知}${plain}"
     echo -e "---------------------------------------"
-
     if [[ "$current_cc" != "bbr" ]]; then
-        echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
+        echo -e "${red}错误: 无法切换到 BBR。${plain}"
     else
         echo -e "${green}BBR 开启成功！${plain}"
     fi
 }
+
 
 # 启动 sing-box
 start_singbox() {
