@@ -1757,7 +1757,7 @@ manage_nodes_menu() {
           "short_id": ["$short_id"]
         }
       }
-    },
+    }
   ]
 }
 EOF
