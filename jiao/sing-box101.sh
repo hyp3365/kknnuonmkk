@@ -617,6 +617,7 @@ enable_bbr() {
     local kernel_ver=$(uname -r)
     [ -f /etc/os-release ] && . /etc/os-release
     local sys_id=${ID:-Unknown}
+
     if [[ "$sys_id" == "alpine" ]]; then
         if [ ! -f "/lib/modules/$kernel_ver/modules.dep" ]; then
             sed -i 's/dl-cdn.alpinelinux.org/mirror.cloudflare.com/g' /etc/apk/repositories
@@ -624,13 +625,19 @@ enable_bbr() {
             apk add linux-virt >/dev/null 2>&1 || apk add linux-lts >/dev/null 2>&1
             depmod -a >/dev/null 2>&1
         fi
-        for module in tcp_bbr sch_fq; do
-            if ! lsmod | grep -q "$module"; then
-                modprobe $module >/dev/null 2>&1
-                [ $? -eq 0 ] && ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
-            fi
-        done
     fi
+    for module in tcp_bbr sch_fq; do
+        if ! lsmod | grep -q "$module"; then
+            modprobe $module >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                if [[ "$sys_id" == "alpine" ]]; then
+                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
+                else
+                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
+                fi
+            fi
+        fi
+    done
 
     local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
     local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
@@ -649,10 +656,10 @@ enable_bbr() {
         current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
         current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     fi
-
     if [ -z "$current_qdisc" ] || [[ "$current_qdisc" == *":"* ]]; then
-    current_qdisc=$(tc qdisc show 2>/dev/null | grep -v "noqueue" | awk '{print $2}' | head -n 1)
+        current_qdisc=$(tc qdisc show 2>/dev/null | grep -v "noqueue" | awk '{print $2}' | head -n 1)
     fi
+
     echo -e "---------------------------------------"
     echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
     echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
@@ -666,7 +673,6 @@ enable_bbr() {
         echo -e "${red}错误: 无法开启 BBR，请检查虚拟化架构是否支持。${plain}"
     fi
 }
-
 
 # 启动 sing-box
 start_singbox() {
