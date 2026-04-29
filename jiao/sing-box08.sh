@@ -56,6 +56,7 @@ generate_vars() {
   else
       isp="🌐" 
   fi
+    xtls_reality=$(shuf -i 10000-60000 -n 1)
     h2_reality=$(shuf -i 10000-60000 -n 1)
 	socks_port=$(shuf -i 10000-60000 -n 1)
 	http_port=$(shuf -i 10000-60000 -n 1)
@@ -512,14 +513,11 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     tuic_port=$(($vless_port + 2))
     uuid=$(cat /proc/sys/kernel/random/uuid)
     output=$(/etc/sing-box/sing-box generate reality-keypair)
-	short_id=$(/etc/sing-box/sing-box generate rand --hex 6)
 	username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-    private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-    public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
     # 放行端口
-    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
+    allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
 
     # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -552,31 +550,6 @@ cat > "${config_dir}" << EOF
         "interval": "60m"
    },
   "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-reality",
-      "listen": "::",
-      "listen_port": $vless_port,
-      "users": [
-        {
-          "uuid": "$uuid",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "www.iij.ad.jp",
-            "server_port": 443
-          },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-        }
-      }
-    },
     {
          "type": "vmess",
          "tag": "vmess-ws",
@@ -861,8 +834,6 @@ get_info() {
   VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
     
   cat > ${work_dir}/url.txt <<EOF
-vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${isp}_vless-reality
-
 vmess://$(echo "$VMESS"| base64 -w0)
 
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
@@ -1724,16 +1695,18 @@ manage_nodes_menu() {
         local CONF_DIR="/etc/sing-box"
         local width=45
         local node_list=(
-            "h2-reality.json|http-Reality|1"
-            "grpc-reality.json|gRPC-Reality|2"
-            "anytls.json|anytls|3"
-            "socks5.json|socks5|4"
-            "http.json|HTTP|5"
-			"vless-ws-argo.json|vless-ws-argo|6"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|7"
-			"vless-ws-cdn.json|vless-ws-cdn|8"
-			"vmess-ws-cdn.json|vmess-ws-cdn|9"
-			"hysteria2.json|hysteria2|10"		
+		    "xtls-reality.json|xtls-Reality|1"
+			"hysteria2.json|hysteria2|2"	
+            "h2-reality.json|http-Reality|3"
+            "grpc-reality.json|gRPC-Reality|4"
+            "anytls.json|anytls|5"
+            "socks5.json|socks5|6"
+            "http.json|HTTP|7"
+			"vless-ws-argo.json|vless-ws-argo|8"
+			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
+			"vless-ws-cdn.json|vless-ws-cdn|10"
+			"vmess-ws-cdn.json|vmess-ws-cdn|11"
+			
         )
 
         clear
@@ -1779,10 +1752,107 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-        1) 
+		1) 
                 generate_vars
-                server_ip=$(get_realip)                
-                yellow "正在配置 H2 + Reality (端口: $h2_reality)..."
+                server_ip=$(get_realip)            
+				yellow "正在配置 xtls + Reality ..."
+				mkdir -p /etc/sing-box
+                cat > /etc/sing-box/xtls-reality.json << EOF
+{
+  "inbounds": [
+        {
+      "type": "vless",
+      "tag": "vless-reality",
+      "listen": "::",
+      "listen_port": $xtls_reality,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      }
+    }
+  ]
+}
+EOF
+          allow_port $xtls_reality/tcp > /dev/null 2>&1
+		  node_remark="${isp}_vless_tcp_reality"
+		  url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+          if [ -f "/etc/sing-box/url.txt" ]; then
+           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+          fi
+          echo "$url" >> "/etc/sing-box/url.txt"
+		  echo "" >> "/etc/sing-box/url.txt"
+          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+          restart_singbox 
+          green "==============================================="
+          green " xtls + Reality 节点已添加!"
+          green " 节点链接: $url"
+          green "==============================================="
+            ;;
+		2) yellow "正在配置 hysteria2..."
+                generate_vars
+                server_ip=$(get_realip)
+                cat > /etc/sing-box/hysteria2.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $hy2_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "ignore_client_bandwidth": false,
+      "masquerade": "https://bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "min_version": "1.3",
+        "max_version": "1.3",
+        "certificate_path": "$work_dir/cert.pem",
+        "key_path": "$work_dir/private.key"
+      }
+    }
+  ]
+}
+EOF
+				allow_port $hy2_port/udp > /dev/null 2>&1
+				node_remark="${isp}_hysteria2"
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${node_remark}"								
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                restart_singbox
+                green "==============================================="
+                green " hysteria2 节点已添加!"
+                green " 节点链接: $url"
+                green "==============================================="
+                ;;
+        3) 
+                generate_vars
+                server_ip=$(get_realip)            
+				yellow "正在配置 H2 + Reality ..."
+				mkdir -p /etc/sing-box
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
   "inbounds": [
@@ -1840,7 +1910,7 @@ EOF
           green " 节点链接: $url"
           green "==============================================="
             ;;
-            2) yellow "正在配置 gRPC + Reality..."
+            4) yellow "正在配置 gRPC + Reality..."
             generate_vars
             server_ip=$(get_realip)
             mkdir -p /etc/sing-box
@@ -1902,7 +1972,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            3) yellow "正在配置 anytls..."
+            5) yellow "正在配置 anytls..."
                generate_vars
                server_ip=$(get_realip)
                mkdir -p /etc/sing-box
@@ -1944,7 +2014,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            4) yellow "正在配置 Socks5..."
+            6) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
                 cat > /etc/sing-box/socks5.json << EOF
@@ -1980,7 +2050,7 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-            5) 
+            7) 
 			yellow "正在配置 HTTP 代理..."
             generate_vars
             server_ip=$(get_realip)
@@ -2018,7 +2088,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-			6) yellow "正在配置 vless-ws隧道..."
+			8) yellow "正在配置 vless-ws隧道..."
 			generate_vars
             mkdir -p /etc/sing-box
             if [ -f "${work_dir}/url.txt" ]; then
@@ -2079,7 +2149,7 @@ EOF
 		green " 节点如果不通 试着打开客服端ECH"
         green "==============================================="
         ;;
-		7)
+		9)
         check_and_issue_ssl || return 1
         generate_vars
         mkdir -p /etc/sing-box
@@ -2128,7 +2198,7 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-			8) 
+			10) 
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2177,7 +2247,7 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-	      9)
+	      11)
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2225,53 +2295,65 @@ EOF
             yellow " 节点如果不通 试着打开客户端 ECH"
             green "--------------------------------------------------"
             ;;   
-		10) yellow "正在配置 hysteria2..."
-                generate_vars
-                server_ip=$(get_realip)
-                cat > /etc/sing-box/hysteria2.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $hy2_port,
-      "users": [
-        {
-          "password": "$uuid"
-        }
-      ],
-      "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "min_version": "1.3",
-        "max_version": "1.3",
-        "certificate_path": "$work_dir/cert.pem",
-        "key_path": "$work_dir/private.key"
-      }
-    }
-  ]
-}
-EOF
-				allow_port $hy2_port/udp > /dev/null 2>&1
-				node_remark="${isp}_hysteria2"
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#${node_remark}"								
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> /etc/sing-box/url.txt
-                echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                green "==============================================="
-                green " hysteria2 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
+		
             # --- 完整的删除逻辑 ---
-            51) 
+			51) 
+			target="_vless_tcp_reality"
+            target_conf="/etc/sing-box/xtls-reality.json"
+            if [ -f "$target_conf" ]; then
+			    xtls_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+			52) 
+			target="_hysteria2"
+            target_conf="/etc/sing-box/hysteria2.json"
+            if [ -f "$target_conf" ]; then
+				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
+                    iptables-restore < /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6        
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;	
+            53) 
 			target="_vless_http_reality"
             target_conf="/etc/sing-box/h2-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2299,7 +2381,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            52)
+            54)
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/grpc-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2327,7 +2409,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            53)
+            55)
 			target="_anytls"
             target_conf="/etc/sing-box/anytls.json"
             if [ -f "$target_conf" ]; then
@@ -2355,7 +2437,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            54)
+            56)
 			target="_socks5"
             target_conf="/etc/sing-box/socks5.json"
             if [ -f "$target_conf" ]; then
@@ -2383,7 +2465,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            55)
+            57)
 			target="_http"
             target_conf="/etc/sing-box/http.json"
             if [ -f "$target_conf" ]; then
@@ -2411,7 +2493,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    56) 
+		    58) 
 			target="_vless_ws_argo"
             target_conf="/etc/sing-box/vless-ws-argo.json"
             if [ -f "$target_conf" ]; then
@@ -2434,7 +2516,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    57) 
+		    59) 
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2462,7 +2544,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-			58) 
+			60) 
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2490,7 +2572,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;	
-		    59) 
+		    61) 
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2532,34 +2614,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
 			;;
-			60) 
-			target="_hysteria2"
-            target_conf="/etc/sing-box/hysteria2.json"
-            if [ -f "$target_conf" ]; then
-				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6        
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;	
+			
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
