@@ -2665,23 +2665,40 @@ update_script() {
 # BBR
 enable_bbr() {
     local kernel_ver=$(uname -r)
-    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
-    local current_qdisc=$(sysctl -n net.core.default_qdisc)
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case $ID in
+            alpine)
+                if ! lsmod | grep -q "tcp_bbr"; then
+                    echo -e "${yellow}检测到 Alpine 系统，正在加载 tcp_bbr 模块...${plain}"
+                    modprobe tcp_bbr
+                    if ! grep -q "tcp_bbr" /etc/modules 2>/dev/null; then
+                        echo "tcp_bbr" >> /etc/modules
+                    fi
+                fi
+                ;;
+            debian|ubuntu)
+                modprobe tcp_bbr >/dev/null 2>&1
+                ;;
+        esac
+    fi
+    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+    local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
         echo -e "${green}BBR 已经处于启用状态。${plain}"
     else
-        echo -e "${yellow}检测到 BBR 未开启，正在为您自动配置...${plain}"
+        echo -e "${yellow}正在为 ${ID:-系统} 配置 BBR...${plain}"
         if [ -d "/etc/sysctl.d/" ]; then
-            {
-                echo "# Optimized BBR Config"
-                echo "net.core.default_qdisc = fq"
-                echo "net.ipv4.tcp_congestion_control = bbr"
-            } > "/etc/sysctl.d/99-bbr-x-ui.conf"
+            cat > "/etc/sysctl.d/99-bbr-x-ui.conf" <<EOF
+# Optimized BBR Config
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
             if [ -f "/etc/sysctl.conf" ]; then
-                sed -i 's/^net.core.default_qdisc/# &/'          /etc/sysctl.conf
-                sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+                sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+                sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
             fi
-            sysctl --system >/dev/null 2>&1
+            sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1
         else
             sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
             sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
@@ -2689,19 +2706,23 @@ enable_bbr() {
             echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
             sysctl -p >/dev/null 2>&1
         fi
+        
         current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
         current_qdisc=$(sysctl -n net.core.default_qdisc)
     fi
     echo -e "---------------------------------------"
+    echo -e "${green}系统类型:${plain}  ${yellow}${ID:-Unknown}${plain}"
     echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
     echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
     echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
     echo -e "---------------------------------------"
+
     if [[ "$current_cc" != "bbr" ]]; then
         echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
+    else
+        echo -e "${green}BBR 开启成功！${plain}"
     fi
 }
-
 
 # SSH
 vps_ssl() {
