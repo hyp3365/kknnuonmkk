@@ -2669,16 +2669,15 @@ enable_bbr() {
         . /etc/os-release
         case $ID in
             alpine)
-                if ! lsmod | grep -q "tcp_bbr"; then
-                    echo -e "${yellow}检测到 Alpine 系统，正在加载 tcp_bbr 模块...${plain}"
-                    modprobe tcp_bbr
-                    if ! grep -q "tcp_bbr" /etc/modules 2>/dev/null; then
-                        echo "tcp_bbr" >> /etc/modules
+                echo -e "${yellow}正在初始化内核模块...${plain}"      
+                for module in tcp_bbr sch_fq; do
+                    if ! lsmod | grep -q "$module"; then
+                        modprobe $module >/dev/null 2>&1
+                        if ! grep -q "$module" /etc/modules 2>/dev/null; then
+                            echo "$module" >> /etc/modules
+                        fi
                     fi
-                fi
-                ;;
-            debian|ubuntu)
-                modprobe tcp_bbr >/dev/null 2>&1
+                done
                 ;;
         esac
     fi
