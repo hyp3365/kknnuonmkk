@@ -45,9 +45,6 @@ client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 uuid=$(cat /proc/sys/kernel/random/uuid)
-output=$(${work_dir}/sing-box generate reality-keypair)
-private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 nginx_port=$(shuf -i 10000-60000 -n 1)
 tuic_port=$(shuf -i 10000-60000 -n 1)
 xtls_reality=$(shuf -i 10000-60000 -n 1)
@@ -719,6 +716,11 @@ EOF
     systemctl enable argo
     systemctl start argo
 }
+
+
+output=$(${work_dir}/sing-box generate reality-keypair)
+private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
