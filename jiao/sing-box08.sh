@@ -1663,6 +1663,11 @@ EOF
 
 
 manage_nodes_menu() {
+    if [ -z "$private_key" ]; then
+        output=$(${work_dir}/sing-box generate reality-keypair)
+        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+    fi
     while true; do
         local CONF_DIR="/etc/sing-box"
         local width=45
@@ -1679,12 +1684,7 @@ manage_nodes_menu() {
 			"vless-ws-cdn.json|vless-ws-cdn|10"
 			"vmess-ws-cdn.json|vmess-ws-cdn|11"			
         )
-
-		output=$(${work_dir}/sing-box generate reality-keypair)
-        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-
-
+		
         clear
         yellow "============================================="
         echo -e "             添加节点               "
