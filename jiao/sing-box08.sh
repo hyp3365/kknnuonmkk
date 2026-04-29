@@ -2277,8 +2277,12 @@ EOF
 			    xtls_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v4
                     [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v6   
-                    iptables-restore < /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+					if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
