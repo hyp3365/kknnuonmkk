@@ -2665,63 +2665,68 @@ update_script() {
 # BBR
 enable_bbr() {
     local kernel_ver=$(uname -r)
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        case $ID in
-            alpine)
-                echo -e "${yellow}正在初始化内核模块...${plain}"      
-                for module in tcp_bbr sch_fq; do
-                    if ! lsmod | grep -q "$module"; then
-                        modprobe $module >/dev/null 2>&1
-                        if ! grep -q "$module" /etc/modules 2>/dev/null; then
-                            echo "$module" >> /etc/modules
-                        fi
-                    fi
-                done
-                ;;
-        esac
+    [ -f /etc/os-release ] && . /etc/os-release
+    local sys_id=${ID:-Unknown}
+
+    if [[ "$sys_id" == "alpine" ]]; then
+        if [ ! -f "/lib/modules/$kernel_ver/modules.dep" ]; then
+            sed -i 's/dl-cdn.alpinelinux.org/mirror.cloudflare.com/g' /etc/apk/repositories
+            apk update >/dev/null 2>&1
+            apk add linux-virt >/dev/null 2>&1 || apk add linux-lts >/dev/null 2>&1
+            depmod -a >/dev/null 2>&1
+        fi
     fi
+
+    for module in tcp_bbr sch_fq; do
+        if ! lsmod | grep -q "$module"; then
+            modprobe $module >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                if [[ "$sys_id" == "alpine" ]]; then
+                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
+                else
+                    # Debian/Ubuntu 通常使用 /etc/modules-load.d/
+                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
+                fi
+            fi
+        fi
+    done
+
     local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
     local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
-    if [[ "$current_cc" == "bbr" ]] && [[ "$current_qdisc" =~ ^(fq|cake)$ ]]; then
-        echo -e "${green}BBR 已经处于启用状态。${plain}"
-    else
-        echo -e "${yellow}正在为 ${ID:-系统} 配置 BBR...${plain}"
+
+    if [[ "$current_cc" != "bbr" ]] || [[ ! "$current_qdisc" =~ ^(fq|cake)$ ]]; then
         if [ -d "/etc/sysctl.d/" ]; then
-            cat > "/etc/sysctl.d/99-bbr-x-ui.conf" <<EOF
-# Optimized BBR Config
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-EOF
-            if [ -f "/etc/sysctl.conf" ]; then
-                sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-                sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-            fi
-            sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1
+            echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" > /etc/sysctl.d/99-bbr.conf
+            [ -f /etc/sysctl.conf ] && sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            sysctl -p /etc/sysctl.d/99-bbr.conf >/dev/null 2>&1
         else
-            sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-            sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+            sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
             echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
             echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
             sysctl -p >/dev/null 2>&1
         fi
-        
-        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control)
-        current_qdisc=$(sysctl -n net.core.default_qdisc)
+        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+        current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
     fi
+
+    if [ -z "$current_qdisc" ] || [[ "$current_qdisc" == *":"* ]]; then
+        current_qdisc=$(tc qdisc show 2>/dev/null | grep -v "noqueue" | awk '{print $2}' | head -n 1)
+    fi
+
     echo -e "---------------------------------------"
-    echo -e "${green}系统类型:${plain}  ${yellow}${ID:-Unknown}${plain}"
+    echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
     echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
-    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc}${plain}"
-    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc}${plain}"
+    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc:-获取失败}${plain}"
+    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc:-获取失败}${plain}"
     echo -e "---------------------------------------"
 
-    if [[ "$current_cc" != "bbr" ]]; then
-        echo -e "${red}错误: 无法切换到 BBR，请检查您的系统内核或虚拟化环境（OpenVZ不支持）。${plain}"
+    if [[ "$current_cc" == "bbr" ]]; then
+        echo -e "${green}BBR 已开启${plain}"
     else
-        echo -e "${green}BBR 开启成功！${plain}"
+        echo -e "${red}错误: 无法开启 BBR，请检查虚拟化架构是否支持。${plain}"
     fi
 }
+
 
 # SSH
 vps_ssl() {
