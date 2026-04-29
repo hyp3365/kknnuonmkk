@@ -59,7 +59,6 @@ vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 hy2_port=$(shuf -i 10000-60000 -n 1)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-short_id=$(openssl rand -hex 6)
 
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
@@ -1667,6 +1666,7 @@ manage_nodes_menu() {
         output=$(${work_dir}/sing-box generate reality-keypair)
         private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
         public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+		short_id=$(openssl rand -hex 6)
     fi
     while true; do
         local CONF_DIR="/etc/sing-box"
