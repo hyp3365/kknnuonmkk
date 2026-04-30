@@ -132,7 +132,7 @@ install_xray() {
     # 下载xray
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}"
     curl -sLo "${work_dir}/${server_name}.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
-    unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name} ${work_dir}/argo ${work_dir}/qrencode
+    unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name}
     rm -rf "${work_dir}/${server_name}.zip" "${work_dir}/geosite.dat" "${work_dir}/geoip.dat" "${work_dir}/README.md" "${work_dir}/LICENSE" 
 
    # 生成随机UUID和密码
@@ -234,9 +234,6 @@ EOF
     systemctl daemon-reload
     systemctl enable xray
     systemctl is-active --quiet xray || systemctl start xray
-    systemctl enable tunnel
-    systemctl start tunnel
-    systemctl is-active --quiet tunnel || systemctl start xray
 }
 # 适配alpine 守护进程
 alpine_openrc_services() {
@@ -362,6 +359,18 @@ change_hosts() {
     sed -i '1s/.*/127.0.0.1   localhost/' /etc/hosts
     sed -i '2s/.*/::1         localhost/' /etc/hosts
 }
+
+# 查看节点信息和订阅链接
+check_nodes() {
+if [ ${check_xray} -eq 0 ]; then
+    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
+else 
+    yellow "Xray尚未安装或未运行,请先安装或启动Xray"
+    sleep 1
+    menu
+fi
+}
+
 # xray 管理
 manage_xray() {
     green "1. 启动xray服务"
@@ -424,12 +433,11 @@ while true; do
                 fi
 
                 sleep 3
-                get_info
-                create_shortcut
             fi
            ;;
         2) uninstall_xray ;;
         3) manage_xray ;;
+		4) check_nodes ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 4" ;; 
    esac
