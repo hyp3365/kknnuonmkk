@@ -3539,11 +3539,10 @@ menu() {
    red    "13. iptables"
    red    "14. 本机信息"
    red    "15. 快捷指令"
-   red    "16. Xray管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-16): " choice
+   reading "请输入选择(0-15): " choice
    echo ""
 }
 
@@ -3599,12 +3598,8 @@ while true; do
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/aa.sh)
 		   ;;
-		16) 
-           clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/xray.sh)
-		   ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 16" ;;
+        *) red "无效的选项，请输入 0 到 15" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
