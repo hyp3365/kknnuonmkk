@@ -370,14 +370,14 @@ manage_xray() {
     skyblue "-------------------"
     green "3. 重启xray服务"
     skyblue "-------------------"
-    purple "4. 返回主菜单"
+    purple "0. 返回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " choice
     case "${choice}" in
         1) start_xray ;;  
         2) stop_xray ;;
         3) restart_xray ;;
-        4) menu ;;
+        0) menu ;;
         *) red "无效的选项！" ;;
     esac
 }
@@ -394,12 +394,11 @@ while true; do
    echo ""
    purple "=== 老王Xray一键安装脚本 ===\n"
    purple " Xray 状态: ${check_xray_status}\n"
-   green "1. 安装Xray-2go"
-   red "2. 卸载Xray-2go"
+   green "1. 安装Xray"
+   red "2. 卸载Xray"
    echo "==============="
-   green "3. Xray-2go管理"
-   echo  "==============="
-   green "4. 修改节点配置"
+   green "3. Xray管理"
+   green "4. 查看节点"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -431,7 +430,6 @@ while true; do
            ;;
         2) uninstall_xray ;;
         3) manage_xray ;;
-        4) change_config ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 4" ;; 
    esac
