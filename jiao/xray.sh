@@ -251,6 +251,29 @@ EOF
     rc-update add xray default
 }
 
+get_info() {  
+  clear
+  IP=$(get_realip)
+
+  isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "vps")
+
+  cat > ${work_dir}/url.txt <<EOF
+vless://${UUID}@${IP}:${GRPC_PORT}?encryption=none&security=reality&sni=www.google.com&fp=chrome&pbk=${public_key}&allowInsecure=1&type=grpc&serviceName=grpc#${isp}-Reality-gRPC
+
+vless://${UUID}@${IP}:${XHTTP_PORT}?encryption=none&security=reality&sni=www.google.com&fp=chrome&pbk=${public_key}&allowInsecure=1&type=xhttp#${isp}-Reality-xHTTP
+EOF
+
+  green "--- Xray 节点信息 ---"
+  echo ""
+  while IFS= read -r line; do 
+      purple "$line"
+  done < "${work_dir}/url.txt"
+  echo ""
+
+  yellow "温馨提醒：如果是 NAT 机，请确保 Reality 端口（$GRPC_PORT/$XHTTP_PORT）在可用端口范围内。"
+  echo ""
+}
+
 # 启动 xray
 start_xray() {
 if [ ${check_xray} -eq 1 ]; then
@@ -433,6 +456,7 @@ while true; do
                 fi
 
                 sleep 3
+				get_info
             fi
            ;;
         2) uninstall_xray ;;
