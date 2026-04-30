@@ -385,24 +385,14 @@ change_hosts() {
 
 # 查看节点信息和订阅链接
 check_nodes() {
-    local status=$(pgrep -x "${server_name:-xray}")
-    if [ -n "$status" ]; then
-        if [ -f "${work_dir}/url.txt" ]; then
-            green "--- 节点连接信息 ---"
-            while IFS= read -r line; do 
-                purple "$line"
-            done < "${work_dir}/url.txt"
-            echo ""
-        else
-            red "错误: 找不到 ${work_dir}/url.txt 文件。"
-            yellow "可能原因: 尚未生成节点链接，请尝试重启服务或重新配置。"
-        fi
-    else 
-        yellow "Xray 尚未安装或未运行，请先安装或启动 Xray"
-    fi
-    reading "按任意键返回主菜单..."
+if [ ${check_xray} -eq 0 ]; then
+    while IFS= read -r line; do purple "${purple}$line"; done < ${work_dir}/url.txt
+else 
+    yellow "Xray-2go 尚未安装或未运行,请先安装或启动Xray-2go"
+    sleep 1
+    menu
+fi
 }
-
 
 # xray 管理
 manage_xray() {
