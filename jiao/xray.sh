@@ -346,11 +346,8 @@ uninstall_xray() {
                 systemctl disable "${server_name}"
                 systemctl daemon-reload || true
             fi
-           # 删除配置文件和日志
            rm -rf "${work_dir}" || true
 	       rm -rf /etc/systemd/system/xray.service /etc/systemd/system/tunnel.service 2>/dev/null	
-            esac
-
             green "\nXray卸载成功\n"
            ;;
        *)
