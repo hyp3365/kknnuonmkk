@@ -3513,13 +3513,13 @@ menu() {
    argo_status=$(check_argo 2>/dev/null)
    to_chinese() {
     case "$1" in
-        "running")       echo -e "\033[32m运行中\033[0m" ;;  
-        "not running")   echo -e "\033[31m未运行\033[0m" ;;  
-        "not installed") echo -e "\033[33m未安装\033[0m" ;;  
-        *)               echo -e "\033[37m$1\033[0m" ;;    
+        "running")       echo "运行中" ;;  
+        "not running")   echo "未运行" ;;  
+        "not installed") echo "未安装" ;;  
+        *)               echo "$1" ;;    
     esac
    }
-
+   
    clear
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
