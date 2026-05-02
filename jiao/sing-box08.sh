@@ -3511,16 +3511,24 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
-   
+   to_chinese() {
+    case "$1" in
+        "running")       echo -e "\033[32m运行中\033[0m" ;;  
+        "not running")   echo -e "\033[31m未运行\033[0m" ;;  
+        "not installed") echo -e "\033[33m未安装\033[0m" ;;  
+        *)               echo -e "\033[37m$1\033[0m" ;;    
+    esac
+   }
+
    clear
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
-   purple "---Argo 状态: ${argo_status}"   
-   purple "--Nginx 状态: ${nginx_status}"
-   purple "singbox 状态: ${singbox_status}\n"
+   purple "---Argo 状态: $(to_chinese "${argo_status}")"   
+   purple "--Nginx 状态: $(to_chinese "${nginx_status}")"
+   purple "singbox 状态: $(to_chinese "${singbox_status}")\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
    echo "==============="
