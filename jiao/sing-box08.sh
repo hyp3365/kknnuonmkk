@@ -1449,8 +1449,7 @@ EOF
 
 
 disable_open_sub() {
-    local singbox_status=$(check_singbox 2>/dev/null)
-    local singbox_installed=$?
+    local nginx_status=$(check_nginx 2>/dev/null)
     
     if [ $singbox_installed -eq 2 ]; then
         yellow "sing-box 尚未安装！"
@@ -1462,6 +1461,7 @@ disable_open_sub() {
     clear
     echo ""
     green "=== 节点订阅管理 ===\n"
+    green "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
     skyblue "------------"
     green "1. 启动nginx"
     skyblue "------------"
@@ -3245,7 +3245,7 @@ manage_singbox() {
     clear
     echo ""
     green "=== sing-box 管理 ===\n"
-    green "sing-box当前状态: $singbox_status\n"
+    green "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")"
     green "1. 启动sing-box服务"
     skyblue "-------------------"
     green "2. 停止sing-box服务"
@@ -3273,7 +3273,7 @@ manage_argo() {
     clear
     echo ""
     green "=== Argo 隧道管理 ===\n"
-    green "Argo当前状态: $argo_status\n"
+	green "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
     green "1. 启动Argo服务"
     skyblue "------------"
     green "2. 停止Argo服务"
