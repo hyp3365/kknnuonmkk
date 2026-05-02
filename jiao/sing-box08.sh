@@ -3511,14 +3511,17 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
+
    to_chinese() {
+    # 使用通配符匹配关键词
     case "$1" in
-        "running")       echo "运行中" ;;  
-        "not running")   echo "未运行" ;;  
-        "not installed") echo "未安装" ;;  
-        *)               echo "$1" ;;    
+        *running*)       echo -e "\033[32m运行中\033[0m" ;;  
+        *not\ running*)  echo -e "\033[31m未运行\033[0m" ;;  
+        *not\ installed*) echo -e "\033[33m未安装\033[0m" ;;  
+        *)               echo -e "\033[37m$1\033[0m" ;; # 如果还是对不上，它会把原样输出，方便我们调试
     esac
-   }
+}
+
    
    clear
    echo ""
