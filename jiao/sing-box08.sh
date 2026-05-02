@@ -3562,7 +3562,6 @@ trap 'red "已取消操作"; exit' INT
 
 # 主循环
 while true; do
-   clear
    menu
    case "${choice}" in
         1)  
@@ -3613,4 +3612,5 @@ while true; do
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 15" ;;
    esac
+   read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
