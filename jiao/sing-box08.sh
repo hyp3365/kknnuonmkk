@@ -3564,7 +3564,6 @@ trap 'red "已取消操作"; exit' INT
 while true; do
    clear
    menu
-   read -p " 请输入数字 [0-15]: " choice
    case "${choice}" in
         1)  
             check_singbox &>/dev/null; check_singbox=$?
