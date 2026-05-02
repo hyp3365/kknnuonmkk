@@ -62,22 +62,14 @@ password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
 to_chinese() {
     local clean_status=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    [ -z "$clean_status" ] && clean_status="unknown" 
     case "$clean_status" in
-        "running")
-            echo -e "\033[1;32m运行中\033[0m"  
-            ;;
-        "not running")
-            echo -e "\033[1;33m未运行\033[0m"  
-            ;;
-        "not installed")
-            echo -e "\033[1;31m未安装\033[0m"  
-            ;;
-        *)
-            echo -e "\033[0;37m$clean_status\033[0m"
-            ;;
+        "running")       echo -e "\033[1;32m运行中\033[0m" ;;
+        "not running")   echo -e "\033[1;33m未运行\033[0m" ;;
+        "not installed") echo -e "\033[1;31m未安装\033[0m" ;;
+        *)               echo -e "\033[0;37m$clean_status\033[0m" ;;
     esac
 }
-
 
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
@@ -3537,9 +3529,9 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
-   echo -e "${purple}---Argo 状态: $(to_chinese "$argo_raw")"   
-   echo -e "${purple}--Nginx 状态: $(to_chinese "$ng_raw")"
-   echo -e "${purple}singbox 状态: $(to_chinese "$sb_raw")\n"
+   printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
+   printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
+   printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
    echo "==============="
