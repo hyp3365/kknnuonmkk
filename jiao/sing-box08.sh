@@ -60,6 +60,25 @@ hy2_port=$(shuf -i 10000-60000 -n 1)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
+to_chinese() {
+    local clean_status=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    case "$clean_status" in
+        "running")
+            echo -e "\033[1;32m运行中\033[0m"  
+            ;;
+        "not running")
+            echo -e "\033[1;33m未运行\033[0m"  
+            ;;
+        "not installed")
+            echo -e "\033[1;31m未安装\033[0m"  
+            ;;
+        *)
+            echo -e "\033[0;37m$clean_status\033[0m"
+            ;;
+    esac
+}
+
+
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
 
@@ -3511,17 +3530,6 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
-
-   to_chinese() {
-    # 使用通配符匹配关键词
-    case "$1" in
-        *running*)       echo -e "\033[32m运行中\033[0m" ;;  
-        *not\ running*)  echo -e "\033[31m未运行\033[0m" ;;  
-        *not\ installed*) echo -e "\033[33m未安装\033[0m" ;;  
-        *)               echo -e "\033[37m$1\033[0m" ;; # 如果还是对不上，它会把原样输出，方便我们调试
-    esac
-}
-
    
    clear
    echo ""
@@ -3529,9 +3537,9 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 ===\n"
-   purple "---Argo 状态: $(to_chinese "${argo_status}")"   
-   purple "--Nginx 状态: $(to_chinese "${nginx_status}")"
-   purple "singbox 状态: $(to_chinese "${singbox_status}")\n"
+   echo -e "${purple}---Argo 状态: $(to_chinese "$argo_raw")"   
+   echo -e "${purple}--Nginx 状态: $(to_chinese "$ng_raw")"
+   echo -e "${purple}singbox 状态: $(to_chinese "$sb_raw")\n"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
    echo "==============="
