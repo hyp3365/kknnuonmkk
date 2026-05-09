@@ -216,7 +216,7 @@ add_swap() {
     read -n 1 -s -r -p "按任意键返回菜单..."
 }
 
-# 查看内存占用排行
+#查看内存占用排行
 check_memory_usage() {
     clear
     purple "=== 系统内存使用概况 ==="
@@ -224,22 +224,24 @@ check_memory_usage() {
     local mem_used=$(free -m | awk '/Mem:/ {print $3}')
     local swap_total=$(free -m | awk '/Swap:/ {print $2}')
     local swap_used=$(free -m | awk '/Swap:/ {print $3}')
-	local disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $5}')
+    local disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $5}')
     local disk_total=$(echo $disk_info | awk '{print $1}')
     local disk_used=$(echo $disk_info | awk '{print $2}')
     local disk_perc=$(echo $disk_info | awk '{print $3}')
+    
     red "物理内存: ${mem_used}MB / ${mem_total}MB"
     red "虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB"
-	red "硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})"
+    red "硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})"
+    
     echo "--------------------------------------"
-    purple "=== 进程内存占用排行 (Top 10) ==="
+    purple "=== 进程内存占用排行 (Top 20) ==="
     printf "%-25s %-15s\n" "程序名称" "占用内存"
     echo "--------------------------------------"
     ps aux --sort=-rss | awk 'NR>1 {
         proc=$11;
         if (proc !~ /^\[.*\]$/) { sub(/.*\//, "", proc) }
         printf "\033[32m%-25s\033[0m %-10.1f MB\n", proc, $6/1024
-    }' | head -n 10
+    }' | head -n 20
 
     echo "--------------------------------------"
     echo ""
