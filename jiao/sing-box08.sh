@@ -2077,6 +2077,9 @@ EOF
 			8) yellow "正在配置 vless-ws隧道..."
 			generate_vars
             mkdir -p /etc/sing-box
+			if [ -n "$ArgoDomain" ]; then
+             argodomain=$ArgoDomain
+            fi
             if [ -f "${work_dir}/url.txt" ]; then
                 argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
                     encoded_part=$(echo "$line" | sed 's/vmess:\/\///' | cut -d'#' -f1)
