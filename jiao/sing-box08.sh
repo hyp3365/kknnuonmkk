@@ -534,8 +534,8 @@ cat > "${config_dir}" << EOF
   "inbounds": [
     {
          "type": "vmess",
-         "tag": "v-ws",
-         "listen": "127.0.0.1",
+         "tag": "vmess-ws",
+         "listen": "::",
          "listen_port": 8001, 
          "users": [
            {
@@ -1667,10 +1667,9 @@ manage_nodes_menu() {
             "anytls.json|anytls|5"
             "socks5.json|socks5|6"
             "http.json|HTTP|7"
-			"vless-ws-argo.json|vless-ws-argo|8"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-			"vless-ws-cdn.json|vless-ws-cdn|10"
-			"vmess-ws-cdn.json|vmess-ws-cdn|11"			
+			"vless-wstls-cdn.json|vless-ws-tls-cdn|8"
+			"vless-ws-cdn.json|vless-ws-cdn|9"
+			"vmess-ws-cdn.json|vmess-ws-cdn|10"			
         )
 		
         clear
@@ -2051,71 +2050,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-			8) yellow "正在配置 vless-ws隧道..."
-			generate_vars
-            mkdir -p /etc/sing-box
-			if [ -n "$ArgoDomain" ]; then
-             argodomain=$ArgoDomain
-            fi
-            if [ -f "${work_dir}/url.txt" ]; then
-                argodomain=$(grep "vmess://" "${work_dir}/url.txt" | while read -r line; do
-                    encoded_part=$(echo "$line" | sed 's/vmess:\/\///' | cut -d'#' -f1)
-                    decoded=$(echo "$encoded_part" | base64 -d 2>/dev/null)
-                    if echo "$decoded" | grep -q "_vmess_ws_argo"; then
-                        echo "$decoded" | grep -oE '"host":\s*"[^"]+"' | head -n 1 | cut -d'"' -f4
-                        break
-                    fi
-                done)
-            fi
-            if [ -z "$argodomain" ] && [ -f "${work_dir}/argo.log" ]; then
-                argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log" | tail -n 1)
-            fi   
-            if [ -z "$argodomain" ]; then
-                red "======================================================"
-                red " 错误：无法获取任何 Argo 域名（固定或临时）！"
-                red " 请检查隧道运行状态或 url.txt 记录。"
-                red "======================================================"
-                return 1
-            fi
-            cat > /etc/sing-box/vless-ws-argo.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-ws-argo",
-      "listen": "127.0.0.1",
-      "listen_port": 8003,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/lPaxe1996Ko-5203aap",
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-		node_remark="${isp}_vless_ws_argo"
-        VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${argodomain}&type=ws&host=${argodomain}&path=%2FlPaxe1996Ko-5203aap%3Fed%3D2560#${node_remark}"
-        if [ -f "${work_dir}/url.txt" ]; then
-            grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
-        fi
-        echo "$VLESS_URL" >> "${work_dir}/url.txt"
-        echo "" >> "${work_dir}/url.txt"
-        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-        restart_singbox
-
-        green "==============================================="
-        green " VLESS-WS隧道 添加完成！"
-        green " 节点链接: $VLESS_URL"
-		green " 节点如果不通 试着打开客服端ECH"
-        green "==============================================="
-        ;;
-		9)
+		8)
         check_and_issue_ssl || return 1
         generate_vars
         mkdir -p /etc/sing-box
@@ -2164,7 +2099,7 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-			10) 
+			9) 
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2213,7 +2148,7 @@ EOF
 			yellow " 节点如果不通 试着打开客服端ECH"
             green "--------------------------------------------------"
             ;;
-	      11)
+	      10)
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2490,29 +2425,6 @@ EOF
             fi
             ;;
 		    58) 
-			target="_vless_ws_argo"
-            target_conf="/etc/sing-box/vless-ws-argo.json"
-            if [ -f "$target_conf" ]; then
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-					sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-		    59) 
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2544,7 +2456,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-			60) 
+			59) 
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2576,7 +2488,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;	
-		    61) 
+		    60) 
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -3266,8 +3178,6 @@ manage_argo() {
     skyblue "------------------"
     green "6. 重新获取Argo临时域名"
     skyblue "-------------------"
-	green "7. vmess和vless隧道切换"
-    skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "-----------"
     reading "\n请输入选择: " choice
@@ -3367,18 +3277,6 @@ EOF
                 fi
             fi 
             ;; 
-		7)
-            current_type=$(grep -A 5 '"tag": "v-ws"' /etc/sing-box/config.json | grep '"type":' | head -n 1 | cut -d '"' -f 4)
-            if [[ "$current_type" == "vmess" ]]; then
-                new_type="vless"
-            else
-                new_type="vmess"
-            fi
-            sed -i "/\"tag\": \"v-ws\"/,/\"type\":/ s/\"type\": \"$current_type\"/\"type\": \"$new_type\"/" /etc/sing-box/config.json
-            green "协议已尝试切换为: $new_type"
-            sleep 2
-            menu
-            ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
