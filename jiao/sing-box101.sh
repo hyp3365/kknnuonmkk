@@ -517,45 +517,66 @@ echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
 }
 
-# === 增强版：Argo 域名自动更新监控函数 ===
+# === Argo 域名自动更新监控函数 ===
 install_argo_watchdog() {
     local work_dir="/etc/sing-box"
-    local log_file="/etc/sing-box/argo.log"
+    local log_file="${work_dir}/argo.log"
     local url_file="${work_dir}/url.txt"
+    local sub_file="${work_dir}/sub.txt"
 
-    # 1. 创建脚本 (去掉 sleep，直接进入监控)
+    if ! command -v jq &> /dev/null; then
+        manage_packages install jq
+    fi
+
     cat > ${work_dir}/argo_watchdog.sh <<EOF
 #!/bin/bash
-# tail -F 会自动等待文件创建，无需 sleep
+touch "${log_file}"
+touch "${sub_file}"
 tail -F "${log_file}" | grep --line-buffered -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | while read -r FULL_URL
 do
     ARGODOMAIN=\$(echo "\$FULL_URL" | sed 's|https://||')
-    # 提取、解码、修改、重新编码
-    OLD_VMESS_RAW=\$(cat "${url_file}" | sed 's/vmess:\/\///')
-    OLD_JSON=\$(echo "\$OLD_VMESS_RAW" | base64 -d)
-    NEW_JSON=\$(echo "\$OLD_JSON" | jq --arg domain "\$ARGODOMAIN" '.host = \$domain | .sni = \$domain')
-    echo "vmess://\$(echo "\$NEW_JSON" | base64 -w0)" > "${url_file}"
+    if [ -s "${url_file}" ]; then
+        TMP_FILE=\$(mktemp)
+        while IFS= read -r line || [ -n "\$line" ]; do
+            if [[ "\$line" == vmess://* ]]; then
+                CONTENT=\$(echo "\$line" | sed 's/vmess:\/\///' | base64 -d 2>/dev/null)
+                if echo "\$CONTENT" | jq -r '.ps' | grep -qi "argo"; then
+                    NEW_JSON=\$(echo "\$CONTENT" | jq --arg dom "\$ARGODOMAIN" '.host = \$dom | .sni = \$dom')
+                    echo "vmess://\$(echo "\$NEW_JSON" | base64 -w0)" >> "\$TMP_FILE"
+                else
+                    echo "\$line" >> "\$TMP_FILE"
+                fi
+            else
+                echo "\$line" >> "\$TMP_FILE"
+            fi
+        done < "${url_file}"
+        mv "\$TMP_FILE" "${url_file}"
+        if [ -f "${sub_file}" ]; then
+            base64 -w0 "${url_file}" > "${sub_file}"
+        fi
+    fi
 done
 EOF
+
     chmod +x ${work_dir}/argo_watchdog.sh
 
-    # 2. 创建 Systemd 服务
     cat > /etc/systemd/system/argo-watchdog.service <<EOF
 [Unit]
-Description=Argo Domain Auto Update Watchdog
+Description=Argo Watchdog
 After=network.target
 
 [Service]
 Type=simple
 ExecStart=/bin/bash ${work_dir}/argo_watchdog.sh
 Restart=always
-RestartSec=5
+RestartSec=10
+StandardOutput=null
+StandardError=null
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # 3. 启动服务
     systemctl daemon-reload
     systemctl enable argo-watchdog
     systemctl restart argo-watchdog
