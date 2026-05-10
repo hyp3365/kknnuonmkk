@@ -517,6 +517,48 @@ echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
 }
 
+# === 增强版：Argo 域名自动更新监控函数 ===
+install_argo_watchdog() {
+    local work_dir="/etc/sing-box" # 根据你的描述，url.txt 在这里
+    local log_file="/etc/sing-box/argo.log"
+    local url_file="${work_dir}/url.txt"
+
+    echo -e "\033[33m正在配置基于配置文件的 Argo 监控... \033[0m"
+
+    # 创建守护脚本
+    cat > ${work_dir}/argo_watchdog.sh <<EOF
+#!/bin/bash
+
+# 自动清理旧进程
+ps -ef | grep argo_watchdog.sh | grep -v grep | grep -v \\\$\$ | awk '{print \$2}' | xargs kill -9 2>/dev/null
+
+tail -F "${log_file}" | grep --line-buffered -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | while read -r FULL_URL
+do
+    # 1. 从日志提取新域名
+    ARGODOMAIN=\$(echo "\$FULL_URL" | sed 's|https://||')
+    
+    # 2. 从现有的 url.txt 提取旧配置
+    # 先去掉 vmess:// 前缀，再进行 base64 解码
+    OLD_VMESS_RAW=\$(cat "${url_file}" | sed 's/vmess:\/\///')
+    OLD_JSON=\$(echo "\$OLD_VMESS_RAW" | base64 -d)
+
+    # 3. 使用 jq 提取关键字段，并替换新的 host 和 sni
+    # 保持原来的 ps, add, port, id, path 等不变
+    NEW_JSON=\$(echo "\$OLD_JSON" | jq --arg domain "\$ARGODOMAIN" '.host = \$domain | .sni = \$domain')
+
+    # 4. 重新 Base64 编码并覆盖写入原文件
+    echo "vmess://\$(echo "\$NEW_JSON" | base64 -w0)" > "${url_file}"
+    
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') - 监测到隧道刷新，已更新域名至: \$ARGODOMAIN"
+done
+EOF
+
+    chmod +x ${work_dir}/argo_watchdog.sh
+    # 启动后台守护
+    nohup ${work_dir}/argo_watchdog.sh > /dev/null 2>&1 &
+}
+
+
 # 通用服务管理函数
 manage_service() {
     local service_name="$1"
@@ -1059,6 +1101,7 @@ while true; do
             else
                 manage_packages install jq tar coreutils
                 install_singbox
+				install_argo_watchdog
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
