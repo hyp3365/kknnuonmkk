@@ -1202,23 +1202,25 @@ uninstall_singbox() {
                 rm /etc/init.d/sing-box /etc/init.d/argo
                 rc-update del sing-box default
                 rc-update del argo default
-           else
-                # 停止 sing-box和 argo 服务
+           else               
+		        # 停止 sing-box、argo 和 监控脚本
                 systemctl stop "${server_name}"
                 systemctl stop argo
-                # 禁用 sing-box 服务
+                systemctl stop argo-watchdog &>/dev/null
+				
                 systemctl disable "${server_name}"
                 systemctl disable argo
+                systemctl disable argo-watchdog &>/dev/null
 
                 # 重新加载 systemd
                 systemctl daemon-reload || true
+
             fi
            # 删除配置文件和日志
            rm -rf "${work_dir}" || true
            rm -rf "${log_dir}" || true
-           rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service > /dev/null 2>&1
+           rm -rf /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service /etc/systemd/system/argo-watchdog.service > /dev/null 2>&1
            rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           
            # 卸载Nginx
            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
             case "${choice}" in
@@ -1226,6 +1228,7 @@ uninstall_singbox() {
 				    stop_nginx
                     manage_packages uninstall nginx
 					rm -f /etc/nginx/conf.d/sing-box.conf
+					rm -f /etc/nginx/conf.d/sing-box1.conf
 					rm -f /etc/nginx/conf.d/s-sing-box.conf
                     rm -f /etc/nginx/conf.d/sing-box.conf.bak*
 					rm -f /etc/nginx/conf.d/s-sing-box.conf.bak*
@@ -3397,6 +3400,9 @@ EOF
                 restart_argo
                 sleep 1 
                 change_argo_domain
+				systemctl stop argo-watchdog &>/dev/null
+                systemctl disable argo-watchdog &>/dev/null
+                systemctl daemon-reload &>/dev/null 
 
             elif [[ $argo_auth =~ ^[A-Z0-9a-z=]{120,250}$ ]]; then
                 if command_exists rc-service 2>/dev/null; then
@@ -3408,6 +3414,9 @@ EOF
                 restart_argo
                 sleep 1 
                 change_argo_domain
+				systemctl stop argo-watchdog &>/dev/null
+                systemctl disable argo-watchdog &>/dev/null
+                systemctl daemon-reload &>/dev/null  
             else
                 yellow "你输入的argo域名或token不匹配，请重新输入"
                 manage_argo            
@@ -3420,6 +3429,9 @@ EOF
             else
                 main_systemd_services
             fi
+			systemctl enable argo-watchdog &>/dev/null
+            systemctl daemon-reload &>/dev/null 
+            systemctl restart argo-watchdog &>/dev/null
             get_quick_tunnel
             change_argo_domain 
             ;; 
