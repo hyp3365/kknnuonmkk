@@ -984,6 +984,72 @@ EOF
     fi
 }
 
+# === Argo 域名自动更新监控函数 ===
+install_argo_watchdog() {
+    local work_dir="/etc/sing-box"
+    local log_file="${work_dir}/argo.log"
+    local url_file="${work_dir}/url.txt"
+    local sub_file="${work_dir}/sub.txt"
+
+    if ! command -v jq &> /dev/null; then
+        manage_packages install jq
+    fi
+
+    cat > ${work_dir}/argo_watchdog.sh <<EOF
+#!/bin/bash
+touch "${log_file}"
+touch "${sub_file}"
+tail -F "${log_file}" | grep --line-buffered -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | while read -r FULL_URL
+do
+    ARGODOMAIN=\$(echo "\$FULL_URL" | sed 's|https://||')
+    if [ -s "${url_file}" ]; then
+        TMP_FILE=\$(mktemp)
+        while IFS= read -r line || [ -n "\$line" ]; do
+            if [[ "\$line" == vmess://* ]]; then
+                CONTENT=\$(echo "\$line" | sed 's/vmess:\/\///' | base64 -d 2>/dev/null)
+                if echo "\$CONTENT" | jq -r '.ps' | grep -qi "argo"; then
+                    NEW_JSON=\$(echo "\$CONTENT" | jq --arg dom "\$ARGODOMAIN" '.host = \$dom | .sni = \$dom')
+                    echo "vmess://\$(echo "\$NEW_JSON" | base64 -w0)" >> "\$TMP_FILE"
+                else
+                    echo "\$line" >> "\$TMP_FILE"
+                fi
+            else
+                echo "\$line" >> "\$TMP_FILE"
+            fi
+        done < "${url_file}"
+        mv "\$TMP_FILE" "${url_file}"
+        if [ -f "${sub_file}" ]; then
+            base64 -w0 "${url_file}" > "${sub_file}"
+        fi
+    fi
+done
+EOF
+
+    chmod +x ${work_dir}/argo_watchdog.sh
+
+    cat > /etc/systemd/system/argo-watchdog.service <<EOF
+[Unit]
+Description=Argo Watchdog
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash ${work_dir}/argo_watchdog.sh
+Restart=always
+RestartSec=10
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable argo-watchdog
+    systemctl restart argo-watchdog
+}
+
+
 # 通用服务管理函数
 manage_service() {
     local service_name="$1"
@@ -3574,6 +3640,7 @@ while true; do
             else
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
+				install_argo_watchdog
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
