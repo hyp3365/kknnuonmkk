@@ -310,8 +310,6 @@ cat > "${config_dir}" << EOF
       "peers": [
         {
           "address": "engage.cloudflareclient.com",
-           #洛杉矶ip 2606:4700:d0::a29f:c001 
-		   #洛杉矶ip 162.159.195.1
           "port": 2408,
           "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
           "allowed_ips": [
@@ -328,12 +326,6 @@ cat > "${config_dir}" << EOF
     }
   ],
   "outbounds": [
-	{
-    "type": "socks",
-    "tag": "socks-40000",
-    "server": "127.0.0.1",
-    "server_port": 40000
-    },
     {
       "type": "direct",
       "tag": "direct"
