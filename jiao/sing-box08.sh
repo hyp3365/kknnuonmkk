@@ -534,9 +534,9 @@ cat > "${config_dir}" << EOF
   "inbounds": [
     {
          "type": "vmess",
-         "tag": "vmess-ws",
+         "tag": "v-ws",
          "listen": "127.0.0.1",
-         "listen_port": 8002, 
+         "listen_port": 8001, 
          "users": [
            {
             "uuid": "$uuid"
@@ -598,34 +598,7 @@ cat > "${config_dir}" << EOF
       ]
     }
   ],
-  "outbounds": [
-   {
-      "type": "direct",
-      "tag": "native-out",
-      "bind_interface": "eth0"#vps原生网卡
-   },
-   {
-     "type": "direct",
-     "tag": "he-out",
-     "bind_interface": "he-ipv6"#he隧道网卡 
-	 #在/etc/network/interfaces 文件最后添加  
-    },
-	{
-      "type": "socks",
-      "tag": "socks-out",  
-      "server": "35.212.208.203",    
-      "server_port": 8080,       
-      "version": "5",          
-      "username": "ssaampp",    
-      "password": "semppspsa",
-      "udp_over_tcp": false       
-     },
-	 {
-    "type": "socks",
-    "tag": "socks-40000",
-    "server": "127.0.0.1",
-    "server_port": 40000
-    },
+  "outbounds": [    
     {
       "type": "direct",
       "tag": "direct"
@@ -649,20 +622,6 @@ cat > "${config_dir}" << EOF
       }
     ],
     "rules": [
-	  {
-        "inbound": ["tuic"], // 限制只针对这个节点 可以增加多个节点
-        "domain_suffix": [
-          "ping.pe"
-          #"ip.sb",
-          #"youtube.com",
-          #"googlevideo.com",
-          #"ytimg.com",
-          #"ggpht.com",
-          #"youtube-nocookie.com",
-          #"youtu.be"
-          ],
-          "outbound": "socks-out"
-      },
       {
         "rule_set": ["openai", "netflix"],
         "outbound": "wireguard-out"
@@ -842,7 +801,9 @@ add_nginx_conf() {
     mkdir -p /etc/nginx/conf.d
 
     [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
+
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
+# sing-box 订阅配置
 server {
     listen $nginx_port;
     listen [::]:$nginx_port;
@@ -864,60 +825,8 @@ server {
     location / {
         return 404;
     }
-	location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF
-[[ -f "/etc/nginx/conf.d/s-sing-box.conf" ]] && cp /etc/nginx/conf.d/s-sing-box.conf /etc/nginx/conf.d/s-sing-box.conf.bak.sb
-cat > /etc/nginx/conf.d/s-sing-box.conf << 'EOF'
-upstream vmess_ws { 
-    server 127.0.0.1:8002; 
-    keepalive 1024; 
-}
-upstream vless_ws { 
-    server 127.0.0.1:8003; 
-    keepalive 1024; 
-}
 
-server {
-    listen 127.0.0.1:8001 so_keepalive=on backlog=4096;
-    server_name _;
-    
-    tcp_nodelay on;               
-    proxy_buffering off;          
-    proxy_request_buffering off;
-    proxy_http_version 1.1;       
-    
-    proxy_connect_timeout 30s;    
-    proxy_send_timeout 3600s;     
-    proxy_read_timeout 3600s;
-    
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-    # VMess WS
-    location /mPaxe1996Ko-5203aap {
-        proxy_pass http://vmess_ws;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-
-    # VLESS WS
-    location /lPaxe1996Ko-5203aap {
-        proxy_pass http://vless_ws;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-
-    location / { 
-        access_log off;
-        return 404; 
-    }
-    
+    # 禁止访问隐藏文件
     location ~ /\. {
         deny all;
         access_log off;
@@ -926,6 +835,7 @@ server {
 }
 EOF
 
+    # 检查主配置文件是否存在
     if [ -f "/etc/nginx/nginx.conf" ]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
         sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
@@ -983,6 +893,7 @@ EOF
         fi
     fi
 }
+       
 
 # === Argo 域名自动更新监控函数 ===
 install_argo_watchdog() {
@@ -1228,10 +1139,7 @@ uninstall_singbox() {
 				    stop_nginx
                     manage_packages uninstall nginx
 					rm -f /etc/nginx/conf.d/sing-box.conf
-					rm -f /etc/nginx/conf.d/sing-box1.conf
-					rm -f /etc/nginx/conf.d/s-sing-box.conf
                     rm -f /etc/nginx/conf.d/sing-box.conf.bak*
-					rm -f /etc/nginx/conf.d/s-sing-box.conf.bak*
                     ;;
                  *) 
                     yellow "取消卸载Nginx\n\n"
@@ -3358,6 +3266,8 @@ manage_argo() {
     skyblue "------------------"
     green "6. 重新获取Argo临时域名"
     skyblue "-------------------"
+	green "7. vmess和vless隧道切换"
+    skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "-----------"
     reading "\n请输入选择: " choice
@@ -3457,6 +3367,18 @@ EOF
                 fi
             fi 
             ;; 
+		7)
+            current_type=$(jq -r '.inbounds[]? | select(.tag=="v-ws") | .type' /etc/sing-box/config.json)
+            if [[ "$current_type" == "vmess" ]]; then
+                new_type="vless"
+            else
+                new_type="vmess"
+            fi
+            jq "(.inbounds[]? | select(.tag==\"v-ws\") | .type) = \"$new_type\"" /etc/sing-box/config.json > /etc/sing-box/config.json.tmp && mv /etc/sing-box/config.json.tmp /etc/sing-box/config.json
+            sleep 2
+            menu
+            ;;
+
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
