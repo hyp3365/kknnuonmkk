@@ -3368,17 +3368,17 @@ EOF
             fi 
             ;; 
 		7)
-            current_type=$(jq -r '.inbounds[]? | select(.tag=="v-ws") | .type' /etc/sing-box/config.json)
+            current_type=$(grep -A 5 '"tag": "v-ws"' /etc/sing-box/config.json | grep '"type":' | head -n 1 | cut -d '"' -f 4)
             if [[ "$current_type" == "vmess" ]]; then
                 new_type="vless"
             else
                 new_type="vmess"
             fi
-            jq "(.inbounds[]? | select(.tag==\"v-ws\") | .type) = \"$new_type\"" /etc/sing-box/config.json > /etc/sing-box/config.json.tmp && mv /etc/sing-box/config.json.tmp /etc/sing-box/config.json
+            sed -i "/\"tag\": \"v-ws\"/,/\"type\":/ s/\"type\": \"$current_type\"/\"type\": \"$new_type\"/" /etc/sing-box/config.json
+            green "协议已尝试切换为: $new_type"
             sleep 2
             menu
             ;;
-
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
