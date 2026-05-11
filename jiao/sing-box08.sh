@@ -779,6 +779,7 @@ vmess://$(echo "$VMESS"| base64 -w0)
 
 tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
 
+
 EOF
 echo ""
 while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
@@ -897,14 +898,18 @@ EOF
 
 # === Argo 域名自动更新监控函数 ===
 install_argo_watchdog() {
+    if [ -f /etc/os-release ]; then
+        local os_id=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"' | tr '[:upper:]' '[:lower:]')
+        if [[ "$os_id" != "ubuntu" && "$os_id" != "debian" ]]; then
+            return 1
+        fi
+    else
+        return 1
+    fi
     local work_dir="/etc/sing-box"
     local log_file="${work_dir}/argo.log"
     local url_file="${work_dir}/url.txt"
     local sub_file="${work_dir}/sub.txt"
-
-    if ! command -v jq &> /dev/null; then
-        manage_packages install jq
-    fi
 
     cat > ${work_dir}/argo_watchdog.sh <<EOF
 #!/bin/bash
