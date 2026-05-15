@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.11 (2026.05.12)'
+VERSION='v1.3.12 (2026.05.14)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -39,8 +39,8 @@ mkdir -p "$TEMP_DIR"
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. Generate v2rayn:// dedicated links for Tuic subscriptions; 2. Generate v2rayn:// dedicated links for AnyTLS subscriptions; 3. Generate v2rayn:// dedicated links for naive http2 and quic modes. Thanks to [DHR60]; 4. Added native protocol. For the sing-box core, you must use the -glibc or -musl version according to the requirements; refer to the official documentation for details: https://sing-box.sagernet.org/configuration/outbound/naive/"
-C[1]="1. 为 Tuic 订阅生成 v2rayn:// 专属链接; 2. 为 AnyTLS 订阅生成 v2rayn:// 专属链接; 3. 为 naive http2 和 quic 模式生成 v2rayn:// 专属链接，感谢 [DHR60]; 4. 增加 native 协议，sing-box 内核需要按说明使用-glibc 或者 -musl 版本，详见官方说明 https://sing-box.sagernet.org/zh/configuration/outbound/naive/"
+E[1]="1. Added Hysteria2 Realm support for machines without public inbound access, with optional WARP-assisted hole punching; 2. Realm is exported for Clash/Mihomo and sing-box clients; 3. Hysteria2 Realm can be toggled directly in node configuration changes; 4. Unified the fixed STUN server list for Hysteria2 Realm."
+C[1]="1. 增加 Hysteria2 Realm 支持，适用于没有公网入口的机器，并可选 WARP 辅助打洞; 2. Realm 已支持导出 Clash/Mihomo 和 sing-box 客户端配置; 3. 修改节点配置时可直接开启或关闭 Hysteria2 Realm; 4. 统一 Hysteria2 Realm 固定 STUN 服务器列表。"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -315,8 +315,8 @@ E[137]="Uninstalled protocols."
 C[137]="未安装的协议"
 E[138]="Confirm all protocols for reloading."
 C[138]="确认重装的所有协议"
-E[139]="Hysteria2 Port Hopping  (current: \${PORT_HOPPING_RANGE:-disabled}) [leave blank to disable]"
-C[139]="Hysteria2 端口跳跃  (当前: \${PORT_HOPPING_RANGE:-禁用}) [留空则禁用]"
+E[139]="Hysteria2 Port Hopping  (current: \${HY2_PORT_HOPPING_RANGE:-disabled}) [leave blank to disable]"
+C[139]="Hysteria2 端口跳跃  (当前: \${HY2_PORT_HOPPING_RANGE:-禁用}) [留空则禁用]"
 E[140]="Hysteria2 bandwidth  (current: up \${HY2_UP_NOW} Mbps, down \${HY2_DOWN_NOW} Mbps)"
 C[140]="Hysteria2 带宽  (当前: 上行 \${HY2_UP_NOW} Mbps, 下行 \${HY2_DOWN_NOW} Mbps)"
 E[141]="Please enter Hysteria2 client upload speed in Mbps (e.g. 200):"
@@ -331,6 +331,10 @@ E[145]="UFW is not active. PortHopping forwarding rules were written, but you sh
 C[145]="UFW 未处于激活状态。PortHopping 转发规则已写入，但建议手动启用 UFW 以确保策略生效"
 E[146]="Failed to update UFW PortHopping forwarding rules. Please check UFW configuration files manually."
 C[146]="更新 UFW 的 PortHopping 转发规则失败，请手动检查 UFW 配置文件"
+E[147]="Hysteria2 Realm is useful for China-back routing or machines without public inbound access. It is not recommended when the server already has a public inbound IP/port. Enable Realm? [y/N]:"
+C[147]="Hysteria2 Realm 适用于回国或者没有公网入口的机器；有公网入口时不建议使用。是否启用？[y/N]:"
+E[148]="WARP-assisted hole punching is useful in strict NAT environments. When direct hole punching fails, Cloudflare WARP can provide a CF egress path to improve success. Enable it? [y/N]:"
+C[148]="WARP 辅助打洞（适用于 NAT 严格环境）：当 NAT 类型较严格（如对称 NAT）导致直连打洞失败时，可借助 Cloudflare WARP 获取一个 CF 出口 IP 作为中转，提升打洞成功率。是否启用？[y/N]:"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -370,7 +374,7 @@ calc_install_steps() {
   [[ "$IS_SUB" = 'is_sub' || "$IS_ARGO" = 'is_argo' ]] && (( _total++ ))  # nginx 端口
   $HAS_REALITY && (( _total++ ))                # Reality 私钥
   $HAS_WS && (( _total++ ))                     # CDN / 域名
-  $HAS_HY2 && (( _total++ ))                    # 端口跳跃
+  # Hysteria2 Realm / WARP / Port Hopping are protocol sub-options and are not counted as install steps.
   [ "$IS_ARGO" = 'is_argo' ] && (( _total++ ))  # Argo 域名
   TOTAL_STEPS=$_total
 }
@@ -564,8 +568,16 @@ change_config() {
 
     MENU_IDX+=(140) && MENU_KEY+=(hy2bw) && MENU_VAL+=("${HY2_UP_NOW}/${HY2_DOWN_NOW}")
 
+    local HY2_CONF_NOW=$(ls ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null | sed -n '1p')
+    if [ -n "$HY2_CONF_NOW" ] && grep -q '"realm"[[:space:]]*:' "$HY2_CONF_NOW"; then
+      local HY2_REALM_ACTION="$(text 27)"
+    else
+      local HY2_REALM_ACTION="$(text 28)"
+    fi
+    MENU_IDX+=(147) && MENU_KEY+=(hy2realm) && MENU_VAL+=("${HY2_REALM_ACTION}")
+
     check_port_hopping_nat
-    MENU_IDX+=(139) && MENU_KEY+=(hy2hopping) && MENU_VAL+=("${PORT_HOPPING_RANGE}")
+    MENU_IDX+=(139) && MENU_KEY+=(hy2hopping) && MENU_VAL+=("${HY2_PORT_HOPPING_RANGE}")
   fi
 
   [ "${#MENU_IDX[@]}" -eq 0 ] && error " $(text 110) "
@@ -613,6 +625,23 @@ change_config() {
     hint " $(text 112) "
     export_list
     return
+  elif [ "$KEY" = "hy2realm" ]; then
+    # 添加 / 删除 Hysteria2 Realm；菜单已明确显示开启/关闭动作，这里不再二次确认 Realm 本身
+    fetch_nodes_value
+    if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
+      set_hy2_realm_config disable
+      sync_hy2_warp_route disable
+    else
+      IS_HY2_REALM=is_hy2_realm
+      HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]:-${UUID_CONFIRM}}}"
+      input_hy2_warp
+      set_hy2_realm_config enable
+      [ "$IS_HY2_WARP" = 'is_hy2_warp' ] && sync_hy2_warp_route enable || sync_hy2_warp_route disable
+    fi
+    hint " $(text 112) "
+    cmd_systemctl restart sing-box
+    export_list
+    return
   elif [ "$KEY" = "hy2hopping" ]; then
     # 修改 Hysteria2 端口跳跃
     check_port_hopping_nat
@@ -637,7 +666,7 @@ change_config() {
       if [[ -z "$NEW_RANGE" || "${NEW_RANGE,,}" =~ ^(n|no)$ ]]; then
         # 禁用端口跳跃
         [ -n "$OLD_START" ] && [ -n "$OLD_END" ] && del_port_hopping_nat
-        unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE
+        unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE
         IS_HOPPING_SET=true
       elif [[ "$NEW_RANGE" =~ ^[0-9]{4,5}:[0-9]{4,5}$ ]]; then
         local NEW_START=${NEW_RANGE%:*} NEW_END=${NEW_RANGE#*:}
@@ -646,7 +675,7 @@ change_config() {
           [ -n "$OLD_START" ] && [ -n "$OLD_END" ] && del_port_hopping_nat
           PORT_HOPPING_START=$NEW_START
           PORT_HOPPING_END=$NEW_END
-          PORT_HOPPING_RANGE="$NEW_RANGE"
+          HY2_PORT_HOPPING_RANGE="$NEW_RANGE"
           local HOPPING_TARGET="$PORT_HOPPING_TARGET"
           [ -z "$HOPPING_TARGET" ] && HOPPING_TARGET=$(awk -F '[:,]' '/"listen_port"/{print $2; exit}' ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null)
           # 静默添加端口跳跃规则，不显示 UFW 检测和成功提示
@@ -916,40 +945,153 @@ input_nginx_port() {
 # 输入 hysteria2 跳跃端口
 input_hopping_port() {
   local HOPPING_ERROR_TIME=6
+
+  # 参数 / 快速安装模式：不交互。未指定端口跳跃时默认禁用。
+  if [[ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' || "$IS_FAST_INSTALL" = 'is_fast_install' ]]; then
+    HY2_PORT_HOPPING_RANGE=$(sed 's/[-－—：]/:/g' <<< "$HY2_PORT_HOPPING_RANGE" | tr -cd '0-9:')
+    if [[ "$HY2_PORT_HOPPING_RANGE" =~ ^[0-9]{4,5}:[0-9]{4,5}$ ]]; then
+      PORT_HOPPING_START=${HY2_PORT_HOPPING_RANGE%:*}
+      PORT_HOPPING_END=${HY2_PORT_HOPPING_RANGE#*:}
+      if [[ "$PORT_HOPPING_START" -lt "$PORT_HOPPING_END" && "$PORT_HOPPING_START" -ge "$MIN_HOPPING_PORT" && "$PORT_HOPPING_END" -le "$MAX_HOPPING_PORT" ]]; then
+        IS_HOPPING=is_hopping
+      else
+        unset HY2_PORT_HOPPING_RANGE PORT_HOPPING_START PORT_HOPPING_END
+        IS_HOPPING=no_hopping
+      fi
+    else
+      unset HY2_PORT_HOPPING_RANGE PORT_HOPPING_START PORT_HOPPING_END
+      IS_HOPPING=no_hopping
+    fi
+    return
+  fi
+
   until [ -n "$IS_HOPPING" ]; do
-    if [ -z "$PORT_HOPPING_RANGE" ]; then
+    if [ -z "$HY2_PORT_HOPPING_RANGE" ]; then
       (( HOPPING_ERROR_TIME-- )) || true
       case "$HOPPING_ERROR_TIME" in
         0 )
           error "\n $(text 3) \n"
           ;;
         5 )
-          hint "\n $(text 97) \n" && reading " ${TOTAL_STEPS:+(${STEP_NUM}/${TOTAL_STEPS}) }$(text 98) " PORT_HOPPING_RANGE
+          hint "\n $(text 97) \n" && reading " ${TOTAL_STEPS:+(${STEP_NUM}/${TOTAL_STEPS}) }$(text 98) " HY2_PORT_HOPPING_RANGE
           ;;
         * )
-          reading " ${TOTAL_STEPS:+(${STEP_NUM}/${TOTAL_STEPS}) }$(text 98) " PORT_HOPPING_RANGE
+          reading " ${TOTAL_STEPS:+(${STEP_NUM}/${TOTAL_STEPS}) }$(text 98) " HY2_PORT_HOPPING_RANGE
       esac
     fi
 
     # 预处理：全角冒号/破折号统一换半角，过滤非法字符
-    PORT_HOPPING_RANGE=$(sed 's/[-－—：]/:/g' <<< "$PORT_HOPPING_RANGE" | tr -cd '0-9:')
+    HY2_PORT_HOPPING_RANGE=$(sed 's/[-－—：]/:/g' <<< "$HY2_PORT_HOPPING_RANGE" | tr -cd '0-9:')
 
-    if [[ "$PORT_HOPPING_RANGE" =~ ^[0-9]{4,5}:[0-9]{4,5}$ ]]; then
-      PORT_HOPPING_START=${PORT_HOPPING_RANGE%:*}
-      PORT_HOPPING_END=${PORT_HOPPING_RANGE#*:}
+    if [[ "$HY2_PORT_HOPPING_RANGE" =~ ^[0-9]{4,5}:[0-9]{4,5}$ ]]; then
+      PORT_HOPPING_START=${HY2_PORT_HOPPING_RANGE%:*}
+      PORT_HOPPING_END=${HY2_PORT_HOPPING_RANGE#*:}
       if [[ "$PORT_HOPPING_START" -lt "$PORT_HOPPING_END" && \
             "$PORT_HOPPING_START" -ge "$MIN_HOPPING_PORT" && \
             "$PORT_HOPPING_END" -le "$MAX_HOPPING_PORT" ]]; then
         IS_HOPPING=is_hopping
       else
-        warning "\n $(text 114) " && unset PORT_HOPPING_RANGE
+        warning "\n $(text 114) " && unset HY2_PORT_HOPPING_RANGE
       fi
-    elif [[ -z "$PORT_HOPPING_RANGE" || "${PORT_HOPPING_RANGE,,}" =~ ^(n|no)$ ]]; then
+    elif [[ -z "$HY2_PORT_HOPPING_RANGE" || "${HY2_PORT_HOPPING_RANGE,,}" =~ ^(n|no)$ ]]; then
       IS_HOPPING=no_hopping
     else
-      warning "\n $(text 36) " && unset PORT_HOPPING_RANGE
+      warning "\n $(text 36) " && unset HY2_PORT_HOPPING_RANGE
     fi
   done
+}
+
+
+# 输入 Hysteria2 Realm 选项
+input_hy2_realm() {
+  HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]:-${UUID_CONFIRM}}}"
+
+  # 参数 / 快速安装模式：不交互，尊重 --HY2_REALM 和 --HY2_WARP
+  # --HY2_WARP=true 隐含启用 Realm，否则 route 规则没有意义。
+  if [[ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' || "$IS_FAST_INSTALL" = 'is_fast_install' ]]; then
+    if [ "$IS_HY2_WARP" = 'is_hy2_warp' ]; then
+      IS_HY2_REALM=is_hy2_realm
+    fi
+    if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
+      HY2_REALM_ID="${HY2_REALM_ID:-${UUID_CONFIRM}}"
+    else
+      unset IS_HY2_REALM IS_HY2_WARP HY2_REALM_ID
+    fi
+    return
+  fi
+
+  unset IS_HY2_REALM IS_HY2_WARP
+  local CHOOSE_REALM
+  reading "\n $(text 147) " CHOOSE_REALM
+  if [[ "${CHOOSE_REALM,,}" =~ ^(y|yes)$ ]]; then
+    IS_HY2_REALM=is_hy2_realm
+    HY2_REALM_ID="${HY2_REALM_ID:-${UUID_CONFIRM}}"
+    input_hy2_warp
+  fi
+}
+
+# 输入 Hysteria2 Realm 的 WARP 辅助打洞选项
+input_hy2_warp() {
+  local CHOOSE_WARP
+  reading "\n $(text 148) " CHOOSE_WARP
+  [[ "${CHOOSE_WARP,,}" =~ ^(y|yes)$ ]] && IS_HY2_WARP=is_hy2_warp || unset IS_HY2_WARP
+}
+
+# jq 入口，优先使用脚本自带 jq
+jq_exec() {
+  if [ -x "${WORK_DIR}/jq" ]; then
+    "${WORK_DIR}/jq" "$@"
+  elif [ -x "${TEMP_DIR}/jq" ]; then
+    "${TEMP_DIR}/jq" "$@"
+  else
+    jq "$@"
+  fi
+}
+
+# 更新 Hysteria2 服务端 Realm 模块
+set_hy2_realm_config() {
+  local ACTION=$1
+  local HY2_CONF
+  HY2_CONF=$(ls ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null | sed -n '1p') || true
+  [ -z "$HY2_CONF" ] && return
+  local TMP_FILE="${HY2_CONF}.tmp"
+  HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]:-${UUID_CONFIRM}}}"
+
+  if [ "$ACTION" = 'enable' ]; then
+    jq_exec --arg rid "$HY2_REALM_ID" '.inbounds |= map(if .type == "hysteria2" then .realm = {"server_url":"https://realm.hy2.io","token":"public","realm_id":$rid,"stun_servers":["turn.cloudflare.com:3478","stun.nextcloud.com:3478","stun.sip.us:3478","global.stun.twilio.com:3478"]} else . end)' "$HY2_CONF" > "$TMP_FILE" && mv "$TMP_FILE" "$HY2_CONF"
+    IS_HY2_REALM=is_hy2_realm
+  else
+    jq_exec '.inbounds |= map(if .type == "hysteria2" then del(.realm) else . end)' "$HY2_CONF" > "$TMP_FILE" && mv "$TMP_FILE" "$HY2_CONF"
+    unset IS_HY2_REALM IS_HY2_WARP HY2_REALM_ID
+  fi
+}
+
+# Hysteria2 Realm 的 WARP 辅助路由：添加或删除 inbound -> warp-ep
+sync_hy2_warp_route() {
+  local ACTION=$1
+  local ROUTE_FILE="${WORK_DIR}/conf/03_route.json"
+  [ ! -s "$ROUTE_FILE" ] && return
+  local HY2_TAG="${NODE_NAME[12]} ${NODE_TAG[1]}"
+  [ -z "${NODE_NAME[12]}" ] && HY2_TAG=$(awk -F'"' '/"tag"[[:space:]]*:[[:space:]]*".*hysteria2"/{print $4; exit}' ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null)
+  [ -z "$HY2_TAG" ] && return
+  local TMP_FILE="${ROUTE_FILE}.tmp"
+
+  if [ "$ACTION" = 'enable' ]; then
+    jq_exec --arg tag "$HY2_TAG" '
+      .route.rules |= (
+        map(select(.inbound != [$tag] or .outbound != "warp-ep")) as $rules |
+        ($rules | map(.action == "resolve" and (.rule_set // []) == ["geosite-openai"]) | index(true)) as $idx |
+        if $idx == null then
+          $rules + [{"inbound":[$tag],"action":"route","outbound":"warp-ep"}]
+        else
+          $rules[0:$idx+1] + [{"inbound":[$tag],"action":"route","outbound":"warp-ep"}] + $rules[$idx+1:]
+        end
+      )' "$ROUTE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$ROUTE_FILE"
+    IS_HY2_WARP=is_hy2_warp
+  else
+    jq_exec --arg tag "$HY2_TAG" '.route.rules |= map(select(.inbound != [$tag] or .outbound != "warp-ep"))' "$ROUTE_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$ROUTE_FILE"
+    unset IS_HY2_WARP
+  fi
 }
 
 # 输入 Reality 密钥
@@ -1545,7 +1687,7 @@ check_port_hopping_nat() {
   local FW_BACKEND
   FW_BACKEND=$(check_port_hopping_firewall)
 
-  unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE
+  unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE
   PORT_HOPPING_TARGET=$(awk -F '[:,]' '/"listen_port"/{print $2; exit}' ${WORK_DIR}/conf/*${NODE_TAG[1]}_inbounds.json 2>/dev/null)
 
   if [ "$FW_BACKEND" = 'ufw' ]; then
@@ -1554,9 +1696,9 @@ check_port_hopping_nat() {
   elif [ "$SYSTEM" = 'Alpine' ]; then
     local IPTABLES_PREROUTING_LIST=$(iptables --table nat --list-rules PREROUTING 2>/dev/null | grep 'Sing-box Family Bucket')
     [ -n "$IPTABLES_PREROUTING_LIST" ] && \
-      PORT_HOPPING_RANGE=$(awk '{for (i=1; i<=NF; i++) if ($i=="--dport") {print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST") && \
+      HY2_PORT_HOPPING_RANGE=$(awk '{for (i=1; i<=NF; i++) if ($i=="--dport") {print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST") && \
       PORT_HOPPING_TARGET=$(awk '{for (i=1; i<=NF; i++) if ($i=="--to-destination") {gsub(/^:/,"",$(i+1)); print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST")
-    [ -n "$PORT_HOPPING_RANGE" ] && PORT_HOPPING_START=${PORT_HOPPING_RANGE%:*} && PORT_HOPPING_END=${PORT_HOPPING_RANGE#*:}
+    [ -n "$HY2_PORT_HOPPING_RANGE" ] && PORT_HOPPING_START=${HY2_PORT_HOPPING_RANGE%:*} && PORT_HOPPING_END=${HY2_PORT_HOPPING_RANGE#*:}
 
   elif command -v firewall-cmd >/dev/null 2>&1 || [ "$SYSTEM" = 'CentOS' ]; then
     local FIREWALL_LIST=$(firewall-cmd --zone=public --list-forward-ports --permanent 2>/dev/null | grep "toport=${PORT_HOPPING_TARGET}")
@@ -1568,12 +1710,12 @@ check_port_hopping_nat() {
   else
     local IPTABLES_PREROUTING_LIST=$(iptables --table nat --list-rules PREROUTING 2>/dev/null | grep 'Sing-box Family Bucket')
     [ -n "$IPTABLES_PREROUTING_LIST" ] && \
-      PORT_HOPPING_RANGE=$(awk '{for (i=1; i<=NF; i++) if ($i=="--dport") {print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST") && \
+      HY2_PORT_HOPPING_RANGE=$(awk '{for (i=1; i<=NF; i++) if ($i=="--dport") {print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST") && \
       PORT_HOPPING_TARGET=$(awk '{for (i=1; i<=NF; i++) if ($i=="--to-destination") {gsub(/^:/,"",$(i+1)); print $(i+1); exit}}' <<< "$IPTABLES_PREROUTING_LIST")
-    [ -n "$PORT_HOPPING_RANGE" ] && PORT_HOPPING_START=${PORT_HOPPING_RANGE%:*} && PORT_HOPPING_END=${PORT_HOPPING_RANGE#*:}
+    [ -n "$HY2_PORT_HOPPING_RANGE" ] && PORT_HOPPING_START=${HY2_PORT_HOPPING_RANGE%:*} && PORT_HOPPING_END=${HY2_PORT_HOPPING_RANGE#*:}
   fi
 
-  [ -n "$PORT_HOPPING_START" ] && [ -n "$PORT_HOPPING_END" ] && PORT_HOPPING_RANGE="${PORT_HOPPING_START}:${PORT_HOPPING_END}"
+  [ -n "$PORT_HOPPING_START" ] && [ -n "$PORT_HOPPING_END" ] && HY2_PORT_HOPPING_RANGE="${PORT_HOPPING_START}:${PORT_HOPPING_END}"
 }
 
 # 检测 IPv4 IPv6 信息
@@ -1707,8 +1849,12 @@ sing-box_variables() {
     grep -q '^$' <<< "$SERVER_IP" && grep -q '.' <<< "$WAN6" && SERVER_IP=$WAN6
   fi
   if [ -z "$SERVER_IP" ]; then
-    (( STEP_NUM++ )) || true
-    reading "\n (${STEP_NUM}/${TOTAL_STEPS}) $(text 10) " SERVER_IP
+    if [[ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' || "$IS_FAST_INSTALL" = 'is_fast_install' ]]; then
+      SERVER_IP="$SERVER_IP_DEFAULT"
+    else
+      (( STEP_NUM++ )) || true
+      reading "\n (${STEP_NUM}/${TOTAL_STEPS}) $(text 10) " SERVER_IP
+    fi
   fi
   SERVER_IP=${SERVER_IP:-"$SERVER_IP_DEFAULT"} && WS_SERVER_IP_SHOW=$SERVER_IP
   [ -z "$SERVER_IP" ] && error " $(text 47) "
@@ -1753,10 +1899,14 @@ sing-box_variables() {
     input_reality_key
   fi
 
-  # 如选择有 c. hysteria2 时，选择是否使用端口跳跃
+  # 如选择有 c. hysteria2 时，先选择 Realm / WARP，再选择是否使用端口跳跃。
+  # 这三项属于 Hysteria2 子选项，不计入安装总步骤，也不显示步骤编号。
   if [[ "${INSTALL_PROTOCOLS[@]}" =~ 'c' ]]; then
-    (( STEP_NUM++ )) || true
+    input_hy2_realm
+    local _SAVED_TOTAL_STEPS="$TOTAL_STEPS"
+    TOTAL_STEPS=''
     input_hopping_port
+    TOTAL_STEPS="$_SAVED_TOTAL_STEPS"
   fi
 
   # 如选择有 h. vmess + ws 或 i. vless + ws 时，先检测是否有支持的 http 端口可用，如有则要求输入域名和 cdn
@@ -1800,7 +1950,7 @@ sing-box_variables() {
 
   # 输入 UUID ，错误超过 5 次将会退出
   UUID_DEFAULT=$(cat /proc/sys/kernel/random/uuid)
-  [ "$IS_FAST_INSTALL" = 'is_fast_install' ] && UUID_CONFIRM="$UUID_DEFAULT"
+  [[ "$IS_FAST_INSTALL" = 'is_fast_install' || "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]] && UUID_CONFIRM=${UUID_CONFIRM:-"$UUID_DEFAULT"}
   if [ -z "$UUID_CONFIRM" ]; then
     (( STEP_NUM++ )) || true
     reading "\n (${STEP_NUM}/${TOTAL_STEPS}) $(text 12) " UUID_CONFIRM
@@ -1823,7 +1973,7 @@ sing-box_variables() {
     else
       local NODE_NAME_DEFAULT="${EMOJI}Sing-Box"
     fi
-    [ "$IS_FAST_INSTALL" = 'is_fast_install' ] && NODE_NAME_CONFIRM="${NODE_NAME_DEFAULT}"
+    [[ "$IS_FAST_INSTALL" = 'is_fast_install' || "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]] && NODE_NAME_CONFIRM="${NODE_NAME_DEFAULT}"
     if [ -z "$NODE_NAME_CONFIRM" ]; then
       (( STEP_NUM++ )) || true
       reading "\n (${STEP_NUM}/${TOTAL_STEPS}) $(text 13) " NODE_NAME
@@ -2020,13 +2170,13 @@ del_port_hopping_ufw_rules() {
 
   ufw reload >/dev/null 2>&1 || return 1
 
-  unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE
+  unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE
   return 0
 }
 
 # 检查 UFW PortHopping NAT 规则
 check_port_hopping_ufw_rules() {
-  unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE
+  unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE
   local DETECTED_TARGET
   local UFW_BEFORE_RULES='/etc/ufw/before.rules'
   local UFW_BEFORE6_RULES='/etc/ufw/before6.rules'
@@ -2058,7 +2208,7 @@ check_port_hopping_ufw_rules() {
   if [[ "$UFW_RULE" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
     PORT_HOPPING_START="${BASH_REMATCH[1]}"
     PORT_HOPPING_END="${BASH_REMATCH[2]}"
-    PORT_HOPPING_RANGE="${PORT_HOPPING_START}:${PORT_HOPPING_END}"
+    HY2_PORT_HOPPING_RANGE="${PORT_HOPPING_START}:${PORT_HOPPING_END}"
   fi
 
   if [[ "$UFW_RULE" =~ --to-destination[[:space:]]+:([0-9]+) ]]; then
@@ -2457,13 +2607,13 @@ sync_firewall_rules() {
 
   if [ -z "$HY2_TARGET" ]; then
     [ -n "$EXISTING_START" ] && [ -n "$EXISTING_END" ] && del_port_hopping_nat
-    unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE PORT_HOPPING_TARGET
+    unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE PORT_HOPPING_TARGET
     return 0
   fi
 
   if [ -z "$DESIRED_START" ] || [ -z "$DESIRED_END" ]; then
     [ -n "$EXISTING_START" ] && [ -n "$EXISTING_END" ] && del_port_hopping_nat
-    unset PORT_HOPPING_START PORT_HOPPING_END PORT_HOPPING_RANGE
+    unset PORT_HOPPING_START PORT_HOPPING_END HY2_PORT_HOPPING_RANGE
     PORT_HOPPING_TARGET="$HY2_TARGET"
     return 0
   fi
@@ -2472,7 +2622,7 @@ sync_firewall_rules() {
     [ -n "$EXISTING_START" ] && [ -n "$EXISTING_END" ] && del_port_hopping_nat
     PORT_HOPPING_START="$DESIRED_START"
     PORT_HOPPING_END="$DESIRED_END"
-    PORT_HOPPING_RANGE="${DESIRED_START}:${DESIRED_END}"
+    HY2_PORT_HOPPING_RANGE="${DESIRED_START}:${DESIRED_END}"
     PORT_HOPPING_TARGET="$HY2_TARGET"
     add_port_hopping_nat "$PORT_HOPPING_START" "$PORT_HOPPING_END" "$PORT_HOPPING_TARGET"
   fi
@@ -2711,7 +2861,7 @@ EOF
         {
             "type":"wireguard",
             "tag":"warp-ep",
-            "mtu":1280,
+            "mtu":1400,
             "address":[
                 "172.16.0.2/32",
                 "2606:4700:110:8a36:df92:102a:9602:fa18/128"
@@ -2943,6 +3093,25 @@ EOF
     [ -z "$PORT_HYSTERIA2" ] && PORT_HYSTERIA2=$[START_PORT+$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}")]
     [ "$IS_HOPPING" = 'is_hopping' ] && add_port_hopping_nat $PORT_HOPPING_START $PORT_HOPPING_END $PORT_HYSTERIA2
     NODE_NAME[12]=${NODE_NAME[12]:-"$NODE_NAME_CONFIRM"} && UUID[12]=${UUID[12]:-"$UUID_CONFIRM"}
+    HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
+    local HY2_REALM_CONFIG=""
+    if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
+      HY2_REALM_CONFIG=$(cat <<EOF_REALM
+,
+            "realm":{
+                "server_url":"https://realm.hy2.io",
+                "token":"public",
+                "realm_id":"${HY2_REALM_ID}",
+                "stun_servers":[
+                    "turn.cloudflare.com:3478",
+                    "stun.nextcloud.com:3478",
+                    "stun.sip.us:3478",
+                    "global.stun.twilio.com:3478"
+                ]
+            }
+EOF_REALM
+)
+    fi
     cat > ${WORK_DIR}/conf/12_${NODE_TAG[1]}_inbounds.json << EOF
 {
     "inbounds":[
@@ -2956,7 +3125,7 @@ EOF
                     "password":"${UUID[12]}"
                 }
             ],
-            "ignore_client_bandwidth":false,
+            "ignore_client_bandwidth":false${HY2_REALM_CONFIG},
             "tls":{
                 "enabled":true,
                 "alpn":[
@@ -2971,6 +3140,7 @@ EOF
     ]
 }
 EOF
+    [ "$IS_HY2_WARP" = 'is_hy2_warp' ] && sync_hy2_warp_route enable || sync_hy2_warp_route disable
   fi
 
   # 生成 Tuic V5 配置
@@ -3549,7 +3719,7 @@ EOF
 
 # 获取原有各协议的参数，先清空所有的 key-value
 fetch_nodes_value() {
-  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS PORT_NAIVE SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
+  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 HY2_REALM_ID IS_HY2_REALM IS_HY2_WARP PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS PORT_NAIVE SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
 
   # 获取公共数据
   ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1 && SERVER_IP=$(awk -F '"' '/"WS_SERVER_IP_SHOW"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json) || SERVER_IP=$(grep -A1 '"tag"' ${WORK_DIR}/list | sed -E '/-ws(-tls)*",$/{N;d}' | awk -F '"' '/"server"/{count++; if (count == 1) {print $4; exit}}')
@@ -3569,7 +3739,21 @@ fetch_nodes_value() {
   [ -s ${WORK_DIR}/conf/*_${NODE_TAG[0]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[0]}_inbounds.json) && NODE_NAME[11]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[0]}.*/\1/p" <<< "$JSON") && PORT_XTLS_REALITY=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[11]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && REALITY_PRIVATE[11]=$(awk -F '"' '/"private_key"/{print $4}' <<< "$JSON") && REALITY_PUBLIC[11]=$(awk -F '"' '/"public_key"/{print $4}' <<< "$JSON")
 
   # 获取 Hysteria2 key-value
-  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json) && NODE_NAME[12]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[1]}.*/\1/p" <<< "$JSON") && PORT_HYSTERIA2=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[12]=$(awk -F '"' '/"password"/{count++; if (count == 1) {print $4; exit}}' <<< "$JSON") && check_port_hopping_nat
+  if [ -s ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json ]; then
+    local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json)
+    NODE_NAME[12]=$(awk -F '"' -v suffix=" ${NODE_TAG[1]}" '/"tag"[[:space:]]*:/ {v=$4; sub(suffix"$", "", v); print v; exit}' <<< "$JSON")
+    PORT_HYSTERIA2=$(awk -F ':' '/"listen_port"[[:space:]]*:/ {gsub(/[[:space:],]/, "", $2); print $2; exit}' <<< "$JSON")
+    UUID[12]=$(awk -F '"' '/"password"[[:space:]]*:/ {count++; if (count == 1) {print $4; exit}}' <<< "$JSON")
+    if grep -q '"realm"[[:space:]]*:' <<< "$JSON"; then
+      IS_HY2_REALM=is_hy2_realm
+      HY2_REALM_ID=$(awk -F '"' '/"realm_id"[[:space:]]*:/{print $4; exit}' <<< "$JSON")
+      HY2_REALM_ID=${HY2_REALM_ID:-${UUID[12]}}
+    fi
+    if [ -s ${WORK_DIR}/conf/03_route.json ] && [ -n "${NODE_NAME[12]}" ] && grep -q '"outbound"[[:space:]]*:[[:space:]]*"warp-ep"' ${WORK_DIR}/conf/03_route.json && grep -q "${NODE_NAME[12]} ${NODE_TAG[1]}" ${WORK_DIR}/conf/03_route.json; then
+      IS_HY2_WARP=is_hy2_warp
+    fi
+    check_port_hopping_nat
+  fi
 
   # 获取 Tuic V5 key-value
   [ -s ${WORK_DIR}/conf/*_${NODE_TAG[2]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[2]}_inbounds.json) && NODE_NAME[13]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[2]}.*/\1/p" <<< "$JSON") && PORT_TUIC=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[13]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && TUIC_PASSWORD=$(awk -F '"' '/"password"/{print $4}' <<< "$JSON") && TUIC_CONGESTION_CONTROL=$(awk -F '"' '/"congestion_control"/{print $4}' <<< "$JSON")
@@ -3764,7 +3948,12 @@ export_list() {
     [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]] && local CLASH_HOPPING=" ports: ${PORT_HOPPING_START}-${PORT_HOPPING_END}, hop-interval: 30,"
     local HY2_UP=${HY2_UP:-200}
     local HY2_DOWN=${HY2_DOWN:-1000}
-    local CLASH_HYSTERIA2="- {name: \"${NODE_NAME[12]} ${NODE_TAG[1]}\", type: hysteria2, server: ${SERVER_IP}, port: ${PORT_HYSTERIA2},${CLASH_HOPPING} up: \"${HY2_UP} Mbps\", down: \"${HY2_DOWN} Mbps\", password: ${UUID[12]}, sni: ${TLS_SERVER}, skip-cert-verify: false, fingerprint: ${SELF_SIGNED_FINGERPRINT_SHA256}}" &&
+    local CLASH_REALM_OPTS=""
+    if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
+      HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
+      CLASH_REALM_OPTS=", realm-opts: {enable: true, server-url: \"https://realm.hy2.io\", token: public, realm-id: \"${HY2_REALM_ID}\", stun-servers: [turn.cloudflare.com:3478, stun.nextcloud.com:3478, stun.sip.us:3478, global.stun.twilio.com:3478]}"
+    fi
+    local CLASH_HYSTERIA2="- {name: \"${NODE_NAME[12]} ${NODE_TAG[1]}\", type: hysteria2, server: ${SERVER_IP}, port: ${PORT_HYSTERIA2},${CLASH_HOPPING} up: \"${HY2_UP} Mbps\", down: \"${HY2_DOWN} Mbps\", password: ${UUID[12]}, sni: ${TLS_SERVER}, skip-cert-verify: false, fingerprint: ${SELF_SIGNED_FINGERPRINT_SHA256}${CLASH_REALM_OPTS}}" &&
     local CLASH_SUBSCRIBE+="
   $CLASH_HYSTERIA2
 "
@@ -4165,9 +4354,14 @@ naive+quic://${UUID[22]}:${UUID[22]}@${SERVER_IP_1}:${PORT_NAIVE}?congestion_con
   local NODE_REPLACE+="\"${NODE_NAME[11]} ${NODE_TAG[0]}\","
 
   if [ -n "$PORT_HYSTERIA2" ]; then
-    local HYSTERIA2_CONFIG=" { \"type\": \"hysteria2\", \"tag\": \"${NODE_NAME[12]} ${NODE_TAG[1]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_HYSTERIA2}, \"up_mbps\": ${HY2_UP}, \"down_mbps\": ${HY2_DOWN}, \"password\": \"${UUID[12]}\", \"tls\": { \"enabled\": true, \"server_name\": \"${TLS_SERVER}\", \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"alpn\": [ \"h3\" ] } },"
-    if [[ -n "${PORT_HOPPING_START}" && -n "${PORT_HOPPING_END}" ]]; then
-      HYSTERIA2_CONFIG="${HYSTERIA2_CONFIG/\"server_port\": ${PORT_HYSTERIA2},/\"server_port\": ${PORT_HYSTERIA2}, \"server_ports\": [ \"${PORT_HOPPING_START}:${PORT_HOPPING_END}\" ], \"hop_interval\": \"30s\", \"hop_interval_max\": \"60s\",}"
+    if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
+      HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
+      local HYSTERIA2_CONFIG=" { \"type\": \"hysteria2\", \"tag\": \"${NODE_NAME[12]} ${NODE_TAG[1]}\", \"up_mbps\": ${HY2_UP}, \"down_mbps\": ${HY2_DOWN}, \"password\": \"${UUID[12]}\", \"tls\": { \"enabled\": true, \"server_name\": \"${TLS_SERVER}\", \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"alpn\": [ \"h3\" ] }, \"realm\": { \"server_url\": \"https://realm.hy2.io\", \"token\": \"public\", \"realm_id\": \"${HY2_REALM_ID}\", \"stun_servers\": [ \"turn.cloudflare.com:3478\", \"stun.nextcloud.com:3478\", \"stun.sip.us:3478\", \"global.stun.twilio.com:3478\" ] } },"
+    else
+      local HYSTERIA2_CONFIG=" { \"type\": \"hysteria2\", \"tag\": \"${NODE_NAME[12]} ${NODE_TAG[1]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_HYSTERIA2}, \"up_mbps\": ${HY2_UP}, \"down_mbps\": ${HY2_DOWN}, \"password\": \"${UUID[12]}\", \"tls\": { \"enabled\": true, \"server_name\": \"${TLS_SERVER}\", \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"alpn\": [ \"h3\" ] } },"
+      if [[ -n "${PORT_HOPPING_START}" && -n "${PORT_HOPPING_END}" ]]; then
+        HYSTERIA2_CONFIG="${HYSTERIA2_CONFIG/\"server_port\": ${PORT_HYSTERIA2},/\"server_port\": ${PORT_HYSTERIA2}, \"server_ports\": [ \"${PORT_HOPPING_START}:${PORT_HOPPING_END}\" ], \"hop_interval\": \"30s\", \"hop_interval_max\": \"60s\",}"
+      fi
     fi
     local OUTBOUND_REPLACE+="${HYSTERIA2_CONFIG}"
     local NODE_REPLACE+="\"${NODE_NAME[12]} ${NODE_TAG[1]}\","
@@ -4540,9 +4734,12 @@ change_protocols() {
   if [[ "${INSTALL_PROTOCOLS[@]}" =~ "$CHECK_PROTOCOLS" ]]; then
     POSITION=$(awk -v target=$CHECK_PROTOCOLS '{ for(i=1; i<=NF; i++) if($i == target) { print i-1; break } }' <<< "${INSTALL_PROTOCOLS[*]}")
     PORT_HYSTERIA2=${REINSTALL_PORTS[POSITION]}
+    if [[ " ${ADD_PROTOCOLS[*]} " =~ " ${PROTOCOL_LIST[1]} " ]] && [ -z "$IS_HY2_REALM" ]; then
+      input_hy2_realm
+    fi
     [ -z "${PORT_HOPPING_START}${PORT_HOPPING_END}" ] && input_hopping_port
   else
-    unset PORT_HYSTERIA2
+    unset PORT_HYSTERIA2 IS_HY2_REALM IS_HY2_WARP HY2_REALM_ID
   fi
 
   # 获取 Tuic V5 端口
@@ -4921,7 +5118,7 @@ menu_setting() {
     OPTION[8]="8.  $(text 69)"
     OPTION[9]="9.  $(text 76)"
 
-    ACTION[1]() { IS_FAST_INSTALL='is_fast_install'; CHOOSE_PROTOCOLS=${CHOOSE_PROTOCOLS:-'a'}; START_PORT=${START_PORT:-"$START_PORT_DEFAULT"}; CDN=${CDN:-"${CDN_DOMAIN[0]}"}; IS_SUB='is_sub'; IS_ARGO='is_argo'; PORT_HOPPING_RANGE=${PORT_HOPPING_RANGE:-'50000:51000'}; install_sing-box; export_list install; create_shortcut; exit; }
+    ACTION[1]() { IS_FAST_INSTALL='is_fast_install'; CHOOSE_PROTOCOLS=${CHOOSE_PROTOCOLS:-'a'}; START_PORT=${START_PORT:-"$START_PORT_DEFAULT"}; CDN=${CDN:-"${CDN_DOMAIN[0]}"}; IS_SUB='is_sub'; IS_ARGO='is_argo'; HY2_PORT_HOPPING_RANGE=${HY2_PORT_HOPPING_RANGE:-'50000:51000'}; install_sing-box; export_list install; create_shortcut; exit; }
     ACTION[2]() { IS_SUB=is_sub; IS_ARGO=is_argo; install_sing-box; export_list install; create_shortcut; exit; }
     ACTION[3]() { IS_SUB=no_sub; IS_ARGO=is_argo; install_sing-box; export_list install; create_shortcut; exit; }
     ACTION[4]() { IS_SUB=is_sub; IS_ARGO=no_argo; install_sing-box; export_list install; create_shortcut; exit; }
@@ -4973,6 +5170,22 @@ statistics_of_run_times update sing-box.sh 2>/dev/null
 # 传参
 [[ "${*^^}" =~ '-E'|'-K' ]] && L=E
 [[ "${*^^}" =~ '-C'|'-B'|'-L' ]] && L=C
+# 支持在 select_language 前识别 --LANGUAGE，避免 KV 无交互安装仍弹出语言选择。
+for ((_param_i=1; _param_i<=$#; _param_i++)); do
+  eval "_param_v=\${${_param_i}}"
+  case "${_param_v^^}" in
+    --LANGUAGE )
+      _param_n=$((_param_i+1))
+      eval "_param_lang=\${${_param_n}}"
+      [[ "${_param_lang^^}" =~ ^C ]] && L=C || L=E
+      ;;
+    --LANGUAGE=* )
+      _param_lang="${_param_v#*=}"
+      [[ "${_param_lang^^}" =~ ^C ]] && L=C || L=E
+      ;;
+  esac
+done
+unset _param_i _param_v _param_n _param_lang
 
 # 获取 -F 参数的值
 CONFIG_FILE=$(awk '-F[ =]' 'tolower($1) ~ /^-f$/{print $2}' <<< "$*")
@@ -4993,7 +5206,9 @@ check_brutal
 # 传参处理1: 把所有的 = 变为空格，但保留 =" ，因为 Json TunnelSecret 是 =" 结尾的，如 {"AccountTag":"9cc9e3e4d8f29d2a02e297f14f20513a","TunnelSecret":"6AYfKBOoNlPiTAuWg64ZwujsNuERpWLm6pPJ2qpN8PM=","TunnelID":"1ac55430-f4dc-47d5-a850-bdce824c4101"}
 # 传参处理2: 去掉 sudo cloudflared service install ，以方便用户输入 Token 并能正确读取真正的以 ey 开头的 Value
 ALL_PARAMETER=($(sed -E 's/(-c|-e|-f|-C|-E|-F) //; s/=([^"])/ \1/g; s/sudo cloudflared service install //' <<< $*))
-[[ "${#ALL_PARAMETER[@]}" > 11 && "${ALL_PARAMETER[@]^^}" == *"--LANGUAGE"* && "${ALL_PARAMETER[@]^^}" == *"--CHOOSE_PROTOCOLS"* && "${ALL_PARAMETER[@]^^}" == *"--START_PORT"* && "${ALL_PARAMETER[@]^^}" == *"--SERVER_IP"* && "${ALL_PARAMETER[@]^^}" == *"--UUID"* && "${ALL_PARAMETER[@]^^}" == *"--NODE_NAME"* ]] && NONINTERACTIVE_INSTALL=noninteractive_install
+# KV 参数安装：只要指定 --CHOOSE_PROTOCOLS，就认为用户要无交互安装。
+# 其余参数允许缺省，脚本会按交互模式默认值自动补齐。
+[[ "${ALL_PARAMETER[@]^^}" == *"--CHOOSE_PROTOCOLS"* ]] && NONINTERACTIVE_INSTALL=noninteractive_install
 
 # 传参处理，无交互快速安装参数
 for z in ${!ALL_PARAMETER[@]}; do
@@ -5098,9 +5313,15 @@ for z in ${!ALL_PARAMETER[@]}; do
     --ARGO_AUTH )
       ((z++)); ARGO_AUTH=${ALL_PARAMETER[z]}
       ;;
-    --PORT_HOPPING_RANGE )
-      ((z++)); [[ "${ALL_PARAMETER[z]//:/-}" =~ ^[1-6][0-9]{4}-[1-6][0-9]{4}$ ]] && PORT_HOPPING_RANGE=${ALL_PARAMETER[z]//-/:} && PORT_HOPPING_START=${ALL_PARAMETER[z]%:*} && PORT_HOPPING_END=${ALL_PARAMETER[z]#*:}
+    --HY2_PORT_HOPPING_RANGE )
+      ((z++)); [[ "${ALL_PARAMETER[z]//:/-}" =~ ^[1-6][0-9]{4}-[1-6][0-9]{4}$ ]] && HY2_PORT_HOPPING_RANGE=${ALL_PARAMETER[z]//-/:} && PORT_HOPPING_START=${ALL_PARAMETER[z]%:*} && PORT_HOPPING_END=${ALL_PARAMETER[z]#*:}
       [[ "$PORT_HOPPING_START" < "$PORT_HOPPING_END" && "$PORT_HOPPING_START" -ge "$MIN_HOPPING_PORT" && "$PORT_HOPPING_END" -le "$MAX_HOPPING_PORT" ]] && IS_HOPPING=is_hopping
+      ;;
+    --HY2_REALM|--REALM )
+      ((z++)); [[ "${ALL_PARAMETER[z],,}" =~ ^(true|1|y|yes)$ ]] && IS_HY2_REALM=is_hy2_realm
+      ;;
+    --HY2_WARP|--REALM_WARP|--WARP_REALM )
+      ((z++)); [[ "${ALL_PARAMETER[z],,}" =~ ^(true|1|y|yes)$ ]] && IS_HY2_WARP=is_hy2_warp && IS_HY2_REALM=is_hy2_realm
       ;;
     --REALITY_PRIVATE )
       ((z++)); REALITY_PRIVATE=${ALL_PARAMETER[z]}
@@ -5113,7 +5334,10 @@ check_dependencies
 check_system_ip
 check_install
 if [ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]; then
-  # 预设默认值
+  # 预设默认值，允许只传 --CHOOSE_PROTOCOLS 进行最小无交互安装。
+  CHOOSE_PROTOCOLS=${CHOOSE_PROTOCOLS:-'a'}
+  START_PORT=${START_PORT:-"$START_PORT_DEFAULT"}
+  CDN=${CDN:-"${CDN_DOMAIN[0]}"}
   IS_SUB=${IS_SUB:-'no_sub'}
   IS_ARGO=${IS_ARGO:-'no_argo'}
   IS_HOPPING=${IS_HOPPING:-'no_hopping'}
@@ -5128,7 +5352,7 @@ elif [ "$IS_FAST_INSTALL" = 'is_fast_install' ]; then
   CDN=${CDN:-"${CDN_DOMAIN[0]}"}
   IS_SUB='is_sub'
   IS_ARGO='is_argo'
-  [[ "$PORT_HOPPING_RANGE" =~ ^[0-9]+:[0-9]+$ ]] && IS_HOPPING='is_hopping' || IS_HOPPING='no_hopping'
+  [[ "$HY2_PORT_HOPPING_RANGE" =~ ^[0-9]+:[0-9]+$ ]] && IS_HOPPING='is_hopping' || IS_HOPPING='no_hopping'
 
   install_sing-box
   export_list install
