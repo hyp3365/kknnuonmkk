@@ -83,17 +83,43 @@ update_sb() {
 update_argo() {
     tag=$(get_latest_argo)
     url="https://github.com/cloudflare/cloudflared/releases/download/${tag}/cloudflared-linux-${ARCH}"
+    
+    # 1. 自动停止正在运行的程序/服务
+    echo -e "${BLUE}▶ 正在停止正在运行的 Argo 服务...${RESET}"
+    systemctl stop argo 2>/dev/null
+    # 双重保险：防止没有注册成 systemd 服务，尝试强制杀掉残留进程
+    pkill -f "$ARGO_BIN" 2>/dev/null
+    
     echo -e "${BLUE}▶ 正在下载 Cloudflared Argo...${RESET}"
+    # 2. 备份旧版本
     [ -f "$ARGO_BIN" ] && cp "$ARGO_BIN" "$ARGO_BIN.bak" 2>/dev/null
+    
+    # 3. 开始下载
     if curl -L -o "$ARGO_BIN" "$url"; then
+        # 4. 下载成功：赋予执行权限
         chmod +x "$ARGO_BIN"
-        systemctl restart argo 2>/dev/null
-        echo -e "${GREEN}✅ Argo 更新成功!${RESET}"
+        
+        # 5. 自动运行/启动最新版程序
+        echo -e "${BLUE}▶ 正在启动最新版 Argo...${RESET}"
+        systemctl start argo 2>/dev/null
+        
+        echo -e "${GREEN}✅ Argo 更新成功并已启动!${RESET}"
+        # 成功后删除备份
+        rm -f "$ARGO_BIN.bak" 2>/dev/null
     else
-        echo -e "${RED}❌ 下载失败${RESET}"
-        [ -f "$ARGO_BIN.bak" ] && mv "$ARGO_BIN.bak" "$ARGO_BIN"
+        echo -e "${RED}❌ 下载失败，正在恢复旧版本...${RESET}"
+        # 6. 下载失败：回滚旧版本并重新启动旧版本
+        if [ -f "$ARGO_BIN.bak" ]; then
+            mv -f "$ARGO_BIN.bak" "$ARGO_BIN"
+            chmod +x "$ARGO_BIN"
+            systemctl start argo 2>/dev/null
+            echo -e "${YELLOW}🔄 已成功恢复并启动旧版本程序。${RESET}"
+        else
+            echo -e "${RED}❌ 未找到旧版本备份，请手动检查。${RESET}"
+        fi
     fi
 }
+
 
 # --- 主循环界面 ---
 while true; do
