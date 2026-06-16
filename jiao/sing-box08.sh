@@ -47,7 +47,6 @@ export CFPORT=${CFPORT:-'443'}
 uuid=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(shuf -i 10000-60000 -n 1)
 tuic_port=$(shuf -i 10000-60000 -n 1)
-
 h2_reality=$(shuf -i 10000-60000 -n 1)
 socks_port=$(shuf -i 10000-60000 -n 1)
 http_port=$(shuf -i 10000-60000 -n 1)
@@ -56,7 +55,6 @@ grpc_reality=$(shuf -i 10000-60000 -n 1)
 vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
 vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
-hy2_port=$(shuf -i 10000-60000 -n 1)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
@@ -1724,21 +1722,19 @@ manage_nodes_menu() {
                 generate_vars
                 server_ip=$(get_realip)    
 				echo ""
-          while true; do
+              while true; do
               read -rp "请输入 xtls + Reality 端口 (1000-65535, 默认 ${xtls_reality}): " custom_port
-              # 如果用户直接回车，则使用默认端口
               if [ -z "$custom_port" ]; then
                   custom_port=$xtls_reality
                   break
               fi
-              # 校验输入是否为纯数字且在合法范围内
               if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
                   xtls_reality=$custom_port
                   break
               else
                   red "输入错误！请输入有效的端口号 (1000-65535)。"
               fi
-          done
+              done
                 yellow "正在配置 xtls + Reality ..."
                 cat > /etc/sing-box/xtls-reality.json << EOF
 {
@@ -1789,6 +1785,19 @@ EOF
         2) yellow "正在配置 hysteria2..."
                 generate_vars
                 server_ip=$(get_realip)
+				while true; do
+              read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port}): " custom_port
+              if [ -z "$custom_port" ]; then
+                  custom_port=$hy2_port
+                  break
+              fi
+              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+                  hy2_port=$custom_port
+                  break
+              else
+                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+              fi
+              done
                 cat > /etc/sing-box/hysteria2.json << EOF
 {
   "inbounds": [
