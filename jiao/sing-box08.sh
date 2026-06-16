@@ -47,7 +47,7 @@ export CFPORT=${CFPORT:-'443'}
 uuid=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(shuf -i 10000-60000 -n 1)
 tuic_port=$(shuf -i 10000-60000 -n 1)
-xtls_reality=$(shuf -i 10000-60000 -n 1)
+
 h2_reality=$(shuf -i 10000-60000 -n 1)
 socks_port=$(shuf -i 10000-60000 -n 1)
 http_port=$(shuf -i 10000-60000 -n 1)
@@ -1722,7 +1722,23 @@ manage_nodes_menu() {
 		case "${choice}" in
 		1) 
                 generate_vars
-                server_ip=$(get_realip)                
+                server_ip=$(get_realip)    
+				echo ""
+          while true; do
+              read -rp "请输入 xtls + Reality 端口 (1000-65535, 默认 ${xtls_reality}): " custom_port
+              # 如果用户直接回车，则使用默认端口
+              if [ -z "$custom_port" ]; then
+                  custom_port=$xtls_reality
+                  break
+              fi
+              # 校验输入是否为纯数字且在合法范围内
+              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+                  xtls_reality=$custom_port
+                  break
+              else
+                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+              fi
+          done
                 yellow "正在配置 xtls + Reality ..."
                 cat > /etc/sing-box/xtls-reality.json << EOF
 {
