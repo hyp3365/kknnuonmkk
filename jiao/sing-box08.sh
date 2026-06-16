@@ -47,7 +47,6 @@ export CFPORT=${CFPORT:-'443'}
 uuid=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(shuf -i 10000-60000 -n 1)
 tuic_port=$(shuf -i 10000-60000 -n 1)
-h2_reality=$(shuf -i 10000-60000 -n 1)
 socks_port=$(shuf -i 10000-60000 -n 1)
 http_port=$(shuf -i 10000-60000 -n 1)
 anytls_port=$(shuf -i 10000-60000 -n 1)
@@ -1782,7 +1781,7 @@ EOF
           green " 节点链接: $url"
           green "==============================================="
             ;;
-        2) yellow "正在配置 hysteria2..."
+        2) 
                 generate_vars
                 server_ip=$(get_realip)
 				while true; do
@@ -1798,6 +1797,7 @@ EOF
                   red "输入错误！请输入有效的端口号 (1000-65535)。"
               fi
               done
+			  yellow "正在配置 hysteria2..."
                 cat > /etc/sing-box/hysteria2.json << EOF
 {
   "inbounds": [
@@ -1843,7 +1843,20 @@ EOF
 
         3) 
                 generate_vars
-                server_ip=$(get_realip)                
+                server_ip=$(get_realip)  
+				while true; do
+              read -rp "请输入 H2 + Reality 端口 (1000-65535, 默认 ${h2_reality}): " custom_port
+              if [ -z "$custom_port" ]; then
+                  custom_port=$h2_reality
+                  break
+              fi
+              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+                  h2_reality=$custom_port
+                  break
+              else
+                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+              fi
+              done			
                 yellow "正在配置 H2 + Reality ..."
                 cat > /etc/sing-box/h2-reality.json << EOF
 {
