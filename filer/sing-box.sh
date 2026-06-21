@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.14 (2026.06.19)'
+VERSION='v1.3.14 (2026.06.20)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -23,7 +23,7 @@ CONSECUTIVE_PORTS=${#PROTOCOL_LIST[@]}
 CDN_DOMAIN=("skk.moe" "ip.sb" "time.is" "cfip.xxxxxxxx.tk" "bestcf.top" "cdn.2020111.xyz" "xn--b6gac.eu.org" "cf.090227.xyz")
 SUBSCRIBE_TEMPLATE="https://raw.githubusercontent.com/fscarmen/client_template/main"
 DEFAULT_NEWEST_VERSION='1.13.0-rc.4'
-FINGER_PRINT='firefox'
+FINGER_PRINT='chrome'
 STEP_NUM=0      # 当前步骤编号（安装流程中动态递增）
 TOTAL_STEPS=''  # 总步骤数（协议确定后动态计算）
 
@@ -586,7 +586,7 @@ input_cdn() {
     case "$CUSTOM_CDN" in
       [1-${#CDN_DOMAIN[@]}] )
         CDN="${CDN_DOMAIN[$((CUSTOM_CDN-1))]}"
-        unset CDN_PORT
+        CDN_PORT[17]='80' && CDN_PORT[18]='443'
         break
         ;;
       ?????* )
@@ -595,12 +595,16 @@ input_cdn() {
           continue
         }
         CDN="$PARSED_HOST"
-        CDN_PORT="$PARSED_PORT"
+        if grep -q '.' <<< $PARSED_PORT; then
+          CDN_PORT[17]=$PARSED_PORT && CDN_PORT[18]=$PARSED_PORT
+        else
+          CDN_PORT[17]='80' && CDN_PORT[18]='443'
+        fi
         break
         ;;
       * )
         CDN="${CDN_DOMAIN[0]}"
-        unset CDN_PORT
+        CDN_PORT[17]='80' && CDN_PORT[18]='443'
         break
     esac
   done
@@ -717,8 +721,31 @@ change_config() {
   local OLD="${MENU_VAL[IDX]}"
 
   # 特殊操作路由（不走通用替换逻辑）
-  if [ "$KEY" = "ports" ]; then
-    change_start_port
+  if  [ "$KEY" = "cdn" ]; then
+    input_cdn
+    ls ${WORK_DIR}/conf/*vmess-ws*inbounds.json >/dev/null 2>&1 && sed -i "s|CDN\": \".*\"|CDN\": \"${CDN}\"|g; s|CDN_PORT\": \".*\"|CDN_PORT\": \"${CDN_PORT[17]}\"|g" ${WORK_DIR}/conf/*vmess-ws*inbounds.json 2>/dev/null
+
+    ls ${WORK_DIR}/conf/*vless-ws*inbounds.json >/dev/null 2>&1 && sed -i "s|CDN\": \".*\"|CDN\": \"${CDN}\"|g; s|CDN_PORT\": \".*\"|CDN_PORT\": \"${CDN_PORT[18]}\"|g" ${WORK_DIR}/conf/*vless-ws*inbounds.json 2>/dev/null
+
+    export_list
+    return
+  elif [ "$KEY" = "ports" ]; then
+    OLD_PORTS=$(awk -F ':|,' '/listen_port/{print $2}' ${WORK_DIR}/conf/*)
+    OLD_START_PORT=$(awk 'NR == 1 { min = $0 } { if ($0 < min) min = $0; count++ } END {print min}' <<< "$OLD_PORTS")
+    OLD_CONSECUTIVE_PORTS=$(awk 'END { print NR }' <<< "$OLD_PORTS")
+    input_start_port $OLD_CONSECUTIVE_PORTS
+    cmd_systemctl disable sing-box
+    for ((a=0; a<$OLD_CONSECUTIVE_PORTS; a++)) do
+      [ -s ${WORK_DIR}/conf/${CONF_FILES[a]} ] && sed -i "s/\(.*listen_port.*:\)$((OLD_START_PORT+a))/\1$((START_PORT+a))/" ${WORK_DIR}/conf/*
+    done
+    fetch_nodes_value
+    [ -n "$PORT_NGINX" ] && UUID_CONFIRM=$(awk '/location/ && /\// {match($0, /\/([^ \/]+)/, arr); p=arr[1]; sub(/-(vmess|vless|auto2|auto).*/, "", p); print p; exit}' ${WORK_DIR}/nginx.conf) && export_nginx_conf_file
+    cmd_systemctl enable sing-box
+    [ -n "$ARGO_DOMAIN" ] && export_argo_json_file
+    sync_firewall_rules
+    sleep 2
+    export_list
+    cmd_systemctl status sing-box &>/dev/null && info " Sing-box $(text 121) $(text 37) " || error " Sing-box $(text 121) $(text 38) "
     return
   elif [ "$KEY" = "hy2bw" ]; then
     # 修改 Hysteria2 带宽
@@ -837,17 +864,15 @@ change_config() {
   # 批量替换，更换服务IP和指纹不需重启服务
   [[ ! "$KEY" =~ ^(fingerprint|serverip|cdn)$ ]] && hint " $(text 112) "
 
-  if [ "$KEY" = "serverip" ]; then
+  if [[ "$KEY" =~ ^(serverip|cdn)$ ]]; then
     # IP 在配置里出现的形式有多种，逐一替换
-    find ${WORK_DIR} -type f | xargs -P 50 sed -i \
-      -e "s|\"server\": \"${OLD}\"|\"server\": \"${NEW_VAL}\"|g" \
-      -e "s|WS_SERVER_IP_SHOW\": \"${OLD}\"|WS_SERVER_IP_SHOW\": \"${NEW_VAL}\"|g" \
-      2>/dev/null
+    find ${WORK_DIR} -type f | xargs -P 50 sed -i -e "s|\"server\": \"${OLD}\"|\"server\": \"${NEW_VAL}\"|g" 2>/dev/null
+
     # 同时更新 subscribe/list 等文本文件中可能出现的裸 IP
     find ${WORK_DIR}/subscribe -type f | xargs -P 50 sed -i "s|${OLD}|${NEW_VAL}|g" 2>/dev/null
   else
     find ${WORK_DIR} -type f | xargs -P 50 sed -i "s|${OLD}|${NEW_VAL}|g" 2>/dev/null
-    if [[ ! "$KEY" =~ ^(fingerprint|cdn)$ ]]; then
+    if [[ ! "$KEY" =~ ^(fingerprint)$ ]]; then
       cmd_systemctl restart sing-box
       sleep 2
       cmd_systemctl status sing-box &>/dev/null && info "\n Sing-box $(text 28) $(text 37) \n" || warning "\n Sing-box $(text 27) $(text 38) \n"
@@ -4312,10 +4337,10 @@ fetch_nodes_value() {
   [ -s ${WORK_DIR}/conf/*_${NODE_TAG[5]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[5]}_inbounds.json) && NODE_NAME[16]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[5]}.*/\1/p" <<< "$JSON") && PORT_TROJAN=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && TROJAN_PASSWORD=$(awk -F '"' '/"password"/{print $4}' <<< "$JSON")
 
   # 获取 vmess + ws key-value
-  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[6]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[6]}_inbounds.json) && NODE_NAME[17]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[6]}.*/\1/p" <<< "$JSON") && PORT_VMESS_WS=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[17]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && VMESS_WS_PATH=$(sed -n 's#.*"path":"/\(.*\)",#\1#p' <<< "$JSON") && WS_SERVER_IP[17]=$(awk  -F '"' '/"WS_SERVER_IP_SHOW"/{print $4}' <<< "$JSON") && CDN[17]=$(awk  -F '"' '/"CDN"/{print $4}' <<< "$JSON") && [[ "${STATUS[1]}" =~ $(text 27)|$(text 28) ]] && ARGO_DOMAIN=$(awk  -F '"' '/"VMESS_HOST_DOMAIN"/{print $4}' <<< "$JSON") || VMESS_HOST_DOMAIN=$(awk  -F '"' '/"VMESS_HOST_DOMAIN"/{print $4}' <<< "$JSON")
+  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[6]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[6]}_inbounds.json) && NODE_NAME[17]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[6]}.*/\1/p" <<< "$JSON") && PORT_VMESS_WS=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[17]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && VMESS_WS_PATH=$(sed -n 's#.*"path":"/\(.*\)",#\1#p' <<< "$JSON") && WS_SERVER_IP[17]=$(awk  -F '"' '/"WS_SERVER_IP_SHOW"/{print $4}' <<< "$JSON") && CDN[17]=$(awk  -F '"' '/"CDN"/{print $4}' <<< "$JSON") && CDN_PORT[17]=$(awk  -F '"' '/"CDN_PORT"/{print $4}' <<< "$JSON") && [[ "${STATUS[1]}" =~ $(text 27)|$(text 28) ]] && ARGO_DOMAIN=$(awk  -F '"' '/"VMESS_HOST_DOMAIN"/{print $4}' <<< "$JSON") || VMESS_HOST_DOMAIN=$(awk  -F '"' '/"VMESS_HOST_DOMAIN"/{print $4}' <<< "$JSON")
 
   # 获取 vless + ws + tls key-value
-  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[7]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[7]}_inbounds.json) && NODE_NAME[18]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[7]}.*/\1/p" <<< "$JSON") && PORT_VLESS_WS=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[18]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && VLESS_WS_PATH=$(sed -n 's#.*"path":"/\(.*\)",#\1#p' <<< "$JSON") && WS_SERVER_IP[18]=$(awk  -F '"' '/"WS_SERVER_IP_SHOW"/{print $4}' <<< "$JSON") && CDN[18]=$(awk  -F '"' '/"CDN"/{print $4}' <<< "$JSON") && [[ "${STATUS[1]}" =~ $(text 27)|$(text 28) ]] && ARGO_DOMAIN=$(awk -F '"' '/"server_name"/{print $4}' <<< "$JSON") || VLESS_HOST_DOMAIN=$(awk -F '"' '/"server_name"/{print $4}' <<< "$JSON")
+  [ -s ${WORK_DIR}/conf/*_${NODE_TAG[7]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[7]}_inbounds.json) && NODE_NAME[18]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[7]}.*/\1/p" <<< "$JSON") && PORT_VLESS_WS=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[18]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && VLESS_WS_PATH=$(sed -n 's#.*"path":"/\(.*\)",#\1#p' <<< "$JSON") && WS_SERVER_IP[18]=$(awk  -F '"' '/"WS_SERVER_IP_SHOW"/{print $4}' <<< "$JSON") && CDN[18]=$(awk  -F '"' '/"CDN"/{print $4}' <<< "$JSON") && [[ "${STATUS[1]}" =~ $(text 27)|$(text 28) ]] && CDN_PORT[18]=$(awk  -F '"' '/"CDN_PORT"/{print $4}' <<< "$JSON") && ARGO_DOMAIN=$(awk -F '"' '/"server_name"/{print $4}' <<< "$JSON") || VLESS_HOST_DOMAIN=$(awk -F '"' '/"server_name"/{print $4}' <<< "$JSON")
 
   # 获取 H2 + Reality key-value
   [ -s ${WORK_DIR}/conf/*_${NODE_TAG[8]}_inbounds.json ] && local JSON=$(cat ${WORK_DIR}/conf/*_${NODE_TAG[8]}_inbounds.json) && NODE_NAME[19]=$(sed -n "s/.*\"tag\":\"\(.*\) ${NODE_TAG[8]}.*/\1/p" <<< "$JSON") && PORT_H2_REALITY=$(sed -n 's/.*"listen_port":\([0-9]\+\),/\1/gp' <<< "$JSON") && UUID[19]=$(awk -F '"' '/"uuid"/{print $4}' <<< "$JSON") && REALITY_PRIVATE[19]=$(awk -F '"' '/"private_key"/{print $4}' <<< "$JSON") && REALITY_PUBLIC[19]=$(awk -F '"' '/"public_key"/{print $4}' <<< "$JSON")
@@ -5144,26 +5169,6 @@ EOF
   chmod +x ${WORK_DIR}/sb.sh
   ln -sf ${WORK_DIR}/sb.sh /usr/bin/sb
   [ -s /usr/bin/sb ] && info "\n $(text 71) "
-}
-
-# 更换各协议的监听端口
-change_start_port() {
-  OLD_PORTS=$(awk -F ':|,' '/listen_port/{print $2}' ${WORK_DIR}/conf/*)
-  OLD_START_PORT=$(awk 'NR == 1 { min = $0 } { if ($0 < min) min = $0; count++ } END {print min}' <<< "$OLD_PORTS")
-  OLD_CONSECUTIVE_PORTS=$(awk 'END { print NR }' <<< "$OLD_PORTS")
-  input_start_port $OLD_CONSECUTIVE_PORTS
-  cmd_systemctl disable sing-box
-  for ((a=0; a<$OLD_CONSECUTIVE_PORTS; a++)) do
-    [ -s ${WORK_DIR}/conf/${CONF_FILES[a]} ] && sed -i "s/\(.*listen_port.*:\)$((OLD_START_PORT+a))/\1$((START_PORT+a))/" ${WORK_DIR}/conf/*
-  done
-  fetch_nodes_value
-  [ -n "$PORT_NGINX" ] && UUID_CONFIRM=$(awk '/location/ && /\// {match($0, /\/([^ \/]+)/, arr); p=arr[1]; sub(/-(vmess|vless|auto2|auto).*/, "", p); print p; exit}' ${WORK_DIR}/nginx.conf) && export_nginx_conf_file
-  cmd_systemctl enable sing-box
-  [ -n "$ARGO_DOMAIN" ] && export_argo_json_file
-  sync_firewall_rules
-  sleep 2
-  export_list
-  cmd_systemctl status sing-box &>/dev/null && info " Sing-box $(text 121) $(text 37) " || error " Sing-box $(text 121) $(text 38) "
 }
 
 # 增加或删除协议
