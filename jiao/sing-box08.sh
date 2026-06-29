@@ -1800,31 +1800,25 @@ EOF
                   red "输入错误！请输入有效的端口号 (1000-65535)。"
               fi
               done
-			  # ================= 证书配置选择 =================
                 echo -e "\n请选择 TLS 证书类型:"
-                echo "1) 使用已有自签名证书 (客户端需开启允许不安全连接)"
-                echo "2) 使用域名申请/复用正规证书 (客户端可严格检查证书)"
+				echo -e "1) \e[32m使用自签名证书\e[0m"
+                echo -e "2) \e[32m使用域名申请证书\e[0m"
                 read -rp "请输入数字 [1-2] (默认 1): " cert_type
                 [ -z "$cert_type" ] && cert_type=1
-
                 if [ "$cert_type" -eq 2 ]; then
-                    # 调用你的自定义证书检查与申请函数
                     if check_and_issue_ssl; then
                         cert_path="$cert_file"
                         key_path="$key_file"
-                        url_param="sni=${domain}" # 正规证书不需要 insecure=1
+                        url_param="sni=${domain}" 
                     else
                         red "证书申请或获取失败，脚本退出！"
                         return 1
                     fi
                 else
-                    # 选 1 时直接读取现有的自签名证书路径，不重复生成
                     cert_path="$work_dir/cert.pem"
                     key_path="$work_dir/private.key"
                     url_param="insecure=1&sni=www.bing.com"
                 fi
-                # =================================================
-
                 yellow "正在配置 hysteria2..."
                 cat > /etc/sing-box/hysteria2.json << EOF
 {
@@ -1854,10 +1848,8 @@ EOF
 }
 EOF
                 allow_port $hy2_port/udp > /dev/null 2>&1
-                node_remark="${isp}_hysteria2"
-                
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"								
-                
+                node_remark="${isp}_hysteria2"                
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"								              
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
