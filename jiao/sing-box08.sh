@@ -1389,9 +1389,9 @@ EOF
             restart_singbox
             ip=$(get_realip)
             uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
-            isp=$(curl -s --max-time 2 https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed 's/ /_/g' || echo "vps")
             sed -i "/hysteria2:/d" "$client_dir"
-            echo "hysteria2://$uuid@$ip:$listen_port?peer=www.bing.com&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$isp" >> "$client_dir"
+			node_remark="${isp}_hysteria2"
+            echo "hysteria2://$uuid@$ip:$listen_port?peer=www.bing.com&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
             green "\nHysteria2 端口跳跃已开启！"
             purple "跳跃区间：$min_port-$max_port"
