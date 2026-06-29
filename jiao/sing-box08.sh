@@ -110,116 +110,70 @@ check_nginx() {
     check_service "nginx" "$(command -v nginx)"
 }
 
-#根据系统类型安装、卸载依赖
+# 根据系统类型安装、卸载依赖
 manage_packages() {
-    # 参数检查
     if [ $# -lt 2 ]; then
         red "Unspecified package name or action"
         return 1
     fi
 
-    # 先检测包管理器（优先检测存在的命令）
-    detect_pkg_manager() {
-        if command -v apt >/dev/null 2>&1; then
-            PKG_MGR="apt"
-        elif command -v dnf >/dev/null 2>&1; then
-            PKG_MGR="dnf"
-        elif command -v yum >/dev/null 2>&1; then
-            PKG_MGR="yum"
-        elif command -v apk >/dev/null 2>&1; then
-            PKG_MGR="apk"
-        else
-            PKG_MGR=""
-        fi
-    }
-
-    # 检测 libc 类型（musl 或 glibc），结果写入全局 LIBC
-    detect_libc() {
-        if command -v ldd >/dev/null 2>&1; then
-            if ldd --version 2>&1 | grep -qi musl; then
-                LIBC="musl"
-            else
-                LIBC="glibc"
-            fi
-        else
-            # 没有 ldd 时尝试 /lib/ld-musl 或 /lib64/ld-linux 判断
-            if [ -f /lib/ld-musl-x86_64.so.1 ] || [ -f /lib/ld-musl.so.1 ]; then
-                LIBC="musl"
-            else
-                LIBC="glibc"
-            fi
-        fi
-    }
-
-    detect_pkg_manager
-    detect_libc
-
     action=$1
     shift
 
+    # 首次安装更新系统
+    if [ "$action" == "install" ] && [ ! -d "$work_dir" ]; then
+        yellow "正在更新系统软件包...\n"
+        if command_exists apt; then
+            DEBIAN_FRONTEND=noninteractive apt update -y && DEBIAN_FRONTEND=noninteractive apt upgrade -y
+        elif command_exists dnf; then
+            dnf update -y
+        elif command_exists yum; then
+            yum update -y
+        elif command_exists apk; then
+            apk update && apk upgrade
+        else
+            yellow "Unknown system!\n"
+        fi
+        green "finished updated system\n"
+    fi
+
     for package in "$@"; do
-        if [ "$action" = "install" ]; then
+        if [ "$action" == "install" ]; then
             if command_exists "$package"; then
                 green "${package} already installed"
                 continue
             fi
             yellow "正在安装 ${package}..."
-            case "$PKG_MGR" in
-                apt)
-                    DEBIAN_FRONTEND=noninteractive apt update -y >/dev/null 2>&1
-                    DEBIAN_FRONTEND=noninteractive apt install -y "$package"
-                    ;;
-                dnf)
-                    dnf install -y "$package"
-                    ;;
-                yum)
-                    yum install -y "$package"
-                    ;;
-                apk)
-                    # 区分 OpenWrt 与 Alpine（OpenWrt 的 apk 可能缺少某些包）
-                    if [ -f /etc/openwrt_release ]; then
-                        # OpenWrt: 尝试安装，若失败提示用户
-                        apk update >/dev/null 2>&1 || true
-                        if ! apk add "$package"; then
-                            yellow "OpenWrt: package ${package} may not be available in default repos"
-                        fi
-                    else
-                        # Alpine
-                        apk update
-                        apk add "$package"
-                    fi
-                    ;;
-                *)
-                    red "Unknown system or package manager!"
-                    return 1
-                    ;;
-            esac
-
-        elif [ "$action" = "uninstall" ]; then
+            if command_exists apt; then
+                DEBIAN_FRONTEND=noninteractive apt install -y "$package"
+            elif command_exists dnf; then
+                dnf install -y "$package"
+            elif command_exists yum; then
+                yum install -y "$package"
+            elif command_exists apk; then
+                apk add "$package"
+            else
+                red "Unknown system!"
+                return 1
+            fi
+        elif [ "$action" == "uninstall" ]; then
             if ! command_exists "$package"; then
                 yellow "${package} is not installed"
                 continue
             fi
             yellow "正在卸载 ${package}..."
-            case "$PKG_MGR" in
-                apt)
-                    apt remove -y "$package" && apt autoremove -y
-                    ;;
-                dnf)
-                    dnf remove -y "$package" && dnf autoremove -y
-                    ;;
-                yum)
-                    yum remove -y "$package" && yum autoremove -y
-                    ;;
-                apk)
-                    apk del "$package"
-                    ;;
-                *)
-                    red "Unknown system or package manager!"
-                    return 1
-                    ;;
-            esac
-
+            if command_exists apt; then
+                apt remove -y "$package" && apt autoremove -y
+            elif command_exists dnf; then
+                dnf remove -y "$package" && dnf autoremove -y
+            elif command_exists yum; then
+                yum remove -y "$package" && yum autoremove -y
+            elif command_exists apk; then
+                apk del "$package"
+            else
+                red "Unknown system!"
+                return 1
+            fi
         else
             red "Unknown action: $action"
             return 1
@@ -228,6 +182,7 @@ manage_packages() {
 
     return 0
 }
+
 
 # 获取ip
 get_realip() {
@@ -500,13 +455,14 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
 
-    # 生成自签名证书
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
     
-    # 检测网络类型并设置DNS策略
-    dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
-
+    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
+    
+    dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
+        (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
+    
    # 生成配置文件
 cat > "${config_dir}" << EOF
 {
@@ -516,13 +472,14 @@ cat > "${config_dir}" << EOF
     "output": "$work_dir/sb.log",
     "timestamp": true
   },
-    "dns":{
-        "servers":[
-            {
-                "type":"local"
-            }
-        ],
-        "strategy": "prefer_ipv4"
+  "dns": {
+    "servers": [
+      {
+        "tag": "local",
+        "type": "local"
+      }
+    ],
+    "strategy": "$dns_strategy"
   },
    "ntp": {
         "enabled": true,
