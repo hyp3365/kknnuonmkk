@@ -1329,6 +1329,7 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
+		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local deps=("iptables" "curl" "shuf")
             for dep in "${deps[@]}"; do
@@ -2274,6 +2275,13 @@ EOF
             ;;
 
             52) 
+            iptables -t nat -F PREROUTING > /dev/null 2>&1
+            if command -v ip6tables &> /dev/null; then
+               ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+            fi
+            if command -v netfilter-persistent &> /dev/null; then
+               netfilter-persistent save > /dev/null 2>&1
+            fi
 			target="_hysteria2"
             target_conf="/etc/sing-box/hysteria2.json"
             if [ -f "$target_conf" ]; then
