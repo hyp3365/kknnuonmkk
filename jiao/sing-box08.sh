@@ -1391,8 +1391,16 @@ EOF
             ip=$(get_realip)
             uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
             sed -i "/hysteria2:/d" "$client_dir"
+            key_path=$(grep '"key_path"' /etc/sing-box/hysteria2.json | head -n 1 | awk -F': ' '{print $2}' | tr -d ', "')
+            if [[ "$key_path" == "/etc/sing-box/private.key" ]] || [[ -z "$key_path" ]]; then
+            custom_sni="www.bing.com"
+            elif [[ "$key_path" =~ \/root\/cert\/([^\/]+)\/ ]]; then
+            custom_sni="${BASH_REMATCH[1]}"
+            else
+            custom_sni="www.bing.com"
+            fi
 			node_remark="${isp}_hysteria2"
-            echo "hysteria2://$uuid@$ip:$listen_port?peer=www.bing.com&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
+            echo "hysteria2://$uuid@$ip:$listen_port?peer=$custom_sni&insecure=1&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
             green "\nHysteria2 端口跳跃已开启！"
             purple "跳跃区间：$min_port-$max_port"
