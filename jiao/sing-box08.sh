@@ -3076,7 +3076,9 @@ vps_s() {
     else
       cpu_info=$(lscpu | grep 'Model name' | sed -e 's/Model name[[:space:]]*: //')
     fi
-    cpu_usage_percent=$(awk '{u=$2+$4; d=$2+$4+$5; if((d-last_d)>0) p=(u-last_u)/(d-last_d)*100; else p=0; printf "%.2f%%", p; next} {last_u=$2+$4; last_d=$2+$4+$5}' <(grep 'cpu ' /proc/stat; sleep 0.2; grep 'cpu ' /proc/stat))    
+ 
+	cpu_usage_percent=$(awk '{u=$2+$4; d=$2+$4+$5; if((d-last_d)>0) p=(u-last_u)/(d-last_d)*100; else p=0; printf "%.2f", p; next} {last_u=$2+$4; last_d=$2+$4+$5}' <(grep 'cpu ' /proc/stat; sleep 0.2; grep 'cpu ' /proc/stat))%
+
     cpu_cores=$(nproc)
     mem_info=$(free -b | awk 'NR==2{printf "%.2f/%.2f MB (%.2f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}')
     disk_info=$(df -h | awk '$NF=="/"{printf "%d/%dGB (%s)", $3,$2,$5}')
