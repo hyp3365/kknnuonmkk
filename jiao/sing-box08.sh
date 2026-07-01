@@ -3069,7 +3069,7 @@ iptables_ssl() {
 }
 
 # 其他
-Vps_s() {
+vps_s() {
     ip_address    
     if [ "$(uname -m)" == "x86_64" ]; then
       cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
