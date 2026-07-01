@@ -3076,24 +3076,30 @@ vps_s() {
     else
       cpu_info=$(lscpu | grep 'Model name' | sed -e 's/Model name[[:space:]]*: //')
     fi
-    cpu_usage=$(top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}')
-    cpu_usage_percent=$(printf "%.2f" "$cpu_usage")%
+    cpu_usage_percent=$(awk '{u=$2+$4; d=$2+$4+$5; if((d-last_d)>0) p=(u-last_u)/(d-last_d)*100; else p=0; printf "%.2f%%", p; next} {last_u=$2+$4; last_d=$2+$4+$5}' <(grep 'cpu ' /proc/stat; sleep 0.2; grep 'cpu ' /proc/stat))    
     cpu_cores=$(nproc)
     mem_info=$(free -b | awk 'NR==2{printf "%.2f/%.2f MB (%.2f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}')
     disk_info=$(df -h | awk '$NF=="/"{printf "%d/%dGB (%s)", $3,$2,$5}')
-    country=$(curl -s ipinfo.io/country)
-    city=$(curl -s ipinfo.io/city)
-    isp_info=$(curl -s ipinfo.io/org)
+    
+    ip_api_res=$(curl -s --max-time 5 http://ip-api.com/json/?fields=status,country,city,isp)
+    if echo "$ip_api_res" | grep -q '"success"'; then
+        country=$(echo "$ip_api_res" | awk -F'"country":"' '{print $2}' | awk -F'"' '{print $1}')
+        city=$(echo "$ip_api_res" | awk -F'"city":"' '{print $2}' | awk -F'"' '{print $1}')
+        isp_info=$(echo "$ip_api_res" | awk -F'"isp":"' '{print $2}' | awk -F'"' '{print $1}')
+    else
+        country="未知"
+        city="未知"
+        isp_info="获取失败 (限流)"
+    fi
+    
     cpu_arch=$(uname -m)
     hostname=$(hostname)
     kernel_version=$(uname -r)
     congestion_algorithm=$(sysctl -n net.ipv4.tcp_congestion_control)
     queue_algorithm=$(sysctl -n net.core.default_qdisc)
     
-    # 尝试使用 lsb_release 获取系统信息
     os_info=$(lsb_release -ds 2>/dev/null)
     if [ -z "$os_info" ]; then
-      # 检查常见的发行文件
       if [ -f "/etc/os-release" ]; then
         os_info=$(source /etc/os-release && echo "$PRETTY_NAME")
       elif [ -f "/etc/debian_version" ]; then
@@ -3107,43 +3113,25 @@ vps_s() {
 
     clear
     
-    # --- 1. 获取当前系统自启动以来的绝对流量 (Bytes) ---
     current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%s %s", rx, tx }' /proc/net/dev)
     read -r curr_rx curr_tx <<< "$current_bytes"
 
-    # --- 2. 智能月度流量统计（支持重启保护 & 美国时间 1 号重置） ---
     traffic_file="$HOME/.vps_traffic_stats"
-    cur_month=$(TZ="America/New_York" date "+%Y-%m") # 强制使用美国东部时间统计月份
+    cur_month=$(TZ="America/New_York" date "+%Y-%m")
 
-    # 初始化历史变量
-    last_month=""
-    last_rx=0
-    last_tx=0
-    monthly_rx=0
-    monthly_tx=0
+    last_month="" ; last_rx=0 ; last_tx=0 ; monthly_rx=0 ; monthly_tx=0
+    if [ -f "$traffic_file" ]; then source "$traffic_file" 2>/dev/null; fi
 
-    # 载入上一次保存的数据
-    if [ -f "$traffic_file" ]; then
-        source "$traffic_file" 2>/dev/null
-    fi
-
-    # 如果美国时间跨月了，重置本月流量计数器
     if [ "$last_month" != "$cur_month" ]; then
-        monthly_rx=0
-        monthly_tx=0
-        last_rx=0
-        last_tx=0
+        monthly_rx=0 ; monthly_tx=0 ; last_rx=0 ; last_tx=0
     fi
 
-    # 计算自上次运行脚本以来的流量增量（如果当前值小于上次记录值，说明系统重启过，增量直接等于当前值）
     if [ "$curr_rx" -ge "$last_rx" ]; then delta_rx=$((curr_rx - last_rx)); else delta_rx=$curr_rx; fi
     if [ "$curr_tx" -ge "$last_tx" ]; then delta_tx=$((curr_tx - last_tx)); else delta_tx=$curr_tx; fi
 
-    # 累加到本月总流量
     monthly_rx=$((monthly_rx + delta_rx))
     monthly_tx=$((monthly_tx + delta_tx))
 
-    # 持久化保存当前数据，供下次运行读取
     cat << EOF > "$traffic_file"
 last_month="$cur_month"
 last_rx="$curr_rx"
@@ -3152,38 +3140,27 @@ monthly_rx="$monthly_rx"
 monthly_tx="$monthly_tx"
 EOF
 
-    # --- 3. 格式化输出流量 ---
-    # 自开机以来的总接收/发送
     output=$(awk -v rx="$curr_rx" -v tx="$curr_tx" '
         BEGIN {
             rx_units = "Bytes"; tx_units = "Bytes";
             if (rx > 1024) { rx /= 1024; rx_units = "KB"; }
             if (rx > 1024) { rx /= 1024; rx_units = "MB"; }
             if (rx > 1024) { rx /= 1024; rx_units = "GB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "TB"; }
-
             if (tx > 1024) { tx /= 1024; tx_units = "KB"; }
             if (tx > 1024) { tx /= 1024; tx_units = "MB"; }
             if (tx > 1024) { tx /= 1024; tx_units = "GB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "TB"; }
-
             printf("总接收: %.2f %s\n总发送: %.2f %s", rx, rx_units, tx, tx_units);
         }')
 
-    # 本月（美东时间）累计的入站/出站
     monthly_output=$(awk -v rx="$monthly_rx" -v tx="$monthly_tx" '
         BEGIN {
             rx_units = "Bytes"; tx_units = "Bytes";
             if (rx > 1024) { rx /= 1024; rx_units = "KB"; }
             if (rx > 1024) { rx /= 1024; rx_units = "MB"; }
             if (rx > 1024) { rx /= 1024; rx_units = "GB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "TB"; }
-
             if (tx > 1024) { tx /= 1024; tx_units = "KB"; }
             if (tx > 1024) { tx /= 1024; tx_units = "MB"; }
             if (tx > 1024) { tx /= 1024; tx_units = "GB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "TB"; }
-
             printf("本月入站: %.2f %s\n本月出站: %.2f %s", rx, rx_units, tx, tx_units);
         }')
 
@@ -3191,12 +3168,12 @@ EOF
     swap_used=$(free -m | awk 'NR==3{print $3}')
     swap_total=$(free -m | awk 'NR==3{print $2}')
 
-    if [ "$swap_total" -eq 0 ]; then
+    if [ -z "$swap_total" ] || [ "$swap_total" -eq 0 ]; then
         swap_percentage=0
     else
         swap_percentage=$((swap_used * 100 / swap_total))
     fi
-    swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
+    swap_info="${swap_used:-0}MB/${swap_total:-0}MB (${swap_percentage}%)"
     runtime=$(cat /proc/uptime | awk -F. '{run_days=int($1 / 86400);run_hours=int(($1 % 86400) / 3600);run_minutes=int(($1 % 3600) / 60); if (run_days > 0) printf("%d天 ", run_days); if (run_hours > 0) printf("%d时 ", run_hours); printf("%d分\n", run_minutes)}')
     
     echo ""
@@ -3231,6 +3208,7 @@ EOF
     echo -e "${white}系统运行时长: ${purple}${runtime}${re}"
     echo
 }
+
 
 # singbox 管理
 manage_singbox() {
