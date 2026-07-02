@@ -3141,18 +3141,6 @@ monthly_rx="$monthly_rx"
 monthly_tx="$monthly_tx"
 EOF
 
-    output=$(awk -v rx="$curr_rx" -v tx="$curr_tx" '
-        BEGIN {
-            rx_units = "Bytes"; tx_units = "Bytes";
-            if (rx > 1024) { rx /= 1024; rx_units = "KB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "MB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "GB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "KB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "MB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "GB"; }
-            printf("总接收: %.2f %s\n总发送: %.2f %s", rx, rx_units, tx, tx_units);
-        }')
-
     monthly_output=$(awk -v rx="$monthly_rx" -v tx="$monthly_tx" '
         BEGIN {
             rx_units = "Bytes"; tx_units = "Bytes";
@@ -3195,7 +3183,6 @@ EOF
     echo -e "${white}虚拟内存: ${purple}${swap_info}${re}"
     echo -e "${white}硬盘占用: ${purple}${disk_info}${re}"
     echo "------------------------"
-    echo -e "${purple}$output${re}"
     echo -e "${purple}$monthly_output${re}"
     echo "------------------------"
     echo -e "${white}网络拥堵算法: ${purple}${congestion_algorithm} ${queue_algorithm}${re}"
