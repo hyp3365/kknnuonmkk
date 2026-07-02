@@ -3293,18 +3293,18 @@ EOF
 				systemctl stop argo-watchdog &>/dev/null
                 systemctl disable argo-watchdog &>/dev/null
                 systemctl daemon-reload &>/dev/null 
-
-            elif [[ $argo_auth =~ ^[A-Z0-9a-z=]{120,250}$ ]]; then
+				
+			elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
+                real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')        
                 if command_exists rc-service 2>/dev/null; then
-                    sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1'\"" /etc/init.d/argo
+                    sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
                 else
-
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$argo_auth' 2>&1"' /etc/systemd/system/argo.service
+                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
                 fi
                 restart_argo
                 sleep 1 
                 change_argo_domain
-				systemctl stop argo-watchdog &>/dev/null
+                systemctl stop argo-watchdog &>/dev/null
                 systemctl disable argo-watchdog &>/dev/null
                 systemctl daemon-reload &>/dev/null  
             else
