@@ -40,7 +40,8 @@ generate_vars() {
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
-config_dir="${work_dir}/config.json"
+conf_dir="${work_dir}/conf"
+config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
@@ -601,7 +602,7 @@ User=root
 WorkingDirectory=/etc/sing-box
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/
+ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf/
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
@@ -673,7 +674,7 @@ alpine_openrc_services() {
 
 description="sing-box service"
 command="/etc/sing-box/sing-box"
-command_args="run -C /etc/sing-box"
+command_args="run -C /etc/sing-box/conf"
 command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
@@ -1628,7 +1629,7 @@ manage_nodes_menu() {
 		short_id=$(openssl rand -hex 6)
     fi
     while true; do
-        local CONF_DIR="/etc/sing-box"
+        local CONF_DIR="/etc/sing-box/conf"
         local width=45
         local node_list=(
 		    "xtls-reality.json|xtls-Reality|1"
@@ -1704,7 +1705,7 @@ manage_nodes_menu() {
               fi
               done
                 yellow "正在配置 xtls + Reality ..."
-                cat > /etc/sing-box/xtls-reality.json << EOF
+                cat > /etc/sing-box/conf/xtls-reality.json << EOF
 {
   "inbounds": [
      {
@@ -1786,7 +1787,7 @@ EOF
                     url_param="insecure=1&sni=www.bing.com"
                 fi
                 yellow "正在配置 hysteria2..."
-                cat > /etc/sing-box/hysteria2.json << EOF
+                cat > /etc/sing-box/conf/hysteria2.json << EOF
 {
   "inbounds": [
     {
@@ -1846,7 +1847,7 @@ EOF
               fi
               done			
                 yellow "正在配置 H2 + Reality ..."
-                cat > /etc/sing-box/h2-reality.json << EOF
+                cat > /etc/sing-box/conf/h2-reality.json << EOF
 {
   "inbounds": [
     {
@@ -1907,7 +1908,7 @@ EOF
             generate_vars
             server_ip=$(get_realip)
             mkdir -p /etc/sing-box
-            cat > /etc/sing-box/grpc-reality.json << EOF
+            cat > /etc/sing-box/conf/grpc-reality.json << EOF
 {
     "inbounds":[
         {
@@ -1969,7 +1970,7 @@ EOF
                generate_vars
                server_ip=$(get_realip)
                mkdir -p /etc/sing-box
-               cat > /etc/sing-box/anytls.json << EOF
+               cat > /etc/sing-box/conf/anytls.json << EOF
 {
     "inbounds":[
         {
@@ -2010,7 +2011,7 @@ EOF
             6) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
-                cat > /etc/sing-box/socks5.json << EOF
+                cat > /etc/sing-box/conf/socks5.json << EOF
 {
   "inbounds": [
     {
@@ -2047,7 +2048,7 @@ EOF
 			yellow "正在配置 HTTP 代理..."
             generate_vars
             server_ip=$(get_realip)
-            cat > /etc/sing-box/http.json << EOF
+            cat > /etc/sing-box/conf/http.json << EOF
 {
   "inbounds": [
     {
@@ -2085,7 +2086,7 @@ EOF
         check_and_issue_ssl || return 1
         generate_vars
         mkdir -p /etc/sing-box
-        cat > /etc/sing-box/vless-wstls-cdn.json << EOF
+        cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2134,7 +2135,7 @@ EOF
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
-            cat > /etc/sing-box/vless-ws-cdn.json << EOF
+            cat > /etc/sing-box/conf/vless-ws-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2182,7 +2183,7 @@ EOF
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
-            cat > /etc/sing-box/vmess-ws-cdn.json << EOF
+            cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2228,7 +2229,7 @@ EOF
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
-            target_conf="/etc/sing-box/xtls-reality.json"
+            target_conf="/etc/sing-box/conf/xtls-reality.json"
             if [ -f "$target_conf" ]; then
 			    xtls_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v4
@@ -2268,7 +2269,7 @@ EOF
                netfilter-persistent save > /dev/null 2>&1
             fi
 			target="_hysteria2"
-            target_conf="/etc/sing-box/hysteria2.json"
+            target_conf="/etc/sing-box/conf/hysteria2.json"
             if [ -f "$target_conf" ]; then
 				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
@@ -2301,7 +2302,7 @@ EOF
 
             53) 
 			target="_vless_http_reality"
-            target_conf="/etc/sing-box/h2-reality.json"
+            target_conf="/etc/sing-box/conf/h2-reality.json"
             if [ -f "$target_conf" ]; then
 			    h2_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v4
@@ -2333,7 +2334,7 @@ EOF
             ;;
             54)
             target="_vless_grpc_reality"
-            target_conf="/etc/sing-box/grpc-reality.json"
+            target_conf="/etc/sing-box/conf/grpc-reality.json"
             if [ -f "$target_conf" ]; then
 			    grpc_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v4
@@ -2365,7 +2366,7 @@ EOF
             ;;
             55)
 			target="_anytls"
-            target_conf="/etc/sing-box/anytls.json"
+            target_conf="/etc/sing-box/conf/anytls.json"
             if [ -f "$target_conf" ]; then
 			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v4
@@ -2397,7 +2398,7 @@ EOF
             ;;
             56)
 			target="_socks5"
-            target_conf="/etc/sing-box/socks5.json"
+            target_conf="/etc/sing-box/conf/socks5.json"
             if [ -f "$target_conf" ]; then
 			    socks_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $socks_port /d" /etc/iptables/rules.v4
@@ -2429,7 +2430,7 @@ EOF
             ;;
             57)
 			target="_http"
-            target_conf="/etc/sing-box/http.json"
+            target_conf="/etc/sing-box/conf/http.json"
             if [ -f "$target_conf" ]; then
 			    http_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $http_port /d" /etc/iptables/rules.v4
@@ -2461,7 +2462,7 @@ EOF
             ;;
 		    58) 
 			target="_vless_wstls_cdn"
-            target_conf="/etc/sing-box/vless-wstls-cdn.json"
+            target_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v4
@@ -2493,7 +2494,7 @@ EOF
             ;;
 			59) 
 			target="_vless_ws_cdn"
-            target_conf="/etc/sing-box/vless-ws-cdn.json"
+            target_conf="/etc/sing-box/conf/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vless_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v4
@@ -2525,7 +2526,7 @@ EOF
             ;;	
 		    60) 
 		    target="_vmess_ws_cdn"
-            target_conf="/etc/sing-box/vmess-ws-cdn.json"
+            target_conf="/etc/sing-box/conf/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vmess_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				    sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v4
