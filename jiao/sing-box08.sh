@@ -433,9 +433,8 @@ install_singbox() {
         's390x') ARCH='s390x' ;;
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
-
+    [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
     # 下载sing-box,cloudflared
-    [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}"
     latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
     work_dir=${work_dir:-/etc/sing-box}
 mkdir -p "$work_dir"
