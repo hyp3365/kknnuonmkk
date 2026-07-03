@@ -118,25 +118,18 @@ manage_packages() {
         return 1
     fi
 
-    local action=$1
+    action=$1
     shift
-
-    is_package_installed() {
-        local pkg="$1"
-        if command_exists apt; then
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii" && return 0
-        elif command_exists apk; then
-            apk info -e "$pkg" >/dev/null 2>&1 && return 0
-        fi
-        command_exists "$pkg" && return 0
-        return 1
-    }
 
     # 首次安装更新系统
     if [ "$action" == "install" ] && [ ! -d "$work_dir" ]; then
         yellow "正在更新系统软件包...\n"
         if command_exists apt; then
             DEBIAN_FRONTEND=noninteractive apt update -y && DEBIAN_FRONTEND=noninteractive apt upgrade -y
+        elif command_exists dnf; then
+            dnf update -y
+        elif command_exists yum; then
+            yum update -y
         elif command_exists apk; then
             apk update && apk upgrade
         else
@@ -147,13 +140,17 @@ manage_packages() {
 
     for package in "$@"; do
         if [ "$action" == "install" ]; then
-            if is_package_installed "$package"; then
+            if command_exists "$package"; then
                 green "${package} already installed"
                 continue
             fi
             yellow "正在安装 ${package}..."
             if command_exists apt; then
                 DEBIAN_FRONTEND=noninteractive apt install -y "$package"
+            elif command_exists dnf; then
+                dnf install -y "$package"
+            elif command_exists yum; then
+                yum install -y "$package"
             elif command_exists apk; then
                 apk add "$package"
             else
@@ -161,13 +158,17 @@ manage_packages() {
                 return 1
             fi
         elif [ "$action" == "uninstall" ]; then
-            if ! is_package_installed "$package"; then
+            if ! command_exists "$package"; then
                 yellow "${package} is not installed"
                 continue
             fi
             yellow "正在卸载 ${package}..."
             if command_exists apt; then
                 apt remove -y "$package" && apt autoremove -y
+            elif command_exists dnf; then
+                dnf remove -y "$package" && dnf autoremove -y
+            elif command_exists yum; then
+                yum remove -y "$package" && yum autoremove -y
             elif command_exists apk; then
                 apk del "$package"
             else
@@ -182,7 +183,6 @@ manage_packages() {
 
     return 0
 }
-
 
 # 获取ip
 get_realip() {
