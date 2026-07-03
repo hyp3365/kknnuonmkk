@@ -118,18 +118,25 @@ manage_packages() {
         return 1
     fi
 
-    action=$1
+    local action=$1
     shift
+
+    is_package_installed() {
+        local pkg="$1"
+        if command_exists apt; then
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii" && return 0
+        elif command_exists apk; then
+            apk info -e "$pkg" >/dev/null 2>&1 && return 0
+        fi
+        command_exists "$pkg" && return 0
+        return 1
+    }
 
     # 首次安装更新系统
     if [ "$action" == "install" ] && [ ! -d "$work_dir" ]; then
         yellow "正在更新系统软件包...\n"
         if command_exists apt; then
             DEBIAN_FRONTEND=noninteractive apt update -y && DEBIAN_FRONTEND=noninteractive apt upgrade -y
-        elif command_exists dnf; then
-            dnf update -y
-        elif command_exists yum; then
-            yum update -y
         elif command_exists apk; then
             apk update && apk upgrade
         else
@@ -140,17 +147,13 @@ manage_packages() {
 
     for package in "$@"; do
         if [ "$action" == "install" ]; then
-            if command_exists "$package"; then
+            if is_package_installed "$package"; then
                 green "${package} already installed"
                 continue
             fi
             yellow "正在安装 ${package}..."
             if command_exists apt; then
                 DEBIAN_FRONTEND=noninteractive apt install -y "$package"
-            elif command_exists dnf; then
-                dnf install -y "$package"
-            elif command_exists yum; then
-                yum install -y "$package"
             elif command_exists apk; then
                 apk add "$package"
             else
@@ -158,17 +161,13 @@ manage_packages() {
                 return 1
             fi
         elif [ "$action" == "uninstall" ]; then
-            if ! command_exists "$package"; then
+            if ! is_package_installed "$package"; then
                 yellow "${package} is not installed"
                 continue
             fi
             yellow "正在卸载 ${package}..."
             if command_exists apt; then
                 apt remove -y "$package" && apt autoremove -y
-            elif command_exists dnf; then
-                dnf remove -y "$package" && dnf autoremove -y
-            elif command_exists yum; then
-                yum remove -y "$package" && yum autoremove -y
             elif command_exists apk; then
                 apk del "$package"
             else
@@ -2715,11 +2714,20 @@ vps_ssl() {
                 yellow "注意：请保存好私钥，并在重启 SSH 前确认端口已放行！"
                 ;;
             2)
-                read -p "请输入新的SSH登录端口号 (1024-65535): " new_port
+                red "请输入新的SSH登录端口号 (1024-65535): " && read new_port
                 if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
-                    # 先删再加端口，防止重复
                     sed -i '/^#\?Port/d' /etc/ssh/sshd_config
                     echo "Port $new_port" >> /etc/ssh/sshd_config
+                    if [ -d /etc/systemd/system/ssh.socket.d ] || [ -f /lib/systemd/system/ssh.socket ] || [ -f /usr/lib/systemd/system/ssh.socket ]; then
+                        mkdir -p /etc/systemd/system/ssh.socket.d
+                        cat <<EOF > /etc/systemd/system/ssh.socket.d/addresses.conf
+[Socket]
+ListenStream=
+ListenStream=$new_port
+EOF
+                        systemctl daemon-reload
+                    fi
+                    
                     green "端口已修改为 $new_port"
                     yellow "温馨提醒：重启SSH前请确保防火墙已放行 $new_port 端口。"
                 else
@@ -2733,15 +2741,26 @@ vps_ssl() {
                 ;;
             4)
                 yellow "正在重启 SSH 服务..."
-                if systemctl restart sshd; then
+                if systemctl list-unit-files | grep -q "^ssh.socket"; then
+                    systemctl restart ssh.socket ssh.service >/dev/null 2>&1
+                    ssh_success=$?
+                elif systemctl list-unit-files | grep -q "^sshd.service"; then
+                    systemctl restart sshd >/dev/null 2>&1
+                    ssh_success=$?
+                else
+                    service ssh restart >/dev/null 2>&1
+                    ssh_success=$?
+                fi
+
+                if [ $ssh_success -eq 0 ]; then
                     green "SSH 服务重启成功！"
                     yellow "请尝试用新端口/密钥开启新窗口连接，切勿立即关闭当前窗口！"
                 else
-                    red "重启失败，请检查 /etc/ssh/sshd_config 配置。"
+                    red "重启失败，请检查配置或手动运行 journalctl -xeu ssh 查看原因。"
                 fi
                 ;;
             0)
-                return 0 # 跳出循环，返回主菜单
+                return 0
                 ;;
             *)
                 red "无效选项，请重新输入。"
@@ -2752,6 +2771,7 @@ vps_ssl() {
         read -n 1 -s -r -p $'\033[1;33m操作完成，按任意键菜单...\033[0m'
     done
 }
+            
 
 # Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
