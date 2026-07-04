@@ -2742,10 +2742,14 @@ EOF
             4)
                 yellow "正在重启 SSH 服务..."
                 if systemctl list-unit-files | grep -q "^ssh.socket"; then
-                    systemctl restart ssh.socket ssh.service >/dev/null 2>&1
+                    systemctl daemon-reload >/dev/null 2>&1
+                    systemctl restart ssh.socket >/dev/null 2>&1
                     ssh_success=$?
                 elif systemctl list-unit-files | grep -q "^sshd.service"; then
                     systemctl restart sshd >/dev/null 2>&1
+                    ssh_success=$?
+                elif systemctl list-unit-files | grep -q "^ssh.service"; then
+                    systemctl restart ssh >/dev/null 2>&1
                     ssh_success=$?
                 else
                     service ssh restart >/dev/null 2>&1
