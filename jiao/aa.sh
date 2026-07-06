@@ -681,7 +681,7 @@ while true; do
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-1): " choice
+   reading "请输入选择(0-7): " choice
    echo ""
 
    case $choice in
