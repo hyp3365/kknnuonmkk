@@ -2679,40 +2679,58 @@ vps_ssl() {
         skyblue "-----------------------"
         green  "4. 重启SSH服务 (使配置生效)"
         skyblue "-----------------------"
+		green  "5. 恢复默认配置 "
+        skyblue "-----------------------"
         green  "0. 返回主菜单"
         skyblue "-----------------------"
-        reading "请输入选择 [0-4]: " ssl_choice
-
+        reading "请输入选择 [0-5]: " ssl_choice
         case "${ssl_choice}" in
             1)
                 yellow "正在配置 Ed25519 密钥认证..."
-                [ ! -d ~/.ssh ] && mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                mkdir -p ~/.ssh && chmod 700 ~/.ssh
                 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "vps_admin"
                 cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
                 chmod 600 ~/.ssh/authorized_keys
-                sed -i '/^#\?PubkeyAuthentication/d' /etc/ssh/sshd_config
-                sed -i '/^#\?PasswordAuthentication/d' /etc/ssh/sshd_config
-                sed -i '/^#\?KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
-                sed -i '/^#\?ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
-                sed -i '/^#\?PermitRootLogin/d' /etc/ssh/sshd_config
-                {
-                    echo "PubkeyAuthentication yes"
-                    echo "PasswordAuthentication no"
-                    echo "KbdInteractiveAuthentication no"
-                    echo "ChallengeResponseAuthentication no"
-                    echo "PermitRootLogin yes"
-                } >> /etc/ssh/sshd_config
-                
-                red "--------------------------------------------------"
-                red "请务必保存下方私钥到本地 (id_ed25519)："
+                rm -f ~/.ssh/id_ed25519.pub
+
+                clear
+                red "=================================================="
+                red "      请务必复制并妥善保存下方私钥到本地！        "
+                red "=================================================="
                 echo ""
                 yellow "$(cat ~/.ssh/id_ed25519)"
                 echo ""
-                red "--------------------------------------------------"
-                rm -f ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
-                green "配置完成！私钥已从服务器删除。"
-                yellow "注意：请保存好私钥，并在重启 SSH 前确认端口已放行！"
+                red "=================================================="
+            
+                local confirm_save=""
+                while [[ "${confirm_save}" != "yes" ]]; do
+                    reading "我已复制并妥善保存好上述私钥 (请输入 'yes' 确认继续): " confirm_save
+                done
+
+                cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%F)
+
+                modify_ssh_config() {
+                    local param=$1
+                    local value=$2
+                    if grep -q "^#\?${param}" /etc/ssh/sshd_config; then
+                        sed -i "s|^#\?${param}.*|${param} ${value}|" /etc/ssh/sshd_config
+                    else
+                        echo "${param} ${value}" >> /etc/ssh/sshd_config
+                    fi
+                }
+
+                modify_ssh_config "PubkeyAuthentication" "yes"
+                modify_ssh_config "PasswordAuthentication" "no"
+                modify_ssh_config "KbdInteractiveAuthentication" "no"
+                modify_ssh_config "ChallengeResponseAuthentication" "no"
+                modify_ssh_config "PermitRootLogin" "yes"
+
+                rm -f ~/.ssh/id_ed25519
+                
+                green "配置完成！私钥已从服务器安全删除。"
+                yellow "请去选项 4 重启 SSH 服务生效。"
                 ;;
+                
             2)
                 red "请输入新的SSH登录端口号 (1024-65535): " && read new_port
                 if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
@@ -2763,6 +2781,44 @@ EOF
                     red "重启失败，请检查配置或手动运行 journalctl -xeu ssh 查看原因。"
                 fi
                 ;;
+			 5)
+                red "=== 正在准备恢复 SSH 默认设置 ==="
+                yellow "该操作将尝试：回复默认端口(22)、允许密码登录、移除强制密钥验证。"
+                reading "确定要恢复默认吗？(请输入 'yes' 确认): " confirm_reset
+                
+                if [[ "${confirm_reset}" == "yes" ]]; then
+                    local backup_file=$(ls -t /etc/ssh/sshd_config.bak.* 2>/dev/null | head -n 1)
+                    
+                    if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
+                        cp -f "${backup_file}" /etc/ssh/sshd_config
+                    else
+                        sed -i '/^Port/d' /etc/ssh/sshd_config
+                        sed -i '/^PubkeyAuthentication/d' /etc/ssh/sshd_config
+                        sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config
+                        sed -i '/^KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
+                        sed -i '/^ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
+                        sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config
+                        
+                        {
+                            echo "Port 22"
+                            echo "PubkeyAuthentication yes"
+                            echo "PasswordAuthentication yes"
+                            echo "PermitRootLogin yes"
+                        } >> /etc/ssh/sshd_config
+                    fi
+                    if [ -f /etc/systemd/system/ssh.socket.d/addresses.conf ]; then
+                        rm -rf /etc/systemd/system/ssh.socket.d
+                        systemctl daemon-reload
+                    fi
+
+                    green "重置操作完成！"
+                    red "注意：配置已重置（端口已回初始状态，密码登录已允许）。"
+                    yellow "请务必去选项 4 重启 SSH 服务以使重置生效！"
+                else
+                    green "已取消重置操作。"
+                fi
+                ;;
+
             0)
                 return 0
                 ;;
