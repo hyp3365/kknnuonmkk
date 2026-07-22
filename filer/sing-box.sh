@@ -40,8 +40,8 @@ mkdir -p "$TEMP_DIR"
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. Add bind_interface option in sb -d menu to bind outbound traffic to a specific NIC; 2. Change v2rayN Hysteria2 Realm config from Finalmask field to ProtoExtraObj; 4. 新增 SIGHUP 热更支持，用 reload 替换重启流程"
-C[1]="1. sb -d 菜单新增「指定网络出口」选项，可为出站流量绑定特定网卡; 2. v2rayN 的 Hysteria2 Realm 配置从 Finalmask 字段改为 ProtoExtraObj; 3. 新增 SIGHUP 热更支持，用 reload 替换重启流程"
+E[1]="1. Add bind_interface option in sb -d menu to bind outbound traffic to a specific NIC; 2. Change v2rayN Hysteria2 Realm config from Finalmask field to ProtoExtraObj; 3. add SIGHUP hot-reload support, replace restart sequences with reload; 4. force base-config regeneration on upgrade to guarantee sing-box check passes"
+C[1]="1. sb -d 菜单新增「指定网络出口」选项，可为出站流量绑定特定网卡; 2. v2rayN 的 Hysteria2 Realm 配置从 Finalmask 字段改为 ProtoExtraObj; 3. 新增 SIGHUP 热更支持，用 reload 替换重启流程; 4. 新增 SIGHUP 热更支持，用 reload 替换重启流程; 4. 升级时强制重置基础配置至新版格式，保证兼容性"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -146,8 +146,8 @@ E[52]="Please set the ip \[\${WS_SERVER_IP_SHOW}] to domain \[\${TYPE_HOST_DOMAI
 C[52]="请在 Cloudflare 绑定 \[\${WS_SERVER_IP_SHOW}] 的域名为 \[\${TYPE_HOST_DOMAIN}], 并设置 origin rule 为 \[\${TYPE_PORT_WS}]"
 E[53]="Please select or enter the preferred address (domain / IPv4 / [IPv6], optional :port), the default is \${CDN_DOMAIN[0]}:"
 C[53]="请选择或者填入优选地址（域名 / IPv4 / [IPv6]，可选 :端口），默认为 \${CDN_DOMAIN[0]}:"
-E[54]="Configuration check failed, new version \$ONLINE is incompatible with current config. Upgrade aborted."
-C[54]="配置文件检查失败，新版本 \$ONLINE 与当前配置不兼容，升级中止。"
+E[54]="Configuration check failed, new version \$ONLINE is incompatible with current config."
+C[54]="配置文件检查失败，新版本 \$ONLINE 与当前配置不兼容"
 E[55]="The script runs today: \$TODAY. Total: \$TOTAL"
 C[55]="脚本当天运行次数: \$TODAY，累计运行次数: \$TOTAL"
 E[56]="Process ID"
@@ -384,6 +384,10 @@ E[172]="Bound interface updated to: "
 C[172]="绑定接口已更新为: "
 E[173]="Hot reload successful (PID unchanged: \$MAINPID)"
 C[173]="热加载成功（PID 未变: \$MAINPID）"
+E[174]="Failed to update configuration. Please check manually. Suggestion: reinstall script"
+C[174]="更新配置后仍然无法检查成功，建议重装脚本"
+E[175]="Update base configuration? (Node configs will remain unaffected; only log, outbounds, endpoints, route, experimental, dns, ntp, http_clients, etc., will be reset) [Y/n]:"
+C[175]="是否更新基础配置？（不影响节点配置，仅重置 log、outbounds、endpoints、route、experimental、dns、ntp、http_clients）[Y/n]:"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -3451,20 +3455,10 @@ http {
   echo "$NGINX_CONF" > ${WORK_DIR}/nginx.conf
 }
 
-# 生成 sing-box 配置文件
-sing-box_json() {
-  local IS_CHANGE=$1
-  mkdir -p ${WORK_DIR}/conf ${WORK_DIR}/logs ${WORK_DIR}/subscribe
-
-  # 判断是否为新安装，不为 change 就是新安装
-  if [ "$IS_CHANGE" = 'change' ]; then
-    # 判断 sing-box 主程序所在路径
-    DIR=${WORK_DIR}
-  else
-    DIR=$TEMP_DIR
-
-    # 生成 log 配置
-    cat > ${WORK_DIR}/conf/00_log.json << EOF
+# 生成 sing-box 基础配置
+generate_sing_box_base_conf() {
+  # 生成 log 配置
+  cat > ${WORK_DIR}/conf/00_log.json << EOF
 {
     "log":{
         "disabled":false,
@@ -3475,8 +3469,8 @@ sing-box_json() {
 }
 EOF
 
-    # 生成 outbound 配置
-    cat > ${WORK_DIR}/conf/01_outbounds.json << EOF
+  # 生成 outbound 配置
+  cat > ${WORK_DIR}/conf/01_outbounds.json << EOF
 {
     "outbounds":[
         {
@@ -3488,8 +3482,8 @@ EOF
 }
 EOF
 
-    # 生成 endpoint 配置
-    cat > ${WORK_DIR}/conf/02_endpoints.json << EOF
+  # 生成 endpoint 配置
+  cat > ${WORK_DIR}/conf/02_endpoints.json << EOF
 {
     "endpoints":[
         {
@@ -3522,8 +3516,8 @@ EOF
 }
 EOF
 
-    # 生成 route 配置
-    cat > ${WORK_DIR}/conf/03_route.json << EOF
+  # 生成 route 配置
+  cat > ${WORK_DIR}/conf/03_route.json << EOF
 {
     "route":{
         "default_http_client": "http-client-direct",
@@ -3560,15 +3554,15 @@ EOF
                 "rule_set":[
                     "geosite-openai"
                 ],
-                "outbound":"${CHATGPT_OUT}"
+                "outbound":"${CHATGPT_OUT:-direct}"
             }
         ]
     }
 }
 EOF
 
-    # 生成缓存文件
-    cat > ${WORK_DIR}/conf/04_experimental.json << EOF
+  # 生成缓存文件
+  cat > ${WORK_DIR}/conf/04_experimental.json << EOF
 {
     "experimental": {
         "cache_file": {
@@ -3579,8 +3573,8 @@ EOF
 }
 EOF
 
-    # 生成 dns 配置文件
-    cat > ${WORK_DIR}/conf/05_dns.json << EOF
+  # 生成 dns 配置文件
+  cat > ${WORK_DIR}/conf/05_dns.json << EOF
 {
     "dns":{
         "servers":[
@@ -3594,8 +3588,8 @@ EOF
 }
 EOF
 
-    # 内建的 NTP 客户端服务配置文件，这对于无法进行时间同步的环境很有用
-    cat > ${WORK_DIR}/conf/06_ntp.json << EOF
+  # 内建的 NTP 客户端服务配置文件，这对于无法进行时间同步的环境很有用
+  cat > ${WORK_DIR}/conf/06_ntp.json << EOF
 {
     "ntp": {
         "enabled": true,
@@ -3606,8 +3600,8 @@ EOF
 }
 EOF
 
-    # 专门给 sing-box 内部组件发 HTTP 请求用，比如这些场景会用到它：下载远程 rule_set：.srs 规则文件，ACME 申请证书，Cloudflare Origin CA 证书提供器，DERP / Tailscale 相关 HTTP 请求
-    cat > ${WORK_DIR}/conf/07_http_clients.json << EOF
+  # 专门给 sing-box 内部组件发 HTTP 请求用，比如这些场景会用到它：下载远程 rule_set：.srs 规则文件，ACME 申请证书，Cloudflare Origin CA 证书提供器，DERP / Tailscale 相关 HTTP 请求
+  cat > ${WORK_DIR}/conf/07_http_clients.json << EOF
 {
     "http_clients": [
         {
@@ -3616,6 +3610,20 @@ EOF
     ]
 }
 EOF
+}
+
+# 生成 sing-box 配置文件
+sing-box_json() {
+  local IS_CHANGE=$1
+  mkdir -p ${WORK_DIR}/conf ${WORK_DIR}/logs ${WORK_DIR}/subscribe
+
+  # 判断是否为新安装，不为 change 就是新安装
+  if [ "$IS_CHANGE" = 'change' ]; then
+    # 判断 sing-box 主程序所在路径
+    DIR=${WORK_DIR}
+  else
+    DIR=$TEMP_DIR
+    generate_sing_box_base_conf
   fi
 
   # 生成 Reality 公私钥，第一次安装的时候，如有指定的私钥，则使用该私钥及生成对应的公钥；如没有指定私钥则使用新生成的；添加协议的时，使用相应数组里的第一个非空值，如全空则像第一次安装那样使用新生成的
@@ -5630,17 +5638,6 @@ change_protocols() {
 
   # 再次检测状态，运行 sing-box
   check_install
-  case "${STATUS[0]}" in
-    "$(text 26)" )
-      error "\n Sing-box $(text 28) $(text 38) \n"
-      ;;
-    "$(text 27)" )
-      cmd_systemctl enable sing-box
-      cmd_systemctl status sing-box &>/dev/null && info "\n Sing-box $(text 28) $(text 37) \n" || error "\n Sing-box $(text 28) $(text 38) \n"
-      ;;
-    "$(text 28)" )
-      info "\n Sing-box $(text 28) $(text 37) \n"
-  esac
 
   # 导出节点和订阅服务信息
   export_list
@@ -5679,7 +5676,28 @@ version() {
     wget --no-check-certificate --continue ${GH_PROXY}https://github.com/SagerNet/sing-box/releases/download/v$ONLINE/sing-box-$ONLINE-linux-$SING_BOX_ARCH.tar.gz -qO- | tar xz -C $TEMP_DIR sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box
 
     [ -s $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box ] || error "\n $(text 42) \n"
-    $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box check -C ${WORK_DIR}/conf >/dev/null || error "\n $(text 54) \n"
+    if ! $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box check -C ${WORK_DIR}/conf >/dev/null; then
+      warning "\n $(text 54) " && reading "\n $(text 175) " UPDATE_CONFIG
+      [ "${UPDATE_CONFIG,,}" = 'n' ] && exit 1
+
+      # 设置基础配置参数 dns.servers.prefer_go 和 dns.strategy
+      local STRATEGY=$(grep -E --exclude="03_route.json" 'ipv4_only|ipv6_only|prefer_ipv4|prefer_ipv6' ${WORK_DIR}/conf/0*.json | awk -F '"' '{print $(NF-1); exit}')
+      STRATEGY=${STRATEGY:-prefer_ipv4}
+      command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet systemd-resolved && local IS_PREFER_GO=false || local IS_PREFER_GO=true
+
+      # 备份旧基础配置
+      for i in $(ls ${WORK_DIR}/conf/0*); do
+        cp $i ${i}.bak
+      done
+      generate_sing_box_base_conf
+
+      if ! $TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH/sing-box check -C ${WORK_DIR}/conf >/dev/null; then
+        for i in $(ls ${WORK_DIR}/conf/0*.bak); do
+          mv $i ${i%%.bak}
+        done
+        error "\n $(text 174) \n"
+      fi
+    fi
 
     cmd_systemctl disable sing-box
 
@@ -5695,12 +5713,13 @@ version() {
     # 检查新版本是否成功运行
     if cmd_systemctl status sing-box &>/dev/null; then
       # 新版本运行成功，删除备份
-      rm -f ${WORK_DIR}/sing-box.bak
+      rm -f ${WORK_DIR}/sing-box.bak ${WORK_DIR}/conf/*.bak
       info "\n $(text 103) \n"
     else
       # 新版本运行失败，恢复旧版本
       warning "\n $(text 104) \n"
       mv ${WORK_DIR}/sing-box.bak ${WORK_DIR}/sing-box
+      rm -f ${WORK_DIR}/conf/*.bak
       cmd_systemctl enable sing-box
       sleep 2
 
