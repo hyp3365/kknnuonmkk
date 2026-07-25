@@ -51,10 +51,10 @@ tuic_port=$(shuf -i 10000-60000 -n 1)
 socks_port=$(shuf -i 10000-60000 -n 1)
 http_port=$(shuf -i 10000-60000 -n 1)
 anytls_port=$(shuf -i 10000-60000 -n 1)
-xtls_reality=443
-h2_reality=443
+xtls_reality=$(shuf -i 10000-60000 -n 1)
+h2_reality=$(shuf -i 10000-60000 -n 1)
 hy2_port=$(shuf -i 10000-60000 -n 1)
-grpc_reality=443
+grpc_reality=$(shuf -i 10000-60000 -n 1)
 vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
 vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
 vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
@@ -1691,7 +1691,7 @@ manage_nodes_menu() {
                 server_ip=$(get_realip)    
 				echo ""
               while true; do
-              read -rp "请输入 xtls + Reality 端口 (1000-65535, 默认 ${xtls_reality}): " custom_port
+              read -rp "请输入 xtls + Reality 端口 (100-65535, 默认 ${xtls_reality}): " custom_port
               if [ -z "$custom_port" ]; then
                   custom_port=$xtls_reality
                   break
@@ -1700,7 +1700,7 @@ manage_nodes_menu() {
                   xtls_reality=$custom_port
                   break
               else
-                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+                  red "输入错误！请输入有效的端口号 (100-65535)。"
               fi
               done
                 yellow "正在配置 xtls + Reality ..."
@@ -1833,7 +1833,7 @@ EOF
                 generate_vars
                 server_ip=$(get_realip)  
 				while true; do
-              read -rp "请输入 H2 + Reality 端口 (1000-65535, 默认 ${h2_reality}): " custom_port
+              read -rp "请输入 H2 + Reality 端口 (100-65535, 默认 ${h2_reality}): " custom_port
               if [ -z "$custom_port" ]; then
                   custom_port=$h2_reality
                   break
@@ -1842,7 +1842,7 @@ EOF
                   h2_reality=$custom_port
                   break
               else
-                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+                  red "输入错误！请输入有效的端口号 (100-65535)。"
               fi
               done			
                 yellow "正在配置 H2 + Reality ..."
@@ -1903,10 +1903,23 @@ EOF
           green " 节点链接: $url"
           green "==============================================="
             ;;
-            4) yellow "正在配置 gRPC + Reality..."
-            generate_vars
-            server_ip=$(get_realip)
-            mkdir -p /etc/sing-box
+            4) 
+			  generate_vars
+              server_ip=$(get_realip)  
+			  while true; do
+              read -rp "请输入 grpc + Reality 端口 (100-65535, 默认 ${grpc_reality}): " custom_port
+              if [ -z "$custom_port" ]; then
+                  custom_port=$grpc_reality
+                  break
+              fi
+              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+                  grpc_reality=$custom_port
+                  break
+              else
+                  red "输入错误！请输入有效的端口号 (100-65535)。"
+              fi
+              done			
+			yellow "正在配置 gRPC + Reality..."
             cat > /etc/sing-box/conf/grpc-reality.json << EOF
 {
     "inbounds":[
