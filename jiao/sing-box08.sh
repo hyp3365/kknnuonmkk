@@ -213,12 +213,46 @@ run_ssl_task() {
     local domain="$1"
     [[ -z "$domain" ]] && reading "请输入域名: " domain
     [[ -z "$domain" ]] && red "域名不能为空" && return 1
-    manage_packages "install" "curl" "socat"
+    manage_packages "install" "curl" "socat" "cron" "psmisc"
     if command -v ss >/dev/null 2>&1; then
-        local occupant=$(ss -ntlp | grep ":80 " | awk -F'users:\\(\\("' '{print $2}' | awk -F'"' '{print $1}' | head -n1)
-        [[ -n "$occupant" ]] && red "错误: 80 端口正被 [${occupant}] 占用" && return 1
+        local pid=$(ss -tulpn 'sport = :80' | grep -o 'pid=[0-9]*' | cut -d'=' -f2 | head -n1)
+        local occupant=$(ss -tulpn 'sport = :80' | grep -o 'users:(("[^"]*"' | cut -d'"' -f2 | head -n1)
+        if [[ -n "$pid" || -n "$occupant" ]]; then
+            if [[ -n "$occupant" ]] && systemctl is-active --quiet "$occupant" 2>/dev/null; then
+                systemctl stop "$occupant" >/dev/null 2>&1
+                sleep 1
+            fi
+            if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" >/dev/null 2>&1
+                sleep 1
+            fi
+            if command -v fuser >/dev/null 2>&1; then
+                fuser -k -9 80/tcp >/dev/null 2>&1
+                sleep 1
+            fi
+            if ss -tulpn 'sport = :80' | grep -q ":80 "; then
+                red "错误: 80 端口强行释放失败，请手动排查！"
+                return 1
+            else
+            fi
+        fi
     fi
-    [[ ! -f "$HOME/.acme.sh/acme.sh" ]] && skyblue "正在安装 acme.sh..." && curl -s https://get.acme.sh | sh >/dev/null 2>&1
+    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+        skyblue "正在安装 acme.sh..."
+        curl -s https://get.acme.sh | sh -s email="cert_${RANDOM}@gmail.com"
+        if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+            manage_packages "install" "git"
+            git clone https://gitee.com/neilpang/acme.sh.git "$HOME/acme_git_tmp" >/dev/null 2>&1
+            if [[ -d "$HOME/acme_git_tmp" ]]; then
+                cd "$HOME/acme_git_tmp" && ./acme.sh --install -m "cert_${RANDOM}@gmail.com" >/dev/null 2>&1
+                cd - >/dev/null && rm -rf "$HOME/acme_git_tmp"
+            fi
+        fi
+    fi
+    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+        red "错误: acme.sh 安装失败！请检查服务器与 GitHub/Gitee 的网络连接。"
+        return 1
+    fi
     "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1    
     local save_path="/root/cert/${domain}"
     mkdir -p "$save_path"    
@@ -228,7 +262,7 @@ run_ssl_task() {
         "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" \
             --key-file "${save_path}/privkey.pem" \
             --fullchain-file "${save_path}/fullchain.pem"
-        
+      
         chmod 600 "${save_path}/privkey.pem"
         cert_file="${save_path}/fullchain.pem"
         key_file="${save_path}/privkey.pem"
