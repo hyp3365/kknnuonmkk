@@ -112,16 +112,6 @@ check_nginx() {
     check_service "nginx" "$(command -v nginx)"
 }
 
-# 根据系统类型安装、卸载依赖
-manage_packages() {
-    if [ $# -lt 2 ]; then
-        red "Unspecified package name or action"
-        return 1
-    fi
-
-    action=$1
-    shift
-
 #根据系统类型安装、卸载依赖
 manage_packages() {
     # 参数检查
