@@ -2755,7 +2755,7 @@ EOF
             fi
 			;;
 			
-            0) break ;;
+            0) menu ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
         echo -e "\n\033[31m按任意键返回菜单...\033[0m"
@@ -2797,7 +2797,7 @@ bbr_menu() {
     read -rp "请选择操作 [0-2]: " choice
     case "$choice" in
         0)
-            show_menu
+            menu
             ;;
         1)
             enable_bbr
@@ -2829,8 +2829,8 @@ disable_bbr() {
         sed -i 's/net.ipv4.tcp_congestion_control=bbr/net.ipv4.tcp_congestion_control=cubic/' /etc/sysctl.conf
     fi
 
-    sysctl -w net.core.default_qdisc=pfifo_fast
-    sysctl -w net.ipv4.tcp_congestion_control=cubic
+    sysctl -w net.core.default_qdisc=pfifo_fast > /dev/null 2>&1
+    sysctl -w net.ipv4.tcp_congestion_control=cubic > /dev/null 2>&1
 
     if [[ $(sysctl -n net.ipv4.tcp_congestion_control) != "bbr" ]]; then
         echo -e "${green}BBR 已成功替换为 CUBIC。${plain}"
