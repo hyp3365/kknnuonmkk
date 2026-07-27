@@ -2962,136 +2962,6 @@ iptables_ssl() {
     esac
 }
 
-# 其他
-vps_s() {
-    ip_address    
-    if [ "$(uname -m)" == "x86_64" ]; then
-      cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
-    else
-      cpu_info=$(lscpu | grep 'Model name' | sed -e 's/Model name[[:space:]]*: //')
-    fi
-    cpu_usage_percent=$(awk '/cpu /{u=$2+$4; d=$2+$4+$5; if(NR==2) {printf "%.2f%%", (u-lu)/(d-ld)*100} lu=u; ld=d}' <(grep 'cpu ' /proc/stat; sleep 0.2; grep 'cpu ' /proc/stat))
-    
-    cpu_cores=$(nproc)
-    mem_info=$(free -b | awk 'NR==2{printf "%.2f/%.2f MB (%.2f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}')
-    disk_info=$(df -h | awk '$NF=="/"{printf "%d/%dGB (%s)", $3,$2,$5}')
-    
-    ip_api_res=$(curl -s --max-time 5 http://ip-api.com/json/?fields=status,country,city,isp)
-    if echo "$ip_api_res" | grep -q '"success"'; then
-        country=$(echo "$ip_api_res" | awk -F'"country":"' '{print $2}' | awk -F'"' '{print $1}')
-        city=$(echo "$ip_api_res" | awk -F'"city":"' '{print $2}' | awk -F'"' '{print $1}')
-        isp_info=$(echo "$ip_api_res" | awk -F'"isp":"' '{print $2}' | awk -F'"' '{print $1}')
-    else
-        country="未知"
-        city="未知"
-        isp_info="获取失败 (限流)"
-    fi
-    
-    cpu_arch=$(uname -m)
-    hostname=$(hostname)
-    kernel_version=$(uname -r)
-    congestion_algorithm=$(sysctl -n net.ipv4.tcp_congestion_control)
-    queue_algorithm=$(sysctl -n net.core.default_qdisc)
-    
-    os_info=$(lsb_release -ds 2>/dev/null)
-    if [ -z "$os_info" ]; then
-      if [ -f "/etc/os-release" ]; then
-        os_info=$(source /etc/os-release && echo "$PRETTY_NAME")
-      elif [ -f "/etc/debian_version" ]; then
-        os_info="Debian $(cat /etc/debian_version)"
-      elif [ -f "/etc/redhat-release" ]; then
-        os_info=$(cat /etc/redhat-release)
-      else
-        os_info="Unknown"
-      fi
-    fi
-
-    clear
-    
-    current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%s %s", rx, tx }' /proc/net/dev)
-    read -r curr_rx curr_tx <<< "$current_bytes"
-
-    traffic_file="$HOME/.vps_traffic_stats"
-    cur_month=$(TZ="America/New_York" date "+%Y-%m")
-
-    last_month="" ; last_rx=0 ; last_tx=0 ; monthly_rx=0 ; monthly_tx=0
-    if [ -f "$traffic_file" ]; then source "$traffic_file" 2>/dev/null; fi
-
-    if [ "$last_month" != "$cur_month" ]; then
-        monthly_rx=0 ; monthly_tx=0 ; last_rx=0 ; last_tx=0
-    fi
-
-    if [ "$curr_rx" -ge "$last_rx" ]; then delta_rx=$((curr_rx - last_rx)); else delta_rx=$curr_rx; fi
-    if [ "$curr_tx" -ge "$last_tx" ]; then delta_tx=$((curr_tx - last_tx)); else delta_tx=$curr_tx; fi
-
-    monthly_rx=$((monthly_rx + delta_rx))
-    monthly_tx=$((monthly_tx + delta_tx))
-
-    cat << EOF > "$traffic_file"
-last_month="$cur_month"
-last_rx="$curr_rx"
-last_tx="$curr_tx"
-monthly_rx="$monthly_rx"
-monthly_tx="$monthly_tx"
-EOF
-
-    monthly_output=$(awk -v rx="$monthly_rx" -v tx="$monthly_tx" '
-        BEGIN {
-            rx_units = "Bytes"; tx_units = "Bytes";
-            if (rx > 1024) { rx /= 1024; rx_units = "KB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "MB"; }
-            if (rx > 1024) { rx /= 1024; rx_units = "GB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "KB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "MB"; }
-            if (tx > 1024) { tx /= 1024; tx_units = "GB"; }
-            printf("本月入站: %.2f %s\n本月出站: %.2f %s", rx, rx_units, tx, tx_units);
-        }')
-
-    current_time=$(date "+%Y-%m-%d %I:%M %p")
-    swap_used=$(free -m | awk 'NR==3{print $3}')
-    swap_total=$(free -m | awk 'NR==3{print $2}')
-
-    if [ -z "$swap_total" ] || [ "$swap_total" -eq 0 ]; then
-        swap_percentage=0
-    else
-        swap_percentage=$((swap_used * 100 / swap_total))
-    fi
-    swap_info="${swap_used:-0}MB/${swap_total:-0}MB (${swap_percentage}%)"
-    runtime=$(cat /proc/uptime | awk -F. '{run_days=int($1 / 86400);run_hours=int(($1 % 86400) / 3600);run_minutes=int(($1 % 3600) / 60); if (run_days > 0) printf("%d天 ", run_days); if (run_hours > 0) printf("%d时 ", run_hours); printf("%d分\n", run_minutes)}')
-    
-    echo ""
-    echo -e "${white}系统信息详情${re}"
-    echo "------------------------"
-    echo -e "${white}主机名: ${purple}${hostname}${re}"
-    echo -e "${white}运营商: ${purple}${isp_info}${re}"
-    echo "------------------------"
-    echo -e "${white}系统版本: ${purple}${os_info}${re}"
-    echo -e "${white}Linux版本: ${purple}${kernel_version}${re}"
-    echo "------------------------"
-    echo -e "${white}CPU架构: ${purple}${cpu_arch}${re}"
-    echo -e "${white}CPU型号: ${purple}${cpu_info}${re}"
-    echo -e "${white}CPU核心数: ${purple}${cpu_cores}${re}"
-    echo "------------------------"
-    echo -e "${white}CPU占用: ${purple}${cpu_usage_percent}${re}"
-    echo -e "${white}物理内存: ${purple}${mem_info}${re}"
-    echo -e "${white}虚拟内存: ${purple}${swap_info}${re}"
-    echo -e "${white}硬盘占用: ${purple}${disk_info}${re}"
-    echo "------------------------"
-    echo -e "${purple}$monthly_output${re}"
-    echo "------------------------"
-    echo -e "${white}网络拥堵算法: ${purple}${congestion_algorithm} ${queue_algorithm}${re}"
-    echo "------------------------"
-    echo -e "${white}公网IPv4地址: ${purple}${ipv4_address}${re}"
-    echo -e "${white}公网IPv6地址: ${purple}${ipv6_address}${re}"
-    echo "------------------------"
-    echo -e "${white}地理位置: ${purple}${country} $city${re}"
-    echo -e "${white}系统时间: ${purple}${current_time}${re}"
-    echo "------------------------"
-    echo -e "${white}系统运行时长: ${purple}${runtime}${re}"
-    echo
-}
-
-
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -3412,12 +3282,11 @@ menu() {
    echo  "==============="
    red    "11. 更新脚本"
    red    "12. iptables"
-   red    "13. 本机信息"
-   red    "14. 快捷指令"
+   red    "13. 快捷指令"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-14): " choice
+   reading "请输入选择(0-13): " choice
    echo ""
 }
 
@@ -3472,8 +3341,7 @@ while true; do
            ;;
 		11) update_script ;;
 		12) iptables_ssl ;;
-		13) vps_s ;;
-		14) 
+		13) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/aa.sh)
 		   ;;
