@@ -3408,7 +3408,7 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
-   green  "10. ssh综合工具箱""
+   green  "10. ssh综合工具箱"
    echo  "==============="
    red    "11. 更新脚本"
    red    "12. iptables"
