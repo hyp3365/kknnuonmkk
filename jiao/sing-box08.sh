@@ -538,27 +538,8 @@ cat > "${config_dir}" << EOF
           "path": "/mPaxe1996Ko-5203aap",
           "early_data_header_name": "Sec-WebSocket-Protocol"
          }
-     },
-    {
-      "type": "tuic",
-      "tag": "tuic",
-      "listen": "::",
-      "listen_port": $tuic_port,
-      "users": [
-        {
-          "uuid": "$uuid",
-          "password": "$password"
-        }
-      ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "$work_dir/cert.pem",
-        "key_path": "$work_dir/private.key"
-      }
-    }
-  ],
+     }
+   ],
   "endpoints": [
     {
       "type": "wireguard",
@@ -767,9 +748,6 @@ get_info() {
     
   cat > ${work_dir}/url.txt <<EOF
 vmess://$(echo "$VMESS"| base64 -w0)
-
-tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#${isp}_tuic
-
 
 EOF
 echo ""
@@ -1667,15 +1645,16 @@ manage_nodes_menu() {
         local width=45
         local node_list=(
 		    "xtls-reality.json|xtls-Reality|1"
-			"hysteria2.json|hysteria2|2"	
-            "h2-reality.json|http-Reality|3"
-            "grpc-reality.json|gRPC-Reality|4"
-            "anytls.json|anytls|5"
-            "socks5.json|socks5|6"
-            "http.json|HTTP|7"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|8"
-			"vless-ws-cdn.json|vless-ws-cdn|9"
-			"vmess-ws-cdn.json|vmess-ws-cdn|10"			
+			"hysteria2.json|hysteria2|2"
+			"tuic.json|tuic|3"
+            "h2-reality.json|http-Reality|4"
+            "grpc-reality.json|gRPC-Reality|5"
+            "anytls.json|anytls|6"
+            "socks5.json|socks5|7"
+            "http.json|HTTP|8"
+			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
+			"vless-ws-cdn.json|vless-ws-cdn|10"
+			"vmess-ws-cdn.json|vmess-ws-cdn|11"			
         )
 		
         clear
@@ -1863,8 +1842,84 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
+	    3) 
+                generate_vars
+                server_ip=$(get_realip)
+				while true; do
+              read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port}): " custom_port
+              if [ -z "$custom_port" ]; then
+                  custom_port=$tuic_port
+                  break
+              fi
+              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+                  tuic_port=$custom_port
+                  break
+              else
+                  red "输入错误！请输入有效的端口号 (1000-65535)。"
+              fi
+              done
+                echo -e "\n请选择 TLS 证书类型:"
+				echo -e "1) \e[32m使用自签名证书\e[0m"
+                echo -e "2) \e[32m使用域名申请证书\e[0m"
+                read -rp "请输入数字 [1-2] (默认 1): " cert_type
+                [ -z "$cert_type" ] && cert_type=1
+                if [ "$cert_type" -eq 2 ]; then
+                    if check_and_issue_ssl; then
+                        cert_path="$cert_file"
+                        key_path="$key_file"
+                        url_param="sni=${domain}" 
+                    else
+                        red "证书申请或获取失败，脚本退出！"
+                        return 1
+                    fi
+                else
+                    cert_path="$work_dir/cert.pem"
+                    key_path="$work_dir/private.key"
+                    url_param="insecure=1&sni=www.bing.com"
+                fi
+                yellow "正在配置 tuic..."
+                cat > /etc/sing-box/conf/tuic.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "tuic",
+      "tag": "tuic",
+      "listen": "::",
+      "listen_port": $tuic_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "password": "$password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "$work_dir/cert.pem",
+        "key_path": "$work_dir/private.key"
+      }
+    }
+  ]
+}
+EOF
+                allow_port $tuic_port/udp > /dev/null 2>&1
+                node_remark="${isp}_tuic"                
+                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"			
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                restart_singbox
+                green "==============================================="
+                green " tuic 节点已添加!"
+                green " 节点链接: $url"
+                green "==============================================="
+                ;;
 
-        3) 
+        4) 
                 generate_vars
                 server_ip=$(get_realip)  
 				while true; do
@@ -1938,7 +1993,7 @@ EOF
           green " 节点链接: $url"
           green "==============================================="
             ;;
-            4) 
+            5) 
 			  generate_vars
               server_ip=$(get_realip)  
 			  while true; do
@@ -2013,7 +2068,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            5) yellow "正在配置 anytls..."
+            6) yellow "正在配置 anytls..."
                generate_vars
                server_ip=$(get_realip)
                mkdir -p /etc/sing-box
@@ -2055,7 +2110,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            6) yellow "正在配置 Socks5..."
+            7) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
                 cat > /etc/sing-box/conf/socks5.json << EOF
@@ -2091,7 +2146,7 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-            7) 
+            8) 
 			yellow "正在配置 HTTP 代理..."
             generate_vars
             server_ip=$(get_realip)
@@ -2129,7 +2184,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-		8)
+		9)
         check_and_issue_ssl || return 1
         generate_vars
         mkdir -p /etc/sing-box
@@ -2177,7 +2232,7 @@ EOF
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
             green "--------------------------------------------------"
             ;;
-			9) 
+			10) 
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2225,7 +2280,7 @@ EOF
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
             green "--------------------------------------------------"
             ;;
-	      10)
+	      11)
             generate_vars
             mkdir -p /etc/sing-box
             read -p '请输入域名 (例如: b.a.com): ' domain
@@ -2346,8 +2401,47 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;	
+			53) 
+            iptables -t nat -F PREROUTING > /dev/null 2>&1
+            if command -v ip6tables &> /dev/null; then
+               ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+            fi
+            if command -v netfilter-persistent &> /dev/null; then
+               netfilter-persistent save > /dev/null 2>&1
+            fi
+			target="_tuic"
+            target_conf="/etc/sing-box/conf/tuic.json"
+            if [ -f "$target_conf" ]; then
+				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				    sed -i "/--dport $tuic_port /d" /etc/iptables/rules.v4
+                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
+                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
+                      iptables-restore < /etc/iptables/rules.v4
+                    fi
+                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
+                      ip6tables-restore < /etc/iptables/rules.v6
+                    fi        
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;	
 
-            53) 
+            54) 
 			target="_vless_http_reality"
             target_conf="/etc/sing-box/conf/h2-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2379,7 +2473,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            54)
+            55)
             target="_vless_grpc_reality"
             target_conf="/etc/sing-box/conf/grpc-reality.json"
             if [ -f "$target_conf" ]; then
@@ -2411,7 +2505,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            55)
+            56)
 			target="_anytls"
             target_conf="/etc/sing-box/conf/anytls.json"
             if [ -f "$target_conf" ]; then
@@ -2443,7 +2537,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            56)
+            57)
 			target="_socks5"
             target_conf="/etc/sing-box/conf/socks5.json"
             if [ -f "$target_conf" ]; then
@@ -2475,7 +2569,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            57)
+            58)
 			target="_http"
             target_conf="/etc/sing-box/conf/http.json"
             if [ -f "$target_conf" ]; then
@@ -2507,7 +2601,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    58) 
+		    59) 
 			target="_vless_wstls_cdn"
             target_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2539,7 +2633,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-			59) 
+			60) 
 			target="_vless_ws_cdn"
             target_conf="/etc/sing-box/conf/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
@@ -2571,7 +2665,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;	
-		    60) 
+		    61) 
 		    target="_vmess_ws_cdn"
             target_conf="/etc/sing-box/conf/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
