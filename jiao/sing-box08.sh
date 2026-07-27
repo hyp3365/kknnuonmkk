@@ -1797,7 +1797,7 @@ EOF
                 else
                     cert_path="$work_dir/cert.pem"
                     key_path="$work_dir/private.key"
-                    url_param="insecure=1&sni=www.bing.com"
+                    url_param="allow_insecure=1&sni=www.bing.com"
                 fi
                 yellow "正在配置 hysteria2..."
                 cat > /etc/sing-box/conf/hysteria2.json << EOF
@@ -1875,7 +1875,7 @@ EOF
                 else
                     cert_path="$work_dir/cert.pem"
                     key_path="$work_dir/private.key"
-                    url_param="insecure=1&sni=www.bing.com"
+                    url_param="allow_insecure=1&sni=www.bing.com"
                 fi
                 yellow "正在配置 tuic..."
                 cat > /etc/sing-box/conf/tuic.json << EOF
