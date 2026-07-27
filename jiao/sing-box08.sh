@@ -2755,7 +2755,7 @@ EOF
             fi
 			;;
 			
-            0) menu ;;
+            0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
         echo -e "\n\033[31m按任意键返回菜单...\033[0m"
