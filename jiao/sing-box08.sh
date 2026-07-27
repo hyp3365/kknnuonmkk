@@ -2647,241 +2647,6 @@ update_script() {
     fi
 }
 
-
-# BBR
-enable_bbr() {
-    local kernel_ver=$(uname -r)
-    [ -f /etc/os-release ] && . /etc/os-release
-    local sys_id=${ID:-Unknown}
-
-    if [[ "$sys_id" == "alpine" ]]; then
-        if [ ! -f "/lib/modules/$kernel_ver/modules.dep" ]; then
-            sed -i 's/dl-cdn.alpinelinux.org/mirror.cloudflare.com/g' /etc/apk/repositories
-            apk update >/dev/null 2>&1
-            apk add linux-virt >/dev/null 2>&1 || apk add linux-lts >/dev/null 2>&1
-            depmod -a >/dev/null 2>&1
-        fi
-    fi
-
-    for module in tcp_bbr sch_fq; do
-        if ! lsmod | grep -q "$module"; then
-            modprobe $module >/dev/null 2>&1
-            if [ $? -eq 0 ]; then
-                if [[ "$sys_id" == "alpine" ]]; then
-                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
-                else
-                    # Debian/Ubuntu 通常使用 /etc/modules-load.d/
-                    ! grep -q "$module" /etc/modules 2>/dev/null && echo "$module" >> /etc/modules
-                fi
-            fi
-        fi
-    done
-
-    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
-    local current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
-
-    if [[ "$current_cc" != "bbr" ]] || [[ ! "$current_qdisc" =~ ^(fq|cake)$ ]]; then
-        if [ -d "/etc/sysctl.d/" ]; then
-            echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" > /etc/sysctl.d/99-bbr.conf
-            [ -f /etc/sysctl.conf ] && sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-            sysctl -p /etc/sysctl.d/99-bbr.conf >/dev/null 2>&1
-        else
-            sed -i '/net.core.default_qdisc\|net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-            sysctl -p >/dev/null 2>&1
-        fi
-        current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
-        current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null)
-    fi
-
-    if [ -z "$current_qdisc" ] || [[ "$current_qdisc" == *":"* ]]; then
-        current_qdisc=$(tc qdisc show 2>/dev/null | grep -v "noqueue" | awk '{print $2}' | head -n 1)
-    fi
-
-    echo -e "---------------------------------------"
-    echo -e "${green}系统类型:${plain}  ${yellow}$sys_id${plain}"
-    echo -e "${green}内核版本:${plain}  ${yellow}${kernel_ver}${plain}"
-    echo -e "${green}TCP 算法:${plain}  ${blue}${current_cc:-获取失败}${plain}"
-    echo -e "${green}队列规则:${plain}  ${blue}${current_qdisc:-获取失败}${plain}"
-    echo -e "---------------------------------------"
-
-    if [[ "$current_cc" == "bbr" ]]; then
-        echo -e "${green}BBR 已开启${plain}"
-    else
-        echo -e "${red}错误: 无法开启 BBR，请检查虚拟化架构是否支持。${plain}"
-    fi
-}
-
-
-# SSH
-vps_ssl() {
-    while true; do
-        clear
-        green  "=== SSH配置 ==="
-        skyblue "-----------------------"
-        green  "1. 配置密钥 (生成秘钥/禁用密码)"
-        skyblue "-----------------------"
-        green  "2. 修改SSH登录端口"
-        skyblue "-----------------------"
-        green  "3. 安全组件更新 "
-        skyblue "-----------------------"
-        green  "4. 重启SSH服务 (使配置生效)"
-        skyblue "-----------------------"
-		green  "5. 恢复默认配置 "
-        skyblue "-----------------------"
-        green  "0. 返回主菜单"
-        skyblue "-----------------------"
-        reading "请输入选择 [0-5]: " ssl_choice
-        case "${ssl_choice}" in
-            1)
-                yellow "正在配置 Ed25519 密钥认证..."
-                mkdir -p ~/.ssh && chmod 700 ~/.ssh
-                ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "vps_admin"
-                cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
-                chmod 600 ~/.ssh/authorized_keys
-                rm -f ~/.ssh/id_ed25519.pub
-
-                clear
-                red "=================================================="
-                red "      请务必复制并妥善保存下方私钥到本地！        "
-                red "=================================================="
-                echo ""
-                yellow "$(cat ~/.ssh/id_ed25519)"
-                echo ""
-                red "=================================================="
-            
-                local confirm_save=""
-                while [[ "${confirm_save}" != "yes" ]]; do
-                    reading "我已复制并妥善保存好上述私钥 (请输入 'yes' 确认继续): " confirm_save
-                done
-
-                cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%F)
-
-                modify_ssh_config() {
-                    local param=$1
-                    local value=$2
-                    if grep -q "^#\?${param}" /etc/ssh/sshd_config; then
-                        sed -i "s|^#\?${param}.*|${param} ${value}|" /etc/ssh/sshd_config
-                    else
-                        echo "${param} ${value}" >> /etc/ssh/sshd_config
-                    fi
-                }
-
-                modify_ssh_config "PubkeyAuthentication" "yes"
-                modify_ssh_config "PasswordAuthentication" "no"
-                modify_ssh_config "KbdInteractiveAuthentication" "no"
-                modify_ssh_config "ChallengeResponseAuthentication" "no"
-                modify_ssh_config "PermitRootLogin" "yes"
-
-                rm -f ~/.ssh/id_ed25519
-                
-                green "配置完成！私钥已从服务器安全删除。"
-                yellow "请去选项 4 重启 SSH 服务生效。"
-                ;;
-                
-            2)
-                red "请输入新的SSH登录端口号 (1024-65535): " && read new_port
-                if [[ $new_port -ge 1024 && $new_port -le 65535 ]]; then
-                    sed -i '/^#\?Port/d' /etc/ssh/sshd_config
-                    echo "Port $new_port" >> /etc/ssh/sshd_config
-                    if [ -d /etc/systemd/system/ssh.socket.d ] || [ -f /lib/systemd/system/ssh.socket ] || [ -f /usr/lib/systemd/system/ssh.socket ]; then
-                        mkdir -p /etc/systemd/system/ssh.socket.d
-                        cat <<EOF > /etc/systemd/system/ssh.socket.d/addresses.conf
-[Socket]
-ListenStream=
-ListenStream=$new_port
-EOF
-                        systemctl daemon-reload
-                    fi
-                    
-                    green "端口已修改为 $new_port"
-                    yellow "温馨提醒：重启SSH前请确保防火墙已放行 $new_port 端口。"
-                else
-                    red "错误：请输入 1024-65535 之间的数字。"
-                fi
-                ;;
-            3)
-                yellow "正在更新系统安全组件..."
-                apt-get update && apt-get upgrade -y
-                green "安全更新执行完毕！"
-                ;;
-            4)
-                yellow "正在重启 SSH 服务..."
-                if systemctl list-unit-files | grep -q "^ssh.socket"; then
-                    systemctl daemon-reload >/dev/null 2>&1
-                    systemctl restart ssh.socket >/dev/null 2>&1
-                    ssh_success=$?
-                elif systemctl list-unit-files | grep -q "^sshd.service"; then
-                    systemctl restart sshd >/dev/null 2>&1
-                    ssh_success=$?
-                elif systemctl list-unit-files | grep -q "^ssh.service"; then
-                    systemctl restart ssh >/dev/null 2>&1
-                    ssh_success=$?
-                else
-                    service ssh restart >/dev/null 2>&1
-                    ssh_success=$?
-                fi
-
-                if [ $ssh_success -eq 0 ]; then
-                    green "SSH 服务重启成功！"
-                    yellow "请尝试用新端口/密钥开启新窗口连接，切勿立即关闭当前窗口！"
-                else
-                    red "重启失败，请检查配置或手动运行 journalctl -xeu ssh 查看原因。"
-                fi
-                ;;
-			 5)
-                red "=== 正在准备恢复 SSH 默认设置 ==="
-                yellow "该操作将尝试：回复默认端口(22)、允许密码登录、移除强制密钥验证。"
-                reading "确定要恢复默认吗？(请输入 'yes' 确认): " confirm_reset
-                
-                if [[ "${confirm_reset}" == "yes" ]]; then
-                    local backup_file=$(ls -t /etc/ssh/sshd_config.bak.* 2>/dev/null | head -n 1)
-                    
-                    if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
-                        cp -f "${backup_file}" /etc/ssh/sshd_config
-                    else
-                        sed -i '/^Port/d' /etc/ssh/sshd_config
-                        sed -i '/^PubkeyAuthentication/d' /etc/ssh/sshd_config
-                        sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config
-                        sed -i '/^KbdInteractiveAuthentication/d' /etc/ssh/sshd_config
-                        sed -i '/^ChallengeResponseAuthentication/d' /etc/ssh/sshd_config
-                        sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config
-                        
-                        {
-                            echo "Port 22"
-                            echo "PubkeyAuthentication yes"
-                            echo "PasswordAuthentication yes"
-                            echo "PermitRootLogin yes"
-                        } >> /etc/ssh/sshd_config
-                    fi
-                    if [ -f /etc/systemd/system/ssh.socket.d/addresses.conf ]; then
-                        rm -rf /etc/systemd/system/ssh.socket.d
-                        systemctl daemon-reload
-                    fi
-
-                    green "重置操作完成！"
-                    red "注意：配置已重置（端口已回初始状态，密码登录已允许）。"
-                    yellow "请务必去选项 4 重启 SSH 服务以使重置生效！"
-                else
-                    green "已取消重置操作。"
-                fi
-                ;;
-
-            0)
-                return 0
-                ;;
-            *)
-                red "无效选项，请重新输入。"
-                ;;
-        esac
-        
-        echo ""
-        read -n 1 -s -r -p $'\033[1;33m操作完成，按任意键菜单...\033[0m'
-    done
-}
-            
-
 # Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
@@ -3643,17 +3408,16 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
-   green  "10. 开启BBR"
+   green  "10. ssh综合工具箱""
    echo  "==============="
    red    "11. 更新脚本"
-   red    "12. SSH配置"
-   red    "13. iptables"
-   red    "14. 本机信息"
-   red    "15. 快捷指令"
+   red    "12. iptables"
+   red    "13. 本机信息"
+   red    "14. 快捷指令"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-15): " choice
+   reading "请输入选择(0-14): " choice
    echo ""
 }
 
@@ -3701,17 +3465,20 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
-	    10) enable_bbr ;;
+	    10) 
+		   clear
+           bash <(curl -Ls ssh_tool.eooce.com)
+           need_pause=false
+           ;;
 		11) update_script ;;
-		12) vps_ssl ;;
-		13) iptables_ssl ;;
-		14) vps_s ;;
-		15) 
+		12) iptables_ssl ;;
+		13) vps_s ;;
+		14) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/aa.sh)
 		   ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 15" ;;
+        *) red "无效的选项，请输入 0 到 14" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
