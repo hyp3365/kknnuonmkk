@@ -36,6 +36,29 @@ generate_vars() {
   fi     
 }
 
+# 用于存放已分配端口的数组
+declare -A used_ports
+get_available_port() {
+    local port
+    while true; do
+        port=$(shuf -i 10000-60000 -n 1)
+        if [ -n "${used_ports[$port]}" ]; then
+            continue
+        fi
+        if command -v ss >/dev/null 2>&1; then
+            if ss -tuln | grep -qE ":$port\b"; then
+                continue
+            fi
+        elif command -v netstat >/dev/null 2>&1; then
+            if netstat -tuln | grep -qE ":$port\b"; then
+                continue
+            fi
+        fi
+        used_ports[$port]=1
+        echo "$port"
+        break
+    done
+}
 
 # 定义常量
 server_name="sing-box"
@@ -46,18 +69,18 @@ client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 uuid=$(cat /proc/sys/kernel/random/uuid)
-nginx_port=$(shuf -i 10000-60000 -n 1)
-tuic_port=$(shuf -i 10000-60000 -n 1)
-socks_port=$(shuf -i 10000-60000 -n 1)
-http_port=$(shuf -i 10000-60000 -n 1)
-anytls_port=$(shuf -i 10000-60000 -n 1)
-xtls_reality=$(shuf -i 10000-60000 -n 1)
-h2_reality=$(shuf -i 10000-60000 -n 1)
-hy2_port=$(shuf -i 10000-60000 -n 1)
-grpc_reality=$(shuf -i 10000-60000 -n 1)
-vless_wstls_cdn_port=$(shuf -i 10000-60000 -n 1)
-vless_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
-vmess_ws_cdn_port=$(shuf -i 10000-60000 -n 1)
+nginx_port=$(get_available_port)
+tuic_port=$(get_available_port)
+socks_port=$(get_available_port)
+http_port=$(get_available_port)
+anytls_port=$(get_available_port)
+xtls_reality=$(get_available_port)
+h2_reality=$(get_available_port)
+hy2_port=$(get_available_port)
+grpc_reality=$(get_available_port)
+vless_wstls_cdn_port=$(get_available_port)
+vless_ws_cdn_port=$(get_available_port)
+vmess_ws_cdn_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
