@@ -1726,20 +1726,24 @@ manage_nodes_menu() {
 		1) 
                 generate_vars
                 server_ip=$(get_realip)    
-				echo ""
-              while true; do
-              read -rp "请输入 xtls + Reality 端口 (100-65535, 默认 ${xtls_reality}): " custom_port
-              if [ -z "$custom_port" ]; then
-                  custom_port=$xtls_reality
-                  break
-              fi
-              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  xtls_reality=$custom_port
-                  break
-              else
-                  red "输入错误！请输入有效的端口号 (100-65535)。"
-              fi
-              done
+echo ""
+while true; do
+    read -rp "请输入 xtls + Reality 端口 (100-65535, 默认 ${xtls_reality}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$xtls_reality
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        xtls_reality=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
                 yellow "正在配置 xtls + Reality ..."
                 cat > /etc/sing-box/conf/xtls-reality.json << EOF
 {
@@ -1797,7 +1801,11 @@ EOF
                   break
               fi
               if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  hy2_port=$custom_port
+                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+                    red "该端口已被占用，请重新输入！"
+                    continue
+                  fi      
+				  hy2_port=$custom_port
                   break
               else
                   red "输入错误！请输入有效的端口号 (1000-65535)。"
@@ -1875,7 +1883,11 @@ EOF
                   break
               fi
               if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  tuic_port=$custom_port
+                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+                     red "该端口已被占用，请重新输入！"
+                     continue
+                  fi      
+				  tuic_port=$custom_port
                   break
               else
                   red "输入错误！请输入有效的端口号 (1000-65535)。"
@@ -1952,7 +1964,11 @@ EOF
                   break
               fi
               if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  h2_reality=$custom_port
+                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+                    red "该端口已被占用，请重新输入！"
+                    continue
+                  fi      
+				  h2_reality=$custom_port
                   break
               else
                   red "输入错误！请输入有效的端口号 (100-65535)。"
@@ -2026,7 +2042,11 @@ EOF
                   break
               fi
               if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  grpc_reality=$custom_port
+                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+                     red "该端口已被占用，请重新输入！"
+                     continue
+                  fi      
+				  grpc_reality=$custom_port
                   break
               else
                   red "输入错误！请输入有效的端口号 (100-65535)。"
