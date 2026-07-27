@@ -2784,6 +2784,95 @@ update_script() {
     fi
 }
 
+bbr_menu() {
+    local bbr_status=$(sysctl -n net.ipv4.tcp_congestion_control)
+    green "=== BBR ===\n"
+    green "当前拥塞控制算法: $bbr_status\n"
+    green "1. 开启 BBR"
+    skyblue "------------"
+    green "2. 关闭 BBR"
+    skyblue "------------"
+    green "0. 返回主菜单"
+    skyblue "------------"
+    read -rp "请选择操作 [0-2]: " choice
+    case "$choice" in
+        0)
+            show_menu
+            ;;
+        1)
+            enable_bbr
+            bbr_menu
+            ;;
+        2)
+            disable_bbr
+            bbr_menu
+            ;;
+        *)
+            echo -e "${red}无效的选项，请重新选择。${plain}\n"
+            bbr_menu
+            ;;
+    esac
+}
+
+disable_bbr() {
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) != "bbr" ]]; then
+        echo -e "${yellow}BBR 当前未处于开启状态。${plain}"
+        before_show_menu
+    fi
+
+    if [ -f "/etc/sysctl.d/99-bbr-x-ui.conf" ]; then
+        rm -f /etc/sysctl.d/99-bbr-x-ui.conf
+    fi
+
+    if [ -f "/etc/sysctl.conf" ]; then
+        sed -i 's/net.core.default_qdisc=fq/net.core.default_qdisc=pfifo_fast/' /etc/sysctl.conf
+        sed -i 's/net.ipv4.tcp_congestion_control=bbr/net.ipv4.tcp_congestion_control=cubic/' /etc/sysctl.conf
+    fi
+
+    sysctl -w net.core.default_qdisc=pfifo_fast
+    sysctl -w net.ipv4.tcp_congestion_control=cubic
+
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) != "bbr" ]]; then
+        echo -e "${green}BBR 已成功替换为 CUBIC。${plain}"
+    else
+        echo -e "${red}未能将 BBR 替换为 CUBIC，请检查系统配置。${plain}"
+    fi
+}
+
+enable_bbr() {
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]] && [[ $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
+        echo -e "${green}BBR 已经处于开启状态！${plain}"
+        before_show_menu
+    fi
+
+    if [ -d "/etc/sysctl.d/" ]; then
+        {
+            echo "net.core.default_qdisc = fq"
+            echo "net.ipv4.tcp_congestion_control = bbr"
+        } > "/etc/sysctl.d/99-bbr-x-ui.conf"
+        
+        if [ -f "/etc/sysctl.conf" ]; then
+            sed -i 's/^net.core.default_qdisc/# &/' /etc/sysctl.conf
+            sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+        fi
+        
+        sysctl -p /etc/sysctl.d/99-bbr-x-ui.conf
+    else
+        sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+        sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        sysctl -p
+    fi
+
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
+        echo -e "${green}BBR 已成功开启。${plain}"
+    else
+        echo -e "${red}开启 BBR 失败，请检查系统配置。${plain}"
+    fi
+}
+
+
 # Iptables简单管理工具
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
@@ -3415,7 +3504,7 @@ menu() {
    green  "7. 管理节点订阅"
    green  "8. 更新sing-box"
    green  "9. 添加删除节点"
-   green  "10. ssh综合工具箱"
+   green  "10. 开启BBR"
    echo  "==============="
    red    "11. 更新脚本"
    red    "12. iptables"
@@ -3471,11 +3560,7 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
-	    10) 
-		   clear
-           bash <(curl -Ls ssh_tool.eooce.com)
-           need_pause=false
-           ;;
+	    10) bbr_menu ;;
 		11) update_script ;;
 		12) iptables_ssl ;;
 		13) 
