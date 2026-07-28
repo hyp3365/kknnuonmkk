@@ -2874,14 +2874,16 @@ enable_bbr() {
 
 
 # Iptables简单管理工具
+# Nftables 简单管理工具 (基于 iptables-nft 兼容层)
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
 check_rule_files() {
-    local r4="/etc/iptables/rules.v4"
-    local r6="/etc/iptables/rules.v6"
-    if [ ! -d "/etc/iptables" ]; then
-        mkdir -p /etc/iptables
+    local r4="/etc/nftables/rules.v4"
+    local r6="/etc/nftables/rules.v6"
+    if [ ! -d "/etc/nftables" ]; then
+        mkdir -p /etc/nftables
     fi
+    # 兼容处理：如果旧路径有文件可以迁移，或者直接生成标准结构
     if [ ! -f "$r4" ] || ! grep -q "COMMIT" "$r4"; then
         cat > "$r4" << EOF
 *filter
@@ -2911,9 +2913,9 @@ iptables_ssl() {
     local mode_text=""
     local policy=$(iptables -L INPUT -n 2>/dev/null | head -n 1 | awk '{print $4}' | tr -d ')')
     local rule_count=$(iptables -L INPUT -n 2>/dev/null | grep -vE "^Chain|^target|^$" | wc -l)
-    local svc_status=$(systemctl is-active netfilter-persistent 2>/dev/null)
+    local svc_status=$(systemctl is-active nftables 2>/dev/null)
 
-    if ! command -v iptables &> /dev/null; then
+    if ! command -v nft &> /dev/null; then
         status_text="\033[0;31m未安装\033[0m"
         mode_text="\033[0;37m未知\033[0m"
     elif [ "$rule_count" -gt 0 ] || [ "$svc_status" == "active" ]; then
@@ -2947,14 +2949,14 @@ iptables_ssl() {
     [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
 	
     echo ""
-    green "=== Iptables 防火墙管理 ==="
+    green "=== Nftables 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
 	echo -e "\033[0;33m$nat_rules\033[0m"
     skyblue "---------------------------"
 
-	    ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
+    ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-13s %-19s %-15s\n" "端口号" "所属服务" "说明"   
     local allowed_ports=""
     if command -v iptables &> /dev/null; then
@@ -2963,7 +2965,6 @@ iptables_ssl() {
             port=""; if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
             if (port != "" && port != "ALL" && port > 0) {
                 if (!seen[port]++) {
-                    # 标识说明
                     note=($0 ~ tag) ? "脚本放行" : "系统/手动";
                     cmd = "ss -tunlp | grep \":" port " \" | head -n1"
                     name = "未运行"
@@ -2995,7 +2996,6 @@ iptables_ssl() {
         fi
     done
     skyblue "---------------------------"
-    
     green "1. 开启端口"
     green "2. 关闭端口"
     green "3. 开启拦截"
@@ -3003,7 +3003,7 @@ iptables_ssl() {
     green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
-	red   "8. 端口流量网速设置"
+    red   "8. 端口流量网速设置"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -3015,24 +3015,24 @@ iptables_ssl() {
             elif [ "$o_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                if ! grep -q "\--dport $o_port " /etc/iptables/rules.v4 2>/dev/null; then
+                if ! grep -q "\--dport $o_port " /etc/nftables/rules.v4 2>/dev/null; then
                     sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                    }" /etc/iptables/rules.v4
+                    }" /etc/nftables/rules.v4
                     sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                    }" /etc/iptables/rules.v4
+                    }" /etc/nftables/rules.v4
                     
-                    if [ -f "/etc/iptables/rules.v6" ]; then
+                    if [ -f "/etc/nftables/rules.v6" ]; then
                         sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                        }" /etc/iptables/rules.v6
+                        }" /etc/nftables/rules.v6
                         sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                        }" /etc/iptables/rules.v6
+                        }" /etc/nftables/rules.v6
                     fi
 
-                    if iptables-restore < /etc/iptables/rules.v4; then
-                        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                    if iptables-restore < /etc/nftables/rules.v4; then
+                        [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6
                         green "成功：端口 $o_port 已放行 (IPv4/IPv6)"
                     else
-                        red "错误：iptables 配置文件格式损坏，请检查 /etc/iptables/rules.v4"
+                        red "错误：配置文件格式损坏，请检查 /etc/nftables/rules.v4"
                     fi
                 else
                     yellow "端口 $o_port 规则已存在，无需重复添加"
@@ -3046,11 +3046,11 @@ iptables_ssl() {
             elif [ "$c_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                sed -i "/--dport $c_port /d" /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/iptables/rules.v6
+                sed -i "/--dport $c_port /d" /etc/nftables/rules.v4
+                [ -f "/etc/nftables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/nftables/rules.v6
                 
-                iptables-restore < /etc/iptables/rules.v4
-                [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6
+                iptables-restore < /etc/nftables/rules.v4
+                [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6
                 green "清理完成：端口 $c_port 已关闭"
             fi
             sleep 1 && iptables_ssl ;;
@@ -3079,17 +3079,17 @@ iptables_ssl() {
                 ip6tables -I INPUT -i lo -j ACCEPT
             fi
 			if ! ip6tables-save | grep -q "INPUT -p ipv6-icmp -j ACCEPT"; then
-            ip6tables -I INPUT -p ipv6-icmp -j ACCEPT
+                ip6tables -I INPUT -p ipv6-icmp -j ACCEPT
             fi           
             for port in $ssh_ports; do
                 if ! ip6tables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
                     ip6tables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
                 fi
             done
-            ip6tables -P INPUT DROP
+            ip6tables -P ip6tables DROP 2>/dev/null || ip6tables -P INPUT DROP
         fi
-        iptables-save > /etc/iptables/rules.v4
-        [ -f "/etc/iptables/rules.v6" ] && ip6tables-save > /etc/iptables/rules.v6
+        iptables-save > /etc/nftables/rules.v4
+        [ -f "/etc/nftables/rules.v6" ] && ip6tables-save > /etc/nftables/rules.v6
         
         green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
         iptables_ssl ;;
@@ -3098,39 +3098,34 @@ iptables_ssl() {
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
-            iptables-save > /etc/iptables/rules.v4
+            iptables-save > /etc/nftables/rules.v4
             if command -v ip6tables &> /dev/null; then
                 ip6tables -P INPUT ACCEPT
                 ip6tables -P FORWARD ACCEPT
                 ip6tables -P OUTPUT ACCEPT
-                # 只有当 rules.v6 文件存在或需要持久化时才保存
-                ip6tables-save > /etc/iptables/rules.v6
+                ip6tables-save > /etc/nftables/rules.v6
             fi
             green "已关闭拦截" && sleep 1
             iptables_ssl ;;
 		5)
-        yellow "正在配置环境..."
+        yellow "正在配置 nftables 环境..."
         [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
         if [ -f /etc/debian_version ]; then
             apt-get update -y
-            echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-            echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-            apt-get install -y iptables iptables-persistent
+            # 核心：安装 nftables 及 iptables-nft 兼容包
+            apt-get install -y nftables iptables iptables-nft
         elif [ -f /etc/redhat-release ]; then
-            yum install -y iptables-services
-            systemctl enable iptables && systemctl start iptables
-            systemctl enable ip6tables && systemctl start ip6tables
+            yum install -y nftables iptables-nft
+            systemctl enable nftables && systemctl start nftables
         fi
         check_rule_files
-        iptables-restore < /etc/iptables/rules.v4
-        [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6     
-        green "环境配置完成！已初始化规则文件并开启防火墙。" 
+        iptables-restore < /etc/nftables/rules.v4
+        [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6     
+        green "环境配置完成！已通过 iptables-nft 兼容层启用 nftables。" 
         sleep 1 && iptables_ssl ;;
 		6)
             yellow "正在停止防火墙并清空内存规则..."
-            systemctl stop netfilter-persistent 2>/dev/null
-            systemctl stop iptables 2>/dev/null
-            systemctl stop ip6tables 2>/dev/null
+            systemctl stop nftables 2>/dev/null
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
             iptables -P OUTPUT ACCEPT
@@ -3145,42 +3140,23 @@ iptables_ssl() {
                 ip6tables -X
                 ip6tables -Z
             fi
-            green "防火墙已停止，内存规则已清空。重启系统服务可恢复。"
+            green "防火墙已停止，内存规则已清空。"
             sleep 1 && iptables_ssl ;;
         7)
             yellow "正在重载并激活防火墙规则..."
             if command -v systemctl >/dev/null 2>&1; then
-                for svc in netfilter-persistent iptables ip6tables; do
-                    if systemctl list-unit-files | grep -q "^$svc.service"; then
-                        if [ "$(systemctl is-active $svc)" != "active" ]; then
-                            yellow "检测到 $svc 服务未运行，正在启动..."
-                            systemctl enable $svc >/dev/null 2>&1
-                            systemctl start $svc >/dev/null 2>&1
-                        fi
+                if systemctl list-unit-files | grep -q "^nftables.service"; then
+                    if [ "$(systemctl is-active nftables)" != "active" ]; then
+                        systemctl enable nftables >/dev/null 2>&1
+                        systemctl start nftables >/dev/null 2>&1
                     fi
-                done
-            fi
-            if [ -f "/etc/iptables/rules.v4" ]; then
-                if iptables-restore < /etc/iptables/rules.v4; then
-                    green "IPv4 规则已从 rules.v4 同步至内存。"
-                else
-                    red "错误：IPv4 规则文件格式异常，加载失败。"
                 fi
-            else
-                yellow "未发现 IPv4 规则文件，略过加载。"
             fi
-            if [ -f "/etc/iptables/rules.v6" ]; then
-                if command -v ip6tables-restore >/dev/null 2>&1; then
-                    if ip6tables-restore < /etc/iptables/rules.v6; then
-                        green "IPv6 规则已从 rules.v6 同步至内存。"
-                    else
-                        red "错误：IPv6 规则文件格式异常，加载失败。"
-                    fi
-                else
-                    yellow "系统不支持 ip6tables-restore 命令，略过加载。"
-                fi
-            else
-                [ -f /proc/net/if_inet6 ] && yellow "未发现 IPv6 规则文件，略过加载。"
+            if [ -f "/etc/nftables/rules.v4" ]; then
+                iptables-restore < /etc/nftables/rules.v4 && green "IPv4 规则已加载。"
+            fi
+            if [ -f "/etc/nftables/rules.v6" ]; then
+                ip6tables-restore < /etc/nftables/rules.v6 && green "IPv6 规则已加载。"
             fi
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
@@ -3201,6 +3177,7 @@ iptables_ssl() {
         *) iptables_ssl ;;
     esac
 }
+
 
 # singbox 管理
 manage_singbox() {
