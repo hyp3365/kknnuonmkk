@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (完美自启版)
+# 端口网速与流量限制管理系统 (完美自启版 v3)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -103,21 +103,27 @@ rebuild_tc_filters() {
 }
 
 if [ "$1" == "daemon" ]; then
-    # ========================================================
-    # 【修复关键】开机自启动时，先强制激活系统的 iptables 服务
-    # ========================================================
+    # 【修复 1】唤醒内核底层的防火墙模块
+    modprobe ip_tables 2>/dev/null || true
+    modprobe iptable_filter 2>/dev/null || true
+
+    # 【修复 2】死等网络和路由真正加载完毕！
+    while [ -z "$INTERFACE" ]; do
+        sleep 2
+        INTERFACE=$(get_interface)
+    done
+
+    # 尝试主动拉起已有的防火墙服务
     if command -v systemctl >/dev/null 2>&1; then
         for svc in netfilter-persistent iptables ip6tables firewalld; do
             if systemctl list-unit-files | grep -q "^$svc.service" 2>/dev/null; then
                 if [ "$(systemctl is-active $svc)" != "active" ]; then
-                    systemctl enable $svc >/dev/null 2>&1
                     systemctl start $svc >/dev/null 2>&1
                 fi
             fi
         done
     fi
 
-    # 确保网络基础服务启动后再添加规则
     tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
     tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
     tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
@@ -167,19 +173,18 @@ fi
 install_systemd_service() {
     crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
 
-    # 清理多余恢复服务
     systemctl stop restore_iptables.service >/dev/null 2>&1
     systemctl disable restore_iptables.service >/dev/null 2>&1
     rm -f /etc/systemd/system/restore_iptables.service
 
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
     
-    # 【修复关键】添加 After 依赖，确保网卡和防火墙核心程序启动后，再启动本服务
+    # 【修复 3】加入 Wants 主动拉起防火墙服务
     cat << EOF > "$SERVICE_FILE"
 [Unit]
 Description=Port Traffic Manager Background Service
 After=network-online.target netfilter-persistent.service iptables.service firewalld.service
-Wants=network-online.target
+Wants=network-online.target netfilter-persistent.service iptables.service
 
 [Service]
 Type=simple
