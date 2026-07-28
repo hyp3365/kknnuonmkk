@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (防闪烁精准版)
+# 端口网速与流量限制
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -27,10 +27,20 @@ get_interface() {
 INTERFACE=$(get_interface)
 
 # ==========================================
+# 获取当前北京时间辅助函数
+# ==========================================
+get_bj_time() {
+    # 输出格式: YYYY MM DD HH MM (全部基于北京时间)
+    TZ='Asia/Shanghai' date "+%Y %m %d %H %M"
+}
+
+# ==========================================
 # 核心阻断与流量持久化统计逻辑
 # ==========================================
 check_and_block() {
-    local CURRENT_MONTH=$(date +%Y%m)
+    # 获取北京时间的年、月、日、时、分
+    read -r BJ_YEAR BJ_MONTH BJ_DAY BJ_HOUR BJ_MINUTE <<< "$(get_bj_time)"
+    local CURRENT_MONTH_STR="${BJ_YEAR}${BJ_MONTH}"
     
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
@@ -42,16 +52,31 @@ check_and_block() {
         [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
         [ -z "$LAST_IPT_BYTES" ] && LAST_IPT_BYTES=0
         [ -z "$RATE" ] && RATE="UNLIMITED"
+        [ -z "$LAST_RESET_MONTH" ] && LAST_RESET_MONTH=""
         
-        if [ "$RESET_MODE" == "MONTHLY" ] && [ "$CURRENT_MONTH" != "$LAST_RESET_MONTH" ]; then
-            iptables -F "$CHAIN_NAME" 2>/dev/null
-            iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
-            STORED_TOTAL=0
-            LAST_IPT_BYTES=0
-            sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH\"/" "$conf"
-            sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"0\"/" "$conf"
-            sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf"
-            continue
+        # 每月重置判断：北京时间每月 1 号 00 点 01 分及以后，且当月还没重置过
+        if [ "$RESET_MODE" == "MONTHLY" ]; then
+            local should_reset=0
+            if [ "$CURRENT_MONTH_STR" != "$LAST_RESET_MONTH" ]; then
+                if [ "$BJ_DAY" -gt 1 ]; then
+                    should_reset=1
+                elif [ "$BJ_DAY" -eq 1 ]; then
+                    if [ "$BJ_HOUR" -gt 0 ] || { [ "$BJ_HOUR" -eq 0 ] && [ "$BJ_MINUTE" -ge 1 ]; }; then
+                        should_reset=1
+                    fi
+                fi
+            fi
+            
+            if [ "$should_reset" -eq 1 ]; then
+                iptables -F "$CHAIN_NAME" 2>/dev/null
+                iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
+                STORED_TOTAL=0
+                LAST_IPT_BYTES=0
+                sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH_STR\"/" "$conf"
+                sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"0\"/" "$conf"
+                sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf"
+                continue
+            fi
         fi
         
         local IPT_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
@@ -73,7 +98,6 @@ check_and_block() {
             continue
         fi
         
-        # 字节级精准比对：QUOTA (MB) 转换为字节 -> QUOTA * 1048576
         local LIMIT_BYTES=$(( QUOTA * 1048576 ))
         if [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ]; then
             if ! iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
@@ -207,7 +231,8 @@ apply_limit() {
     local r=$2
     local q=$3
     local rm=$4
-    local lm=$(date +%Y%m)
+    read -r lm_y lm_m _ _ _ <<< "$(get_bj_time)"
+    local lm="${lm_y}${lm_m}"
     local HEX=$(printf "%x" "$p")
     local CHAIN_NAME="LIMIT_P_${p}"
 
@@ -272,9 +297,9 @@ show_ports() {
     check_and_block
 
     echo -e "\033[36m当前网卡: $INTERFACE\033[0m"
-    echo "---------------------------------------------------------------------------------"
+    echo "------------------------------------------"
     printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量上限" "网速上限" "已用流量" "周期" "状态"
-    echo "---------------------------------------------------------------------------------"
+    echo "------------------------------------------"
     
     local count=0
     for conf in "$CONF_DIR"/*.conf; do
@@ -295,7 +320,6 @@ show_ports() {
         
         local USED_MB=$(awk "BEGIN {printf \"%.2f\", $STORED_TOTAL / 1048576}")
         
-        # 核心修复：直接通过字节数判定是否超标，避免浮点数误差带来的判定失效
         local is_dropped=0
         if iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
             is_dropped=1
@@ -318,7 +342,7 @@ show_ports() {
         [ "$RATE" != "UNLIMITED" ] && R_DISP="${RATE/mbit/Mbps}"
 
         local M_DISP="一次性"
-        [ "$RESET_MODE" == "MONTHLY" ] && M_DISP="每月"
+        [ "$RESET_MODE" == "MONTHLY" ] && M_DISP="每月(1日00:01)"
         
         printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
     done
@@ -326,19 +350,19 @@ show_ports() {
     if [ "$count" -eq 0 ]; then
         echo -e "                   \033[33m当前暂未设置任何端口限制\033[0m"
     fi
-    echo "---------------------------------------------------------------------------------"
+    echo "------------------------------------------"
 }
 
 while true; do
     clear
-    echo "========================================================"
-    echo "         端口网速与流量限制管理系统3.6"
-    echo "========================================================"
+    echo "=========================================="
+    echo "         端口网速与流量限制c"
+    echo "=========================================="
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
     echo "  3. 删除 端口限制"
     echo "  0. 退出 脚本"
-    echo "========================================================"
+    echo "=========================================="
     echo -e "已设置的端口:\n"
     show_ports
     
@@ -381,10 +405,10 @@ while true; do
             fi
 
             echo -e "\n\033[36m>>> 直接按回车默认为一次性限制 <<<\033[0m"
-            read -p "是否按月自动重置流量？(输入 y 开启): " is_monthly
+            read -p "是否按月自动重置流量？(输入 y 开启，每月北京时间1日00:01重置): " is_monthly
             if [[ "$is_monthly" == "y" || "$is_monthly" == "Y" ]]; then
                 reset_mode="MONTHLY"
-                echo -e " -> \033[32m已设为: 每月重置\033[0m"
+                echo -e " -> \033[32m已设为: 每月重置 (北京时间1日00:01)\033[0m"
             else
                 reset_mode="ONCE"
                 echo -e " -> \033[33m已设为: 一次性限制 (用完即永久阻断)\033[0m"
