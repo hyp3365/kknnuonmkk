@@ -1384,7 +1384,7 @@ change_config() {
             ip=$(get_realip)
             uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
             sed -i "/hysteria2:/d" "$client_dir"
-            key_path=$(grep '"key_path"' /etc/sing-box/hysteria2.json | head -n 1 | sed -E 's/.*"key_path"\s*:\s*"([^"]+)".*/\1/')
+            key_path=$(grep '"key_path"' /etc/sing-box/conf/hysteria2.json | head -n 1 | sed -E 's/.*"key_path"\s*:\s*"([^"]+)".*/\1/')
             if [[ "$key_path" =~ \/root\/cert\/([^\/]+)\/ ]]; then
                 custom_sni="${BASH_REMATCH[1]}"
                 url_param="sni=${custom_sni}"
