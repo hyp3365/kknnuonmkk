@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (完美自启版 v4)
+# 端口网速与流量限制管理系统 (终极稳定版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -106,31 +106,25 @@ rebuild_tc_filters() {
 # 后台守护进程逻辑 (开机自启执行的部分)
 # ==========================================
 if [ "$1" == "daemon" ]; then
+    # 1. 强制加载内核防火墙模块
     modprobe ip_tables 2>/dev/null || true
     modprobe iptable_filter 2>/dev/null || true
+    modprobe ip_conntrack 2>/dev/null || true
 
-    # 死等网络和路由真正加载完毕！
+    # 2. 死等网络和路由真正加载完毕！
     while [ -z "$INTERFACE" ]; do
         sleep 2
         INTERFACE=$(get_interface)
     done
 
-    # 尝试主动拉起已有的防火墙服务
-    if command -v systemctl >/dev/null 2>&1; then
-        for svc in netfilter-persistent iptables ip6tables firewalld; do
-            if systemctl list-unit-files | grep -q "^$svc.service" 2>/dev/null; then
-                if [ "$(systemctl is-active $svc)" != "active" ]; then
-                    systemctl start $svc >/dev/null 2>&1
-                fi
-            fi
-        done
-    fi
+    # 3. 核心：直接初始化内核 iptables 的 filter 表，强制激活防火墙功能
+    iptables -t filter -L >/dev/null 2>&1 || true
 
     tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
     tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
     tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
 
-    # 重启后自动恢复所有记录在案的端口 iptables 规则
+    # 4. 重启后自动恢复所有记录在案的端口 iptables 规则
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
         local p=$(basename "$conf" .conf)
@@ -166,7 +160,7 @@ if [ "$1" == "daemon" ]; then
     done
     rebuild_tc_filters
 
-    # 启动轮询检查，发现流量超标立即 DROP
+    # 5. 启动轮询检查，发现流量超标立即 DROP
     while true; do
         check_and_block
         sleep 3
@@ -178,7 +172,6 @@ fi
 # 服务安装与自我更新逻辑
 # ==========================================
 install_systemd_service() {
-    # 【最核心的修复】：确保开机自启运行的是你正在用的这份最新代码！
     if [ "$(realpath "$0")" != "$(realpath "$TARGET_PATH")" ]; then
         cp -f "$0" "$TARGET_PATH"
         chmod +x "$TARGET_PATH"
@@ -191,11 +184,12 @@ install_systemd_service() {
 
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
     
+    # 极简纯净的 Systemd 配置，只依赖网络就绪，不再依赖不存在的外部服务
     cat << EOF > "$SERVICE_FILE"
 [Unit]
 Description=Port Traffic Manager Background Service
-After=network-online.target netfilter-persistent.service iptables.service firewalld.service
-Wants=network-online.target netfilter-persistent.service iptables.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -211,7 +205,6 @@ EOF
     systemctl enable port_manager.service >/dev/null 2>&1
     systemctl restart port_manager.service >/dev/null 2>&1
 }
-# 只要脚本一运行，立刻刷新系统服务和目标文件！
 install_systemd_service
 
 # ==========================================
@@ -335,7 +328,7 @@ show_ports() {
 while true; do
     clear
     echo "========================================================"
-    echo "         端口网速与流量限制管理系统1"
+    echo "         端口网速与流量限制管理系统2"
     echo "========================================================"
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
