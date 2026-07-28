@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# =============================
-# 端口网速与流量限制管理
-# =============================
+# ==========================================
+# 端口网速与流量限制管理系统 (Systemd 3秒高频守护版)
+# ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
@@ -26,6 +26,9 @@ get_interface() {
 }
 INTERFACE=$(get_interface)
 
+# ==========================================
+# 核心阻断与跨月重置逻辑
+# ==========================================
 check_and_block() {
     local CURRENT_MONTH=$(date +%Y%m)
     
@@ -36,19 +39,22 @@ check_and_block() {
         
         local CHAIN_NAME="LIMIT_P_${PORT}"
         
+        # 1. 处理按月自动重置的逻辑
         if [ "$RESET_MODE" == "MONTHLY" ] && [ "$CURRENT_MONTH" != "$LAST_RESET_MONTH" ]; then
             iptables -F "$CHAIN_NAME" 2>/dev/null
             iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
-            
+            # 跨月时解除阻断
+            iptables -D "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
             sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH\"/" "$conf"
-            
             continue
         fi
         
+        # 2. 如果不限制流量，跳过检测
         if [ "$QUOTA" == "UNLIMITED" ]; then
             continue
         fi
         
+        # 3. 统计并实时阻断
         local BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
         local MB=$(awk "BEGIN {print $BYTES / 1048576}")
         
@@ -61,20 +67,46 @@ check_and_block() {
     done
 }
 
-if [ "$1" == "cron" ]; then
-    check_and_block
+# 后台守护进程入口 (每3秒执行一次)
+if [ "$1" == "daemon" ]; then
+    while true; do
+        check_and_block
+        sleep 3
+    done
     exit 0
 fi
 
-install_cron() {
-    (crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota") | crontab -
-    (
-        crontab -l 2>/dev/null
-        echo "* * * * * /bin/bash $SCRIPT_PATH cron >/dev/null 2>&1"
-        echo "* * * * * sleep 30; /bin/bash $SCRIPT_PATH cron >/dev/null 2>&1"
-    ) | crontab -
+# 自动配置并启动 Systemd 后台服务
+install_systemd_service() {
+    # 清理旧的 crontab 任务（如果之前装过）
+    crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
+
+    local SERVICE_FILE="/etc/systemd/system/port_manager.service"
+    
+    cat << EOF > "$SERVICE_FILE"
+[Unit]
+Description=Port Traffic Manager Background Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash $SCRIPT_PATH daemon
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable port_manager.service >/dev/null 2>&1
+    systemctl start port_manager.service >/dev/null 2>&1
 }
-install_cron
+install_systemd_service
+
+# ==========================================
+# 核心功能函数
+# ==========================================
 
 rebuild_tc_filters() {
     tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
@@ -162,9 +194,9 @@ show_ports() {
     check_and_block
 
     echo -e "\033[36m当前网卡: $INTERFACE\033[0m"
-    echo "--------------------------------------------"
+    echo "-----------------------------------------------------------------"
     printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量" "网速" "已用" "周期" "状态"
-    echo "--------------------------------------------"
+    echo "-----------------------------------------------------------------"
     
     local count=0
     for conf in "$CONF_DIR"/*.conf; do
@@ -200,19 +232,22 @@ show_ports() {
     if [ "$count" -eq 0 ]; then
         echo -e "                   \033[33m当前暂未设置任何端口限制\033[0m"
     fi
-    echo "--------------------------------------------"
+    echo "-----------------------------------------------------------------"
 }
 
+# ==========================================
+# 主菜单循环
+# ==========================================
 while true; do
     clear
-    echo "============================================"
-    echo "               端口网速与流量限制管理"
-    echo "============================================"
+    echo "========================================================"
+    echo "               端口网速与流量限制管理脚本"
+    echo "========================================================"
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
     echo "  3. 删除 端口限制"
     echo "  0. 退出 脚本"
-    echo "============================================"
+    echo "========================================================"
     echo -e "已设置的端口:\n"
     show_ports
     
@@ -254,7 +289,6 @@ while true; do
                 echo -e " -> \033[32m已设为: ${rate_num} Mbps\033[0m"
             fi
 
-            # 新增：询问是否按月重置
             echo -e "\n\033[36m>>> 直接按回车默认为一次性限制 <<<\033[0m"
             read -p "是否按月自动重置流量？(输入 y 开启): " is_monthly
             if [[ "$is_monthly" == "y" || "$is_monthly" == "Y" ]]; then
@@ -280,7 +314,7 @@ while true; do
             read -p "按回车键继续..."
             ;;
         0)
-            echo -e "\033[32m退出脚本。后台 30 秒轮询与跨月监控运行中。\033[0m"
+            echo -e "\033[32m退出脚本。Systemd 后台 3 秒高频守护中。\033[0m"
             exit 0
             ;;
         *)
