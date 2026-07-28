@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (终极修复版)
+# 端口网速与流量限制管理系统 (防重启计数修复版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -59,10 +59,12 @@ check_and_block() {
         # 2. 读取当前 iptables 内存中的流量字节数
         local IPT_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
         
+        # 【核心修复】计算差值，完美适配 VPS 重启后 iptables 计数器清零的情况
         local DIFF=0
         if [ "$IPT_BYTES" -ge "$LAST_IPT_BYTES" ]; then
             DIFF=$(( IPT_BYTES - LAST_IPT_BYTES ))
         else
+            # 说明 VPS 重启过，iptables 计数器被清零重置了，当前 IPT_BYTES 即为重启后的新增流量
             DIFF="$IPT_BYTES"
         fi
         
