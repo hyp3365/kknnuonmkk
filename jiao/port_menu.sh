@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (Systemd 3秒高频守护版)
+# 端口网速与流量限制管理系统 (GitHub 托管版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 CONF_DIR="/etc/port_manager"
-SCRIPT_PATH=$(readlink -f "$0")
+TARGET_PATH="/usr/local/bin/port_menu.sh"
 
 if [ "$EUID" -ne 0 ]; then
     echo -e "\033[31m[-] 错误: 请使用 root (sudo) 权限运行此脚本\033[0m"
@@ -15,6 +15,12 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 mkdir -p "$CONF_DIR"
+
+# 自动把自己部署到 /usr/local/bin/ 确保路径稳定
+if [ "$(readlink -f "$0")" != "$TARGET_PATH" ] && [ "$1" != "daemon" ]; then
+    cp "$0" "$TARGET_PATH" 2>/dev/null || cp "$(which "$0" 2>/dev/null || echo "$0")" "$TARGET_PATH" 2>/dev/null
+    chmod +x "$TARGET_PATH"
+fi
 
 get_interface() {
     local dev
@@ -43,7 +49,6 @@ check_and_block() {
         if [ "$RESET_MODE" == "MONTHLY" ] && [ "$CURRENT_MONTH" != "$LAST_RESET_MONTH" ]; then
             iptables -F "$CHAIN_NAME" 2>/dev/null
             iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
-            # 跨月时解除阻断
             iptables -D "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
             sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH\"/" "$conf"
             continue
@@ -78,7 +83,6 @@ fi
 
 # 自动配置并启动 Systemd 后台服务
 install_systemd_service() {
-    # 清理旧的 crontab 任务（如果之前装过）
     crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
 
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
@@ -90,7 +94,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash $SCRIPT_PATH daemon
+ExecStart=/bin/bash $TARGET_PATH daemon
 Restart=always
 RestartSec=3
 
@@ -100,7 +104,7 @@ EOF
 
     systemctl daemon-reload >/dev/null 2>&1
     systemctl enable port_manager.service >/dev/null 2>&1
-    systemctl start port_manager.service >/dev/null 2>&1
+    systemctl restart port_manager.service >/dev/null 2>&1
 }
 install_systemd_service
 
@@ -314,7 +318,7 @@ while true; do
             read -p "按回车键继续..."
             ;;
         0)
-            echo -e "\033[32m退出脚本。Systemd 后台 3 秒高频守护中。\033[0m"
+            echo -e "\033[32m退出脚本。后台 3 秒守护正常运行中。\033[0m"
             exit 0
             ;;
         *)
