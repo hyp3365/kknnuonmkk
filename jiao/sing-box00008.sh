@@ -1322,9 +1322,9 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-		    generate_vars
+		    Generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
-            local deps=("iptables" "curl" "shuf")
+            local deps=("nftables" "curl" "shuf")
             for dep in "${deps[@]}"; do
                 if ! command -v "$dep" &> /dev/null; then
                     yellow "检测到缺少依赖 $dep，正在安装..."
@@ -1344,42 +1344,42 @@ change_config() {
             reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
             [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
             yellow "结束端口为：$max_port\n"
-			listen_port=$(grep '"listen_port"' /etc/sing-box/hysteria2.json | head -n 1 | awk -F': ' '{print $2}' | tr -d ', "')
+            
+            listen_port=$(grep '"listen_port"' /etc/sing-box/conf/hysteria2.json | head -n 1 | awk -F': ' '{print $2}' | tr -d ', "')
             if [ -z "$listen_port" ]; then
                 red "无法自动获取 Hysteria2 监听端口，请检查配置文件！"
                 exit 1
             fi
-            purple "正在设置端口跳跃规则..."
-            iptables -t nat -F PREROUTING > /dev/null 2>&1
-            iptables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port
             
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -t nat -F PREROUTING > /dev/null 2>&1
-                ip6tables -t nat -A PREROUTING -p udp --dport $min_port:$max_port -j DNAT --to-destination :$listen_port 2>/dev/null
+            purple "正在设置 nftables 端口跳跃规则..."
+            
+            sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+            [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+            nft add table ip nat 2>/dev/null
+            nft 'add chain ip nat prerouting { type nat hook prerouting priority 0; policy accept; }' 2>/dev/null
+            nft flush chain ip nat prerouting 2>/dev/null
+            nft add rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port
+
+            if [ -f /proc/net/if_inet6 ]; then
+                nft add table ip6 nat 2>/dev/null
+                nft 'add chain ip6 nat prerouting { type nat hook prerouting priority 0; policy accept; }' 2>/dev/null
+                nft flush chain ip6 nat prerouting 2>/dev/null
+                nft add rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
             fi
-            if command -v rc-service &> /dev/null; then
-                mkdir -p /etc/iptables
-                iptables-save > /etc/iptables/rules.v4
-                [ -x "$(command -v ip6tables)" ] && ip6tables-save > /etc/iptables/rules.v6
-                cat << 'EOF' > /etc/init.d/iptables
-#!/sbin/openrc-run
-depend() { need net; }
-start() {
-    iptables-restore < /etc/iptables/rules.v4
-    [ -f /etc/iptables/rules.v6 ] && ip6tables-restore < /etc/iptables/rules.v6
-}
-EOF
-                chmod +x /etc/init.d/iptables && rc-update add iptables default
-            elif [ -f /etc/debian_version ]; then
-                if ! dpkg -l | grep -q iptables-persistent; then
-                    DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
+            mkdir -p /etc/nftables
+            nft list ruleset > /etc/nftables/rules.nft
+            
+            if command -v systemctl &> /dev/null; then
+                systemctl enable nftables >/dev/null 2>&1
+                systemctl start nftables >/dev/null 2>&1
+                if [ -f /etc/systemd/system/nftables.service ] || [ -f /lib/systemd/system/nftables.service ]; then
+                    # 适配部分系统默认加载 /etc/nftables.conf
+                    nft list ruleset > /etc/nftables.conf
                 fi
-                netfilter-persistent save > /dev/null 2>&1
-            elif [ -f /etc/redhat-release ]; then
-                yum install -y iptables-services
-                systemctl enable iptables && service iptables save
-                command -v ip6tables &> /dev/null && systemctl enable ip6tables && service ip6tables save
+            elif command -v rc-service &> /dev/null; then
+                rc-update add nftables default 2>/dev/null
             fi
+
             restart_singbox
             ip=$(get_realip)
             uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
@@ -1396,28 +1396,26 @@ EOF
             sed -i "/hysteria2:/d" "$client_dir"
             echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"        
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
-            green "\nHysteria2 端口跳跃已开启！"
+            green "\nHysteria2 端口跳跃已开启"
             purple "跳跃区间：$min_port-$max_port"
-            ;;          
+            ;;
         5)  
-            purple "正在清理端口跳跃规则..."
-            iptables -t nat -F PREROUTING > /dev/null 2>&1
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+            purple "正在清理 nftables 端口跳跃规则..."
+            nft flush chain ip nat prerouting 2>/dev/null
+            
+            if [ -f /proc/net/if_inet6 ]; then
+                nft flush chain ip6 nat prerouting 2>/dev/null
             fi
-            if command_exists rc-service 2>/dev/null; then
-                rc-update del iptables default > /dev/null 2>&1
-                rm -f /etc/init.d/iptables 
-            elif [ -f /etc/debian_version ]; then
-                if command -v netfilter-persistent &> /dev/null; then
-                    netfilter-persistent save > /dev/null 2>&1
-                fi
-            elif [ -f /etc/redhat-release ]; then
-                if command -v service &> /dev/null; then
-                    service iptables save > /dev/null 2>&1
-                    command -v ip6tables &> /dev/null && service ip6tables save > /dev/null 2>&1
-                fi
+            
+            if [ -d /etc/nftables ]; then
+                nft list ruleset > /etc/nftables/rules.nft 2>/dev/null
+                nft list ruleset > /etc/nftables.conf 2>/dev/null
             fi
+            
+            if command -v systemctl &> /dev/null; then
+                systemctl restart nftables >/dev/null 2>&1
+            fi
+
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
