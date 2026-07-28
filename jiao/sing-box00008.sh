@@ -388,7 +388,6 @@ check_and_issue_ssl() {
     fi
 }
 
-
 # 处理防火墙
 allow_port() {
     has_ufw=0
@@ -429,27 +428,46 @@ allow_port() {
 
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
 
-    # 规则持久化
-    mkdir -p /etc/iptables
+    mkdir -p /etc/nftables
     for rule in "$@"; do
         p_port=${rule%/*}
         p_proto=${rule#*/}
         tag="ScriptManaged"
-        [ ! -f /etc/iptables/rules.v4 ] && iptables-save > /etc/iptables/rules.v4 2>/dev/null
-        if [ -f /etc/iptables/rules.v4 ]; then
-            if ! grep -q "\--dport $p_port " /etc/iptables/rules.v4 2>/dev/null; then
-                sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
-                }" /etc/iptables/rules.v4
-            fi
+        
+        if [ ! -f /etc/nftables/rules.v4 ] || ! grep -q "COMMIT" /etc/nftables/rules.v4; then
+            cat > /etc/nftables/rules.v4 << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+EOF
         fi
-        [ ! -f /etc/iptables/rules.v6 ] && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
-        if [ -f /etc/iptables/rules.v6 ]; then
-            if ! grep -q "\--dport $p_port " /etc/iptables/rules.v6 2>/dev/null; then
-                sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
-                }" /etc/iptables/rules.v6
-            fi
+        
+        if ! grep -q "\--dport $p_port " /etc/nftables/rules.v4 2>/dev/null; then
+            sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
+            }" /etc/nftables/rules.v4
+        fi
+
+        if [ ! -f /etc/nftables/rules.v6 ] || ! grep -q "COMMIT" /etc/nftables/rules.v6; then
+            cat > /etc/nftables/rules.v6 << EOF
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+EOF
+        fi
+        
+        if ! grep -q "\--dport $p_port " /etc/nftables/rules.v6 2>/dev/null; then
+            sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
+            }" /etc/nftables/rules.v6
         fi
     done
+
+    iptables-restore < /etc/nftables/rules.v4 2>/dev/null
+    [ -f /etc/nftables/rules.v6 ] && ip6tables-restore < /etc/nftables/rules.v6 2>/dev/null
+
     if command_exists netfilter-persistent; then
         netfilter-persistent save >/dev/null 2>&1
     elif command_exists service; then
@@ -459,19 +477,19 @@ allow_port() {
 }
 
 close_port() {
-    mkdir -p /etc/iptables
+    mkdir -p /etc/nftables
     
     for rule in "$@"; do
         p_port=${rule%/*}
-        if [ -f "/etc/iptables/rules.v4" ]; then
-            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/iptables/rules.v4
+        if [ -f "/etc/nftables/rules.v4" ]; then
+            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/nftables/rules.v4
         fi
-        if [ -f "/etc/iptables/rules.v6" ]; then
-            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/iptables/rules.v6
+        if [ -f "/etc/nftables/rules.v6" ]; then
+            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/nftables/rules.v6
         fi
     done
-    [ -f "/etc/iptables/rules.v4" ] && iptables-restore < /etc/iptables/rules.v4 2>/dev/null
-    [ -f "/etc/iptables/rules.v6" ] && ip6tables-restore < /etc/iptables/rules.v6 2>/dev/null
+    [ -f "/etc/nftables/rules.v4" ] && iptables-restore < /etc/nftables/rules.v4 2>/dev/null
+    [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6 2>/dev/null
     if command_exists netfilter-persistent; then
         netfilter-persistent save >/dev/null 2>&1
     fi
