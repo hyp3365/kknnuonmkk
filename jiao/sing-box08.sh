@@ -3185,9 +3185,11 @@ iptables_ssl() {
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
 		8) 
-		  clear
-		  bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh)
-		   ;;
+		   clear
+            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
+            chmod +x /usr/local/bin/port_menu.sh
+            bash /usr/local/bin/port_menu.sh
+            ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
