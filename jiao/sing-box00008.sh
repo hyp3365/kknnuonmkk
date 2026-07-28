@@ -3006,6 +3006,7 @@ iptables_ssl() {
     green "6. 停止运行"
     green "7. 程序重启"
     red   "8. 端口流量网速设置"
+	green "9. 清理未运行端口"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -3175,6 +3176,19 @@ iptables_ssl() {
             sleep 1
             bash /usr/local/bin/port_menu.sh
             ;;     
+		9)
+            yellow "正在自动扫描并清理所有未运行的无用端口规则..."
+            for port in $(iptables -L INPUT -n 2>/dev/null | grep "ScriptManaged" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); print b[1]}}' | sort -un); do
+                if ! ss -tunlp | grep -q ":$port "; then
+                    sed -i "/--dport $port /d" /etc/nftables/rules.v4 2>/dev/null
+                    sed -i "/--dport $port /d" /etc/nftables/rules.nft 2>/dev/null
+                    sed -i "/--dport $port /d" /etc/iptables/rules.v4 2>/dev/null
+                    green "已清理僵尸端口: $port"
+                fi
+            done
+            iptables-restore < /etc/nftables/rules.v4 2>/dev/null
+            green "清理完成！"
+            sleep 1 && iptables_ssl ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
