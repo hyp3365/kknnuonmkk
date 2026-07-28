@@ -3185,9 +3185,31 @@ iptables_ssl() {
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
 		8) 
-		   clear
-            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
-            chmod +x /usr/local/bin/port_menu.sh
+            clear
+            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
+            chmod +x /usr/local/bin/port_menu.sh   
+
+            mkdir -p /etc/iptables
+            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+            
+            cat << 'EOF' > /etc/systemd/system/restore_iptables.service
+[Unit]
+Description=Restore IPTables Rules on Boot
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/iptables-restore /etc/iptables/rules.v4
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+            systemctl daemon-reload >/dev/null 2>&1
+            systemctl enable restore_iptables.service >/dev/null 2>&1
+    
+            sleep 2
             bash /usr/local/bin/port_menu.sh
             ;;
         0) menu ;;
