@@ -1432,7 +1432,7 @@ change_config() {
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
             fi
             
-            green "\n[✔] 端口跳跃已安全关闭"
+            green "\n[✔] 端口跳跃已关闭"
             ;;
 
         6)  change_cfip ;;
