@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (GitHub 托管版)
+# 端口网速与流量限制管理系统 (GitHub 远程同步版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -16,7 +16,7 @@ fi
 
 mkdir -p "$CONF_DIR"
 
-# 自动把自己部署到 /usr/local/bin/ 确保路径稳定
+# 自动把自己固化到 /usr/local/bin/ 确保系统服务路径稳定
 if [ "$(readlink -f "$0")" != "$TARGET_PATH" ] && [ "$1" != "daemon" ]; then
     cp "$0" "$TARGET_PATH" 2>/dev/null || cp "$(which "$0" 2>/dev/null || echo "$0")" "$TARGET_PATH" 2>/dev/null
     chmod +x "$TARGET_PATH"
@@ -250,12 +250,13 @@ while true; do
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
     echo "  3. 删除 端口限制"
+    echo "  8. 更新/重载 远程脚本"
     echo "  0. 退出 脚本"
     echo "========================================================"
     echo -e "已设置的端口:\n"
     show_ports
     
-    read -p "请输入选项 [0-3]: " choice
+    read -p "请输入选项 [1-3, 8, 0]: " choice
     case $choice in
         1|2)
             if [ "$choice" == "2" ]; then
@@ -316,6 +317,10 @@ while true; do
                 echo -e "\033[31m[-] 未找到该端口的配置！\033[0m"
             fi
             read -p "按回车键继续..."
+            ;;
+        8)
+            clear
+            bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh)
             ;;
         0)
             echo -e "\033[32m退出脚本。后台 3 秒守护正常运行中。\033[0m"
