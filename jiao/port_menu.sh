@@ -152,11 +152,6 @@ fi
 install_systemd_service() {
     crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
 
-    # 彻底清理可能引起冲突的旧服务
-    systemctl stop restore_iptables.service >/dev/null 2>&1
-    systemctl disable restore_iptables.service >/dev/null 2>&1
-    rm -f /etc/systemd/system/restore_iptables.service
-
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
     
     cat << EOF > "$SERVICE_FILE"
