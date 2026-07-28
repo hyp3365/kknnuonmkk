@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (完美自启版 v3)
+# 端口网速与流量限制管理系统 (完美自启版 v4)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -102,12 +102,14 @@ rebuild_tc_filters() {
     done
 }
 
+# ==========================================
+# 后台守护进程逻辑 (开机自启执行的部分)
+# ==========================================
 if [ "$1" == "daemon" ]; then
-    # 【修复 1】唤醒内核底层的防火墙模块
     modprobe ip_tables 2>/dev/null || true
     modprobe iptable_filter 2>/dev/null || true
 
-    # 【修复 2】死等网络和路由真正加载完毕！
+    # 死等网络和路由真正加载完毕！
     while [ -z "$INTERFACE" ]; do
         sleep 2
         INTERFACE=$(get_interface)
@@ -128,6 +130,7 @@ if [ "$1" == "daemon" ]; then
     tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
     tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
 
+    # 重启后自动恢复所有记录在案的端口 iptables 规则
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
         local p=$(basename "$conf" .conf)
@@ -163,6 +166,7 @@ if [ "$1" == "daemon" ]; then
     done
     rebuild_tc_filters
 
+    # 启动轮询检查，发现流量超标立即 DROP
     while true; do
         check_and_block
         sleep 3
@@ -170,16 +174,23 @@ if [ "$1" == "daemon" ]; then
     exit 0
 fi
 
+# ==========================================
+# 服务安装与自我更新逻辑
+# ==========================================
 install_systemd_service() {
-    crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
+    # 【最核心的修复】：确保开机自启运行的是你正在用的这份最新代码！
+    if [ "$(realpath "$0")" != "$(realpath "$TARGET_PATH")" ]; then
+        cp -f "$0" "$TARGET_PATH"
+        chmod +x "$TARGET_PATH"
+    fi
 
+    # 清理老的干扰项
     systemctl stop restore_iptables.service >/dev/null 2>&1
     systemctl disable restore_iptables.service >/dev/null 2>&1
     rm -f /etc/systemd/system/restore_iptables.service
 
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
     
-    # 【修复 3】加入 Wants 主动拉起防火墙服务
     cat << EOF > "$SERVICE_FILE"
 [Unit]
 Description=Port Traffic Manager Background Service
@@ -200,8 +211,12 @@ EOF
     systemctl enable port_manager.service >/dev/null 2>&1
     systemctl restart port_manager.service >/dev/null 2>&1
 }
+# 只要脚本一运行，立刻刷新系统服务和目标文件！
 install_systemd_service
 
+# ==========================================
+# 菜单操作逻辑
+# ==========================================
 apply_limit() {
     local p=$1
     local r=$2
@@ -393,7 +408,7 @@ while true; do
             read -p "按回车键继续..."
             ;;
         0)
-            echo -e "\033[32m退出脚本。后台 3 秒守护正常运行中。\033[0m"
+            echo -e "\033[32m退出脚本。后台守护已更新并正常运行中。\033[0m"
             exit 0
             ;;
         *)
