@@ -68,12 +68,58 @@ check_and_block() {
 
 # 后台守护进程入口 (每3秒执行一次)
 if [ "$1" == "daemon" ]; then
+    # 【新增】VPS重启后服务自动启动时，自动恢复所有端口的 iptables 规则和 tc 限速
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local p=$(basename "$conf" .conf)
+        source "$conf"
+        
+        local HEX=$(printf "%x" "$p")
+        local CHAIN_NAME="LIMIT_P_${p}"
+
+        # 1. 恢复 tc 网速限制
+        if [ "$RATE" != "UNLIMITED" ]; then
+            if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
+                tc qdisc add dev "$INTERFACE" root handle 1: htb default 30
+                tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit
+                tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit
+            fi
+            tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE" 2>/dev/null || true
+        fi
+
+        # 2. 恢复 iptables 自定义链及挂载钩子
+        iptables -N "$CHAIN_NAME" 2>/dev/null || true
+        iptables -F "$CHAIN_NAME"
+        iptables -A "$CHAIN_NAME" -j ACCEPT
+
+        iptables -D INPUT -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D INPUT -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D OUTPUT -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D OUTPUT -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D FORWARD -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D FORWARD -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+        iptables -D FORWARD -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+
+        iptables -I INPUT 1 -p tcp --dport "$p" -j "$CHAIN_NAME"
+        iptables -I INPUT 1 -p udp --dport "$p" -j "$CHAIN_NAME"
+        iptables -I OUTPUT 1 -p tcp --sport "$p" -j "$CHAIN_NAME"
+        iptables -I OUTPUT 1 -p udp --sport "$p" -j "$CHAIN_NAME"
+        iptables -I FORWARD 1 -p tcp --dport "$p" -j "$CHAIN_NAME"
+        iptables -I FORWARD 1 -p udp --dport "$p" -j "$CHAIN_NAME"
+        iptables -I FORWARD 1 -p tcp --sport "$p" -j "$CHAIN_NAME"
+        iptables -I FORWARD 1 -p udp --sport "$p" -j "$CHAIN_NAME"
+    done
+    rebuild_tc_filters
+
+    # 进入正常的 3 秒轮询检测
     while true; do
         check_and_block
         sleep 3
     done
     exit 0
 fi
+
 
 # 自动配置并启动 Systemd 后台服务
 install_systemd_service() {
