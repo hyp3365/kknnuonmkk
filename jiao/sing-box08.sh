@@ -3186,13 +3186,17 @@ iptables_ssl() {
             sleep 1 && iptables_ssl ;;
 		8) 
             clear
+            echo -e "\033[36m>>> 正在更新脚本...\033[0m"
             curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
             chmod +x /usr/local/bin/port_menu.sh   
 
-            mkdir -p /etc/iptables
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-            
-            cat << 'EOF' > /etc/systemd/system/restore_iptables.service
+            # 检查开机自启文件是否已存在
+            if [ ! -f "/etc/systemd/system/restore_iptables.service" ]; then
+                echo -e "\033[36m>>> 正在初始化 iptables 恢复服务...\033[0m"
+                mkdir -p /etc/iptables
+                iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+                
+                cat << 'EOF' > /etc/systemd/system/restore_iptables.service
 [Unit]
 Description=Restore IPTables Rules on Boot
 After=network.target
@@ -3206,8 +3210,11 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-            systemctl daemon-reload >/dev/null 2>&1
-            systemctl enable restore_iptables.service >/dev/null 2>&1
+                systemctl daemon-reload >/dev/null 2>&1
+                systemctl enable restore_iptables.service >/dev/null 2>&1
+            else
+                echo -e "\033[32m>>> 跳过重复配置\033[0m"
+            fi
     
             sleep 2
             bash /usr/local/bin/port_menu.sh
