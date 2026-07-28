@@ -3003,7 +3003,7 @@ iptables_ssl() {
     green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
-	red   "8.端口流量网速设置"
+	red   "8. 端口流量网速设置"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
