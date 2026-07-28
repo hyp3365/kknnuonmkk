@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (流量修复版)
+# 端口网速与流量限制管理系统 (终极修复版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -260,11 +260,10 @@ show_ports() {
         
         [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
         
-        # 【双重保险】如果 STORED_TOTAL 为 0，尝试直接从 iptables 实时获取一次当前流量
         if [ "$STORED_TOTAL" -eq 0 ]; then
             local LIVE_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
             [ "$LIVE_BYTES" -gt 0 ] && STORED_TOTAL="$LIVE_BYTES"
-        }
+        fi
         
         local USED_MB=$(awk "BEGIN {printf \"%.2f\", $STORED_TOTAL / 1048576}")
         
@@ -290,9 +289,6 @@ show_ports() {
     echo "---------------------------------------------------------------------------------"
 }
 
-# ==========================================
-# 主菜单循环
-# ==========================================
 while true; do
     clear
     echo "========================================================"
