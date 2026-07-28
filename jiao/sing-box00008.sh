@@ -3171,7 +3171,7 @@ iptables_ssl() {
 		8) 
             clear
             echo -e "\033[36m>>> 正在更新...\033[0m"
-            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
+            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu1.sh -o /usr/local/bin/port_menu.sh
             chmod +x /usr/local/bin/port_menu.sh   
             systemctl stop restore_iptables.service >/dev/null 2>&1
             systemctl disable restore_iptables.service >/dev/null 2>&1
