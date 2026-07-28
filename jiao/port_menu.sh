@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (GitHub 远程同步版)
+# 端口网速与流量限制管理系统 (完整功能版: 网速限制 + 流量持久化 + 自动阻断)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -27,7 +27,7 @@ get_interface() {
 INTERFACE=$(get_interface)
 
 # ==========================================
-# 核心阻断与跨月重置逻辑
+# 核心阻断与流量持久化统计逻辑
 # ==========================================
 check_and_block() {
     local CURRENT_MONTH=$(date +%Y%m)
@@ -39,24 +39,50 @@ check_and_block() {
         
         local CHAIN_NAME="LIMIT_P_${PORT}"
         
+        # 兼容旧配置：初始化持久化变量
+        [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
+        [ -z "$LAST_IPT_BYTES" ] && LAST_IPT_BYTES=0
+        [ -z "$RATE" ] && RATE="UNLIMITED"
+        
         # 1. 处理按月自动重置的逻辑
         if [ "$RESET_MODE" == "MONTHLY" ] && [ "$CURRENT_MONTH" != "$LAST_RESET_MONTH" ]; then
             iptables -F "$CHAIN_NAME" 2>/dev/null
             iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
             iptables -D "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
+            STORED_TOTAL=0
+            LAST_IPT_BYTES=0
             sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH\"/" "$conf"
+            sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"0\"/" "$conf"
+            sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf"
             continue
         fi
         
-        # 2. 如果不限制流量，跳过检测
+        # 2. 读取当前 iptables 内存中的流量字节数
+        local IPT_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
+        
+        # 计算自上次检查以来新增的流量差值（防重启重置）
+        local DIFF=0
+        if [ "$IPT_BYTES" -ge "$LAST_IPT_BYTES" ]; then
+            DIFF=$(( IPT_BYTES - LAST_IPT_BYTES ))
+        else
+            DIFF="$IPT_BYTES"
+        fi
+        
+        # 累加到总流量中并更新检查点
+        STORED_TOTAL=$(( STORED_TOTAL + DIFF ))
+        LAST_IPT_BYTES="$IPT_BYTES"
+        
+        # 实时写回配置文件持久化保存
+        sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"$STORED_TOTAL\"/" "$conf"
+        sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"$LAST_IPT_BYTES\"/" "$conf"
+
+        # 3. 如果不限制流量，跳过阻断判断
         if [ "$QUOTA" == "UNLIMITED" ]; then
             continue
         fi
         
-        # 3. 统计并实时阻断
-        local BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
-        local MB=$(awk "BEGIN {print $BYTES / 1048576}")
-        
+        # 4. 超额阻断判断
+        local MB=$(awk "BEGIN {print $STORED_TOTAL / 1048576}")
         local EXCEEDED=$(awk "BEGIN {print ($MB >= $QUOTA) ? 1 : 0}")
         if [ "$EXCEEDED" -eq 1 ]; then
             if ! iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
@@ -66,28 +92,42 @@ check_and_block() {
     done
 }
 
-# 后台守护进程入口 (每3秒执行一次)
-if [ "$1" == "daemon" ]; then
-    # 【新增】VPS重启后服务自动启动时，自动恢复所有端口的 iptables 规则和 tc 限速
+# 重新构建 tc 过滤器
+rebuild_tc_filters() {
+    tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
         local p=$(basename "$conf" .conf)
         source "$conf"
         
+        if [ "$RATE" != "UNLIMITED" ]; then
+            local HEX=$(printf "%x" "$p")
+            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip dport "$p" 0xffff flowid 1:$HEX 2>/dev/null
+            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip sport "$p" 0xffff flowid 1:$HEX 2>/dev/null
+        fi
+    done
+}
+
+# 后台守护进程入口 (每3秒执行一次)
+if [ "$1" == "daemon" ]; then
+    # VPS重启后自动恢复 tc 队列与规则
+    tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
+    tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
+    tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
+
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local p=$(basename "$conf" .conf)
+        source "$conf"
         local HEX=$(printf "%x" "$p")
         local CHAIN_NAME="LIMIT_P_${p}"
 
-        # 1. 恢复 tc 网速限制
+        # 恢复 tc 网速限制
         if [ "$RATE" != "UNLIMITED" ]; then
-            if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
-                tc qdisc add dev "$INTERFACE" root handle 1: htb default 30
-                tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit
-                tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit
-            fi
             tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE" 2>/dev/null || true
         fi
 
-        # 2. 恢复 iptables 自定义链及挂载钩子
+        # 恢复 iptables 规则
         iptables -N "$CHAIN_NAME" 2>/dev/null || true
         iptables -F "$CHAIN_NAME"
         iptables -A "$CHAIN_NAME" -j ACCEPT
@@ -109,17 +149,18 @@ if [ "$1" == "daemon" ]; then
         iptables -I FORWARD 1 -p udp --dport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p tcp --sport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p udp --sport "$p" -j "$CHAIN_NAME"
+        
+        iptables -Z "$CHAIN_NAME" 2>/dev/null || true
+        sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf" 2>/dev/null || true
     done
     rebuild_tc_filters
 
-    # 进入正常的 3 秒轮询检测
     while true; do
         check_and_block
         sleep 3
     done
     exit 0
 fi
-
 
 # 自动配置并启动 Systemd 后台服务
 install_systemd_service() {
@@ -152,21 +193,6 @@ install_systemd_service
 # 核心功能函数
 # ==========================================
 
-rebuild_tc_filters() {
-    tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
-    for conf in "$CONF_DIR"/*.conf; do
-        [ -e "$conf" ] || continue
-        local p=$(basename "$conf" .conf)
-        source "$conf"
-        
-        if [ "$RATE" != "UNLIMITED" ]; then
-            local HEX=$(printf "%x" "$p")
-            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip dport "$p" 0xffff flowid 1:$HEX
-            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip sport "$p" 0xffff flowid 1:$HEX
-        fi
-    done
-}
-
 apply_limit() {
     local p=$1
     local r=$2
@@ -176,10 +202,11 @@ apply_limit() {
     local HEX=$(printf "%x" "$p")
     local CHAIN_NAME="LIMIT_P_${p}"
 
-    echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"" > "$CONF_DIR/${p}.conf"
+    # 保存配置到文件（包含网速、流量上限、持久化统计变量）
+    echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"\nSTORED_TOTAL=\"0\"\nLAST_IPT_BYTES=\"0\"" > "$CONF_DIR/${p}.conf"
 
+    # 应用 TC 网速限制
     tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
-
     if [ "$r" != "UNLIMITED" ]; then
         if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
             tc qdisc add dev "$INTERFACE" root handle 1: htb default 30
@@ -190,6 +217,7 @@ apply_limit() {
     fi
     rebuild_tc_filters
 
+    # 应用 iptables 流量统计链
     iptables -N "$CHAIN_NAME" 2>/dev/null || true
     iptables -F "$CHAIN_NAME"
     iptables -A "$CHAIN_NAME" -j ACCEPT
@@ -201,7 +229,7 @@ apply_limit() {
     iptables -D FORWARD -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
-    iptables -D FORWARD -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+    iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
 
     iptables -I INPUT 1 -p tcp --dport "$p" -j "$CHAIN_NAME"
     iptables -I INPUT 1 -p udp --dport "$p" -j "$CHAIN_NAME"
@@ -229,7 +257,7 @@ remove_limit() {
     iptables -D FORWARD -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
-    iptables -D FORWARD -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+    iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -F "$CHAIN_NAME" 2>/dev/null || true
     iptables -X "$CHAIN_NAME" 2>/dev/null || true
 }
@@ -238,9 +266,9 @@ show_ports() {
     check_and_block
 
     echo -e "\033[36m当前网卡: $INTERFACE\033[0m"
-    echo "-----------------------------------------------------------------"
-    printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量" "网速" "已用" "周期" "状态"
-    echo "-----------------------------------------------------------------"
+    echo "---------------------------------------------------------------------------------"
+    printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量上限" "网速上限" "已用流量" "周期" "状态"
+    echo "---------------------------------------------------------------------------------"
     
     local count=0
     for conf in "$CONF_DIR"/*.conf; do
@@ -253,8 +281,10 @@ show_ports() {
         local COLOR_STATUS="\033[32m正常\033[0m"
         local USED_MB="0.00"
         
+        [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
+        
+        local BYTES="$STORED_TOTAL"
         if iptables -L "$CHAIN_NAME" -v -x &> /dev/null; then
-            local BYTES=$(iptables -L "$CHAIN_NAME" -v -x | awk 'NR>2 {sum+=$2} END {print sum + 0}')
             USED_MB=$(awk "BEGIN {printf \"%.2f\", $BYTES / 1048576}")
             if iptables -L "$CHAIN_NAME" -v -n | grep -q "DROP"; then
                 COLOR_STATUS="\033[31m阻断\033[0m"
@@ -276,7 +306,7 @@ show_ports() {
     if [ "$count" -eq 0 ]; then
         echo -e "                   \033[33m当前暂未设置任何端口限制\033[0m"
     fi
-    echo "-----------------------------------------------------------------"
+    echo "---------------------------------------------------------------------------------"
 }
 
 # ==========================================
@@ -285,7 +315,7 @@ show_ports() {
 while true; do
     clear
     echo "========================================================"
-    echo "               端口网速与流量限制管理脚本"
+    echo "         端口网速与流量限制管理系统 (全功能版)"
     echo "========================================================"
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
@@ -360,7 +390,9 @@ while true; do
             ;;
         8)
             clear
-            bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh)
+            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
+            chmod +x /usr/local/bin/port_menu.sh
+            bash /usr/local/bin/port_menu.sh
             ;;
         0)
             echo -e "\033[32m退出脚本。后台 3 秒守护正常运行中。\033[0m"
