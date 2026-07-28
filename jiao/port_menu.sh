@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (完整功能版: 网速限制 + 流量持久化 + 自动阻断)
+# 端口网速与流量限制管理系统 (流量修复版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -39,7 +39,6 @@ check_and_block() {
         
         local CHAIN_NAME="LIMIT_P_${PORT}"
         
-        # 兼容旧配置：初始化持久化变量
         [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
         [ -z "$LAST_IPT_BYTES" ] && LAST_IPT_BYTES=0
         [ -z "$RATE" ] && RATE="UNLIMITED"
@@ -60,7 +59,6 @@ check_and_block() {
         # 2. 读取当前 iptables 内存中的流量字节数
         local IPT_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
         
-        # 计算自上次检查以来新增的流量差值（防重启重置）
         local DIFF=0
         if [ "$IPT_BYTES" -ge "$LAST_IPT_BYTES" ]; then
             DIFF=$(( IPT_BYTES - LAST_IPT_BYTES ))
@@ -68,20 +66,16 @@ check_and_block() {
             DIFF="$IPT_BYTES"
         fi
         
-        # 累加到总流量中并更新检查点
         STORED_TOTAL=$(( STORED_TOTAL + DIFF ))
         LAST_IPT_BYTES="$IPT_BYTES"
         
-        # 实时写回配置文件持久化保存
         sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"$STORED_TOTAL\"/" "$conf"
         sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"$LAST_IPT_BYTES\"/" "$conf"
 
-        # 3. 如果不限制流量，跳过阻断判断
         if [ "$QUOTA" == "UNLIMITED" ]; then
             continue
         fi
         
-        # 4. 超额阻断判断
         local MB=$(awk "BEGIN {print $STORED_TOTAL / 1048576}")
         local EXCEEDED=$(awk "BEGIN {print ($MB >= $QUOTA) ? 1 : 0}")
         if [ "$EXCEEDED" -eq 1 ]; then
@@ -92,7 +86,6 @@ check_and_block() {
     done
 }
 
-# 重新构建 tc 过滤器
 rebuild_tc_filters() {
     tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
     for conf in "$CONF_DIR"/*.conf; do
@@ -108,9 +101,7 @@ rebuild_tc_filters() {
     done
 }
 
-# 后台守护进程入口 (每3秒执行一次)
 if [ "$1" == "daemon" ]; then
-    # VPS重启后自动恢复 tc 队列与规则
     tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
     tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
     tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
@@ -122,12 +113,10 @@ if [ "$1" == "daemon" ]; then
         local HEX=$(printf "%x" "$p")
         local CHAIN_NAME="LIMIT_P_${p}"
 
-        # 恢复 tc 网速限制
         if [ "$RATE" != "UNLIMITED" ]; then
             tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE" 2>/dev/null || true
         fi
 
-        # 恢复 iptables 规则
         iptables -N "$CHAIN_NAME" 2>/dev/null || true
         iptables -F "$CHAIN_NAME"
         iptables -A "$CHAIN_NAME" -j ACCEPT
@@ -149,9 +138,6 @@ if [ "$1" == "daemon" ]; then
         iptables -I FORWARD 1 -p udp --dport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p tcp --sport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p udp --sport "$p" -j "$CHAIN_NAME"
-        
-        iptables -Z "$CHAIN_NAME" 2>/dev/null || true
-        sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf" 2>/dev/null || true
     done
     rebuild_tc_filters
 
@@ -162,7 +148,6 @@ if [ "$1" == "daemon" ]; then
     exit 0
 fi
 
-# 自动配置并启动 Systemd 后台服务
 install_systemd_service() {
     crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
 
@@ -189,10 +174,6 @@ EOF
 }
 install_systemd_service
 
-# ==========================================
-# 核心功能函数
-# ==========================================
-
 apply_limit() {
     local p=$1
     local r=$2
@@ -202,10 +183,8 @@ apply_limit() {
     local HEX=$(printf "%x" "$p")
     local CHAIN_NAME="LIMIT_P_${p}"
 
-    # 保存配置到文件（包含网速、流量上限、持久化统计变量）
     echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"\nSTORED_TOTAL=\"0\"\nLAST_IPT_BYTES=\"0\"" > "$CONF_DIR/${p}.conf"
 
-    # 应用 TC 网速限制
     tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
     if [ "$r" != "UNLIMITED" ]; then
         if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
@@ -217,7 +196,6 @@ apply_limit() {
     fi
     rebuild_tc_filters
 
-    # 应用 iptables 流量统计链
     iptables -N "$CHAIN_NAME" 2>/dev/null || true
     iptables -F "$CHAIN_NAME"
     iptables -A "$CHAIN_NAME" -j ACCEPT
@@ -229,7 +207,7 @@ apply_limit() {
     iptables -D FORWARD -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
-    iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+    iptables -D FORWARD -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
 
     iptables -I INPUT 1 -p tcp --dport "$p" -j "$CHAIN_NAME"
     iptables -I INPUT 1 -p udp --dport "$p" -j "$CHAIN_NAME"
@@ -257,7 +235,7 @@ remove_limit() {
     iptables -D FORWARD -p tcp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -D FORWARD -p tcp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
-    iptables -D FORWARD -p udp --dport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
+    iptables -D FORWARD -p udp --sport "$p" -j "$CHAIN_NAME" 2>/dev/null || true
     iptables -F "$CHAIN_NAME" 2>/dev/null || true
     iptables -X "$CHAIN_NAME" 2>/dev/null || true
 }
@@ -279,16 +257,19 @@ show_ports() {
         
         local CHAIN_NAME="LIMIT_P_${PORT}"
         local COLOR_STATUS="\033[32m正常\033[0m"
-        local USED_MB="0.00"
         
         [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
         
-        local BYTES="$STORED_TOTAL"
-        if iptables -L "$CHAIN_NAME" -v -x &> /dev/null; then
-            USED_MB=$(awk "BEGIN {printf \"%.2f\", $BYTES / 1048576}")
-            if iptables -L "$CHAIN_NAME" -v -n | grep -q "DROP"; then
-                COLOR_STATUS="\033[31m阻断\033[0m"
-            fi
+        # 【双重保险】如果 STORED_TOTAL 为 0，尝试直接从 iptables 实时获取一次当前流量
+        if [ "$STORED_TOTAL" -eq 0 ]; then
+            local LIVE_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
+            [ "$LIVE_BYTES" -gt 0 ] && STORED_TOTAL="$LIVE_BYTES"
+        }
+        
+        local USED_MB=$(awk "BEGIN {printf \"%.2f\", $STORED_TOTAL / 1048576}")
+        
+        if iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
+            COLOR_STATUS="\033[31m阻断\033[0m"
         fi
         
         local Q_DISP="无限制"
