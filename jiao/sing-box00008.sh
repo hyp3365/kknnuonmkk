@@ -1400,27 +1400,21 @@ change_config() {
             purple "跳跃区间：$min_port-$max_port"
             ;;
         5)  
-            purple "正在清理 nftables 端口跳跃规则..."
-            nft flush chain ip nat prerouting 2>/dev/null
-            
+            purple "正在清理端口跳跃规则..."
+            nft delete rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
             if [ -f /proc/net/if_inet6 ]; then
-                nft flush chain ip6 nat prerouting 2>/dev/null
+                nft delete rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
             fi
-            
-            if [ -d /etc/nftables ]; then
-                nft list ruleset > /etc/nftables/rules.nft 2>/dev/null
-                nft list ruleset > /etc/nftables.conf 2>/dev/null
-            fi
-            
-            if command -v systemctl &> /dev/null; then
-                systemctl restart nftables >/dev/null 2>&1
+            if [ -f "/etc/nftables.conf" ]; then
+                nft -f /etc/nftables.conf 2>/dev/null
             fi
 
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
             fi
-            green "\n[✔] 端口跳跃已关闭"
+            
+            green "\n[✔] 端口跳跃已安全关闭"
             ;;
 
         6)  change_cfip ;;
