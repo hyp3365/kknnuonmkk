@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统 (防重启计数修复版)
+# 端口网速与流量限制管理系统 (清爽版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -59,12 +59,11 @@ check_and_block() {
         # 2. 读取当前 iptables 内存中的流量字节数
         local IPT_BYTES=$(iptables -L "$CHAIN_NAME" -v -x 2>/dev/null | awk 'NR>2 {sum+=$2} END {print sum + 0}')
         
-        # 【核心修复】计算差值，完美适配 VPS 重启后 iptables 计数器清零的情况
+        # 3. 计算差值，适配 VPS 重启后 iptables 计数器清零的情况
         local DIFF=0
         if [ "$IPT_BYTES" -ge "$LAST_IPT_BYTES" ]; then
             DIFF=$(( IPT_BYTES - LAST_IPT_BYTES ))
         else
-            # 说明 VPS 重启过，iptables 计数器被清零重置了，当前 IPT_BYTES 即为重启后的新增流量
             DIFF="$IPT_BYTES"
         fi
         
@@ -153,12 +152,18 @@ fi
 install_systemd_service() {
     crontab -l 2>/dev/null | grep -v "port_menu" | grep -v "port_quota" | crontab - 2>/dev/null || true
 
+    # 彻底清理可能引起冲突的旧服务
+    systemctl stop restore_iptables.service >/dev/null 2>&1
+    systemctl disable restore_iptables.service >/dev/null 2>&1
+    rm -f /etc/systemd/system/restore_iptables.service
+
     local SERVICE_FILE="/etc/systemd/system/port_manager.service"
     
     cat << EOF > "$SERVICE_FILE"
 [Unit]
 Description=Port Traffic Manager Background Service
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -294,18 +299,17 @@ show_ports() {
 while true; do
     clear
     echo "========================================================"
-    echo "         端口网速与流量限制管理系统 (全功能版)"
+    echo "         端口网速与流量限制管理系统"
     echo "========================================================"
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
     echo "  3. 删除 端口限制"
-    echo "  8. 更新/重载 远程脚本"
     echo "  0. 退出 脚本"
     echo "========================================================"
     echo -e "已设置的端口:\n"
     show_ports
     
-    read -p "请输入选项 [1-3, 8, 0]: " choice
+    read -p "请输入选项 [1-3, 0]: " choice
     case $choice in
         1|2)
             if [ "$choice" == "2" ]; then
@@ -366,12 +370,6 @@ while true; do
                 echo -e "\033[31m[-] 未找到该端口的配置！\033[0m"
             fi
             read -p "按回车键继续..."
-            ;;
-        8)
-            clear
-            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu.sh -o /usr/local/bin/port_menu.sh
-            chmod +x /usr/local/bin/port_menu.sh
-            bash /usr/local/bin/port_menu.sh
             ;;
         0)
             echo -e "\033[32m退出脚本。后台 3 秒守护正常运行中。\033[0m"
