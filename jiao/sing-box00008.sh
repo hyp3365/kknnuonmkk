@@ -2406,25 +2406,34 @@ EOF
             ;;
 
             52) 
-            iptables -t nat -F PREROUTING > /dev/null 2>&1
-            if command -v ip6tables &> /dev/null; then
-               ip6tables -t nat -F PREROUTING > /dev/null 2>&1
+                        # 清空 nftables 中的 nat 转发规则（同时支持 IPv4 和 IPv6）
+            nft flush chain ip nat prerouting 2>/dev/null
+            if [ -f /proc/net/if_inet6 ]; then
+               nft flush chain ip6 nat prerouting 2>/dev/null
             fi
-            if command -v netfilter-persistent &> /dev/null; then
-               netfilter-persistent save > /dev/null 2>&1
-            fi
-			target="_hysteria2"
+            
+            target="_hysteria2"
             target_conf="/etc/sing-box/conf/hysteria2.json"
             if [ -f "$target_conf" ]; then
 				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
+				
+                # 从 nftables 配置文件中清理对应端口的规则
+                if [ -n "$hy2_port" ]; then
+                    if [ -f "/etc/nftables/rules.nft" ]; then
+                        sed -i "/dport $hy2_port /d" /etc/nftables/rules.nft 2>/dev/null
                     fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi        
+                    if [ -f "/etc/nftables.conf" ]; then
+                        sed -i "/dport $hy2_port /d" /etc/nftables.conf 2>/dev/null
+                    fi
+                    
+                    # 重新加载 nftables 规则使其立即生效
+                    if [ -f "/etc/nftables.conf" ]; then
+                        nft -f /etc/nftables.conf 2>/dev/null
+                    elif [ -f "/etc/nftables/rules.nft" ]; then
+                        nft -f /etc/nftables/rules.nft 2>/dev/null
+                    fi
+                fi
+
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2443,7 +2452,8 @@ EOF
             else
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
-            ;;	
+            ;;
+
 			53) 
             iptables -t nat -F PREROUTING > /dev/null 2>&1
             if command -v ip6tables &> /dev/null; then
