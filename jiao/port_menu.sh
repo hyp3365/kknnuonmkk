@@ -16,12 +16,6 @@ fi
 
 mkdir -p "$CONF_DIR"
 
-# 自动把自己固化到 /usr/local/bin/ 确保系统服务路径稳定
-if [ "$(readlink -f "$0")" != "$TARGET_PATH" ] && [ "$1" != "daemon" ]; then
-    cp "$0" "$TARGET_PATH" 2>/dev/null || cp "$(which "$0" 2>/dev/null || echo "$0")" "$TARGET_PATH" 2>/dev/null
-    chmod +x "$TARGET_PATH"
-fi
-
 get_interface() {
     local dev
     dev=$(ip route show default | awk '/default/ {print $5}' | head -n1)
