@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# 端口网速与流量限制管理系统
+# 端口网速与流量限制管理系统 (防闪烁精准版)
 # ==========================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -26,6 +26,9 @@ get_interface() {
 }
 INTERFACE=$(get_interface)
 
+# ==========================================
+# 核心阻断与流量持久化统计逻辑
+# ==========================================
 check_and_block() {
     local CURRENT_MONTH=$(date +%Y%m)
     
@@ -43,7 +46,6 @@ check_and_block() {
         if [ "$RESET_MODE" == "MONTHLY" ] && [ "$CURRENT_MONTH" != "$LAST_RESET_MONTH" ]; then
             iptables -F "$CHAIN_NAME" 2>/dev/null
             iptables -A "$CHAIN_NAME" -j ACCEPT 2>/dev/null
-            iptables -D "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
             STORED_TOTAL=0
             LAST_IPT_BYTES=0
             sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH\"/" "$conf"
@@ -71,11 +73,11 @@ check_and_block() {
             continue
         fi
         
-        local MB=$(awk "BEGIN {print $STORED_TOTAL / 1048576}")
-        local EXCEEDED=$(awk "BEGIN {print ($MB >= $QUOTA) ? 1 : 0}")
-        if [ "$EXCEEDED" -eq 1 ]; then
+        # 字节级精准比对：QUOTA (MB) 转换为字节 -> QUOTA * 1048576
+        local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+        if [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ]; then
             if ! iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
-                iptables -I "$CHAIN_NAME" 1 -j DROP
+                iptables -I "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
             fi
         fi
     done
@@ -141,10 +143,20 @@ restore_rules_func() {
         iptables -I FORWARD 1 -p udp --dport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p tcp --sport "$p" -j "$CHAIN_NAME"
         iptables -I FORWARD 1 -p udp --sport "$p" -j "$CHAIN_NAME"
+
+        if [ "$QUOTA" != "UNLIMITED" ]; then
+            local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+            if [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ]; then
+                iptables -I "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
+            fi
+        fi
     done
     rebuild_tc_filters
 }
 
+# ==========================================
+# 后台守护进程逻辑
+# ==========================================
 if [ "$1" == "daemon" ]; then
     restore_rules_func
     while true; do
@@ -154,6 +166,9 @@ if [ "$1" == "daemon" ]; then
     exit 0
 fi
 
+# ==========================================
+# 服务安装与自我更新逻辑
+# ==========================================
 install_systemd_service() {
     if [ "$(realpath "$0")" != "$(realpath "$TARGET_PATH")" ]; then
         cp -f "$0" "$TARGET_PATH"
@@ -184,6 +199,9 @@ EOF
 }
 install_systemd_service
 
+# ==========================================
+# 菜单操作逻辑
+# ==========================================
 apply_limit() {
     local p=$1
     local r=$2
@@ -254,9 +272,9 @@ show_ports() {
     check_and_block
 
     echo -e "\033[36m当前网卡: $INTERFACE\033[0m"
-    echo "-------------------------------------------"
+    echo "---------------------------------------------------------------------------------"
     printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量上限" "网速上限" "已用流量" "周期" "状态"
-    echo "-------------------------------------------"
+    echo "---------------------------------------------------------------------------------"
     
     local count=0
     for conf in "$CONF_DIR"/*.conf; do
@@ -277,8 +295,20 @@ show_ports() {
         
         local USED_MB=$(awk "BEGIN {printf \"%.2f\", $STORED_TOTAL / 1048576}")
         
+        # 核心修复：直接通过字节数判定是否超标，避免浮点数误差带来的判定失效
+        local is_dropped=0
         if iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
+            is_dropped=1
+        elif [ "$QUOTA" != "UNLIMITED" ]; then
+            local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+            [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ] && is_dropped=1
+        fi
+
+        if [ "$is_dropped" -eq 1 ]; then
             COLOR_STATUS="\033[31m阻断\033[0m"
+            if ! iptables -L "$CHAIN_NAME" -v -n 2>/dev/null | grep -q "DROP"; then
+                iptables -I "$CHAIN_NAME" 1 -j DROP 2>/dev/null || true
+            fi
         fi
         
         local Q_DISP="无限制"
@@ -296,19 +326,19 @@ show_ports() {
     if [ "$count" -eq 0 ]; then
         echo -e "                   \033[33m当前暂未设置任何端口限制\033[0m"
     fi
-    echo "-------------------------------------------"
+    echo "---------------------------------------------------------------------------------"
 }
 
 while true; do
     clear
-    echo "============================================="
-    echo "         端口网速与流量限制3.3"
-    echo "============================================="
+    echo "========================================================"
+    echo "         端口网速与流量限制管理系统3.6"
+    echo "========================================================"
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
     echo "  3. 删除 端口限制"
     echo "  0. 退出 脚本"
-    echo "============================================="
+    echo "========================================================"
     echo -e "已设置的端口:\n"
     show_ports
     
@@ -375,7 +405,7 @@ while true; do
             read -p "按回车键继续..."
             ;;
         0)
-            echo -e "\033[32m退出脚本。\033[0m"
+            echo -e "\033[32m退出脚本。后台守护已更新并正常运行中。\033[0m"
             exit 0
             ;;
         *)
