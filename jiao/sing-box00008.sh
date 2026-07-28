@@ -1322,7 +1322,7 @@ change_config() {
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
         4) 
-		    Generate_vars
+		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local deps=("nftables" "curl" "shuf")
             for dep in "${deps[@]}"; do
