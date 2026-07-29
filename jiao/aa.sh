@@ -678,7 +678,6 @@ while true; do
    green "5. 3X-UI面板"
    green "6. Cloudreve云盘"
    green "7. FileBrowser网盘"
-   green "8. 修改SSH连接端口"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -707,23 +706,6 @@ while true; do
 		7)
             filebrowser_menu
             ;;
-		8) 
-		    clear
-              #!/bin/bash
-              sed -i 's/#Port/Port/' /etc/ssh/sshd_config
-              current_port=$(grep -E '^ *Port [0-9]+' /etc/ssh/sshd_config | awk '{print $2}')
-              echo "当前的 SSH 端口号是: $current_port"
-
-              echo "------------------------"
-              read -p $'\033[1;35m请输入新的 SSH 端口号: \033[0m' new_port
-              cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-              sed -i "s/Port [0-9]\+/Port $new_port/g" /etc/ssh/sshd_config
-              service sshd restart
-              echo "SSH 端口已修改为: $new_port"
-              clear
-              iptables_open
-              remove iptables-persistent ufw firewalld iptables-services > /dev/null 2>&1
-              ;;
         0)
             echo "退出脚本"
             exit 0
