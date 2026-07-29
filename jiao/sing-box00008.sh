@@ -2986,7 +2986,7 @@ iptables_ssl() {
                     green "成功：端口 $o_port 已放行 (原生双栈生效)"
                 fi
             fi
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
             
         2)
             read -p "请输入要关闭端口号: " c_port
@@ -3002,7 +3002,7 @@ iptables_ssl() {
                 nft list ruleset > /etc/nftables.conf
                 green "清理完成：端口 $c_port 已关闭"
             fi
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
 
         3)
             yellow "正在开启拦截..."
@@ -3022,14 +3022,14 @@ iptables_ssl() {
             nft list ruleset > /etc/nftables.conf
             
             green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
-            Iptables_ssl ;;
+            iptables_ssl ;;
             
          4)
             yellow "正在关闭拦截..."
             nft chain inet filter input '{ policy accept; }' 2>/dev/null
             nft list ruleset > /etc/nftables.conf
             green "已关闭拦截 (默认放行所有)" && sleep 1
-            Iptables_ssl ;;
+            iptables_ssl ;;
             
 		5)
             yellow "正在配置环境..."
@@ -3045,14 +3045,14 @@ iptables_ssl() {
             check_rule_files
             nft list ruleset > /etc/nftables.conf
             green "环境配置完成。" 
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
             
 		6)
             yellow "正在停止防火墙并清空内存规则..."
             systemctl stop nftables 2>/dev/null
             nft flush ruleset
             green "防火墙已停止，规则已彻底清空。"
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
             
         7)
             yellow "正在重载并激活防火墙规则..."
@@ -3062,7 +3062,7 @@ iptables_ssl() {
                 nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 已重载。"
             fi
             green "重载操作执行完毕。"
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
             
 		8) 
             clear
