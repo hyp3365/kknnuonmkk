@@ -3133,7 +3133,7 @@ iptables_ssl() {
             done
             nft list ruleset > /etc/nftables.conf
             green "清理完成！配置文件已更新保存。"
-            sleep 1 && Iptables_ssl ;;
+            sleep 1 && iptables_ssl ;;
             
         0) menu ;;
         *) Iptables_ssl ;;
