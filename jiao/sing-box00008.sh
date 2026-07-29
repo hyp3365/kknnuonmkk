@@ -2877,7 +2877,7 @@ enable_bbr() {
 
 
 # Iptables简单管理工具
-# 确保原生 nftables 基础表结构存在
+ipt_msg() { echo -e "${1}${2}\033[0m"; }
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
