@@ -389,111 +389,84 @@ check_and_issue_ssl() {
 }
 
 # 处理防火墙
+# 处理防火墙 (完全适配原生 nftables)
 allow_port() {
-    has_ufw=0
-    has_firewalld=0
-    has_iptables=0
-    has_ip6tables=0
+    local has_ufw=0
+    local has_firewalld=0
+    local has_nft=0
 
     command_exists ufw && has_ufw=1
     command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
-    command_exists iptables && has_iptables=1
-    command_exists ip6tables && has_ip6tables=1
+    command_exists nft && has_nft=1
 
     # 出站和基础规则
     [ "$has_ufw" -eq 1 ] && ufw --force default allow outgoing >/dev/null 2>&1
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --zone=public --set-target=ACCEPT >/dev/null 2>&1
-    [ "$has_iptables" -eq 1 ] && {
-        iptables -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables -I INPUT 3 -i lo -j ACCEPT
-        iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null || iptables -I INPUT 4 -p icmp -j ACCEPT
-        iptables -P FORWARD DROP 2>/dev/null || true
-        iptables -P OUTPUT ACCEPT 2>/dev/null || true
-    }
-    [ "$has_ip6tables" -eq 1 ] && {
-        ip6tables -C INPUT -i lo -j ACCEPT 2>/dev/null || ip6tables -I INPUT 3 -i lo -j ACCEPT
-        ip6tables -C INPUT -p icmp -j ACCEPT 2>/dev/null || ip6tables -I INPUT 4 -p icmp -j ACCEPT
-        ip6tables -P FORWARD DROP 2>/dev/null || true
-        ip6tables -P OUTPUT ACCEPT 2>/dev/null || true
-    }
+    
+    # 初始化 nftables 原生基础表和链（如果不存在）
+    if [ "$has_nft" -eq 1 ]; then
+        if ! nft list table inet filter &>/dev/null; then
+            nft add table inet filter
+            nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }'
+            nft add chain inet filter forward '{ type filter hook forward priority 0; policy accept; }'
+            nft add chain inet filter output '{ type filter hook output priority 0; policy accept; }'
+        fi
+        # 放行本地回环和 ICMP (Ping)
+        nft add rule inet filter input iif "lo" accept 2>/dev/null
+        nft add rule inet filter input ip protocol icmp accept 2>/dev/null
+        nft add rule inet filter input ip6 nexthdr icmpv6 accept 2>/dev/null
+    fi
 
-    # 入站
+    # 入站规则处理
     for rule in "$@"; do
-        port=${rule%/*}
-        proto=${rule#*/}
+        local port=${rule%/*}
+        local proto=${rule#*/}
+        # 如果传入的参数没有包含协议(例如直接传入 80 而不是 80/tcp)，则默认使用 tcp
+        [ "$port" == "$proto" ] && proto="tcp"
+
         [ "$has_ufw" -eq 1 ] && ufw allow in ${port}/${proto} >/dev/null 2>&1
         [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --add-port=${port}/${proto} >/dev/null 2>&1
-        [ "$has_iptables" -eq 1 ] && (iptables -C INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null || iptables -I INPUT 4 -p ${proto} --dport ${port} -j ACCEPT)
-        [ "$has_ip6tables" -eq 1 ] && (ip6tables -C INPUT -p ${proto} --dport ${port} -j ACCEPT 2>/dev/null || ip6tables -I INPUT 4 -p ${proto} --dport ${port} -j ACCEPT)
+        
+        # 原生 nftables 内存规则写入 (inet 自动双栈生效)
+        if [ "$has_nft" -eq 1 ]; then
+            # 避免重复添加规则
+            if ! nft list chain inet filter input 2>/dev/null | grep -qw "$proto dport $port"; then
+                nft add rule inet filter input $proto dport $port accept comment "ScriptManaged" 2>/dev/null
+            fi
+        fi
     done
 
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
 
-    mkdir -p /etc/nftables
-    for rule in "$@"; do
-        p_port=${rule%/*}
-        p_proto=${rule#*/}
-        tag="ScriptManaged"
-        
-        if [ ! -f /etc/nftables/rules.v4 ] || ! grep -q "COMMIT" /etc/nftables/rules.v4; then
-            cat > /etc/nftables/rules.v4 << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-COMMIT
-EOF
-        fi
-        
-        if ! grep -q "\--dport $p_port " /etc/nftables/rules.v4 2>/dev/null; then
-            sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
-            }" /etc/nftables/rules.v4
-        fi
-
-        if [ ! -f /etc/nftables/rules.v6 ] || ! grep -q "COMMIT" /etc/nftables/rules.v6; then
-            cat > /etc/nftables/rules.v6 << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-COMMIT
-EOF
-        fi
-        
-        if ! grep -q "\--dport $p_port " /etc/nftables/rules.v6 2>/dev/null; then
-            sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p $p_proto --dport $p_port -m comment --comment \"$tag\" -j ACCEPT
-            }" /etc/nftables/rules.v6
-        fi
-    done
-
-    iptables-restore < /etc/nftables/rules.v4 2>/dev/null
-    [ -f /etc/nftables/rules.v6 ] && ip6tables-restore < /etc/nftables/rules.v6 2>/dev/null
-
-    if command_exists netfilter-persistent; then
-        netfilter-persistent save >/dev/null 2>&1
-    elif command_exists service; then
-        service iptables save 2>/dev/null
-        service ip6tables save 2>/dev/null
+    # 规则持久化：直接导出当前原生规则覆盖配置文件
+    if [ "$has_nft" -eq 1 ]; then
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
 }
 
+# 批量关闭端口 (完全适配原生 nftables)
 close_port() {
-    mkdir -p /etc/nftables
+    local has_nft=0
+    command_exists nft && has_nft=1
     
     for rule in "$@"; do
-        p_port=${rule%/*}
-        if [ -f "/etc/nftables/rules.v4" ]; then
-            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/nftables/rules.v4
-        fi
-        if [ -f "/etc/nftables/rules.v6" ]; then
-            sed -i -E "/--dport\s+$p_port(\s+|$)/d" /etc/nftables/rules.v6
+        local port=${rule%/*}
+        
+        if [ "$has_nft" -eq 1 ]; then
+            # 在原生 nftables 中，删除规则最安全的方式是获取 handle 句柄并删除
+            # 通过 awk 提取匹配该端口规则的 handle 值
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
         fi
     done
-    [ -f "/etc/nftables/rules.v4" ] && iptables-restore < /etc/nftables/rules.v4 2>/dev/null
-    [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6 2>/dev/null
-    if command_exists netfilter-persistent; then
-        netfilter-persistent save >/dev/null 2>&1
+    
+    # 删除完毕后，将新的规则状态持久化到文件
+    if [ "$has_nft" -eq 1 ]; then
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
 }
+
 
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
@@ -1339,7 +1312,7 @@ change_config() {
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
-        4) 
+         4) 
 		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local deps=("nftables" "curl" "shuf")
@@ -1353,6 +1326,7 @@ change_config() {
                     fi
                 fi
             done
+            
 		    reading "请输入跳跃起始端口: " min_port
             while [ -z "$min_port" ]; do
                 red "不能为空，请重新输入: "
@@ -1369,31 +1343,30 @@ change_config() {
                 exit 1
             fi
             
-            purple "正在设置 nftables 端口跳跃规则..."
+            purple "正在设置原生 nftables 端口跳跃规则..."
             
             sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
             [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+            
+            # 建立 IPv4 NAT 转发 (追加 comment 标签以便于日后安全清理)
             nft add table ip nat 2>/dev/null
-            nft 'add chain ip nat prerouting { type nat hook prerouting priority 0; policy accept; }' 2>/dev/null
-            nft flush chain ip nat prerouting 2>/dev/null
-            nft add rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port
+            nft 'add chain ip nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+            # 注意：不再使用 flush 清空链，避免影响其他转发规则
+            nft add rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
 
+            # 建立 IPv6 NAT 转发
             if [ -f /proc/net/if_inet6 ]; then
                 nft add table ip6 nat 2>/dev/null
-                nft 'add chain ip6 nat prerouting { type nat hook prerouting priority 0; policy accept; }' 2>/dev/null
-                nft flush chain ip6 nat prerouting 2>/dev/null
-                nft add rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
+                nft 'add chain ip6 nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+                nft add rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
             fi
-            mkdir -p /etc/nftables
-            nft list ruleset > /etc/nftables/rules.nft
+            
+            # 直接统一持久化到系统原生配置
+            nft list ruleset > /etc/nftables.conf
             
             if command -v systemctl &> /dev/null; then
                 systemctl enable nftables >/dev/null 2>&1
                 systemctl start nftables >/dev/null 2>&1
-                if [ -f /etc/systemd/system/nftables.service ] || [ -f /lib/systemd/system/nftables.service ]; then
-                    # 适配部分系统默认加载 /etc/nftables.conf
-                    nft list ruleset > /etc/nftables.conf
-                fi
             elif command -v rc-service &> /dev/null; then
                 rc-update add nftables default 2>/dev/null
             fi
@@ -1417,22 +1390,32 @@ change_config() {
             green "\nHysteria2 端口跳跃已开启"
             purple "跳跃区间：$min_port-$max_port"
             ;;
+            
         5)  
-            purple "正在清理端口跳跃规则..."
-            nft delete rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
-            if [ -f /proc/net/if_inet6 ]; then
-                nft delete rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port 2>/dev/null
+            purple "正在安全清理原生 nftables 端口跳跃规则..."
+            
+            # 通过 comment 标签精准提取 handle 句柄并删除，无需依赖变量
+            if nft list chain ip nat prerouting &>/dev/null; then
+                for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                    nft delete rule ip nat prerouting handle $handle 2>/dev/null
+                done
             fi
-            if [ -f "/etc/nftables.conf" ]; then
-                nft -f /etc/nftables.conf 2>/dev/null
+            
+            if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
+                for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                    nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
+                done
             fi
+            
+            # 持久化更新后的规则
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
 
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
             fi
             
-            green "\n[✔] 端口跳跃已关闭"
+            green "\n[✔] 端口跳跃已安全关闭"
             ;;
 
         6)  change_cfip ;;
