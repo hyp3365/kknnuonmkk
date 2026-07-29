@@ -1312,17 +1312,19 @@ change_config() {
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
-         4) 
+        4) 
 		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
-            local deps=("nftables" "curl" "shuf")
-            for dep in "${deps[@]}"; do
-                if ! command -v "$dep" &> /dev/null; then
-                    yellow "检测到缺少依赖 $dep，正在安装..."
+            local check_cmds=("nft" "curl" "shuf")
+            local install_pkgs=("nftables" "curl" "coreutils")
+            
+            for i in "${!check_cmds[@]}"; do
+                if ! command -v "${check_cmds[$i]}" &> /dev/null; then
+                    yellow "检测到缺少依赖 ${install_pkgs[$i]}，正在安装..."
                     if [ -f /etc/debian_version ]; then
-                        apt-get update && apt-get install -y "$dep"
+                        apt-get update && apt-get install -y "${install_pkgs[$i]}"
                     elif [ -f /etc/redhat-release ]; then
-                        yum install -y "$dep"
+                        yum install -y "${install_pkgs[$i]}"
                     fi
                 fi
             done
@@ -1343,25 +1345,21 @@ change_config() {
                 exit 1
             fi
             
-            purple "正在设置原生 nftables 端口跳跃规则..."
+            purple "正在设置端口跳跃规则..."
             
             sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
             [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
             
-            # 建立 IPv4 NAT 转发 (追加 comment 标签以便于日后安全清理)
             nft add table ip nat 2>/dev/null
             nft 'add chain ip nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
-            # 注意：不再使用 flush 清空链，避免影响其他转发规则
             nft add rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
 
-            # 建立 IPv6 NAT 转发
             if [ -f /proc/net/if_inet6 ]; then
                 nft add table ip6 nat 2>/dev/null
                 nft 'add chain ip6 nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
                 nft add rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
             fi
             
-            # 直接统一持久化到系统原生配置
             nft list ruleset > /etc/nftables.conf
             
             if command -v systemctl &> /dev/null; then
@@ -1390,11 +1388,9 @@ change_config() {
             green "\nHysteria2 端口跳跃已开启"
             purple "跳跃区间：$min_port-$max_port"
             ;;
-            
+
         5)  
-            purple "正在安全清理原生 nftables 端口跳跃规则..."
-            
-            # 通过 comment 标签精准提取 handle 句柄并删除，无需依赖变量
+            purple "正在清理端口跳跃规则..."
             if nft list chain ip nat prerouting &>/dev/null; then
                 for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
                     nft delete rule ip nat prerouting handle $handle 2>/dev/null
@@ -1407,7 +1403,6 @@ change_config() {
                 done
             fi
             
-            # 持久化更新后的规则
             nft list ruleset > /etc/nftables.conf 2>/dev/null
 
             if [ -f "/etc/sing-box/url.txt" ]; then
@@ -1415,7 +1410,7 @@ change_config() {
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
             fi
             
-            green "\n[✔] 端口跳跃已安全关闭"
+            green "\n[✔] 端口跳跃已关闭"
             ;;
 
         6)  change_cfip ;;
@@ -2852,7 +2847,6 @@ check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
     
-    # 如果不存在基础 inet filter 表，则进行初始化
     if ! nft list table inet filter &>/dev/null; then
         cat > "$conf" << EOF
 flush ruleset
@@ -2883,7 +2877,6 @@ iptables_ssl() {
     local mode_text=""
     local svc_status=$(systemctl is-active nftables 2>/dev/null)
     
-    # 原生获取默认策略 (accept 或 drop)
     local policy=$(nft list chain inet filter input 2>/dev/null | awk '/policy/ {print $NF}' | tr -d ';')
     local rule_count=$(nft list ruleset 2>/dev/null | grep -vE "^table|^chain|^}" | wc -l)
 
@@ -2905,7 +2898,6 @@ iptables_ssl() {
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
-    # 原生解析 NAT 转发规则
     local nat_rules=$(nft list ruleset 2>/dev/null | awk '/dnat to/ {
         port=""; to="";
         for(i=1;i<=NF;i++){
@@ -2917,7 +2909,7 @@ iptables_ssl() {
     [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
 	
     echo ""
-    green "=== Nftables 原生防火墙管理 ==="
+    green "=== 防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
@@ -2926,8 +2918,7 @@ iptables_ssl() {
 
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-13s %-19s %-15s\n" "端口号" "所属服务" "说明"   
-    
-    # 原生提取已放行端口
+
     local allowed_ports=""
     if command -v nft &> /dev/null; then
         allowed_ports=$(nft list chain inet filter input 2>/dev/null | awk '/dport.*accept/ {
@@ -2935,7 +2926,6 @@ iptables_ssl() {
         }' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un)
         
         for port in $allowed_ports; do
-            # 检查是否有脚本标记
             local is_script=$(nft list chain inet filter input 2>/dev/null | grep -E "dport.*$port.*$tag")
             local note="系统/手动"
             [ -n "$is_script" ] && note="脚本放行"
@@ -2969,7 +2959,7 @@ iptables_ssl() {
     green "2. 关闭端口"
     green "3. 开启拦截"
     green "4. 关闭拦截"
-    green "5. 安装更新 (初始化纯净 nft 环境)"
+    green "5. 安装更新"
     green "6. 停止运行"
     green "7. 程序重启"
     red   "8. 端口流量网速设置"
@@ -3028,7 +3018,6 @@ iptables_ssl() {
                 nft add rule inet filter input tcp dport $port accept comment "SSH_Port" 2>/dev/null
             done
             
-            # 更改默认策略为 drop
             nft chain inet filter input '{ policy drop; }' 2>/dev/null
             nft list ruleset > /etc/nftables.conf
             
@@ -3043,12 +3032,11 @@ iptables_ssl() {
             Iptables_ssl ;;
             
 		5)
-            yellow "正在配置原生 nftables 环境..."
+            yellow "正在配置环境..."
             [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
             if [ -f /etc/debian_version ]; then
                 apt-get update -y
                 apt-get install -y nftables
-                # 可选：卸载冲突软件 ufw/iptables 等以保持纯净
             elif [ -f /etc/redhat-release ]; then
                 yum install -y nftables
             fi
@@ -3056,14 +3044,14 @@ iptables_ssl() {
             systemctl start nftables 2>/dev/null
             check_rule_files
             nft list ruleset > /etc/nftables.conf
-            green "环境配置完成！系统已使用原生 nftables 引擎。" 
+            green "环境配置完成。" 
             sleep 1 && Iptables_ssl ;;
             
 		6)
             yellow "正在停止防火墙并清空内存规则..."
             systemctl stop nftables 2>/dev/null
             nft flush ruleset
-            green "防火墙已停止，原生内存规则已彻底清空。"
+            green "防火墙已停止，规则已彻底清空。"
             sleep 1 && Iptables_ssl ;;
             
         7)
@@ -3071,7 +3059,7 @@ iptables_ssl() {
             systemctl enable nftables >/dev/null 2>&1
             systemctl start nftables >/dev/null 2>&1
             if [ -f "/etc/nftables.conf" ]; then
-                nft -f /etc/nftables.conf && green "原生规则 (/etc/nftables.conf) 已无损热重载。"
+                nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 已重载。"
             fi
             green "重载操作执行完毕。"
             sleep 1 && Iptables_ssl ;;
@@ -3094,11 +3082,10 @@ iptables_ssl() {
             yellow "正在自动扫描并清理所有未运行的无用端口规则..."
             for port in $(nft list chain inet filter input 2>/dev/null | awk '/ScriptManaged/ {for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un); do
                 if ! ss -tunlp | grep -q ":$port "; then
-                    # 抓取句柄并删除
                     for handle in $(nft -a list chain inet filter input | awk -v p="$port" '$0~"dport "p {print $NF}'); do
                         nft delete rule inet filter input handle $handle 2>/dev/null
                     done
-                    green "已清理僵尸端口: $port"
+                    green "已清理: $port"
                 fi
             done
             nft list ruleset > /etc/nftables.conf
