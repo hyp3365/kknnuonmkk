@@ -3124,7 +3124,16 @@ iptables_ssl() {
             
         8) 
             clear
-            yellow "正在进入"
+            yellow "正在初始化"
+            if ! command -v tc &> /dev/null; then
+                yellow "检测到系统缺少 tc 工具，正在自动安装"
+                if [ -f /etc/debian_version ]; then
+                    apt-get update -y && apt-get install -y iproute2
+                elif [ -f /etc/redhat-release ]; then
+                    yum install -y iproute 2>/dev/null || dnf install -y iproute
+                fi
+            fi
+
             cat << 'EOF' > /usr/local/bin/port_menu.sh
 #!/bin/bash
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -3203,7 +3212,7 @@ check_and_block() {
         fi
         
         local NFT_BYTES
-        NFT_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -oP 'counter packets \d+ bytes \K\d+' | head -n1)
+        NFT_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | awk '/bytes/ {for(i=1;i<=NF;i++) if($i=="bytes") {print $(i+1); exit}}')
         [ -z "$NFT_BYTES" ] && NFT_BYTES=0
         
         local DIFF=0
@@ -3294,7 +3303,6 @@ restore_rules_func() {
 if [ "$1" == "daemon" ]; then
     restore_rules_func
     while true; do
-        # 自愈机制：若主菜单做 flush 清空了表，3秒内自动重建
         if ! nft list table inet port_manager &>/dev/null; then
             restore_rules_func
         fi
@@ -3302,39 +3310,6 @@ if [ "$1" == "daemon" ]; then
         sleep 3
     done
     exit 0
-fi
-
-install_systemd_service() {
-    if [ "$(realpath "$0")" != "$(realpath "$TARGET_PATH")" ]; then
-        cp -f "$0" "$TARGET_PATH"
-        chmod +x "$TARGET_PATH"
-    fi
-
-    local SERVICE_FILE="/etc/systemd/system/port_manager.service"
-    
-    cat << 'SRVEOF' > "$SERVICE_FILE"
-[Unit]
-Description=Port Traffic Manager Background Service (nftables)
-After=network-online.target nftables.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/bin/bash /usr/local/bin/port_menu.sh daemon
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-SRVEOF
-
-    systemctl daemon-reload >/dev/null 2>&1
-    systemctl enable port_manager.service >/dev/null 2>&1
-    systemctl restart port_manager.service >/dev/null 2>&1
-}
-
-if [ "$1" != "menu" ]; then
-    install_systemd_service
 fi
 
 apply_limit() {
@@ -3405,7 +3380,7 @@ show_ports() {
         
         if [ "$STORED_TOTAL" -eq 0 ]; then
             local LIVE_BYTES
-            LIVE_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -oP 'counter packets \d+ bytes \K\d+' | head -n1)
+            LIVE_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | awk '/bytes/ {for(i=1;i<=NF;i++) if($i=="bytes") {print $(i+1); exit}}')
             [ -n "$LIVE_BYTES" ] && [ "$LIVE_BYTES" -gt 0 ] && STORED_TOTAL="$LIVE_BYTES"
         fi
         
@@ -3447,7 +3422,7 @@ show_ports() {
 while true; do
     clear
     echo "============================================="
-    echo "     端口网速与流量限制 (主面板接管版)"
+    echo "     端口网速与流量限制"
     echo "============================================="
     echo "  1. 新增 端口限制"
     echo "  2. 修改 端口限制 (会清零当前已用流量)"
@@ -3520,7 +3495,7 @@ while true; do
             read -p "按回车键继续..."
             ;;
         0)
-            echo -e "\033[32m返回防火墙主菜单。\033[0m"
+            echo -e "\033[32m返回防火墙。\033[0m"
             break
             ;;
         *)
@@ -3532,13 +3507,31 @@ done
 EOF
 
             chmod +x /usr/local/bin/port_menu.sh
+            cat << 'SRVEOF' > /etc/systemd/system/port_manager.service
+[Unit]
+Description=Port Traffic Manager Background Service (nftables)
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/local/bin/port_menu.sh daemon
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SRVEOF
+
+            systemctl daemon-reload >/dev/null 2>&1
+            systemctl enable port_manager.service >/dev/null 2>&1
+            systemctl restart port_manager.service >/dev/null 2>&1
             systemctl stop restore_iptables.service >/dev/null 2>&1
             systemctl disable restore_iptables.service >/dev/null 2>&1
             rm -f /etc/systemd/system/restore_iptables.service
             bash /usr/local/bin/port_menu.sh menu
             sleep 1 && iptables_ssl
-            ;;
-            
+            ;;                  
         9)
             yellow "正在自动扫描并清理所有未运行的无用端口规则..."
             for port in $(nft list chain inet filter input 2>/dev/null | awk '/ScriptManaged/ {for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un); do
