@@ -3531,15 +3531,10 @@ done
 EOF
 
             chmod +x /usr/local/bin/port_menu.sh
-            # 清理历史旧干扰服务
             systemctl stop restore_iptables.service >/dev/null 2>&1
             systemctl disable restore_iptables.service >/dev/null 2>&1
             rm -f /etc/systemd/system/restore_iptables.service
-            
-            # 运行流量子菜单
             bash /usr/local/bin/port_menu.sh menu
-            
-            # 返回主菜单
             sleep 1 && iptables_ssl
             ;;
             
@@ -3556,7 +3551,56 @@ EOF
             save_nft_rules
             green "清理完成！配置文件已更新保存。"
             sleep 1 && iptables_ssl ;;
+        10)
+            clear
+            sed -i 's/^#\s*Port/Port/' /etc/ssh/sshd_config
+            current_port=$(grep -E '^Port\s+[0-9]+' /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
+            [ -z "$current_port" ] && current_port=22
             
+            ipt_msg "\033[0;36m" "当前的 SSH 端口号是: $current_port"
+            skyblue "---------------------------"
+            
+            read -p $'\033[1;35m请输入新的 SSH 端口号 (1-65535): \033[0m' new_port
+            
+            if [ -z "$new_port" ]; then
+                yellow "未输入端口号，操作取消"
+                sleep 1 && iptables_ssl
+            elif ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
+                red "错误：请输入 1-65535 之间的有效端口号！"
+                sleep 1 && iptables_ssl
+            elif [ "$new_port" -eq "$current_port" ]; then
+                yellow "新端口与当前端口相同，无需修改。"
+                sleep 1 && iptables_ssl
+            else
+                cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+                if grep -qE '^Port\s+[0-9]+' /etc/ssh/sshd_config; then
+                    sed -i "s/^Port\s\+[0-9]\+/Port $new_port/g" /etc/ssh/sshd_config
+                else
+                    echo "Port $new_port" >> /etc/ssh/sshd_config
+                fi
+                
+                if command -v systemctl &>/dev/null; then
+                    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
+                else
+                    service sshd restart 2>/dev/null || service ssh restart 2>/dev/null
+                fi
+                
+                green "成功：SSH 端口已修改为 $new_port"
+
+                if command -v apt-get &>/dev/null; then
+                    apt-get remove -y iptables-persistent ufw >/dev/null 2>&1
+                elif command -v yum &>/dev/null; then
+                    yum remove -y firewalld iptables-services >/dev/null 2>&1
+                fi
+                
+                yellow "为了防止新端口未放行导致断网，正在自动关闭防火墙拦截模式..."
+                nft 'add chain inet filter input { type filter hook input priority 0; policy accept; }' 2>/dev/null
+                save_nft_rules
+                green "拦截已关闭，防火墙当前为 [放行所有] 状态"
+                
+                sleep 2 && iptables_ssl
+            fi
+            ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
