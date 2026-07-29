@@ -2841,8 +2841,15 @@ enable_bbr() {
 }
 
 
-# Iptables简单管理工具
+# Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
+
+# 安全保存规则：仅保存主体防火墙与 NAT 规则，智能隔离流量限速表
+save_nft_rules() {
+    echo "flush ruleset" > /etc/nftables.conf
+    nft list ruleset 2>/dev/null | awk '/table inet port_manager/{p=1;next} /^table /{p=0} !p' >> /etc/nftables.conf
+}
+
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
@@ -2852,15 +2859,15 @@ check_rule_files() {
 flush ruleset
 table inet filter {
     chain input {
-        type filter hook input priority filter; policy accept;
+        type filter hook input priority 0; policy accept;
         iif "lo" accept
         ct state established,related accept
     }
     chain forward {
-        type filter hook forward priority filter; policy accept;
+        type filter hook forward priority 0; policy accept;
     }
     chain output {
-        type filter hook output priority filter; policy accept;
+        type filter hook output priority 0; policy accept;
     }
 }
 EOF
@@ -2876,6 +2883,7 @@ iptables_ssl() {
     local status_text=""
     local mode_text=""
     local svc_status=$(systemctl is-active nftables 2>/dev/null)
+    local pm_status=$(systemctl is-active port_manager 2>/dev/null)
     
     local policy=$(nft list chain inet filter input 2>/dev/null | awk '/policy/ {print $NF}' | tr -d ';')
     local rule_count=$(nft list ruleset 2>/dev/null | grep -vE "^table|^chain|^}" | wc -l)
@@ -2909,11 +2917,20 @@ iptables_ssl() {
     [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
 	
     echo ""
-    green "=== 防火墙管理 ==="
-    echo -e "运行状态: $status_text"
+    green "=== 防火墙与流量管理面板 ==="
+    echo -e "防火墙状态: $status_text"
     echo -e "拦截模式: $mode_text"
+    
+    # 联动显示选项 8 流量管控服务状态
+    if [ "$pm_status" == "active" ]; then
+        local pm_cnt=$(ls -1 /etc/port_manager/*.conf 2>/dev/null | wc -l)
+        echo -e "流量管控: \033[0;32m运行中\033[0m (已设置 $pm_cnt 个端口限速)"
+    else
+        echo -e "流量管控: \033[0;37m未启用\033[0m"
+    fi
+    
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
-	echo -e "\033[0;33m$nat_rules\033[0m"
+    echo -e "\033[0;33m$nat_rules\033[0m"
     skyblue "---------------------------"
 
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
@@ -2930,6 +2947,11 @@ iptables_ssl() {
             local note="系统/手动"
             [ -n "$is_script" ] && note="脚本放行"
             
+            # 联动标注是否处于限速管控中
+            if [ -f "/etc/port_manager/${port}.conf" ]; then
+                note="${note}[限速中]"
+            fi
+            
             local name="未运行"
             local ss_line=$(ss -tunlp | grep ":$port " | head -n1)
             if [[ "$ss_line" =~ \"([^\"]+)\" ]]; then
@@ -2941,7 +2963,7 @@ iptables_ssl() {
     
     echo -e "\033[0;36m---------------------------\033[0m"
     ipt_msg "\033[0;35m" "检测到正在运行但【未放行】的端口"
-    printf "%-13s %-19s %-15s\n" "端口号"    "所属服务"    "监听IP"    
+    printf "%-13s %-19s %-15s\n" "端口号"    "所属服务"    "监听IP/状态"    
     ss -tunlp | awk 'NR>1 {
         addr = $5; n = split(addr, a, ":"); port = a[n];
         ip = ""; for(i=1; i<n; i++) ip = (ip == "" ? a[i] : ip ":" a[i]);
@@ -2950,10 +2972,13 @@ iptables_ssl() {
         name = "未知服务"; if ($NF ~ /"/) { split($NF, s, "\""); name = s[2] }
         if (port ~ /^[0-9]+$/ && port > 0) print port, name, ip}' | sort -un | sort -n -k1,1 | while read -r p_port p_name p_ip; do
         if ! echo "$allowed_ports" | grep -qw "$p_port"; then
-            printf "\033[0;31m%-10s %-15s %-10s\033[0m\n" "$p_port" "$p_name" "$p_ip"
+            local warn_extra=""
+            if [ -f "/etc/port_manager/${p_port}.conf" ]; then
+                warn_extra=" (已限速但未放行!)"
+            fi
+            printf "\033[0;31m%-10s %-15s %-10s\033[0m\n" "$p_port" "$p_name" "${p_ip}${warn_extra}"
         fi
     done
-    
     skyblue "---------------------------"
     green "1. 开启端口"
     green "2. 关闭端口"
@@ -2963,7 +2988,7 @@ iptables_ssl() {
     green "6. 停止运行"
     green "7. 程序重启"
     red   "8. 端口流量网速设置"
-	green "9. 清理未运行端口"
+    green "9. 清理未运行端口"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -2975,14 +3000,12 @@ iptables_ssl() {
             elif [ "$o_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                # 检查是否已放行
                 if nft list chain inet filter input 2>/dev/null | grep -qw "$o_port"; then
                     yellow "端口 $o_port 规则已存在，无需重复添加"
                 else
-                    # inet 协议簇自动同时生效于 IPv4 和 IPv6
                     nft add rule inet filter input tcp dport $o_port accept comment "$tag" 2>/dev/null
                     nft add rule inet filter input udp dport $o_port accept comment "$tag" 2>/dev/null
-                    nft list ruleset > /etc/nftables.conf
+                    save_nft_rules
                     green "成功：端口 $o_port 已放行 (原生双栈生效)"
                 fi
             fi
@@ -2995,11 +3018,10 @@ iptables_ssl() {
             elif [ "$c_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                # 根据 handle 安全删除指定端口规则
                 for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$c_port" '$0~"dport "p {print $NF}'); do
                     nft delete rule inet filter input handle $handle 2>/dev/null
                 done
-                nft list ruleset > /etc/nftables.conf
+                save_nft_rules
                 green "清理完成：端口 $c_port 已关闭"
             fi
             sleep 1 && iptables_ssl ;;
@@ -3009,29 +3031,40 @@ iptables_ssl() {
             ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
             [ -z "$ssh_ports" ] && ssh_ports=22
             
-            # 确保关键安全规则存在
+            # 基础放行规则
             nft add rule inet filter input iif "lo" accept 2>/dev/null
             nft add rule inet filter input ct state established,related accept 2>/dev/null
             nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept 2>/dev/null
             
+            # 放行 SSH 端口
             for port in $ssh_ports; do
                 nft add rule inet filter input tcp dport $port accept comment "SSH_Port" 2>/dev/null
             done
             
-            nft chain inet filter input '{ policy drop; }' 2>/dev/null
-            nft list ruleset > /etc/nftables.conf
+            # 自动同步放行所有已配置流量限速的端口，避免开启拦截后误杀限速端口
+            for conf in /etc/port_manager/*.conf; do
+                [ -e "$conf" ] || continue
+                local pm_p=$(basename "$conf" .conf)
+                if [ -n "$pm_p" ] && [ "$pm_p" -gt 0 ] 2>/dev/null; then
+                    nft add rule inet filter input tcp dport $pm_p accept comment "PortManager" 2>/dev/null
+                    nft add rule inet filter input udp dport $pm_p accept comment "PortManager" 2>/dev/null
+                fi
+            done
             
-            green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
+            nft 'add chain inet filter input { type filter hook input priority 0; policy drop; }' 2>/dev/null
+            save_nft_rules
+            
+            green "开启拦截成功 (已自动放行 SSH 及限速管控端口)" && sleep 1
             iptables_ssl ;;
             
          4)
             yellow "正在关闭拦截..."
-            nft chain inet filter input '{ policy accept; }' 2>/dev/null
-            nft list ruleset > /etc/nftables.conf
+            nft 'add chain inet filter input { type filter hook input priority 0; policy accept; }' 2>/dev/null
+            save_nft_rules
             green "已关闭拦截 (默认放行所有)" && sleep 1
             iptables_ssl ;;
             
-		5)
+        5)
             yellow "正在配置环境..."
             [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
             if [ -f /etc/debian_version ]; then
@@ -3043,42 +3076,456 @@ iptables_ssl() {
             systemctl enable nftables 2>/dev/null
             systemctl start nftables 2>/dev/null
             check_rule_files
-            nft list ruleset > /etc/nftables.conf
+            save_nft_rules
             green "环境配置完成。" 
             sleep 1 && iptables_ssl ;;
             
-		6)
-            yellow "正在停止防火墙并清空内存规则..."
+        6)
+            yellow "正在停止防火墙并清空规则..."
             systemctl stop nftables 2>/dev/null
+            systemctl stop port_manager 2>/dev/null
             nft flush ruleset
-            green "防火墙已停止，规则已彻底清空。"
+            green "防火墙及流量限制服务已停止，规则已清空。"
             sleep 1 && iptables_ssl ;;
             
         7)
-            yellow "正在重载并激活防火墙规则..."
+            yellow "正在重载并激活防火墙与流量限制规则..."
             systemctl enable nftables >/dev/null 2>&1
             systemctl start nftables >/dev/null 2>&1
             if [ -f "/etc/nftables.conf" ]; then
-                nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 已重载。"
+                nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 防火墙规则已重载。"
+            fi
+            if [ -f "/usr/local/bin/port_menu.sh" ]; then
+                systemctl restart port_manager >/dev/null 2>&1 && green " (port_manager) 流量限制服务已同步重启。"
             fi
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
             
-		8) 
+        8) 
             clear
-            echo -e "\033[36m>>> 正在更新...\033[0m"
-            curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/port_menu00008.sh -o /usr/local/bin/port_menu.sh
-            chmod +x /usr/local/bin/port_menu.sh   
+            yellow "正在进入端口网速与流量限制组件..."
+            
+            # 动态生成自愈版流量限制子脚本
+            cat << 'EOF' > /usr/local/bin/port_menu.sh
+#!/bin/bash
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
+CONF_DIR="/etc/port_manager"
+TARGET_PATH="/usr/local/bin/port_menu.sh"
+
+if [ "$EUID" -ne 0 ]; then
+    echo -e "\033[31m[-] 错误: 请使用 root 权限运行此脚本\033[0m"
+    exit 1
+fi
+
+mkdir -p "$CONF_DIR"
+
+get_interface() {
+    local dev
+    dev=$(ip route show default | awk '/default/ {print $5}' | head -n1)
+    if [ -z "$dev" ]; then
+        dev=$(ip -o link show | awk -F': ' '{print $2}' | grep -v 'lo' | head -n1)
+    fi
+    echo "$dev"
+}
+INTERFACE=$(get_interface)
+
+get_bj_time() {
+    TZ='Asia/Shanghai' date "+%Y %m %d %H %M"
+}
+
+init_nft_table() {
+    nft add table inet port_manager 2>/dev/null || true
+    nft 'add chain inet port_manager prerouting { type filter hook prerouting priority 0; policy accept; }' 2>/dev/null || true
+    nft 'add chain inet port_manager postrouting { type filter hook postrouting priority 0; policy accept; }' 2>/dev/null || true
+    nft 'add chain inet port_manager output { type filter hook output priority 0; policy accept; }' 2>/dev/null || true
+    nft 'add chain inet port_manager input { type filter hook input priority 0; policy accept; }' 2>/dev/null || true
+}
+
+check_and_block() {
+    init_nft_table
+    read -r BJ_YEAR BJ_MONTH BJ_DAY BJ_HOUR BJ_MINUTE <<< "$(get_bj_time)"
+    local CURRENT_MONTH_STR="${BJ_YEAR}${BJ_MONTH}"
+    
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local PORT=$(basename "$conf" .conf)
+        source "$conf"
+        
+        local CHAIN_NAME="LIMIT_P_${PORT}"
+        
+        [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
+        [ -z "$LAST_IPT_BYTES" ] && LAST_IPT_BYTES=0
+        [ -z "$RATE" ] && RATE="UNLIMITED"
+        [ -z "$LAST_RESET_MONTH" ] && LAST_RESET_MONTH=""
+        
+        if [ "$RESET_MODE" == "MONTHLY" ]; then
+            local should_reset=0
+            if [ "$CURRENT_MONTH_STR" != "$LAST_RESET_MONTH" ]; then
+                if [ "$BJ_DAY" -gt 1 ]; then
+                    should_reset=1
+                elif [ "$BJ_DAY" -eq 1 ]; then
+                    if [ "$BJ_HOUR" -gt 0 ] || { [ "$BJ_HOUR" -eq 0 ] && [ "$BJ_MINUTE" -ge 1 ]; }; then
+                        should_reset=1
+                    fi
+                fi
+            fi
+            
+            if [ "$should_reset" -eq 1 ]; then
+                nft flush chain inet port_manager "$CHAIN_NAME" 2>/dev/null
+                nft add rule inet port_manager "$CHAIN_NAME" counter accept 2>/dev/null
+                STORED_TOTAL=0
+                LAST_IPT_BYTES=0
+                sed -i "s/LAST_RESET_MONTH=.*/LAST_RESET_MONTH=\"$CURRENT_MONTH_STR\"/" "$conf"
+                sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"0\"/" "$conf"
+                sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"0\"/" "$conf"
+                continue
+            fi
+        fi
+        
+        local NFT_BYTES
+        NFT_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -oP 'counter packets \d+ bytes \K\d+' | head -n1)
+        [ -z "$NFT_BYTES" ] && NFT_BYTES=0
+        
+        local DIFF=0
+        if [ "$NFT_BYTES" -ge "$LAST_IPT_BYTES" ]; then
+            DIFF=$(( NFT_BYTES - LAST_IPT_BYTES ))
+        else
+            DIFF="$NFT_BYTES"
+        fi
+        
+        STORED_TOTAL=$(( STORED_TOTAL + DIFF ))
+        LAST_IPT_BYTES="$NFT_BYTES"
+        
+        sed -i "s/STORED_TOTAL=.*/STORED_TOTAL=\"$STORED_TOTAL\"/" "$conf"
+        sed -i "s/LAST_IPT_BYTES=.*/LAST_IPT_BYTES=\"$LAST_IPT_BYTES\"/" "$conf"
+
+        if [ "$QUOTA" == "UNLIMITED" ]; then
+            continue
+        fi
+        
+        local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+        if [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ]; then
+            if ! nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -q "drop"; then
+                nft insert rule inet port_manager "$CHAIN_NAME" index 0 drop 2>/dev/null || true
+            fi
+        fi
+    done
+}
+
+rebuild_tc_filters() {
+    tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local p=$(basename "$conf" .conf)
+        source "$conf"
+        
+        if [ "$RATE" != "UNLIMITED" ]; then
+            local HEX=$(printf "%x" "$p")
+            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip dport "$p" 0xffff flowid 1:$HEX 2>/dev/null
+            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip sport "$p" 0xffff flowid 1:$HEX 2>/dev/null
+        fi
+    done
+}
+
+restore_rules_func() {
+    modprobe nf_tables 2>/dev/null || true
+    
+    while [ -z "$INTERFACE" ]; do
+        sleep 2
+        INTERFACE=$(get_interface)
+    done
+
+    tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
+    tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
+    tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
+
+    init_nft_table
+
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local p=$(basename "$conf" .conf)
+        source "$conf"
+        local HEX=$(printf "%x" "$p")
+        local CHAIN_NAME="LIMIT_P_${p}"
+
+        if [ "$RATE" != "UNLIMITED" ]; then
+            tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE" 2>/dev/null || true
+        fi
+
+        nft add chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
+        nft flush chain inet port_manager "$CHAIN_NAME"
+        nft add rule inet port_manager "$CHAIN_NAME" counter accept
+
+        nft add rule inet port_manager input tcp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager input udp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager output tcp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager output udp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+
+        if [ "$QUOTA" != "UNLIMITED" ]; then
+            local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+            if [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ]; then
+                nft insert rule inet port_manager "$CHAIN_NAME" index 0 drop 2>/dev/null || true
+            fi
+        fi
+    done
+    rebuild_tc_filters
+}
+
+if [ "$1" == "daemon" ]; then
+    restore_rules_func
+    while true; do
+        # 自愈机制：若主菜单做 flush 清空了表，3秒内自动重建
+        if ! nft list table inet port_manager &>/dev/null; then
+            restore_rules_func
+        fi
+        check_and_block
+        sleep 3
+    done
+    exit 0
+fi
+
+install_systemd_service() {
+    if [ "$(realpath "$0")" != "$(realpath "$TARGET_PATH")" ]; then
+        cp -f "$0" "$TARGET_PATH"
+        chmod +x "$TARGET_PATH"
+    fi
+
+    local SERVICE_FILE="/etc/systemd/system/port_manager.service"
+    
+    cat << 'SRVEOF' > "$SERVICE_FILE"
+[Unit]
+Description=Port Traffic Manager Background Service (nftables)
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/local/bin/port_menu.sh daemon
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SRVEOF
+
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable port_manager.service >/dev/null 2>&1
+    systemctl restart port_manager.service >/dev/null 2>&1
+}
+
+if [ "$1" != "menu" ]; then
+    install_systemd_service
+fi
+
+apply_limit() {
+    local p=$1
+    local r=$2
+    local q=$3
+    local rm=$4
+    read -r lm_y lm_m _ _ _ <<< "$(get_bj_time)"
+    local lm="${lm_y}${lm_m}"
+    local HEX=$(printf "%x" "$p")
+    local CHAIN_NAME="LIMIT_P_${p}"
+
+    echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"\nSTORED_TOTAL=\"0\"\nLAST_IPT_BYTES=\"0\"" > "$CONF_DIR/${p}.conf"
+
+    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
+    if [ "$r" != "UNLIMITED" ]; then
+        if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
+            tc qdisc add dev "$INTERFACE" root handle 1: htb default 30
+            tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit
+            tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit
+        fi
+        tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"
+    fi
+    rebuild_tc_filters
+
+    init_nft_table
+    nft add chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
+    nft flush chain inet port_manager "$CHAIN_NAME"
+    nft add rule inet port_manager "$CHAIN_NAME" counter accept
+
+    nft add rule inet port_manager input tcp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+    nft add rule inet port_manager input udp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+    nft add rule inet port_manager output tcp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+    nft add rule inet port_manager output udp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+}
+
+remove_limit() {
+    local p=$1
+    local HEX=$(printf "%x" "$p")
+    local CHAIN_NAME="LIMIT_P_${p}"
+
+    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
+    rm -f "$CONF_DIR/${p}.conf"
+    rebuild_tc_filters
+
+    nft flush chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
+    nft delete chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
+}
+
+show_ports() {
+    check_and_block
+    echo -e "\033[36m当前网卡: $INTERFACE \033[0m"
+    echo "---------------------------------------------"
+    printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "端口" "流量上限" "网速上限" "已用流量" "周期" "状态"
+    echo "---------------------------------------------"
+    
+    local count=0
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        count=$((count+1))
+        local PORT=$(basename "$conf" .conf)
+        source "$conf"
+        
+        local CHAIN_NAME="LIMIT_P_${PORT}"
+        local COLOR_STATUS="\033[32m正常\033[0m"
+        
+        [ -z "$STORED_TOTAL" ] && STORED_TOTAL=0
+        
+        if [ "$STORED_TOTAL" -eq 0 ]; then
+            local LIVE_BYTES
+            LIVE_BYTES=$(nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -oP 'counter packets \d+ bytes \K\d+' | head -n1)
+            [ -n "$LIVE_BYTES" ] && [ "$LIVE_BYTES" -gt 0 ] && STORED_TOTAL="$LIVE_BYTES"
+        fi
+        
+        local USED_MB=$(awk "BEGIN {printf \"%.2f\", $STORED_TOTAL / 1048576}")
+        
+        local is_dropped=0
+        if nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -q "drop"; then
+            is_dropped=1
+        elif [ "$QUOTA" != "UNLIMITED" ]; then
+            local LIMIT_BYTES=$(( QUOTA * 1048576 ))
+            [ "$STORED_TOTAL" -ge "$LIMIT_BYTES" ] && is_dropped=1
+        fi
+
+        if [ "$is_dropped" -eq 1 ]; then
+            COLOR_STATUS="\033[31m阻断\033[0m"
+            if ! nft list chain inet port_manager "$CHAIN_NAME" 2>/dev/null | grep -q "drop"; then
+                nft insert rule inet port_manager "$CHAIN_NAME" index 0 drop 2>/dev/null || true
+            fi
+        fi
+        
+        local Q_DISP="无限制"
+        [ "$QUOTA" != "UNLIMITED" ] && Q_DISP="${QUOTA}MB"
+        
+        local R_DISP="无限制"
+        [ "$RATE" != "UNLIMITED" ] && R_DISP="${RATE/mbit/Mbps}"
+
+        local M_DISP="一次性"
+        [ "$RESET_MODE" == "MONTHLY" ] && M_DISP="每月(1日00:01)"
+        
+        printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
+    done
+    
+    if [ "$count" -eq 0 ]; then
+        echo -e "                   \033[33m当前暂未设置任何端口限制\033[0m"
+    fi
+    echo "---------------------------------------------"
+}
+
+while true; do
+    clear
+    echo "============================================="
+    echo "     端口网速与流量限制 (主面板接管版)"
+    echo "============================================="
+    echo "  1. 新增 端口限制"
+    echo "  2. 修改 端口限制 (会清零当前已用流量)"
+    echo "  3. 删除 端口限制"
+    echo "  0. 返回 上级菜单"
+    echo "============================================="
+    echo -e "已设置的端口:\n"
+    show_ports
+    
+    read -p "请输入选项 [1-3, 0]: " choice
+    case $choice in
+        1|2)
+            if [ "$choice" == "2" ]; then
+                read -p "请输入要【修改】的端口号: " port
+                if [ ! -f "$CONF_DIR/${port}.conf" ]; then
+                    echo -e "\033[31m[-] 未找到该端口的配置！\033[0m"
+                    read -p "按回车键继续..."
+                    continue
+                fi
+                remove_limit "$port"
+            else
+                read -p "请输入要【限制】的端口号 (如 443): " port
+            fi
+            
+            if [ -z "$port" ]; then
+                echo -e "\033[31m[-] 端口号不能为空！\033[0m"
+                read -p "按回车键继续..."
+                continue
+            fi
+
+            echo -e "\n\033[36m>>> 直接按回车跳过流量限制 <<<\033[0m"
+            read -p "请输入流量上限(MB): " quota
+            if [ -z "$quota" ]; then
+                quota="UNLIMITED"
+                echo -e " -> \033[33m已设为: 不限制流量\033[0m"
+            fi
+
+            echo -e "\n\033[36m>>> 直接输入数字即可 (默认单位 Mbps)，直接按回车跳过网速限制 <<<\033[0m"
+            read -p "请输入网速上限(如输入 5 代表 5Mbps): " rate_num
+            if [ -z "$rate_num" ]; then
+                rate="UNLIMITED"
+                echo -e " -> \033[33m已设为: 不限制网速\033[0m"
+            else
+                rate="${rate_num}mbit"
+                echo -e " -> \033[32m已设为: ${rate_num} Mbps\033[0m"
+            fi
+
+            echo -e "\n\033[36m>>> 直接按回车默认为一次性限制 <<<\033[0m"
+            read -p "是否按月自动重置流量？(输入 y 开启，每月北京时间1日00:01重置): " is_monthly
+            if [[ "$is_monthly" == "y" || "$is_monthly" == "Y" ]]; then
+                reset_mode="MONTHLY"
+                echo -e " -> \033[32m已设为: 每月重置 (北京时间1日00:01)\033[0m"
+            else
+                reset_mode="ONCE"
+                echo -e " -> \033[33m已设为: 一次性限制 (用完即永久阻断)\033[0m"
+            fi
+            
+            apply_limit "$port" "$rate" "$quota" "$reset_mode"
+            echo -e "\n\033[32m[+] 端口 $port 限制配置成功！\033[0m"
+            read -p "按回车键继续..."
+            ;;
+        3)
+            read -p "请输入要删除限制的端口号: " port
+            if [ -f "$CONF_DIR/${port}.conf" ]; then
+                remove_limit "$port"
+                echo -e "\033[32m[+] 端口 $port 限制已彻底移除！\033[0m"
+            else
+                echo -e "\033[31m[-] 未找到该端口的配置！\033[0m"
+            fi
+            read -p "按回车键继续..."
+            ;;
+        0)
+            echo -e "\033[32m返回防火墙主菜单。\033[0m"
+            break
+            ;;
+        *)
+            echo "无效选项，请重新输入。"
+            sleep 1
+            ;;
+    esac
+done
+EOF
+
+            chmod +x /usr/local/bin/port_menu.sh
+            # 清理历史旧干扰服务
             systemctl stop restore_iptables.service >/dev/null 2>&1
             systemctl disable restore_iptables.service >/dev/null 2>&1
             rm -f /etc/systemd/system/restore_iptables.service
-            systemctl daemon-reload >/dev/null 2>&1
-
-            sleep 1
-            bash /usr/local/bin/port_menu.sh
-            ;;     
             
-		9)
+            # 运行流量子菜单
+            bash /usr/local/bin/port_menu.sh menu
+            
+            # 返回主菜单
+            sleep 1 && iptables_ssl
+            ;;
+            
+        9)
             yellow "正在自动扫描并清理所有未运行的无用端口规则..."
             for port in $(nft list chain inet filter input 2>/dev/null | awk '/ScriptManaged/ {for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un); do
                 if ! ss -tunlp | grep -q ":$port "; then
@@ -3088,14 +3535,15 @@ iptables_ssl() {
                     green "已清理: $port"
                 fi
             done
-            nft list ruleset > /etc/nftables.conf
+            save_nft_rules
             green "清理完成！配置文件已更新保存。"
             sleep 1 && iptables_ssl ;;
             
         0) menu ;;
-        *) Iptables_ssl ;;
+        *) iptables_ssl ;;
     esac
 }
+
 
 
 # singbox 管理
