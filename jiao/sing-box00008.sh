@@ -2894,53 +2894,52 @@ enable_bbr() {
 
 
 # Iptables简单管理工具
-# Nftables 简单管理工具 (基于 iptables-nft 兼容层)
-ipt_msg() { echo -e "${1}${2}\033[0m"; }
-
+# 确保原生 nftables 基础表结构存在
 check_rule_files() {
-    local r4="/etc/nftables/rules.v4"
-    local r6="/etc/nftables/rules.v6"
-    if [ ! -d "/etc/nftables" ]; then
-        mkdir -p /etc/nftables
-    fi
-    # 兼容处理：如果旧路径有文件可以迁移，或者直接生成标准结构
-    if [ ! -f "$r4" ] || ! grep -q "COMMIT" "$r4"; then
-        cat > "$r4" << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-COMMIT
+    local conf="/etc/nftables.conf"
+    if ! command -v nft &> /dev/null; then return; fi
+    
+    # 如果不存在基础 inet filter 表，则进行初始化
+    if ! nft list table inet filter &>/dev/null; then
+        cat > "$conf" << EOF
+flush ruleset
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy accept;
+        iif "lo" accept
+        ct state established,related accept
+    }
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+    }
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
 EOF
-    fi
-    if [ ! -f "$r6" ] || ! grep -q "COMMIT" "$r6"; then
-        cat > "$r6" << EOF
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-COMMIT
-EOF
+        nft -f "$conf" 2>/dev/null
     fi
 }
 
-iptables_ssl() {
+Iptables_ssl() {
     clear
     check_rule_files
     local tag="ScriptManaged"
     
     local status_text=""
     local mode_text=""
-    local policy=$(iptables -L INPUT -n 2>/dev/null | head -n 1 | awk '{print $4}' | tr -d ')')
-    local rule_count=$(iptables -L INPUT -n 2>/dev/null | grep -vE "^Chain|^target|^$" | wc -l)
     local svc_status=$(systemctl is-active nftables 2>/dev/null)
+    
+    # 原生获取默认策略 (accept 或 drop)
+    local policy=$(nft list chain inet filter input 2>/dev/null | awk '/policy/ {print $NF}' | tr -d ';')
+    local rule_count=$(nft list ruleset 2>/dev/null | grep -vE "^table|^chain|^}" | wc -l)
 
     if ! command -v nft &> /dev/null; then
         status_text="\033[0;31m未安装\033[0m"
         mode_text="\033[0;37m未知\033[0m"
     elif [ "$rule_count" -gt 0 ] || [ "$svc_status" == "active" ]; then
         status_text="\033[0;32m运行中\033[0m"
-        if [ "$policy" == "DROP" ]; then
+        if [ "$policy" == "drop" ]; then
             mode_text="\033[0;32m开启\033[0m"
         else
             mode_text="\033[0;31m关闭\033[0m"
@@ -2953,23 +2952,19 @@ iptables_ssl() {
     local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$ssh_p" ] && ssh_p=22
 
-    local nat_rules=$(iptables -t nat -S PREROUTING 2>/dev/null | grep "DNAT" | awk '{
+    # 原生解析 NAT 转发规则
+    local nat_rules=$(nft list ruleset 2>/dev/null | awk '/dnat to/ {
         port=""; to="";
         for(i=1;i<=NF;i++){
-            if($i=="--dport") port=$(i+1);
-            if($i=="--to-destination") to=$(i+1);
+            if($i=="dport") port=$(i+1);
+            if($i=="to") to=$(i+1);
         }
-        gsub(/:/, "-", port); 
-        sub(/^:/, "", to);
-        
-        if(port != "") {
-            print " 端口:" port " -> 转发至:" to
-        }
+        if(port != "") { print " 端口:" port " -> 转发至:" to }
     }')
     [ -z "$nat_rules" ] && nat_rules="  暂无转发规则"
 	
     echo ""
-    green "=== Nftables 防火墙管理 ==="
+    green "=== Nftables 原生防火墙管理 ==="
     echo -e "运行状态: $status_text"
     echo -e "拦截模式: $mode_text"
     ipt_msg "\033[0;36m" "系统当前 SSH 端口: ${ssh_p}"
@@ -2978,27 +2973,27 @@ iptables_ssl() {
 
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-13s %-19s %-15s\n" "端口号" "所属服务" "说明"   
+    
+    # 原生提取已放行端口
     local allowed_ports=""
-    if command -v iptables &> /dev/null; then
-        allowed_ports=$(iptables -L INPUT -n | grep "ACCEPT" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); if(b[1]>0) print b[1]}}' | sort -un)
-        iptables -L INPUT -n | grep "ACCEPT" | awk -v tag="$tag" '{
-            port=""; if($0 ~ /dpt:/) { split($0, a, "dpt:"); split(a[2], b, " "); port=b[1] }
-            if (port != "" && port != "ALL" && port > 0) {
-                if (!seen[port]++) {
-                    note=($0 ~ tag) ? "脚本放行" : "系统/手动";
-                    cmd = "ss -tunlp | grep \":" port " \" | head -n1"
-                    name = "未运行"
-                    if ((cmd | getline ss_line) > 0) {
-                        if (ss_line ~ /"/) {
-                            split(ss_line, s, "\"");
-                            name = s[2];
-                        }
-                    }
-                    close(cmd)
-                    printf "\033[0;32m%-10s %-15s %-10s\033[0m\n", port, name, note
-                }
-            }
-        }'
+    if command -v nft &> /dev/null; then
+        allowed_ports=$(nft list chain inet filter input 2>/dev/null | awk '/dport.*accept/ {
+            for(i=1;i<=NF;i++) if($i=="dport") { print $(i+1); break; }
+        }' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un)
+        
+        for port in $allowed_ports; do
+            # 检查是否有脚本标记
+            local is_script=$(nft list chain inet filter input 2>/dev/null | grep -E "dport.*$port.*$tag")
+            local note="系统/手动"
+            [ -n "$is_script" ] && note="脚本放行"
+            
+            local name="未运行"
+            local ss_line=$(ss -tunlp | grep ":$port " | head -n1)
+            if [[ "$ss_line" =~ \"([^\"]+)\" ]]; then
+                name="${BASH_REMATCH[1]}"
+            fi
+            printf "\033[0;32m%-10s %-15s %-10s\033[0m\n" "$port" "$name" "$note"
+        done
     fi
     
     echo -e "\033[0;36m---------------------------\033[0m"
@@ -3015,12 +3010,13 @@ iptables_ssl() {
             printf "\033[0;31m%-10s %-15s %-10s\033[0m\n" "$p_port" "$p_name" "$p_ip"
         fi
     done
+    
     skyblue "---------------------------"
     green "1. 开启端口"
     green "2. 关闭端口"
     green "3. 开启拦截"
     green "4. 关闭拦截"
-    green "5. 安装更新"
+    green "5. 安装更新 (初始化纯净 nft 环境)"
     green "6. 停止运行"
     green "7. 程序重启"
     red   "8. 端口流量网速设置"
@@ -3036,30 +3032,19 @@ iptables_ssl() {
             elif [ "$o_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                if ! grep -q "\--dport $o_port " /etc/nftables/rules.v4 2>/dev/null; then
-                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                    }" /etc/nftables/rules.v4
-                    sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                    }" /etc/nftables/rules.v4
-                    
-                    if [ -f "/etc/nftables/rules.v6" ]; then
-                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p tcp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                        }" /etc/nftables/rules.v6
-                        sed -i "/\*filter/,/COMMIT/ { /COMMIT/ i -A INPUT -p udp --dport $o_port -m comment --comment \"$tag\" -j ACCEPT
-                        }" /etc/nftables/rules.v6
-                    fi
-
-                    if iptables-restore < /etc/nftables/rules.v4; then
-                        [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6
-                        green "成功：端口 $o_port 已放行 (IPv4/IPv6)"
-                    else
-                        red "错误：配置文件格式损坏，请检查 /etc/nftables/rules.v4"
-                    fi
-                else
+                # 检查是否已放行
+                if nft list chain inet filter input 2>/dev/null | grep -qw "$o_port"; then
                     yellow "端口 $o_port 规则已存在，无需重复添加"
+                else
+                    # inet 协议簇自动同时生效于 IPv4 和 IPv6
+                    nft add rule inet filter input tcp dport $o_port accept comment "$tag" 2>/dev/null
+                    nft add rule inet filter input udp dport $o_port accept comment "$tag" 2>/dev/null
+                    nft list ruleset > /etc/nftables.conf
+                    green "成功：端口 $o_port 已放行 (原生双栈生效)"
                 fi
             fi
-            sleep 1 && iptables_ssl ;;
+            sleep 1 && Iptables_ssl ;;
+            
         2)
             read -p "请输入要关闭端口号: " c_port
             if [ -z "$c_port" ]; then
@@ -3067,120 +3052,77 @@ iptables_ssl() {
             elif [ "$c_port" -eq 0 ] 2>/dev/null; then
                 red "错误：端口号不能为 0"
             else
-                sed -i "/--dport $c_port /d" /etc/nftables/rules.v4
-                [ -f "/etc/nftables/rules.v6" ] && sed -i "/--dport $c_port /d" /etc/nftables/rules.v6
-                
-                iptables-restore < /etc/nftables/rules.v4
-                [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6
+                # 根据 handle 安全删除指定端口规则
+                for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$c_port" '$0~"dport "p {print $NF}'); do
+                    nft delete rule inet filter input handle $handle 2>/dev/null
+                done
+                nft list ruleset > /etc/nftables.conf
                 green "清理完成：端口 $c_port 已关闭"
             fi
-            sleep 1 && iptables_ssl ;;
+            sleep 1 && Iptables_ssl ;;
 
         3)
-        yellow "正在开启拦截..."
-        ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-        [ -z "$ssh_ports" ] && ssh_ports=22
-        if ! iptables-save | grep -q "RELATED,ESTABLISHED"; then
-            iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-        fi
-        if ! iptables-save | grep -q "INPUT -i lo"; then
-            iptables -I INPUT -i lo -j ACCEPT
-        fi
-        for port in $ssh_ports; do
-            if ! iptables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
-                iptables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
-            fi
-        done
-        iptables -P INPUT DROP
-        if command -v ip6tables &> /dev/null; then
-            if ! ip6tables-save | grep -q "RELATED,ESTABLISHED"; then
-                ip6tables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-            fi
-            if ! ip6tables-save | grep -q "INPUT -i lo"; then
-                ip6tables -I INPUT -i lo -j ACCEPT
-            fi
-			if ! ip6tables-save | grep -q "INPUT -p ipv6-icmp -j ACCEPT"; then
-                ip6tables -I INPUT -p ipv6-icmp -j ACCEPT
-            fi           
+            yellow "正在开启拦截..."
+            ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
+            [ -z "$ssh_ports" ] && ssh_ports=22
+            
+            # 确保关键安全规则存在
+            nft add rule inet filter input iif "lo" accept 2>/dev/null
+            nft add rule inet filter input ct state established,related accept 2>/dev/null
+            nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept 2>/dev/null
+            
             for port in $ssh_ports; do
-                if ! ip6tables-save | grep -q "INPUT .*--dport $port .*ACCEPT"; then
-                    ip6tables -I INPUT -p tcp --dport $port -m comment --comment "SSH_Port" -j ACCEPT
-                fi
+                nft add rule inet filter input tcp dport $port accept comment "SSH_Port" 2>/dev/null
             done
-            ip6tables -P ip6tables DROP 2>/dev/null || ip6tables -P INPUT DROP
-        fi
-        iptables-save > /etc/nftables/rules.v4
-        [ -f "/etc/nftables/rules.v6" ] && ip6tables-save > /etc/nftables/rules.v6
-        
-        green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
-        iptables_ssl ;;
+            
+            # 更改默认策略为 drop
+            nft chain inet filter input '{ policy drop; }' 2>/dev/null
+            nft list ruleset > /etc/nftables.conf
+            
+            green "开启拦截成功 (已自动放行 SSH 端口: $ssh_ports)" && sleep 1
+            Iptables_ssl ;;
+            
          4)
             yellow "正在关闭拦截..."
-            iptables -P INPUT ACCEPT
-            iptables -P FORWARD ACCEPT
-            iptables -P OUTPUT ACCEPT
-            iptables-save > /etc/nftables/rules.v4
-            if command -v ip6tables &> /dev/null; then
-                ip6tables -P INPUT ACCEPT
-                ip6tables -P FORWARD ACCEPT
-                ip6tables -P OUTPUT ACCEPT
-                ip6tables-save > /etc/nftables/rules.v6
-            fi
-            green "已关闭拦截" && sleep 1
-            iptables_ssl ;;
+            nft chain inet filter input '{ policy accept; }' 2>/dev/null
+            nft list ruleset > /etc/nftables.conf
+            green "已关闭拦截 (默认放行所有)" && sleep 1
+            Iptables_ssl ;;
+            
 		5)
-        yellow "正在配置 nftables 环境..."
-        [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
-        if [ -f /etc/debian_version ]; then
-            apt-get update -y
-            # 核心：安装 nftables 及 iptables-nft 兼容包
-            apt-get install -y nftables iptables iptables-nft
-        elif [ -f /etc/redhat-release ]; then
-            yum install -y nftables iptables-nft
-            systemctl enable nftables && systemctl start nftables
-        fi
-        check_rule_files
-        iptables-restore < /etc/nftables/rules.v4
-        [ -f "/etc/nftables/rules.v6" ] && ip6tables-restore < /etc/nftables/rules.v6     
-        green "环境配置完成！已通过 iptables-nft 兼容层启用 nftables。" 
-        sleep 1 && iptables_ssl ;;
+            yellow "正在配置原生 nftables 环境..."
+            [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
+            if [ -f /etc/debian_version ]; then
+                apt-get update -y
+                apt-get install -y nftables
+                # 可选：卸载冲突软件 ufw/iptables 等以保持纯净
+            elif [ -f /etc/redhat-release ]; then
+                yum install -y nftables
+            fi
+            systemctl enable nftables 2>/dev/null
+            systemctl start nftables 2>/dev/null
+            check_rule_files
+            nft list ruleset > /etc/nftables.conf
+            green "环境配置完成！系统已使用原生 nftables 引擎。" 
+            sleep 1 && Iptables_ssl ;;
+            
 		6)
             yellow "正在停止防火墙并清空内存规则..."
             systemctl stop nftables 2>/dev/null
-            iptables -P INPUT ACCEPT
-            iptables -P FORWARD ACCEPT
-            iptables -P OUTPUT ACCEPT
-            iptables -F
-            iptables -X
-            iptables -Z
-            if command -v ip6tables >/dev/null; then
-                ip6tables -P INPUT ACCEPT
-                ip6tables -P FORWARD ACCEPT
-                ip6tables -P OUTPUT ACCEPT
-                ip6tables -F
-                ip6tables -X
-                ip6tables -Z
-            fi
-            green "防火墙已停止，内存规则已清空。"
-            sleep 1 && iptables_ssl ;;
+            nft flush ruleset
+            green "防火墙已停止，原生内存规则已彻底清空。"
+            sleep 1 && Iptables_ssl ;;
+            
         7)
             yellow "正在重载并激活防火墙规则..."
-            if command -v systemctl >/dev/null 2>&1; then
-                if systemctl list-unit-files | grep -q "^nftables.service"; then
-                    if [ "$(systemctl is-active nftables)" != "active" ]; then
-                        systemctl enable nftables >/dev/null 2>&1
-                        systemctl start nftables >/dev/null 2>&1
-                    fi
-                fi
-            fi
-            if [ -f "/etc/nftables/rules.v4" ]; then
-                iptables-restore < /etc/nftables/rules.v4 && green "IPv4 规则已加载。"
-            fi
-            if [ -f "/etc/nftables/rules.v6" ]; then
-                ip6tables-restore < /etc/nftables/rules.v6 && green "IPv6 规则已加载。"
+            systemctl enable nftables >/dev/null 2>&1
+            systemctl start nftables >/dev/null 2>&1
+            if [ -f "/etc/nftables.conf" ]; then
+                nft -f /etc/nftables.conf && green "原生规则 (/etc/nftables.conf) 已无损热重载。"
             fi
             green "重载操作执行完毕。"
-            sleep 1 && iptables_ssl ;;
+            sleep 1 && Iptables_ssl ;;
+            
 		8) 
             clear
             echo -e "\033[36m>>> 正在更新...\033[0m"
@@ -3194,21 +3136,24 @@ iptables_ssl() {
             sleep 1
             bash /usr/local/bin/port_menu.sh
             ;;     
+            
 		9)
             yellow "正在自动扫描并清理所有未运行的无用端口规则..."
-            for port in $(iptables -L INPUT -n 2>/dev/null | grep "ScriptManaged" | awk '{if($0 ~ /dpt:/) {split($0,a,"dpt:"); split(a[2],b," "); print b[1]}}' | sort -un); do
+            for port in $(nft list chain inet filter input 2>/dev/null | awk '/ScriptManaged/ {for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un); do
                 if ! ss -tunlp | grep -q ":$port "; then
-                    sed -i "/--dport $port /d" /etc/nftables/rules.v4 2>/dev/null
-                    sed -i "/--dport $port /d" /etc/nftables/rules.nft 2>/dev/null
-                    sed -i "/--dport $port /d" /etc/iptables/rules.v4 2>/dev/null
+                    # 抓取句柄并删除
+                    for handle in $(nft -a list chain inet filter input | awk -v p="$port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
                     green "已清理僵尸端口: $port"
                 fi
             done
-            iptables-restore < /etc/nftables/rules.v4 2>/dev/null
-            green "清理完成！"
-            sleep 1 && iptables_ssl ;;
+            nft list ruleset > /etc/nftables.conf
+            green "清理完成！配置文件已更新保存。"
+            sleep 1 && Iptables_ssl ;;
+            
         0) menu ;;
-        *) iptables_ssl ;;
+        *) Iptables_ssl ;;
     esac
 }
 
