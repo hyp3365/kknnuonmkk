@@ -2904,7 +2904,7 @@ EOF
     fi
 }
 
-Iptables_ssl() {
+iptables_ssl() {
     clear
     check_rule_files
     local tag="ScriptManaged"
