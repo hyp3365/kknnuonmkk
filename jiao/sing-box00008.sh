@@ -60,6 +60,27 @@ get_available_port() {
     done
 }
 
+# 自动检测并安装 nftables
+check_and_install_nftables() {
+    if ! command -v nft &> /dev/null; then
+        echo -e "\033[0;33m[!] 检测到系统未安装 nftables，正在自动安装...\033[0m"
+        if [ -f /etc/debian_version ]; then
+            apt-get update -y && apt-get install -y nftables
+        elif [ -f /etc/redhat-release ]; then
+            yum install -y nftables 2>/dev/null || dnf install -y nftables
+        else
+            echo -e "\033[0;31m[-] 未知的 Linux 系统类型，请手动安装 nftables！\033[0m"
+            return 1
+        fi
+        
+        systemctl enable nftables >/dev/null 2>&1
+        systemctl start nftables >/dev/null 2>&1
+        echo -e "\033[0;32m[+] nftables 自动安装完成！\033[0m"
+        sleep 1
+    fi
+}
+
+
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
@@ -2876,6 +2897,7 @@ EOF
 }
 
 iptables_ssl() {
+    check_and_install_nftables
     clear
     check_rule_files
     local tag="ScriptManaged"
@@ -2924,7 +2946,7 @@ iptables_ssl() {
     # 联动显示选项 8 流量管控服务状态
     if [ "$pm_status" == "active" ]; then
         local pm_cnt=$(ls -1 /etc/port_manager/*.conf 2>/dev/null | wc -l)
-        echo -e "流量管控: \033[0;32m运行中\033[0m (已设置 $pm_cnt 个端口限速)"
+        echo -e "流量管控: \033[0;32m运行中\033[0m (已设置 $pm_cnt 个端口)"
     else
         echo -e "流量管控: \033[0;37m未启用\033[0m"
     fi
@@ -2947,7 +2969,6 @@ iptables_ssl() {
             local note="系统/手动"
             [ -n "$is_script" ] && note="脚本放行"
             
-            # 联动标注是否处于限速管控中
             if [ -f "/etc/port_manager/${port}.conf" ]; then
                 note="${note}[限速中]"
             fi
@@ -3041,7 +3062,6 @@ iptables_ssl() {
                 nft add rule inet filter input tcp dport $port accept comment "SSH_Port" 2>/dev/null
             done
             
-            # 自动同步放行所有已配置流量限速的端口，避免开启拦截后误杀限速端口
             for conf in /etc/port_manager/*.conf; do
                 [ -e "$conf" ] || continue
                 local pm_p=$(basename "$conf" .conf)
@@ -3103,9 +3123,7 @@ iptables_ssl() {
             
         8) 
             clear
-            yellow "正在进入端口网速与流量限制组件..."
-            
-            # 动态生成自愈版流量限制子脚本
+            yellow "正在进入"
             cat << 'EOF' > /usr/local/bin/port_menu.sh
 #!/bin/bash
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
