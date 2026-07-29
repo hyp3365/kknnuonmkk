@@ -2370,14 +2370,12 @@ EOF
             target_conf="/etc/sing-box/conf/xtls-reality.json"
             if [ -f "$target_conf" ]; then
 			    xtls_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $xtls_reality /d" /etc/iptables/rules.v6   
-					if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$xtls_reality" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$xtls_reality" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2399,32 +2397,29 @@ EOF
             ;;
 
             52) 
-                        # 清空 nftables 中的 nat 转发规则（同时支持 IPv4 和 IPv6）
-            nft flush chain ip nat prerouting 2>/dev/null
-            if [ -f /proc/net/if_inet6 ]; then
-               nft flush chain ip6 nat prerouting 2>/dev/null
-            fi
-            
             target="_hysteria2"
             target_conf="/etc/sing-box/conf/hysteria2.json"
             if [ -f "$target_conf" ]; then
 				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
 				
-                # 从 nftables 配置文件中清理对应端口的规则
+                # 安全清理 Hysteria2 的 NAT 端口跳跃规则
+                if nft list chain ip nat prerouting &>/dev/null; then
+                    for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                        nft delete rule ip nat prerouting handle $handle 2>/dev/null
+                    done
+                fi
+                if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
+                    for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                        nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
+                    done
+                fi
+
+                # 清理入站放行规则
                 if [ -n "$hy2_port" ]; then
-                    if [ -f "/etc/nftables/rules.nft" ]; then
-                        sed -i "/dport $hy2_port /d" /etc/nftables/rules.nft 2>/dev/null
-                    fi
-                    if [ -f "/etc/nftables.conf" ]; then
-                        sed -i "/dport $hy2_port /d" /etc/nftables.conf 2>/dev/null
-                    fi
-                    
-                    # 重新加载 nftables 规则使其立即生效
-                    if [ -f "/etc/nftables.conf" ]; then
-                        nft -f /etc/nftables.conf 2>/dev/null
-                    elif [ -f "/etc/nftables/rules.nft" ]; then
-                        nft -f /etc/nftables/rules.nft 2>/dev/null
-                    fi
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
                 fi
 
                 rm -f "$target_conf"
@@ -2448,25 +2443,16 @@ EOF
             ;;
 
 			53) 
-            iptables -t nat -F PREROUTING > /dev/null 2>&1
-            if command -v ip6tables &> /dev/null; then
-               ip6tables -t nat -F PREROUTING > /dev/null 2>&1
-            fi
-            if command -v netfilter-persistent &> /dev/null; then
-               netfilter-persistent save > /dev/null 2>&1
-            fi
 			target="_tuic"
             target_conf="/etc/sing-box/conf/tuic.json"
             if [ -f "$target_conf" ]; then
-				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $tuic_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $hy2_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi        
+				tuic_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+                if [ -n "$tuic_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$tuic_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2492,14 +2478,12 @@ EOF
             target_conf="/etc/sing-box/conf/h2-reality.json"
             if [ -f "$target_conf" ]; then
 			    h2_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $h2_reality /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$h2_reality" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$h2_reality" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2524,14 +2508,12 @@ EOF
             target_conf="/etc/sing-box/conf/grpc-reality.json"
             if [ -f "$target_conf" ]; then
 			    grpc_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $grpc_reality /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$grpc_reality" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$grpc_reality" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2556,14 +2538,12 @@ EOF
             target_conf="/etc/sing-box/conf/anytls.json"
             if [ -f "$target_conf" ]; then
 			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $anytls_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$anytls_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$anytls_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2588,14 +2568,12 @@ EOF
             target_conf="/etc/sing-box/conf/socks5.json"
             if [ -f "$target_conf" ]; then
 			    socks_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $socks_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $socks_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$socks_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$socks_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2620,14 +2598,12 @@ EOF
             target_conf="/etc/sing-box/conf/http.json"
             if [ -f "$target_conf" ]; then
 			    http_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $http_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $http_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$http_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$http_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2652,14 +2628,12 @@ EOF
             target_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_wstls_cdn_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$vless_wstls_cdn_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_cdn_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                      sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2684,14 +2658,12 @@ EOF
             target_conf="/etc/sing-box/conf/vless-ws-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vless_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vless_ws_cdn_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$vless_ws_cdn_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_ws_cdn_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     sed -i "/${target}/d" /etc/sing-box/url.txt
@@ -2716,14 +2688,12 @@ EOF
             target_conf="/etc/sing-box/conf/vmess-ws-cdn.json"
             if [ -f "$target_conf" ]; then
 			    vmess_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				    sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v4
-                    [ -f "/etc/iptables/rules.v6" ] && sed -i "/--dport $vmess_ws_cdn_port /d" /etc/iptables/rules.v6   
-                    if command -v iptables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v4" ]; then
-                      iptables-restore < /etc/iptables/rules.v4
-                    fi
-                    if command -v ip6tables-restore >/dev/null 2>&1 && [ -f "/etc/iptables/rules.v6" ]; then
-                      ip6tables-restore < /etc/iptables/rules.v6
-                    fi
+                if [ -n "$vmess_ws_cdn_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vmess_ws_cdn_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
                 rm -f "$target_conf"
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     new_urls=$(while read -r line; do
@@ -2757,7 +2727,7 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
 			;;
-			
+
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
