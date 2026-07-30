@@ -3645,7 +3645,7 @@ vps_s() {
 
     clear
     
-    current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%s %s", rx, tx }' /proc/net/dev)
+	current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%.0f %.0f", rx, tx }' /proc/net/dev)
     read -r curr_rx curr_tx <<< "$current_bytes"
 
     traffic_file="$HOME/.vps_traffic_stats"
