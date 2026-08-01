@@ -695,7 +695,7 @@ EOF
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box00008.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box00008.sh"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
         mkdir -p "$work_dir"
@@ -4099,7 +4099,7 @@ while true; do
         7) disable_open_sub ;;
 		8) 
            clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing.sh)
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
 	    10) bbr_menu ;;
@@ -4107,7 +4107,7 @@ while true; do
 		12) iptables_ssl ;;
 		13) 
            clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/aa.sh)
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/aa.sh)
 		   ;;
 		14) vps_s ;;
         0) exit 0 ;;
