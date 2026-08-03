@@ -1328,45 +1328,97 @@ change_config() {
             green "\n[✔] 端口跳跃已关闭"
             ;;
 		4)
-		    # 1. 随机生成 12 位大小写字母的混淆密码
-obfs_pwd=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 12)
-
-
-# 2. 将混淆配置写入 /etc/sing-box/conf/hysteria2.json
-python3 -c "
+            if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
+                red "未检测到 Hysteria2 节点配置或链接，请先安装 Hysteria2！"
+                exit 1
+            fi
+            obfs_pwd=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 12)   
+            python3 -c "
 import json
-
 path = '/etc/sing-box/conf/hysteria2.json'
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
-obfs_data = {
-    'type': 'salamander',
-    'password': '$obfs_pwd'
-}
+    obfs_data = {
+        'type': 'salamander',
+        'password': '$obfs_pwd'
+    }
 
-if isinstance(data, dict):
-    if 'inbounds' in data:
-        for ib in data['inbounds']:
-            if ib.get('type') == 'hysteria2':
-                ib['obfs'] = obfs_data
-    else:
-        data['obfs'] = obfs_data
+    if isinstance(data, dict):
+        if 'inbounds' in data:
+            for ib in data['inbounds']:
+                if ib.get('type') == 'hysteria2':
+                    ib['obfs'] = obfs_data
+        else:
+            data['obfs'] = obfs_data
 
-with open(path, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2, ensure_ascii=False)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+except Exception as e:
+    print(f'修改 JSON 失败: {e}')
 "
-
-# 3. 更新 /etc/sing-box/url.txt 中的节点链接
-sed -i "s/obfs=none/obfs=salamander\&obfs-password=${obfs_pwd}/g" /etc/sing-box/url.txt
-
-# 4. 重启 sing-box 使配置生效
-systemctl restart sing-box
-
-echo -e "\n修改成功！当前 /etc/sing-box/url.txt 内容为："
-cat /etc/sing-box/url.txt
+            sed -i -E 's/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
+            sed -i -E "s/obfs=[^&#]+/obfs=salamander\&obfs-password=${obfs_pwd}/g" /etc/sing-box/url.txt
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+            if command -v restart_singbox &> /dev/null; then
+                restart_singbox
+            else
+                systemctl restart sing-box >/dev/null 2>&1
+            fi
+            hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
+            
+            echo ""
+            green "=================================================="
+            green "Hysteria2 Salamander 混淆已开启！"
+            green "=================================================="
+            green "${hy2_link}"
+            green "=================================================="
+            echo "" 
             ;;
+		5)
+            if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
+                red "未检测到 Hysteria2 节点配置或链接！"
+                exit 1
+            fi
+            python3 -c "
+import json
+path = '/etc/sing-box/conf/hysteria2.json'
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
+    if isinstance(data, dict):
+        if 'inbounds' in data:
+            for ib in data['inbounds']:
+                if ib.get('type') == 'hysteria2' and 'obfs' in ib:
+                    del ib['obfs']
+        elif 'obfs' in data:
+            del data['obfs']
+
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+except Exception as e:
+    print(f'清理 JSON 混淆配置失败: {e}')
+"
+            sed -i -E 's/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
+            sed -i -E "s/obfs=[^&#]+/obfs=none/g" /etc/sing-box/url.txt
+            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+            if command -v restart_singbox &> /dev/null; then
+                restart_singbox
+            else
+                systemctl restart sing-box >/dev/null 2>&1
+            fi
+            hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
+            
+            echo ""
+            green "=================================================="
+            green "Hysteria2 混淆已关闭！"
+            green "=================================================="
+            green "${hy2_link}"
+            green "=================================================="
+            echo ""
+            ;;
 
         0)  menu ;;
         *)  read "无效的选项！" ;; 
