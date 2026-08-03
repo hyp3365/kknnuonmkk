@@ -1187,131 +1187,21 @@ change_config() {
     echo ""
     green "=== 修改节点配置 ===\n"
     green "sing-box当前状态: $singbox_status\n"
-    green "1. 修改端口"
+    green "1. 修改Reality伪装域名"
     skyblue "------------"
-    green "2. 修改UUID"
+    green "2. 添加hysteria2端口跳跃"
     skyblue "------------"
-    green "3. 修改Reality伪装域名"
+    green "3. 删除hysteria2端口跳跃"
     skyblue "------------"
-    green "4. 添加hysteria2端口跳跃"
+	green "4. hysteria2开启混淆"
     skyblue "------------"
-    green "5. 删除hysteria2端口跳跃"
-    skyblue "------------"
-	green "6. hysteria2开启混淆"
-    skyblue "------------"
-    green "7. hysteria2关闭混淆"
-    skyblue "------------"
-    green "8. 修改vmess-argo优选域名"
+    green "5. hysteria2关闭混淆"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-        1)
-            echo ""
-            green "1. 修改vless-reality端口"
-            skyblue "------------"
-            green "2. 修改hysteria2端口"
-            skyblue "------------"
-            green "3. 修改tuic端口"
-            skyblue "------------"
-            green "4. 修改vmess-argo端口"
-            skyblue "------------"
-            purple "0. 返回上一级菜单"
-            skyblue "------------"
-            reading "请输入选择: " choice
-            case "${choice}" in
-                1)
-                    reading "\n请输入vless-reality端口 (回车跳过将使用随机端口): " new_port
-                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
-                    sed -i '/"type": "vless"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
-                    restart_singbox
-                    allow_port $new_port/tcp > /dev/null 2>&1
-                    sed -i 's/\(vless:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$new_port"'/' $client_dir
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
-                    while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-                    green "\nvless-reality端口已修改成：${purple}$new_port${re} ${green}请更新订阅或手动更改vless-reality端口${re}\n"
-                    ;;
-                2)
-                    reading "\n请输入hysteria2端口 (回车跳过将使用随机端口): " new_port
-                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
-                    sed -i '/"type": "hysteria2"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
-                    restart_singbox
-                    allow_port $new_port/udp > /dev/null 2>&1
-                    sed -i 's/\(hysteria2:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$new_port"'/' $client_dir
-                    base64 -w0 $client_dir > /etc/sing-box/sub.txt
-                    while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-                    green "\nhysteria2端口已修改为：${purple}${new_port}${re} ${green}请更新订阅或手动更改hysteria2端口${re}\n"
-                    ;;
-                3)
-                    reading "\n请输入tuic端口 (回车跳过将使用随机端口): " new_port
-                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
-                    sed -i '/"type": "tuic"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
-                    restart_singbox
-                    allow_port $new_port/udp > /dev/null 2>&1
-                    sed -i 's/\(tuic:\/\/[^@]*@[^:]*:\)[0-9]\{1,\}/\1'"$new_port"'/' $client_dir
-                    base64 -w0 $client_dir > /etc/sing-box/sub.txt
-                    while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-                    green "\ntuic端口已修改为：${purple}${new_port}${re} ${green}请更新订阅或手动更改tuic端口${re}\n"
-                    ;;
-                4)  
-                    reading "\n请输入vmess-argo端口 (回车跳过将使用随机端口): " new_port
-                    [ -z "$new_port" ] && new_port=$(shuf -i 2000-65000 -n 1)
-                    sed -i '/"type": "vmess"/,/listen_port/ s/"listen_port": [0-9]\+/"listen_port": '"$new_port"'/' $config_dir
-                    allow_port $new_port/tcp > /dev/null 2>&1
-                    if command_exists rc-service; then
-                        if grep -q "localhost:" /etc/init.d/argo; then
-                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/init.d/argo
-                            get_quick_tunnel
-                            change_argo_domain 
-                        fi
-                    else
-                        if grep -q "localhost:" /etc/systemd/system/argo.service; then
-                            sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/systemd/system/argo.service
-                            get_quick_tunnel
-                            change_argo_domain 
-                        fi
-                    fi
-
-                    if [ -f /etc/sing-box/tunnel.yml ]; then
-                        sed -i 's/localhost:[0-9]\{1,\}/localhost:'"$new_port"'/' /etc/sing-box/tunnel.yml
-                        restart_argo
-                    fi
-
-                    if ([ -f /etc/systemd/system/argo.service ] && grep -q -- "--token" /etc/systemd/system/argo.service) || \
-                       ([ -f /etc/init.d/argo ] && grep -q -- "--token" /etc/init.d/argo); then
-                        yellow "请在cloudflared里也对应修改端口为：${purple}${new_port}${re}\n"
-                    fi
-
-                    restart_singbox
-                    green "\nvmess-argo端口已修改为：${purple}${new_port}${re}\n"
-                    ;;                    
-                0)  change_config ;;
-                *)  red "无效的选项，请输入 1 到 4" ;;
-            esac
-            ;;
-        2)
-            reading "\n请输入新的UUID: " new_uuid
-            [ -z "$new_uuid" ] && new_uuid=$(cat /proc/sys/kernel/random/uuid)
-            sed -i -E '
-                s/"uuid": "([a-f0-9-]+)"/"uuid": "'"$new_uuid"'"/g;
-                s/"uuid": "([a-f0-9-]+)"$/\"uuid\": \"'$new_uuid'\"/g;
-                s/"password": "([a-f0-9-]+)"/"password": "'"$new_uuid"'"/g
-            ' $config_dir
-
-            restart_singbox
-            sed -i -E 's/(vless:\/\/|hysteria2:\/\/)[^@]*(@.*)/\1'"$new_uuid"'\2/' $client_dir
-            sed -i "s/tuic:\/\/[0-9a-f\-]\{36\}/tuic:\/\/$new_uuid/" /etc/sing-box/url.txt
-            isp=$(curl -s https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed -e 's/ /_/g')
-            argodomain=$(grep -oE 'https://[[:alnum:]+\.-]+\.trycloudflare\.com' "${work_dir}/argo.log" | sed 's@https://@@')
-            VMESS="{ \"v\": \"2\", \"ps\": \"${isp}\", \"add\": \"www.visa.com.tw\", \"port\": \"443\", \"id\": \"${new_uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${argodomain}\", \"path\": \"/vmess-argo?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"\", \"allowlnsecure\": \"flase\"}"
-            encoded_vmess=$(echo "$VMESS" | base64 -w0)
-            sed -i -E '/vmess:\/\//{s@vmess://.*@vmess://'"$encoded_vmess"'@}' $client_dir
-            base64 -w0 $client_dir > /etc/sing-box/sub.txt
-            while IFS= read -r line; do yellow "$line"; done < ${work_dir}/url.txt
-            green "\nUUID已修改为：${purple}${new_uuid}${re} ${green}请更新订阅或手动更改所有节点的UUID${re}\n"
-            ;;
-        3)  
+        1)  
             clear
             green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n"
             reading "\n请输入新的Reality伪装域名(回车使用默认1): " new_sni
@@ -1337,7 +1227,7 @@ change_config() {
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
-        4) 
+        2) 
 		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local check_cmds=("nft" "curl" "shuf")
@@ -1414,7 +1304,7 @@ change_config() {
             purple "跳跃区间：$min_port-$max_port"
             ;;
 
-        5)  
+        3)  
             purple "正在清理端口跳跃规则..."
             if nft list chain ip nat prerouting &>/dev/null; then
                 for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
@@ -1437,7 +1327,7 @@ change_config() {
             
             green "\n[✔] 端口跳跃已关闭"
             ;;
-		6)
+		4)
 		    # 1. 随机生成 12 位大小写字母的混淆密码
 obfs_pwd=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 12)
 
@@ -1477,7 +1367,6 @@ echo -e "\n修改成功！当前 /etc/sing-box/url.txt 内容为："
 cat /etc/sing-box/url.txt
 
 
-        8)  change_cfip ;;
         0)  menu ;;
         *)  read "无效的选项！" ;; 
     esac
