@@ -1230,8 +1230,8 @@ change_config() {
         2) 
 		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
-            local check_cmds=("nft" "curl" "shuf")
-            local install_pkgs=("nftables" "curl" "coreutils")
+            local check_cmds=("nft" "curl" "shuf" "python3")
+            local install_pkgs=("nftables" "curl" "coreutils" "python3")
             
             for i in "${!check_cmds[@]}"; do
                 if ! command -v "${check_cmds[$i]}" &> /dev/null; then
@@ -1244,7 +1244,7 @@ change_config() {
                 fi
             done
             
-		    reading "请输入跳跃起始端口: " min_port
+            reading "请输入跳跃起始端口: " min_port
             while [ -z "$min_port" ]; do
                 red "不能为空，请重新输入: "
                 read min_port
@@ -1296,9 +1296,36 @@ change_config() {
                 custom_sni="www.bing.com"
                 url_param="sni=www.bing.com&insecure=1"
             fi
-			node_remark="${isp}_hysteria2"
+            node_remark="${isp}_hysteria2"
             sed -i "/hysteria2:/d" "$client_dir"
-            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&obfs=none&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"        
+            obfs_param="obfs=none"
+            if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
+                obfs_info=$(python3 -c "
+import json
+try:
+    with open('/etc/sing-box/conf/hysteria2.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    obfs = {}
+    if isinstance(data, dict):
+        if 'inbounds' in data:
+            for ib in data['inbounds']:
+                if ib.get('type') == 'hysteria2':
+                    obfs = ib.get('obfs', {})
+        else:
+            obfs = data.get('obfs', {})
+    
+    if obfs.get('type') == 'salamander' and obfs.get('password'):
+        print(f\"obfs=salamander&obfs-password={obfs.get('password')}\")
+    else:
+        print(\"obfs=none\")
+except:
+    print(\"obfs=none\")
+" 2>/dev/null)
+                [ -n "$obfs_info" ] && obfs_param="$obfs_info"
+            fi
+            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"        
+            # ------------------------------------------------
+
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
             green "\nHysteria2 端口跳跃已开启"
             purple "跳跃区间：$min_port-$max_port"
