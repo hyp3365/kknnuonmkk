@@ -1354,7 +1354,18 @@ except:
             
             green "\n[✔] 端口跳跃已关闭"
             ;;
-		4)
+		4)  # 检测并自动补全 python3 依赖
+if ! command -v python3 &> /dev/null; then
+    yellow "检测到缺少依赖 python3，正在安装..."
+    if [ -f /etc/debian_version ]; then
+        apt-get update && apt-get install -y python3
+    elif [ -f /etc/redhat-release ]; then
+        yum install -y python3
+    elif [ -f /etc/alpine-release ]; then
+        apk add --no-cache python3
+    fi
+fi
+
             if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
                 red "未检测到 Hysteria2 节点配置或链接，请先安装 Hysteria2！"
                 exit 1
