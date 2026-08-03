@@ -1365,6 +1365,7 @@ systemctl restart sing-box
 
 echo -e "\n修改成功！当前 /etc/sing-box/url.txt 内容为："
 cat /etc/sing-box/url.txt
+            ;;
 
 
         0)  menu ;;
