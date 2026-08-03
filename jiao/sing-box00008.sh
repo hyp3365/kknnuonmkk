@@ -2867,14 +2867,7 @@ ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
 save_nft_rules() {
     echo "flush ruleset" > /etc/nftables.conf
-    nft list ruleset 2>/dev/null | awk '
-        /^table .* port_manager/ {skip=1; next}
-        /^table .* f2b/ {skip=1; next}
-        /^table .* fail2ban/ {skip=1; next}
-        /^table/ {skip=0}
-        !skip {print $0}
-    ' >> /etc/nftables.conf
-    systemctl enable nftables >/dev/null 2>&1
+    nft list ruleset 2>/dev/null | awk '/table inet port_manager/{p=1;next} /^table /{p=0} !p' >> /etc/nftables.conf
 }
 
 
@@ -3018,7 +3011,6 @@ iptables_ssl() {
     red   "8. 端口流量网速设置"
     green "9. 清理未运行端口"
 	green "10. 修改SSH连接端口"
-	green "11. Fail2ban"
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -3603,136 +3595,7 @@ SRVEOF
                 sleep 2 && iptables_ssl
             fi
             ;;
-		        11)
-            clear
-            yellow "正在加载 Fail2ban 安全防护组件..."
-            
-            while true; do
-                clear
-                echo "============================================="
-                echo "         Fail2ban        "
-                echo "============================================="
-                
-                # 状态检测逻辑
-                if command -v fail2ban-client &> /dev/null && systemctl is-active fail2ban &> /dev/null; then
-                    f2b_status="\033[0;32m运行中\033[0m"
-                    banned_count=$(fail2ban-client status sshd 2>/dev/null | grep "Currently banned:" | awk '{print $4}')
-                    [ -z "$banned_count" ] && banned_count="0"
-                    
-                    banned_ips=$(fail2ban-client status sshd 2>/dev/null | grep "Banned IP list:" | sed 's/.*Banned IP list://' | tr -d '\t')
-                    [ -z "$banned_ips" ] && banned_ips="无"
-                else
-                    f2b_status="\033[0;31m未安装或未启动\033[0m"
-                    banned_count="0"
-                    banned_ips="-"
-                fi
-                
-                echo -e "服务状态: $f2b_status"
-                echo -e "当前拦截恶意 IP 数量: \033[0;31m$banned_count\033[0m"
-                echo "============================================="
-                echo "  1. 安装并开启 Fail2ban (默认保护 SSH)"
-                echo "  2. 修改 防护参数 (封禁时间/重试次数)"
-                echo "  3. 查看 被拦截的恶意 IP 列表"
-                echo "  4. 解封 指定的 IP"
-                echo "  5. 彻底卸载 Fail2ban"
-                echo "  0. 返回 防火墙主菜单"
-                echo "============================================="
-                read -p "请输入选项 [0-5]: " f2b_choice
-                
-                case "$f2b_choice" in
-                    1)
-                        yellow "正在自动安装 Fail2ban..."
-                        if [ -f /etc/debian_version ]; then
-                            apt-get update -y && apt-get install -y fail2ban
-                        elif [ -f /etc/redhat-release ]; then
-                            yum install -y epel-release 2>/dev/null || dnf install -y epel-release
-                            yum install -y fail2ban 2>/dev/null || dnf install -y fail2ban
-                        fi
-                        
-                        yellow "正在配置 Fail2ban (使用 systemd 日志后端)..."
-                        # 获取当前系统真实的 SSH 端口
-                        ssh_p=$(grep -E '^Port\s+[0-9]+' /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
-                        [ -z "$ssh_p" ] && ssh_p=22
-                        
-                        # 写入全兼容的本地配置 (修复日志找不到及底层报错问题)
-                        cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-bantime = 24h
-findtime = 10m
-maxretry = 5
-banaction = iptables-multiport
-chain = INPUT
-
-[sshd]
-enabled = true
-port = $ssh_p
-backend = systemd
-EOF
-                        systemctl daemon-reload >/dev/null 2>&1
-                        systemctl enable fail2ban >/dev/null 2>&1
-                        systemctl restart fail2ban >/dev/null 2>&1
-                        
-                        green "安装并配置完成！"
-                        green "当前 SSH ($ssh_p) 端口已开启防爆破保护。"
-                        read -p "按回车键继续..."
-                        ;;
-                    2)
-                        if ! command -v fail2ban-client &> /dev/null; then
-                            red "请先安装 Fail2ban！"
-                            read -p "按回车键继续..."
-                            continue
-                        fi
-                        echo -e "\033[0;36m>>> 直接按回车则保持默认/原有数值 <<<\033[0m"
-                        read -p "请输入最大密码输错次数 (如 3, 5): " new_retry
-                        read -p "请输入封禁时间 (如 1h, 1d, 30m): " new_bantime
-                        
-                        [ -n "$new_retry" ] && sed -i "s/^maxretry = .*/maxretry = $new_retry/" /etc/fail2ban/jail.local
-                        [ -n "$new_bantime" ] && sed -i "s/^bantime = .*/bantime = $new_bantime/" /etc/fail2ban/jail.local
-                        
-                        systemctl restart fail2ban
-                        green "参数修改成功，服务已自动重启生效！"
-                        read -p "按回车键继续..."
-                        ;;
-                    3)
-                        echo -e "\n\033[0;33m当前被拦截的恶意 IP 列表:\033[0m"
-                        echo -e "$banned_ips\n"
-                        read -p "按回车键继续..."
-                        ;;
-                    4)
-                        read -p "请输入要解封的 IP: " unban_ip
-                        if [ -n "$unban_ip" ]; then
-                            fail2ban-client set sshd unbanip "$unban_ip"
-                            green "操作完成: 已尝试解封 IP -> $unban_ip"
-                        fi
-                        read -p "按回车键继续..."
-                        ;;
-                    5)
-                        yellow "正在彻底卸载 Fail2ban 并清空拦截规则..."
-                        systemctl stop fail2ban >/dev/null 2>&1
-                        systemctl disable fail2ban >/dev/null 2>&1
-                        if [ -f /etc/debian_version ]; then
-                            apt-get remove -y fail2ban >/dev/null 2>&1
-                        elif [ -f /etc/redhat-release ]; then
-                            yum remove -y fail2ban >/dev/null 2>&1 || dnf remove -y fail2ban >/dev/null 2>&1
-                        fi
-                        rm -rf /etc/fail2ban
-                        
-                        green "Fail2ban 卸载清理完毕！"
-                        read -p "按回车键继续..."
-                        ;;
-                    0)
-                        break
-                        ;;
-                    *)
-                        echo "无效选项！"
-                        sleep 1
-                        ;;
-                esac
-            done
-            sleep 1 && iptables_ssl
-            ;;
-
-
+		
         0) menu ;;
         *) iptables_ssl ;;
     esac
