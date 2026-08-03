@@ -1197,7 +1197,11 @@ change_config() {
     skyblue "------------"
     green "5. 删除hysteria2端口跳跃"
     skyblue "------------"
-    green "6. 修改vmess-argo优选域名"
+	green "6. hysteria2开启混淆"
+    skyblue "------------"
+    green "7. hysteria2关闭混淆"
+    skyblue "------------"
+    green "8. 修改vmess-argo优选域名"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -1433,8 +1437,47 @@ change_config() {
             
             green "\n[✔] 端口跳跃已关闭"
             ;;
+		6)
+		    # 1. 随机生成 12 位大小写字母的混淆密码
+obfs_pwd=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 12)
 
-        6)  change_cfip ;;
+
+# 2. 将混淆配置写入 /etc/sing-box/conf/hysteria2.json
+python3 -c "
+import json
+
+path = '/etc/sing-box/conf/hysteria2.json'
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+obfs_data = {
+    'type': 'salamander',
+    'password': '$obfs_pwd'
+}
+
+if isinstance(data, dict):
+    if 'inbounds' in data:
+        for ib in data['inbounds']:
+            if ib.get('type') == 'hysteria2':
+                ib['obfs'] = obfs_data
+    else:
+        data['obfs'] = obfs_data
+
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+"
+
+# 3. 更新 /etc/sing-box/url.txt 中的节点链接
+sed -i "s/obfs=none/obfs=salamander\&obfs-password=${obfs_pwd}/g" /etc/sing-box/url.txt
+
+# 4. 重启 sing-box 使配置生效
+systemctl restart sing-box
+
+echo -e "\n修改成功！当前 /etc/sing-box/url.txt 内容为："
+cat /etc/sing-box/url.txt
+
+
+        8)  change_cfip ;;
         0)  menu ;;
         *)  read "无效的选项！" ;; 
     esac
