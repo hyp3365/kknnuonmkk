@@ -3603,14 +3603,14 @@ SRVEOF
                 sleep 2 && iptables_ssl
             fi
             ;;
-		11)
+		        11)
             clear
             yellow "正在加载 Fail2ban 安全防护组件..."
             
             while true; do
                 clear
                 echo "============================================="
-                echo "         Fail2ban 防爆破安全管理 (Nftables版)"
+                echo "         Fail2ban        "
                 echo "============================================="
                 
                 # 状态检测逻辑
@@ -3649,26 +3649,26 @@ SRVEOF
                             yum install -y fail2ban 2>/dev/null || dnf install -y fail2ban
                         fi
                         
-                        yellow "正在配置 Fail2ban (底层强制对接 Nftables)..."
+                        yellow "正在配置 Fail2ban (使用 systemd 日志后端)..."
                         # 获取当前系统真实的 SSH 端口
                         ssh_p=$(grep -E '^Port\s+[0-9]+' /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
                         [ -z "$ssh_p" ] && ssh_p=22
                         
-                        # 写入适配 Nftables 的本地配置
+                        # 写入全兼容的本地配置 (修复日志找不到及底层报错问题)
                         cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]
 bantime = 24h
 findtime = 10m
 maxretry = 5
-banaction = nftables-multiport
-chain = input
+banaction = iptables-multiport
+chain = INPUT
 
 [sshd]
 enabled = true
 port = $ssh_p
-logpath = %(sshd_log)s
-backend = %(sshd_backend)s
+backend = systemd
 EOF
+                        systemctl daemon-reload >/dev/null 2>&1
                         systemctl enable fail2ban >/dev/null 2>&1
                         systemctl restart fail2ban >/dev/null 2>&1
                         
@@ -3717,10 +3717,6 @@ EOF
                         fi
                         rm -rf /etc/fail2ban
                         
-                        # 清理可能残留的 nftables fail2ban 规则表
-                        nft delete table inet f2b-table 2>/dev/null
-                        nft delete table ip f2b-table 2>/dev/null
-                        
                         green "Fail2ban 卸载清理完毕！"
                         read -p "按回车键继续..."
                         ;;
@@ -3735,6 +3731,7 @@ EOF
             done
             sleep 1 && iptables_ssl
             ;;
+
 
         0) menu ;;
         *) iptables_ssl ;;
