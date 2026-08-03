@@ -1202,28 +1202,34 @@ change_config() {
     reading "请输入选择: " choice
     case "${choice}" in
         1)  
-            clear
-            green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n"
-            reading "\n请输入新的Reality伪装域名(回车使用默认1): " new_sni
-    
-            case "$new_sni" in
-              "1"|"") new_sni="www.joom.com" ;;
-              "2") new_sni="www.stengg.com" ;;
-              "3") new_sni="www.wedgehr.com" ;;
-              "4") new_sni="www.cerebrium.ai" ;;
-              "5") new_sni="www.nazhumi.com" ;;
-              *) new_sni="$new_sni" ;;
-             esac
+		  clear
+          green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n\n6. 自定义域名\n"
+          reading "\n请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
+  
+          case "$new_sni" in
+            "1"|"") new_sni="www.joom.com" ;;
+            "2") new_sni="www.stengg.com" ;;
+            "3") new_sni="www.wedgehr.com" ;;
+            "4") new_sni="www.cerebrium.ai" ;;
+            "5") new_sni="www.nazhumi.com" ;;
+            "6")
+              reading "\n请输入自定义的伪装域名(例如 www.example.com): " new_sni
+              [[ -z "$new_sni" ]] && new_sni="www.joom.com"
+              ;;
+            *) new_sni="$new_sni" ;;
+           esac
+           
           conf_base_dir=$(dirname "$config_dir")
-          # 替换 server_name 和 handshake server，使用 [ \t]* 兼容所有系统的空格匹配
           sed -i "s/\"server_name\":[ \t]*\"[^\"]*\"/\"server_name\": \"$new_sni\"/g" "${conf_base_dir}"/*.json
           sed -i "s/\"server\":[ \t]*\"[^\"]*\"/\"server\": \"$new_sni\"/g" "${conf_base_dir}"/*.json
           restart_singbox
+          
           if [ -f "$client_dir" ]; then
             # 通用正则替换 sni 参数
             sed -i "s/sni=[^&]*/sni=$new_sni/g" "$client_dir"
             base64 "$client_dir" | tr -d '\n' > /etc/sing-box/sub.txt
           fi
+          
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
