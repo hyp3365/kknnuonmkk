@@ -259,6 +259,10 @@ acme_yg_main() {
     local release="" vsid="" op="" PM=""
     local v4="" v6="" vpsip="" ym="" domainIP=""
     local caacme="" caacme1=""
+    
+    # 补充你的脚本全局可能未定义内部专用的输出函数
+    blue(){ echo -e "\e[1;36m$1\033[0m";}
+    white(){ echo -e "\e[1;37m$1\033[0m";}
 
     [[ $EUID -ne 0 ]] && yellow "请以root模式运行脚本" && return 1
 
@@ -304,7 +308,7 @@ acme_yg_main() {
     }
 
     if [[ ! -f acyg_update ]]; then
-        green "首次安装Acme-yg脚本必要的依赖……"
+        green "安装依赖……"
         if [[ "$PM" == "apk" ]]; then
             apk add wget curl tar jq tzdata openssl expect git socat iproute2 virt-what
         else
@@ -371,7 +375,7 @@ acme_yg_main() {
     
     acme3(){
         local Aemail=""
-        readp "请输入注册所需的邮箱（回车跳过则自动生成虚拟gmail邮箱）：" Aemail
+        reading "请输入注册所需的邮箱（回车跳过则自动生成虚拟gmail邮箱）：" Aemail
         if [[ -z "$Aemail" ]]; then
             local auto=$(date +%s%N | md5sum | cut -c 1-6)
             Aemail="${auto}@gmail.com"
@@ -398,7 +402,7 @@ acme_yg_main() {
     checktls(){
         if [[ -s /root/cert/${ym}/cert.crt && -s /root/cert/${ym}/private.key ]]; then
             cronac
-			mkdir -p /root/cert
+            mkdir -p /root/cert
             echo "$ym" > /root/cert/latest_ym.txt
             green "证书申请成功！已独立保存到 /root/cert/${ym}/ 文件夹内" 
             yellow "公钥文件crt路径："
@@ -441,10 +445,10 @@ acme_yg_main() {
             yellow "1：是！输入域名解析的IP"
             yellow "2：否！退出脚本"
             local menu=""
-            readp "请选择：" menu
+            reading "请选择：" menu
             if [[ "$menu" == "1" ]] ; then
                 green "VPS本地的IP：$vpsip"
-                readp "请输入域名解析的IP，与VPS本地IP($vpsip)保持一致：" domainIP
+                reading "请输入域名解析的IP，与VPS本地IP($vpsip)保持一致：" domainIP
             else
                 return 1
             fi
@@ -463,11 +467,7 @@ acme_yg_main() {
         fi
     }
 
-    # 改良校验逻辑：支持多域名检查，不再被单一记录写死
     checkacmeca(){
-        if [[ "${ym}" == *ip6.arpa* ]]; then
-            red "目前不支持ip6.arpa域名申请证书" && return 1
-        fi
         if bash ~/.acme.sh/acme.sh --list | awk 'NR>1{print $1}' | grep -q "^${ym}$"; then
             red "经检测，输入的域名/IP (${ym}) 已有证书申请记录，不用重复申请"
             bash ~/.acme.sh/acme.sh --list
@@ -485,10 +485,7 @@ acme_yg_main() {
             vpsip="$v4"
         fi
         green "VPS本地的IP：$vpsip"
-        if [[ "$v6" == "2a09"* || "$v4" == "104.28"* ]]; then
-            red "经检测，你申请了WARP的IP。请关闭WARP后再申请IP证书" && return 1
-        fi
-        readp "请输入申请IP证书的IP【格式：IPV4或者IPV6或者IPV4 IPV6，回车跳过使用${vpsip%% *}】:" ym
+        reading "请输入申请IP证书的IP【格式：IPV4或者IPV6或者IPV4 IPV6，回车跳过使用${vpsip%% *}】:" ym
         [[ -z "$ym" ]] && ym="${vpsip%% *}"
         
         checkacmeca
@@ -509,7 +506,7 @@ acme_yg_main() {
 
     ACMEstandaloneDNS(){
         v4v6
-        readp "请输入解析完成的域名:" ym
+        reading "请输入解析完成的域名:" ym
         green "已输入的域名:$ym" && sleep 1
         checkacmeca
         checkip
@@ -528,7 +525,7 @@ acme_yg_main() {
     }
 
     ACMEDNS(){
-        readp "请输入解析完成的域名:" ym
+        reading "请输入解析完成的域名:" ym
         green "已输入的域名:$ym" && sleep 1
         checkacmeca
         if [[ -n $(echo "$ym" | grep \*) ]]; then
@@ -539,27 +536,27 @@ acme_yg_main() {
         checkacmeca
         checkip
         echo
-        local ab="请选择托管域名解析服务商：\n1.Cloudflare\n2.腾讯云DNSPod\n3.阿里云Aliyun\n 请选择："
+        local ab="请选择托管域名解析服务商：\n1.Cloudflare\n 请选择："
         local cd=""
-        readp "$ab" cd
+        reading "$ab" cd
         case "$cd" in 
         1 )
             yellow "请选择 Cloudflare DNS API 验证方式："
             yellow "1. API Token (推荐)"
             yellow "2. Global API Key"
             local cf_choice=""
-            readp "请选择【1-2】：" cf_choice
+            reading "请选择【1-2】：" cf_choice
             if [[ "$cf_choice" == "1" ]]; then
                 local CFAccountID="" CFToken=""
-                readp "请输入 Cloudflare Account ID (账户ID)：" CFAccountID
+                reading "请输入 Cloudflare Account ID (账户ID)：" CFAccountID
                 export CF_Account_ID="$CFAccountID"
-                readp "请输入 Cloudflare DNS API Token (API令牌)：" CFToken
+                reading "请输入 Cloudflare DNS API Token (API令牌)：" CFToken
                 export CF_Token="$CFToken"
             else
                 local CFemail="" GAK=""
-                readp "请输入登录Cloudflare的注册邮箱地址：" CFemail
+                reading "请输入登录Cloudflare的注册邮箱地址：" CFemail
                 export CF_Email="$CFemail"
-                readp "请复制Cloudflare的Global API Key：" GAK
+                reading "请复制Cloudflare的Global API Key：" GAK
                 export CF_Key="$GAK"
             fi
             if [[ "$domainIP" == "$v4" ]]; then
@@ -569,66 +566,19 @@ acme_yg_main() {
                 bash ~/.acme.sh/acme.sh --issue --dns dns_cf -d "${ym}" -k ec-256 --server letsencrypt --listen-v6 --insecure
             fi
             ;;
-        2 )
-            local DPID="" DPKEY=""
-            readp "请复制腾讯云DNSPod的DP_Id：" DPID
-            export DP_Id="$DPID"
-            readp "请复制腾讯云DNSPod的DP_Key：" DPKEY
-            export DP_Key="$DPKEY"
-            if [[ "$domainIP" == "$v4" ]]; then
-                bash ~/.acme.sh/acme.sh --issue --dns dns_dp -d "${ym}" -k ec-256 --server letsencrypt --insecure
-            fi
-            if [[ "$domainIP" == "$v6" ]]; then
-                bash ~/.acme.sh/acme.sh --issue --dns dns_dp -d "${ym}" -k ec-256 --server letsencrypt --listen-v6 --insecure
-            fi
-            ;;
-        3 )
-            local ALKEY="" ALSER=""
-            readp "请复制阿里云Aliyun的Ali_Key：" ALKEY
-            export Ali_Key="$ALKEY"
-            readp "请复制阿里云Aliyun的Ali_Secret：" ALSER
-            export Ali_Secret="$ALSER"
-            if [[ "$domainIP" == "$v4" ]]; then
-                bash ~/.acme.sh/acme.sh --issue --dns dns_ali -d "${ym}" -k ec-256 --server letsencrypt --insecure
-            fi
-            if [[ "$domainIP" == "$v6" ]]; then
-                bash ~/.acme.sh/acme.sh --issue --dns dns_ali -d "${ym}" -k ec-256 --server letsencrypt --listen-v6 --insecure
-            fi
-            ;;
         esac
         installCA
         checktls
     }
 
-    warp_check_and_run(){
-        local run_func="$1"
-        local wgcfv6=$(curl -s6m6 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
-        local wgcfv4=$(curl -s4m6 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
-        if [[ ! "$wgcfv4" =~ on|plus && ! "$wgcfv6" =~ on|plus ]]; then
-            $run_func
-        else
-            systemctl stop wg-quick@wgcf >/dev/null 2>&1
-            kill -15 $(pgrep warp-go) >/dev/null 2>&1 && sleep 2
-            $run_func
-            systemctl start wg-quick@wgcf >/dev/null 2>&1
-            systemctl restart warp-go >/dev/null 2>&1
-            systemctl enable warp-go >/dev/null 2>&1
-            systemctl start warp-go >/dev/null 2>&1
-        fi
-    }
-
-    ACMEDNScheck(){ warp_check_and_run ACMEDNS; }
-    ACMEstandaloneDNScheck(){ warp_check_and_run ACMEstandaloneDNS; }
-    ACMEstandaloneIPcheck(){ warp_check_and_run ACMEstandaloneIP; }
-
     acme(){
-        local ab="1.选择独立80端口模式申请IP证书（无需域名，小白推荐）\n2.选择独立80端口模式申请域名证书（需域名）\n3.选择DNS API模式申请证书（需域名、ID、Key），自动识别单域名与泛域名\n 请选择："
+        local ab="1.选择独立80端口模式申请IP证书（无需域名，小白推荐）\n2.选择独立80端口模式申请域名证书（需域名）\n3.选择Cloudflare DNS API模式申请证书（需域名、ID、Key），自动识别单域名与泛域名\n 请选择："
         local cd=""
-        readp "$ab" cd
+        reading "$ab" cd
         case "$cd" in 
-        1 ) acme2 && acme3 && ACMEstandaloneIPcheck;;
-        2 ) acme2 && acme3 && ACMEstandaloneDNScheck;;
-        3 ) acme3 && ACMEDNScheck;;
+        1 ) acme2 && acme3 && ACMEstandaloneIP;;
+        2 ) acme2 && acme3 && ACMEstandaloneDNS;;
+        3 ) acme3 && ACMEDNS;;
         esac
     }
 
@@ -699,9 +649,9 @@ acme_yg_main() {
     }
 
     clear
-    yellow "证书公私钥统一按独立目录存放：/root/cert/对应的ip或域名/"
+    yellow "证书公私钥统一按独立目录存放：/root/cert/对应的ip或域名"
     echo
-    red "========================================================================="
+	red "========================================================================="
     acmeshow
     blue "当前已申请成功的证书列表："
     yellow "$caacme"
@@ -714,7 +664,7 @@ acme_yg_main() {
     green " 0. 退出 "
     echo
     local NumberInput=""
-    readp "请输入数字:" NumberInput
+    reading "请输入数字:" NumberInput
     case "$NumberInput" in     
     1 ) acme;;
     2 ) Certificate;;
@@ -722,8 +672,7 @@ acme_yg_main() {
     4 ) uninstall;;
     * ) return 0;;
     esac
-}
-    
+}   
 
 # 处理防火墙
 allow_port() {
