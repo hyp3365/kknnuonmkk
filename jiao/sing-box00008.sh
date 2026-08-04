@@ -1831,9 +1831,10 @@ EOF
             ;;
         2) 
                 generate_vars
+				stop_nginx
                 server_ip=$(get_realip)
 				while true; do
-              read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port}): " custom_port
+              read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port} 推荐443端口): " custom_port
               if [ -z "$custom_port" ]; then
                   custom_port=$hy2_port
                   break
@@ -1906,6 +1907,7 @@ EOF
                 echo "" >> /etc/sing-box/url.txt
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 restart_singbox
+                restart_nginx
                 green "==============================================="
                 green " hysteria2 节点已添加!"
                 green " 节点链接: $url"
@@ -1913,9 +1915,10 @@ EOF
                 ;;
 	    3) 
                 generate_vars
+				stop_nginx
                 server_ip=$(get_realip)
 				while true; do
-              read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port}): " custom_port
+              read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port} 推荐443端口): " custom_port
               if [ -z "$custom_port" ]; then
                   custom_port=$tuic_port
                   break
@@ -1986,6 +1989,7 @@ EOF
                 echo "" >> /etc/sing-box/url.txt
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 restart_singbox
+                restart_nginx
                 green "==============================================="
                 green " tuic 节点已添加!"
                 green " 节点链接: $url"
