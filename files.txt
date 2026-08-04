@@ -4,3 +4,4 @@
 jjoo       json          自用          https://16441.kstore.space/jjoo.json
 -          -          一键梭哈脚本      https://suoha.psai.eu.org/suoha.sh
 -          -     Sing-box全家桶隧道    https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh
+-          -     WARP添加IPv4/IPv6网络    https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh
