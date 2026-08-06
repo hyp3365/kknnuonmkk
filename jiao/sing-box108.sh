@@ -712,15 +712,28 @@ EOF
     systemctl start argo
 }
 
-# 创建快捷指令
+# 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    cat > "$work_dir/sb.sh" << 'EOF'
-#!/usr/bin/env bash
-bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box108.sh) $1
-EOF
-    chmod +x "$work_dir/sb.sh"
-    ln -sf "$work_dir/sb.sh" /usr/bin/sb
-    [ -s /usr/bin/sb ] && green "\n快捷指令 sb 创建成功\n" || red "\n快捷指令创建失败\n"
+    local remote_url="http://sb.133134.xyz"
+    local local_file="$work_dir/sb.sh"
+    if [ ! -s "$local_file" ]; then
+        mkdir -p "$work_dir"
+        curl -Lss "$remote_url" -o "$local_file"
+    fi
+    if [ -s "$local_file" ]; then
+        chmod +x "$local_file"
+        ln -sf "$local_file" /usr/bin/sb
+		ln -sf "$local_file" /usr/bin/b
+        if [ -x /usr/bin/sb ]; then
+            green "\n快捷指令 sb 已创建\n"
+        fi
+		if [ -x /usr/bin/b ]; then
+            green "\n快捷指令 b 已创建\n"
+        fi
+    else
+        red "\n本地化保存失败，请检查网络后重新运行\n"
+        rm -f "$local_file" 
+    fi
 }
 
 # 适配alpine 守护进程
@@ -2792,8 +2805,9 @@ EOF
     done
 }
 
+#更新脚本
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box08.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box108.sh"
     local local_file="$work_dir/sb.sh"
 
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
@@ -4070,8 +4084,8 @@ menu() {
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
-   green "${purple}快捷命令sb${re}"
-   purple "=== 老王sing-box四合一安装脚本 0.2===\n"
+   green "${purple}快捷命令sb或者b${re}"
+   purple "=== 老王sing-box四合一安装脚本 0.3===\n"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")"
@@ -4088,13 +4102,14 @@ menu() {
    green  "9. 添加删除节点"
    green  "10. 开启BBR"
    echo  "==============="
-   red    "11. iptables"
-   red    "12. 快捷指令"
-   red    "13. 本机信息"
+   red    "11. 更新脚本"
+   red    "12. iptables"
+   red    "13. 快捷指令"
+   red    "14. 本机信息"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-13): " choice
+   reading "请输入选择(0-14): " choice
    echo ""
 }
 
@@ -4143,14 +4158,15 @@ while true; do
 		   ;;
 		9) manage_nodes_menu ;;
 	    10) bbr_menu ;;
-		11) iptables_ssl ;;
-		12) 
+		11) update_script ;;
+		12) iptables_ssl ;;
+		13) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/aa.sh)
 		   ;;
-		13) vps_s ;;
+		14) vps_s ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 13" ;;
+        *) red "无效的选项，请输入 0 到 14" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
