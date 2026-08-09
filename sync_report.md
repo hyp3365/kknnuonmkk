@@ -1,13 +1,13 @@
 # 同步报告
-运行时间：2026-08-08 08:44:42
+运行时间：2026-08-09 08:48:16
 
 | 文件 | 描述 | 状态 |
 |------|------|------|
 | sing-box-1.13.14-linux-amd64.tar.gz | sing-box（22.73 MB） | ✅ 无变化 |
 | jjoo.json | 自用（28.40 KB） | ✅ 无变化 |
 | suoha.sh | 一键梭哈脚本（25.01 KB） | ✅ 无变化 |
-| sing-box.sh | Sing-box全家桶隧道（294.70 KB） | 🔄 更新 |
-| menu.sh | WARP添加IPv4/IPv6网络（125.24 KB） | ✅ 无变化 |
+| sing-box.sh | Sing-box全家桶隧道（294.70 KB） | ✅ 无变化 |
+| menu.sh | WARP添加IPv4/IPv6网络（128.27 KB） | 🔄 更新 |
 
 ## 统计
 - 新增：0
