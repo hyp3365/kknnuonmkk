@@ -3481,13 +3481,13 @@ while true; do
     green "  1. 新增 端口限制"
     green "  2. 修改 端口限制 (会清零当前已用流量)"
     green "  3. 删除 端口限制"
-	green "  4. 刷新"
+    green "  4. 刷新 流量状态"
     green "  0. 返回 上级菜单"
     echo "============================================="
     echo -e "已设置的端口:\n"
     show_ports
     
-    read -p "请输入选项 [1-3, 0]: " choice
+	reading "请输入选项 [0-4]: " choice
     case $choice in
         1|2)
             if [ "$choice" == "2" ]; then
@@ -3561,7 +3561,7 @@ while true; do
             break
             ;;
         *)
-            echo "无效选项，请重新输入。"
+            red "无效选项，请重新输入。"
             sleep 1
             ;;
     esac
