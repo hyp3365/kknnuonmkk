@@ -1983,12 +1983,23 @@ EOF
       cat > /etc/wireguard/keepalive.sh <<'EOF'
 #!/usr/bin/env bash
 set -u
+LOCK=/var/run/warp-keepalive.lock
+HAVE_FLOCK=0
+command -v flock >/dev/null 2>&1 && HAVE_FLOCK=1
 case "${1:-}" in
   start)
-    ps -ef 2>/dev/null | grep -q '[k]eepalive.sh loop' && exit 0
+    if [ "$HAVE_FLOCK" = 1 ]; then
+      # flock 原子锁，无竞态：拿不到锁说明已有实例。子进程继承 fd 9 持锁，loop 结束自动释放
+      exec 9>"$LOCK"
+      flock -n 9 || exit 0
+    else
+      # 无 flock(如 busybox/Alpine) 回退 ps+grep 检测
+      ps -ef 2>/dev/null | grep -q '[k]eepalive.sh loop' && exit 0
+    fi
     nohup "$0" loop >/dev/null 2>&1 &
     ;;
   stop)
+    # 不删锁文件，kill 掉 loop 后 fd 9 自动关闭释放锁，避免新建 inode 造成二次竞态
     for p in $(ps -ef 2>/dev/null | grep '[k]eepalive.sh loop' | awk '{print $2}'); do
       [ "$p" != "$$" ] && kill "$p" 2>/dev/null
     done
@@ -2109,22 +2120,32 @@ EOF
   wait
 
   # WARP 配置修改，172.16.0.0/12 这段是用于 Docker 的
-  local LAN6_CIDR=$(awk -F: '{split($0,p,"::");cidr=(/::/?((n=split(p[1],h,":"))>=4?sprintf("%s:%s:%s:%s::/64",h[1],h[2],h[3],h[4]):sprintf("%s::/64",p[1])):sprintf("%s:%s:%s:%s::/64",$1,$2,$3,$4));gsub(/\//,"\\/",cidr);printf "%s",cidr}' <<< "$LAN6")
-  local MODIFY014="s/\(DNS[ ]\+=[ ]\+\).*/\12606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4/g;7 s/^/PostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*\:\:\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY016="s/\(DNS[ ]\+=[ ]\+\).*/\12606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4/g;7 s/^/PostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*0\.\0\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY01D="s/\(DNS[ ]\+=[ ]\+\).*/\12606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4/g;7 s/^/PostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;\$a\PersistentKeepalive = 30"
-  local MODIFY104="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*\:\:\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY106="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*0\.\0\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY10D="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;\$a\PersistentKeepalive = 30"
-  local MODIFY114="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*\:\:\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY116="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*0\.\0\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY11D="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;\$a\PersistentKeepalive = 30"
-  local MODIFY11N4="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*\:\:\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY11N6="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;s/^.*0\.\0\/0/#&/g;\$a\PersistentKeepalive = 30"
-  local MODIFY11ND="s/\(DNS[ ]\+=[ ]\+\).*/\11.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844/g;7 s/^/PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\nPostUp = ip -4 rule add from 172.17.0.0\/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0\/24 lookup main\nPostUp = \/etc\/wireguard\/keepalive.sh start\nPostDown = \/etc\/wireguard\/keepalive.sh stop\n\n/;\$a\PersistentKeepalive = 30"
+  local LAN6_CIDR=$(awk -F: '{split($0,p,"::");cidr=(/::/?((n=split(p[1],h,":"))>=4?sprintf("%s:%s:%s:%s::/64",h[1],h[2],h[3],h[4]):sprintf("%s::/64",p[1])):sprintf("%s:%s:%s:%s::/64",$1,$2,$3,$4));printf "%s",cidr}' <<< "$LAN6")
+  # 按 CONF 编码生成 sed 脚本，替代 12 行硬编码 MODIFY（3 维度：DNS 顺序 / 规则栈 / 注释行）
+  get_modify() {
+    local c="$1" dns="" rules="" comment=""
+    case "$c" in
+      0*) dns='2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4'
+          rules="PostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\n" ;;
+      10*) dns='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
+           rules="PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\n" ;;
+      11*) dns='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
+           rules="PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\n" ;;
+    esac
+    # Docker 网段(172.17.0.0/12) + keepalive 固定追加
+    rules+="PostUp = ip -4 rule add from 172.17.0.0/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0/24 lookup main\nPostUp = /etc/wireguard/keepalive.sh start\nPostDown = /etc/wireguard/keepalive.sh stop\n\n"
+    case "${c: -1}" in
+      4) comment='s|^.*::/0|#&|g' ;;
+      6) comment='s|^.*0\.0\.0\.0/0|#&|g' ;;
+    esac
+    local s="s|^(DNS[ ]*=[ ]*).*|\\1$dns|g;7s|^|$rules|"
+    [ -n "$comment" ] && s="$s;$comment"
+    s="$s;\$a\PersistentKeepalive = 30"
+    printf '%s' "$s"
+  }
 
   # 修改配置文件
-  sed -i "$(eval echo "\$MODIFY$CONF")" /etc/wireguard/warp.conf
+  sed -E -i "$(get_modify "$CONF")" /etc/wireguard/warp.conf
   [ -e /tmp/best_mtu ] && MTU=$(cat /tmp/best_mtu) && rm -f /tmp/best_mtu && sed -i "s/MTU.*/MTU = $MTU/g" /etc/wireguard/warp.conf
 
   # 根据选择，处理 warp 是否全局代理
@@ -2293,7 +2314,8 @@ EOF
     # 显示 IPv4 / IPv6 优先结果
     result_priority
 
-    # 设置开机启动 warp
+    # 先启动 warp 验证配置，再设置开机自启（避免配置错误导致 SSH 失联）
+    ${SYSTEMCTL_START[int]} >/dev/null 2>&1
     ${SYSTEMCTL_ENABLE[int]} >/dev/null 2>&1
 
     # 结果提示，脚本运行时间，次数统计
