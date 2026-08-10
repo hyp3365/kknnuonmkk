@@ -3176,21 +3176,7 @@ iptables_ssl() {
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
             
-        8)  #!/bin/bash
-re="\033[0m"
-red="\033[1;91m"
-green="\e[1;32m"
-yellow="\e[1;33m"
-purple="\e[1;35m"
-skyblue="\e[1;36m"
-
-red() { echo -e "\e[1;91m$1\033[0m"; }
-green() { echo -e "\e[1;32m$1\033[0m"; }
-yellow() { echo -e "\e[1;33m$1\033[0m"; }
-purple() { echo -e "\e[1;35m$1\033[0m"; }
-skyblue() { echo -e "\e[1;36m$1\033[0m"; }
-reading() { read -p "$(red "$1")" "$2"; }
-
+        8)  
             clear
             yellow "正在初始化"
             if ! command -v tc &> /dev/null; then
@@ -3204,6 +3190,19 @@ reading() { read -p "$(red "$1")" "$2"; }
 
             cat << 'EOF' > /usr/local/bin/port_menu.sh
 #!/bin/bash
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 CONF_DIR="/etc/port_manager"
