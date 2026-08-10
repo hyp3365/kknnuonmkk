@@ -3464,7 +3464,7 @@ show_ports() {
         local M_DISP="一次性"
         [ "$RESET_MODE" == "MONTHLY" ] && M_DISP="每月(1日00:01)"
         
-        printf " %-6s | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
+		printf " \033[31m%-6s\033[0m | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
     done
     
     if [ "$count" -eq 0 ]; then
@@ -3478,10 +3478,11 @@ while true; do
     echo "============================================="
     echo "     端口网速与流量限制"
     echo "============================================="
-    echo "  1. 新增 端口限制"
-    echo "  2. 修改 端口限制 (会清零当前已用流量)"
-    echo "  3. 删除 端口限制"
-    echo "  0. 返回 上级菜单"
+    green "  1. 新增 端口限制"
+    green "  2. 修改 端口限制 (会清零当前已用流量)"
+    green "  3. 删除 端口限制"
+	green "  4. 刷新"
+    green "  0. 返回 上级菜单"
     echo "============================================="
     echo -e "已设置的端口:\n"
     show_ports
@@ -3547,6 +3548,13 @@ while true; do
                 echo -e "\033[31m[-] 未找到该端口的配置！\033[0m"
             fi
             read -p "按回车键继续..."
+            ;;
+		4)
+            echo -e "\n\033[36m[+] 正在刷新端口流量统计与拦截状态...\033[0m"
+            check_and_block
+            restore_rules_func
+            echo -e "\n\033[32m[+] 刷新完成！当前数据已更新。\033[0m"
+            sleep 1
             ;;
         0)
             echo -e "\033[32m返回防火墙。\033[0m"
