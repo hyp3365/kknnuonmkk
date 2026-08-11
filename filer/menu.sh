@@ -1197,7 +1197,7 @@ uninstall() {
   fi
   rm -f /usr/bin/wg-quick.{origin,reserved}
   rm -f /tmp/{best_mtu,wireguard-go-*}
-  rm -f /etc/wireguard/{warp-account.conf,warp_unlock.sh,warp.conf,up,down,proxy.conf,menu.sh,language,NonGlobalUp.sh,NonGlobalDown.sh,keepalive.sh}
+  rm -f /etc/wireguard/{warp-account.conf,warp_unlock.sh,warp.conf,up,down,proxy.conf,menu.sh,language,NonGlobal.sh,NonGlobalUp.sh,NonGlobalDown.sh,keepalive.sh}
   [[ -e /etc/wireguard && -z "$(ls -A /etc/wireguard/)" ]] && rmdir /etc/wireguard
 
   # 选择自动卸载依赖执行以下
@@ -1937,46 +1937,29 @@ install() {
     mkdir -p /etc/wireguard/ >/dev/null 2>&1
     warp_api "register" > /etc/wireguard/warp-account.conf 2>/dev/null
 
-    # 生成 WireGuard 配置文件 (warp.conf)
+    # 生成 NonGlobal.sh 和 keepalive.sh（warp.conf 在 wait 后统一生成）
     if [ -s /etc/wireguard/warp-account.conf ]; then
-      cat > /etc/wireguard/warp.conf <<EOF
-[Interface]
-PrivateKey = $(awk -F'"' '/"private_key"/ {print $4; exit}' /etc/wireguard/warp-account.conf)
-Address = 172.16.0.2/32
-Address = $(awk -F'"' '/"v6"[[:space:]]*:/ && $4 !~ /^\[/ {print $4; exit}' /etc/wireguard/warp-account.conf)/128
-DNS = 8.8.8.8
-MTU = 1280
-#Reserved = $(awk '/"reserved": \[/{flag=1; printf "["; next} flag && /\]/{printf "]"; flag=0; print ""; next} flag {gsub(/[ \t\n\r]/,""); printf "%s", $0}' /etc/wireguard/warp-account.conf)
-#Table = off
-#PostUp = /etc/wireguard/NonGlobalUp.sh
-#PostDown = /etc/wireguard/NonGlobalDown.sh
-
-[Peer]
-PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
-AllowedIPs = 0.0.0.0/0
-AllowedIPs = ::/0
-Endpoint = engage.cloudflareclient.com:2408
+      cat > /etc/wireguard/NonGlobal.sh <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  start)
+    sleep 5
+    ip -4 rule add from 172.16.0.2 lookup 51820
+    ip -4 rule add table main suppress_prefixlength 0
+    ip -4 route add default dev warp table 51820
+    ip -6 rule add oif warp lookup 51820
+    ip -6 rule add table main suppress_prefixlength 0
+    ip -6 route add default dev warp table 51820
+    ;;
+  stop)
+    ip -4 rule delete oif warp lookup 51820
+    ip -4 rule delete table main suppress_prefixlength 0
+    ip -6 rule delete oif warp lookup 51820
+    ip -6 rule delete table main suppress_prefixlength 0
+    ;;
+esac
 EOF
-      chmod 600 /etc/wireguard/warp.conf
-
-      cat > /etc/wireguard/NonGlobalUp.sh <<EOF
-sleep 5
-ip -4 rule add from 172.16.0.2 lookup 51820
-ip -4 rule add table main suppress_prefixlength 0
-ip -4 route add default dev warp table 51820
-ip -6 rule add oif warp lookup 51820
-ip -6 rule add table main suppress_prefixlength 0
-ip -6 route add default dev warp table 51820
-EOF
-
-      cat > /etc/wireguard/NonGlobalDown.sh <<EOF
-ip -4 rule delete oif warp lookup 51820
-ip -4 rule delete table main suppress_prefixlength 0
-ip -6 rule delete oif warp lookup 51820
-ip -6 rule delete table main suppress_prefixlength 0
-EOF
-
-      chmod +x /etc/wireguard/NonGlobal*.sh
+      chmod +x /etc/wireguard/NonGlobal.sh
 
       # 生成 WARP 保活脚本: 每 5 分钟检查 warp 接口, 接口存在则执行 wg n 刷IP(全局/非全局通用)
       # 进程管理只用 ps + kill, 兼容 GNU procps / busybox / BSD 各系统(不依赖 pgrep/pkill/pidof)
@@ -2119,44 +2102,82 @@ EOF
 
   wait
 
-  # WARP 配置修改，172.16.0.0/12 这段是用于 Docker 的
+  # 一次性生成 warp.conf：按条件拼接后直接写入文件，替代模板+多次 sed 修改
+  local PRIVATEKEY=$(awk -F'"' '/"private_key"/ {print $4; exit}' /etc/wireguard/warp-account.conf)
+  local ADDRESS6=$(awk -F'"' '/"v6"[[:space:]]*:/ && $4 !~ /^\[/ {print $4; exit}' /etc/wireguard/warp-account.conf)
+  local CLIENT_ID=$(awk '/"reserved": \[/{flag=1; printf "["; next} flag && /\]/{printf "]"; flag=0; print ""; next} flag {gsub(/[ \t\n\r]/,""); printf "%s", $0}' /etc/wireguard/warp-account.conf)
   local LAN6_CIDR=$(awk -F: '{split($0,p,"::");cidr=(/::/?((n=split(p[1],h,":"))>=4?sprintf("%s:%s:%s:%s::/64",h[1],h[2],h[3],h[4]):sprintf("%s::/64",p[1])):sprintf("%s:%s:%s:%s::/64",$1,$2,$3,$4));printf "%s",cidr}' <<< "$LAN6")
-  # 按 CONF 编码生成 sed 脚本，替代 12 行硬编码 MODIFY（3 维度：DNS 顺序 / 规则栈 / 注释行）
-  get_modify() {
-    local c="$1" dns="" rules="" comment=""
-    case "$c" in
-      0*) dns='2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4'
-          rules="PostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\n" ;;
-      10*) dns='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
-           rules="PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\n" ;;
-      11*) dns='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
-           rules="PostUp = ip -4 rule add from $LAN4 lookup main\nPostDown = ip -4 rule delete from $LAN4 lookup main\nPostUp = ip -6 rule add from $LAN6_CIDR lookup main\nPostDown = ip -6 rule delete from $LAN6_CIDR lookup main\n" ;;
-    esac
-    # Docker 网段(172.17.0.0/12) + keepalive 固定追加
-    rules+="PostUp = ip -4 rule add from 172.17.0.0/24 lookup main\nPostDown = ip -4 rule delete from 172.17.0.0/24 lookup main\nPostUp = /etc/wireguard/keepalive.sh start\nPostDown = /etc/wireguard/keepalive.sh stop\n\n"
-    case "${c: -1}" in
-      4) comment='s|^.*::/0|#&|g' ;;
-      6) comment='s|^.*0\.0\.0\.0/0|#&|g' ;;
-    esac
-    local s="s|^(DNS[ ]*=[ ]*).*|\\1$dns|g;7s|^|$rules|"
-    [ -n "$comment" ] && s="$s;$comment"
-    s="$s;\$a\PersistentKeepalive = 30"
-    printf '%s' "$s"
-  }
+  local MTU=1280 && [ -e /tmp/best_mtu ] && MTU=$(cat /tmp/best_mtu) && rm -f /tmp/best_mtu
 
-  # 修改配置文件
-  sed -E -i "$(get_modify "$CONF")" /etc/wireguard/warp.conf
-  [ -e /tmp/best_mtu ] && MTU=$(cat /tmp/best_mtu) && rm -f /tmp/best_mtu && sed -i "s/MTU.*/MTU = $MTU/g" /etc/wireguard/warp.conf
+  # DNS 顺序与 PostUp/PostDown 规则，按 CONF 编码（前缀 0*=IPv6 / 10*=IPv4 / 11*=双栈）；172.17.0.0/24 为 Docker 网段固定追加
+  local DNS RULES
+  case "$CONF" in
+    0*)
+      DNS='2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844,1.1.1.1,8.8.8.8,8.8.4.4'
+      RULES="PostUp = ip -6 rule add from $LAN6_CIDR lookup main
+PostDown = ip -6 rule delete from $LAN6_CIDR lookup main
+" ;;
+    10*)
+      DNS='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
+      RULES="PostUp = ip -4 rule add from $LAN4 lookup main
+PostDown = ip -4 rule delete from $LAN4 lookup main
+" ;;
+    11*)
+      DNS='1.1.1.1,8.8.8.8,8.8.4.4,2606:4700:4700::1111,2001:4860:4860::8888,2001:4860:4860::8844'
+      RULES="PostUp = ip -4 rule add from $LAN4 lookup main
+PostDown = ip -4 rule delete from $LAN4 lookup main
+PostUp = ip -6 rule add from $LAN6_CIDR lookup main
+PostDown = ip -6 rule delete from $LAN6_CIDR lookup main
+" ;;
+  esac
+  RULES+="PostUp = ip -4 rule add from 172.17.0.0/24 lookup main
+PostDown = ip -4 rule delete from 172.17.0.0/24 lookup main
 
-  # 根据选择，处理 warp 是否全局代理
-  [ "$GLOBAL_OR_NOT" = "$(text 96)" ] && sed -i "/Table/s/#//g;/NonGlobal/s/#//g" /etc/wireguard/warp.conf
+"
+
+  # AllowedIPs 注释（后缀 4=仅 IPv4 / 6=仅 IPv6 / D=双栈）
+  local ALLOW4='AllowedIPs = 0.0.0.0/0' ALLOW6='AllowedIPs = ::/0'
+  case "${CONF: -1}" in
+    4) ALLOW6="#$ALLOW6" ;;
+    6) ALLOW4="#$ALLOW4" ;;
+  esac
+
+  # 非全局模式启用 Table + NonGlobal 规则
+  local TABLE='#Table = off' NONGLOBAL_UP='#PostUp = /etc/wireguard/NonGlobal.sh start' NONGLOBAL_DOWN='#PostDown = /etc/wireguard/NonGlobal.sh stop'
+  [ "$GLOBAL_OR_NOT" = "$(text 96)" ] && { TABLE='Table = off'; NONGLOBAL_UP='PostUp = /etc/wireguard/NonGlobal.sh start'; NONGLOBAL_DOWN='PostDown = /etc/wireguard/NonGlobal.sh stop'; }
+
+  # CentOS 9 / AlmaLinux 9 / RockyLinux 9 注释 DNS 行
+  local DNS_LINE="DNS = $DNS"
+  [ "${SYSTEM}_${MAJOR_VERSION}" = 'CentOS_9' ] && DNS_LINE="#$DNS_LINE"
+
+  cat > /etc/wireguard/warp.conf << EOF
+[Interface]
+PrivateKey = $PRIVATEKEY
+Address = 172.16.0.2/32
+Address = $ADDRESS6/128
+$DNS_LINE
+MTU = $MTU
+$RULES#Reserved = $CLIENT_ID
+$TABLE
+$NONGLOBAL_UP
+$NONGLOBAL_DOWN
+PostUp = /etc/wireguard/keepalive.sh start
+PostDown = /etc/wireguard/keepalive.sh stop
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+$ALLOW4
+$ALLOW6
+Endpoint = engage.cloudflareclient.com:2408
+PersistentKeepalive = 30
+EOF
+  chmod +x /etc/wireguard/warp.conf
   info "\n $(text 81) \n"
 
   # 对于 CentOS 9 / AlmaLinux 9 / RockyLinux 9 及类似系统的处理
   if [ "${SYSTEM}_${MAJOR_VERSION}" = 'CentOS_9' ]; then
     centos9_resolv backup
     centos9_resolv generate $m
-    sed -i 's/^\(DNS[[:space:]]=.*\)/#\1/' /etc/wireguard/warp.conf
   fi
 
   if [ "$IS_PUFFERFFISH" = 'is_pufferffish' ]; then
