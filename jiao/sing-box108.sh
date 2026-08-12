@@ -584,6 +584,12 @@ cat > "${conf_dir}/outbounds.json" << EOF
     {
       "type": "direct",
       "tag": "direct"
+    },
+	{
+      "type": "socks",
+      "tag": "wireproxy",
+      "server": "127.0.0.1",
+      "server_port": 40000
     }
   ]
 }
@@ -4098,24 +4104,37 @@ warp_manage() {
 
 # 选择目标出站时的通用函数 (增加 IP:端口 显示)
 select_outbound_target() {
-    local out_tags=($(jq -r '.outbounds[].tag' "$outbound_file" 2>/dev/null))
-    
-    if [ ${#out_tags[@]} -eq 0 ]; then
-        selected_out="wireguard-out"
-        yellow "未找到其他可选择的出站，将自动使用 WARP (wireguard-out)。"
-        return 0
-    fi
-
     echo ""
     green "请选择分流流量要走的出站线路:"
-    jq -r '.outbounds | to_entries[] | "  \(.key + 1). \(.value.tag) " + (if .value.server then "[\(.value.server):\(.value.server_port)]" else "" end)' "$outbound_file" 2>/dev/null
+    local out_tags=("wireguard-out" "wireproxy")
+    echo -e "  ${green}1.${re} ${skyblue}wireguard-out${re} (系统内置 WARP 出站)"
+    echo -e "  ${green}2.${re} ${skyblue}wireproxy${re} (wireproxy)"
+    
+    local i=3
+    while read -r line; do
+        [ -z "$line" ] && continue
+        
+        # 提取 tag 名称和后面的 IP:端口 信息
+        local tag=$(echo "$line" | awk '{print $1}')
+        local info=$(echo "$line" | awk '{$1=""; print $0}' | sed 's/^ *//')
+        
+        if [[ "$tag" == "wireguard-out" || "$tag" == "wireproxy" ]]; then
+            continue
+        fi
+        
+        echo -e "  ${green}${i}.${re} ${skyblue}${tag}${re} ${info}"
+        out_tags+=("$tag")
+        ((i++))
+    done < <(jq -r '.outbounds[]? | "\(.tag) \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null)
 
+    echo ""
     reading "请输入编号: " out_choice
-    if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
-       [ "$out_choice" -lt 1 ] || \
-       [ "$out_choice" -gt "${#out_tags[@]}" ]; then
-        red "无效选择"; return 1
+    
+    if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || [ "$out_choice" -lt 1 ] || [ "$out_choice" -gt "${#out_tags[@]}" ]; then
+        red "无效选择"
+        return 1
     fi
+    
     selected_out="${out_tags[$((out_choice-1))]}"
     return 0
 }
@@ -4226,32 +4245,6 @@ add_custom_domain_rule() {
     sleep 1.5; warp_manage
 }
 
-# 添加自定义域名分流规则
-add_custom_domain_rule() {
-    echo ""
-    green "=== 添加自定义域名分流 ==="
-    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re} 会匹配 ${skyblue}baidu.com${re} 及 ${skyblue}*.baidu.com${re}）"
-    reading "请输入域名 (多个域名请用空格或逗号分隔): " custom_input
-
-    if [ -z "$custom_input" ]; then
-        red "未输入任何域名！"; sleep 1; add_rule_menu; return
-    fi
-    local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
-    if ! select_outbound_target; then
-        sleep 1; add_rule_menu; return
-    fi
-    jq --argjson doms "$dom_json" --arg out "$selected_out" '
-        if (.route.rules | length) == 0 then
-            .route.rules = [{"domain_suffix": $doms, "outbound": $out}]
-        else
-            .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
-        end
-    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
-    restart_singbox
-    green "自定义域名规则 [ $custom_input ] 已添加，出站走 '${selected_out}'"
-    sleep 1.5; warp_manage
-}
 
 # 设置全局代理出站
 set_global_outbound() {
