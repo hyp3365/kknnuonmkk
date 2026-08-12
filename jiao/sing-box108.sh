@@ -4046,13 +4046,11 @@ warp_manage() {
     green "=== WARP / 节点分流管理 ===\n"
     green "当前已启用的分流规则:"
     
-    # 显示已启用的预设规则集
     local has_rules=0
     while read -r line; do
         [ -n "$line" ] && echo -e " - ${skyblue}[规则集] $line${re}" && has_rules=1
     done < <(jq -r '.route.rules[] | select(.rule_set != null) | "\(.rule_set | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
 
-    # 显示自定义域名规则
     while read -r line; do
         [ -n "$line" ] && echo -e " - ${skyblue}[自定义域名] $line${re}" && has_rules=1
     done < <(jq -r '.route.rules[] | select(.domain_suffix != null) | "\(.domain_suffix | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
@@ -4063,7 +4061,7 @@ warp_manage() {
     jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
 
     echo ""
-    green "1. 设置分流服务 (预设服务 / 自定义域名)"
+    green "1. 设置分流服务 "
     skyblue "----------------------"
     red "2. 删除分流规则"
     skyblue "--------------"
@@ -4125,7 +4123,7 @@ add_rule_menu() {
     green "8.  Netflix"
     green "9.  Telegram"
     skyblue "-----------------------------"
-    green "10. ➕ 添加自定义域名分流 (如: example.com)"
+    green "10. ➕ 自定义域名分流"
     skyblue "-----------------------------"
     green "11. 设置全局代理出站 (所有流量走指定代理)"
     green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
@@ -4197,16 +4195,10 @@ add_custom_domain_rule() {
     if [ -z "$custom_input" ]; then
         red "未输入任何域名！"; sleep 1; add_rule_menu; return
     fi
-
-    # 将输入的域名转为 JSON 数组格式
     local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
-
-    # 选择要走的出站
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
-
-    # 写入自定义域名规则到 route.json
     jq --argjson doms "$dom_json" --arg out "$selected_out" '
         if (.route.rules | length) == 0 then
             .route.rules = [{"domain_suffix": $doms, "outbound": $out}]
@@ -4433,28 +4425,41 @@ add_socks5_proxy() {
 }
 delete_socks5_proxy() {
     clear
+    green "=== 删除 Socks5/HTTP 出站 ==="
     green "当前可用出站列表:"
-    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "\(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
-    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; return; }
+    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "  \(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
+    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; warp_manage; return; }
     echo "$out_list"
 
+    echo ""
+    purple "0. 返回上级菜单"
     reading "输入要删除的出站编号或标签: " del_input
+    if [ "$del_input" == "0" ]; then
+        warp_manage; return
+    fi
     if [[ "$del_input" =~ ^[0-9]+$ ]]; then
         tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
-        [ -z "$tag" ] && { red "编号无效！"; sleep 1; return; }
+        [ -z "$tag" ] && { red "编号无效！"; sleep 1; delete_socks5_proxy; return; }
     else
         tag="$del_input"
-        jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; return; }
+        jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; delete_socks5_proxy; return; }
     fi
-    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置，不可删除！"; sleep 2; return; }
-
+    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置 WARP 出站，不可删除！"; sleep 2; delete_socks5_proxy; return; }
     jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
-    jq --arg tag "$tag" '.route.rules = [.route.rules[] | select(.outbound != $tag)]' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+    jq --arg tag "$tag" '
+        if .route.rules then
+            del(.route.rules[] | select(.outbound == $tag or .outbound_tag == $tag))
+        else
+            .
+        end
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
-    green "${tag} 代理出站已删除。"
-    sleep 1
+    green "代理出站 '${tag}' 及其绑定的所有分流规则（含自定义域名/预设规则集）已彻底删除！"
+    sleep 1.5
+    warp_manage
 }
+
 
 delete_rule_menu() {
     clear
