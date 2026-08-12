@@ -4120,7 +4120,6 @@ select_outbound_target() {
     return 0
 }
 
-
 add_rule_menu() {
     clear
     green "选择要分流的服务或设置自定义域名:\n"
@@ -4161,14 +4160,13 @@ add_rule_menu() {
 
     # 检查预设规则集是否已添加
     if jq -e --arg tag "$rule_tag" \
-        '.route.rules[] | select(.rule_set != null) | .rule_set[]? | select(. == $tag)' \
+        '.route.rules[]? | select(.rule_set != null) | .rule_set[]? | select(. == $tag)' \
         "$route_file" > /dev/null 2>&1; then
         yellow "规则集 '${rule_tag}' 已在运行中。"; sleep 1; warp_manage; return
     fi
 
-    jq 'if (.route.rules | length) == 1 and (.route.rules[0].rule_set | length) == 0 and (.route.rules[0].domain_suffix | length) == 0
-        then .route.rules = []
-        else . end' \
+    # 清理可能存在的空规则结构，防止格式混乱
+    jq 'if .route.rules then .route.rules |= map(select( (.rule_set | length > 0) or (.domain_suffix | length > 0) )) else . end' \
         "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     # 选择出站
@@ -4176,23 +4174,56 @@ add_rule_menu() {
         sleep 1; add_rule_menu; return
     fi
 
-    # 写入 route.json 规则集
     jq --arg tag "$rule_tag" --arg out "$selected_out" '
-        if (.route.rules | length) == 0 then
-            .route.rules = [{"rule_set": [$tag], "outbound": $out}]
+        .route.rules //= [] |
+        if any(.route.rules[]; .outbound == $out and .rule_set != null) then
+            .route.rules |= map(
+                if .outbound == $out and .rule_set != null then 
+                    .rule_set = (.rule_set + [$tag] | unique) 
+                else . end
+            )
         else
-            (first(.route.rules[] | select(.outbound == $out and .rule_set != null)) | .rule_set) as $existing
-            | if $existing then
-                .route.rules = [.route.rules[] | if .outbound == $out and .rule_set != null then .rule_set += [$tag] else . end]
-              else
-                .route.rules += [{"rule_set": [$tag], "outbound": $out}]
-              end
+            .route.rules += [{"rule_set": [$tag], "outbound": $out}]
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
     green "预设规则 '${rule_tag}' 已成功添加，出站设置为 '${selected_out}'"
-    sleep 1; warp_manage
+    sleep 1.5; warp_manage
+}
+
+# 添加自定义域名分流规则
+add_custom_domain_rule() {
+    echo ""
+    green "=== 添加自定义域名分流 ==="
+    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re} 会匹配 ${skyblue}baidu.com${re} 及 ${skyblue}*.baidu.com${re}）"
+    reading "请输入域名 (多个域名请用空格或逗号分隔): " custom_input
+
+    if [ -z "$custom_input" ]; then
+        red "未输入任何域名！"; sleep 1; add_rule_menu; return
+    fi
+    local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
+    
+    if ! select_outbound_target; then
+        sleep 1; add_rule_menu; return
+    fi
+    
+    jq --argjson doms "$dom_json" --arg out "$selected_out" '
+        .route.rules //= [] |
+        if any(.route.rules[]; .outbound == $out and .domain_suffix != null) then
+            .route.rules |= map(
+                if .outbound == $out and .domain_suffix != null then
+                    .domain_suffix = (.domain_suffix + $doms | unique)
+                else . end
+            )
+        else
+            .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+        end
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "自定义域名规则 [ $custom_input ] 已添加，出站走 '${selected_out}'"
+    sleep 1.5; warp_manage
 }
 
 # 添加自定义域名分流规则
