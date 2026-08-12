@@ -4487,8 +4487,9 @@ delete_socks5_proxy() {
     clear
     green "=== 删除 Socks5/HTTP 出站 ==="
     green "当前可用出站列表:"
-    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "  \(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
-    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; warp_manage; return; }
+    
+    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct" and .tag != "wireproxy")] | to_entries | .[] | "  \(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
+    [ -z "$out_list" ] && { yellow "没有可删除的自定义出站。"; sleep 2; warp_manage; return; }
     echo "$out_list"
 
     echo ""
@@ -4497,14 +4498,22 @@ delete_socks5_proxy() {
     if [ "$del_input" == "0" ]; then
         warp_manage; return
     fi
+    
     if [[ "$del_input" =~ ^[0-9]+$ ]]; then
-        tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
+        tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct" and .tag != "wireproxy")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
         [ -z "$tag" ] && { red "编号无效！"; sleep 1; delete_socks5_proxy; return; }
     else
         tag="$del_input"
         jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; delete_socks5_proxy; return; }
     fi
-    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置 WARP 出站，不可删除！"; sleep 2; delete_socks5_proxy; return; }
+    
+    if [ "$tag" == "wireproxy" ]; then
+        red "'wireproxy' 为本地 WARP 代理出站，不可删除！"
+        sleep 2
+        delete_socks5_proxy
+        return
+    fi
+
     jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
     jq --arg tag "$tag" '
         if .route.rules then
@@ -4519,6 +4528,7 @@ delete_socks5_proxy() {
     sleep 1.5
     warp_manage
 }
+
 
 delete_rule_menu() {
     clear
