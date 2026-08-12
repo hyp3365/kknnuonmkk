@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-# 项目: WARP安装与管理脚本
+# 项目: WARP-GO 极速轻量版管理脚本
 # ====================================================
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -9,91 +9,140 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+CONF_DIR="/etc/warp-go"
+BIN_PATH="/usr/local/bin/warp-go"
+SERVICE_PATH="/etc/systemd/system/warp-go.service"
+PROXY_PORT=40000
+
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须以 root 权限运行!${NC}" && exit 1
 
-# 状态翻译与渲染
-translate_status() {
-    case "$1" in
-        "Connected") echo -e "${GREEN}已连接 (正常)${NC}" ;;
-        "Disconnected") echo -e "${RED}已断开${NC}" ;;
-        "Connecting") echo -e "${YELLOW}正在连接...${NC}" ;;
-        *) echo -e "${YELLOW}${1:-未知}${NC}" ;;
+# 获取系统 CPU 架构
+get_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64) echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *) echo -e "${RED}不支持的系统架构!${NC}"; exit 1 ;;
     esac
 }
 
-show_status() {
-    echo -e "${BLUE}--- 当前网络状态 ---${NC}"
-    if ! command -v warp-cli &> /dev/null; then
-        echo -e "${RED}WARP 未安装${NC}"
-        echo -e "${BLUE}--------------------${NC}"
-        return
-    fi
-    
-    # 兼容新旧版本 warp-cli 的状态获取
-    local cli_out
-    cli_out=$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null)
-    
-    if echo "$cli_out" | grep -iq "Connected"; then
-        raw_status="Connected"
-    elif echo "$cli_out" | grep -iq "Connecting"; then
-        raw_status="Connecting"
+# 检查服务运行状态
+check_service() {
+    if systemctl is-active --quiet warp-go 2>/dev/null; then
+        return 0
     else
-        raw_status="Disconnected"
+        return 1
     fi
-    
-    if [[ "$raw_status" == "Connected" ]]; then
-        # 通过 Socks5 代理查询 WARP 出口 IP
-        ip_info=$(curl -s --max-time 5 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace)
-        ip=$(echo "$ip_info" | grep "ip=" | cut -d= -f2)
-        loc=$(echo "$ip_info" | grep "loc=" | cut -d= -f2)
-        
-        echo -ne "${GREEN}连接状态:${NC} "
-        translate_status "$raw_status"
-        echo -e "${GREEN}出口 IP :${NC} ${ip:-获取中...} (${loc:-未知地区})"
-    else
-        echo -ne "${YELLOW}连接状态:${NC} "
-        translate_status "$raw_status"
-    fi
-    echo -e "${BLUE}--------------------${NC}"
 }
 
-# --- 安装函数 ---
+# 状态检测逻辑 (支持双栈显示)
+show_status() {
+    echo -e "${BLUE}--- 当前网络状态 (WARP-GO) ---${NC}"
+    if [ ! -f "$BIN_PATH" ]; then
+        echo -e "${RED}WARP-GO 未安装${NC}"
+        echo -e "${BLUE}--------------------------------${NC}"
+        return
+    fi
+
+    if check_service; then
+        echo -e "${GREEN}连接状态:${NC} 运行中 (SOCKS5: $PROXY_PORT)"
+        
+        # 通过 Socks5 代理并发检测 IPv4 与 IPv6
+        ipv4=$(curl -4 -s --max-time 3 -x socks5h://127.0.0.1:${PROXY_PORT} https://4.ipw.cn 2>/dev/null)
+        ipv6=$(curl -6 -s --max-time 3 -x socks5h://127.0.0.1:${PROXY_PORT} https://6.ipw.cn 2>/dev/null)
+
+        echo -e "${GREEN}IPv4 出口:${NC} ${ipv4:-未连通/无IPv4通道}"
+        echo -e "${GREEN}IPv6 出口:${NC} ${ipv6:-未连通/无IPv6通道}"
+    else
+        echo -e "${RED}连接状态:${NC} 已停止 / 未连通"
+    fi
+    echo -e "${BLUE}--------------------------------${NC}"
+}
+
+# --- 极速安装函数 ---
 install_warp() {
-    echo -e "${BLUE}开始安装流程...${NC}"
-    apt-get update && apt-get install -y --no-install-recommends curl gpg lsb-release ca-certificates
+    echo -e "${BLUE}开始安装 WARP-GO (极速轻量版)...${NC}"
     
-    curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/cloudflare-client.list
+    # 清理官方旧版的占用（如果存在）
+    if command -v warp-cli &>/dev/null; then
+        echo -e "${YELLOW}检测到官方 cloudflare-warp，正在清理冲突...${NC}"
+        systemctl stop warp-svc >/dev/null 2>&1
+        apt-get purge -y cloudflare-warp >/dev/null 2>&1
+    fi
+
+    # 只安装核心基础组件 (无需任何桌面/多媒体依赖)
+    apt-get update -y && apt-get install -y --no-install-recommends curl ca-certificates >/dev/null 2>&1
+
+    local ARCH=$(get_arch)
+    mkdir -p "$CONF_DIR"
+
+    echo -e "${BLUE}正在下载核心程序...${NC}"
+    # 主下载节点
+    curl -fsSL "https://gitlab.com/ProjectWARP/warp-go/-/raw/main/warp-go_linux_${ARCH}?inline=false" -o "$BIN_PATH"
     
-    apt-get update && apt-get install -y --no-install-recommends cloudflare-warp
-    
-    # 初始化配置 (SOCKS5 模式)
-    warp-cli --accept-tos registration new >/dev/null 2>&1 || warp-cli registration new >/dev/null 2>&1
-    warp-cli --accept-tos mode proxy >/dev/null 2>&1 || warp-cli mode proxy >/dev/null 2>&1
-    warp-cli --accept-tos proxy port 40000 >/dev/null 2>&1 || warp-cli settings set proxy-port 40000 >/dev/null 2>&1
-    warp-cli --accept-tos connect >/dev/null 2>&1 || warp-cli connect >/dev/null 2>&1
-    
-    # 注入全局快捷命令
+    # 备用下载节点
+    if [ $? -ne 0 ] || [ ! -s "$BIN_PATH" ]; then
+        echo -e "${YELLOW}切换备用节点下载...${NC}"
+        curl -fsSL "https://raw.githubusercontent.com/fscemen/warp-go/main/warp-go_linux_${ARCH}" -o "$BIN_PATH"
+    fi
+
+    if [ ! -s "$BIN_PATH" ]; then
+        echo -e "${RED}下载失败，请检查 VPS 访问 GitLab/GitHub 的网络连通性！${NC}"
+        exit 1
+    fi
+
+    chmod +x "$BIN_PATH"
+
+    echo -e "${BLUE}正在自动注册账户并生成配置...${NC}"
+    "$BIN_PATH" --register --config="$CONF_DIR/warp.conf" >/dev/null 2>&1
+
+    if [ ! -f "$CONF_DIR/warp.conf" ]; then
+        echo -e "${RED}WARP 账号注册失败！${NC}"
+        exit 1
+    fi
+
+    # 配置守护进程 (启动 SOCKS5 代理模式)
+    cat <<EOF > "$SERVICE_PATH"
+[Unit]
+Description=WARP-GO Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$BIN_PATH --config=$CONF_DIR/warp.conf --proxy=socks5://127.0.0.1:$PROXY_PORT
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable warp-go >/dev/null 2>&1
+    systemctl restart warp-go
+
+    # 注入全局快捷指令 warp
     cp -f "$0" /usr/local/bin/warp 2>/dev/null
     chmod +x /usr/local/bin/warp 2>/dev/null
 
-    echo -e "${GREEN}WARP 安装完成！现在可以在任意位置输入 ${YELLOW}warp${GREEN} 呼出菜单${NC}"
+    sleep 2
+    echo -e "${GREEN}WARP-GO 安装完成！总占用不到 15MB！${NC}"
+    echo -e "${GREEN}快捷指令: ${YELLOW}warp${NC}"
+    echo ""
+    show_status
 }
 
-
-# --- 深度换 IP 函数 ---
+# --- 更换 IP 函数 ---
 change_ip() {
-    echo -e "${BLUE}正在申请全新身份 (重置注册)...${NC}"
-    warp-cli --accept-tos registration delete >/dev/null 2>&1 || warp-cli registration delete >/dev/null 2>&1
-    sleep 2
-    warp-cli --accept-tos registration new >/dev/null 2>&1 || warp-cli registration new >/dev/null 2>&1
-    warp-cli --accept-tos mode proxy >/dev/null 2>&1 || warp-cli mode proxy >/dev/null 2>&1
-    warp-cli --accept-tos proxy port 40000 >/dev/null 2>&1 || warp-cli settings set proxy-port 40000 >/dev/null 2>&1
-    warp-cli --accept-tos connect >/dev/null 2>&1 || warp-cli connect >/dev/null 2>&1
+    echo -e "${BLUE}正在重置身份申请全新 IP...${NC}"
+    systemctl stop warp-go >/dev/null 2>&1
+    rm -f "$CONF_DIR/warp.conf"
+    
+    "$BIN_PATH" --register --config="$CONF_DIR/warp.conf" >/dev/null 2>&1
+    systemctl restart warp-go
     
     echo -n "正在连接"
-    for i in {1..12}; do
-        if warp-cli --accept-tos status 2>/dev/null | grep -iq "Connected"; then
+    for i in {1..10}; do
+        if check_service; then
             echo -e " ${GREEN}[成功]${NC}"
             break
         fi
@@ -104,19 +153,18 @@ change_ip() {
     show_status
 }
 
-# --- 彻底卸载 ---
+# --- 彻底卸载函数 ---
 uninstall_warp() {
     echo -e "${RED}正在启动卸载...${NC}"
-    warp-cli --accept-tos disconnect >/dev/null 2>&1 || warp-cli disconnect >/dev/null 2>&1
-    warp-cli --accept-tos registration delete >/dev/null 2>&1 || warp-cli registration delete >/dev/null 2>&1
-    apt-get purge -y cloudflare-warp >/dev/null 2>&1
-    apt-get autoremove -y >/dev/null 2>&1
-    rm -rf /var/lib/cloudflare-warp /etc/apt/sources.list.d/cloudflare-client.list /usr/local/bin/warp
-    echo -e "${GREEN}所有相关文件及快捷命令已清理干净！${NC}"
+    systemctl stop warp-go >/dev/null 2>&1
+    systemctl disable warp-go >/dev/null 2>&1
+    rm -rf "$SERVICE_PATH" "$CONF_DIR" "$BIN_PATH" /usr/local/bin/warp
+    systemctl daemon-reload
+    echo -e "${GREEN}WARP-GO 已彻底清理完毕！${NC}"
     exit 0
 }
 
-# --- 主逻辑控制 ---
+# --- 命令行参数入口 ---
 if [ -n "$1" ]; then
     case $1 in
         1) install_warp ;;
@@ -128,14 +176,14 @@ if [ -n "$1" ]; then
     exit 0
 fi
 
-# 常规交互菜单
+# --- 菜单交互界面 ---
 clear
 echo -e "${BLUE}====================================${NC}"
-echo -e "${BLUE}         WARP 管理脚本              ${NC}"
+echo -e "${BLUE}       WARP-GO 管理脚本         ${NC}"
 echo -e "${BLUE}====================================${NC}"
 show_status
 echo -e "${YELLOW}1.${NC} 安装/更新"
-echo -e "${YELLOW}2.${NC} 更换IP (重置账户)"
+echo -e "${YELLOW}2.${NC} 更换IP "
 echo -e "${YELLOW}3.${NC} 刷新状态"
 echo -e "${YELLOW}4.${NC} 卸载"
 echo -e "${YELLOW}0.${NC} 退出"
