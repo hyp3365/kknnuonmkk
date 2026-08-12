@@ -4032,7 +4032,6 @@ check_nodes() {
 }
 
 # WARP 分流管理
-# WARP 分流管理
 warp_manage() {
     check_singbox &>/dev/null
     if [ $? -eq 2 ]; then
@@ -4320,27 +4319,6 @@ EOF
     sleep 2; warp_manage
 }
 
-delete_rule_menu() {
-    clear
-    green "当前已启用的分流规则集:"
-    jq -r '.route.rules[] | select(.rule_set != null) | .rule_set[]?' "$route_file" | nl -w2 -s'. '
-    reading "\n输入要删除的规则名称或序号: " del_input
-    if [[ "$del_input" =~ ^[0-9]+$ ]]; then
-        tag=$(jq -r --arg idx "$del_input" '[.route.rules[] | select(.rule_set != null) | .rule_set[]] | .[(($idx | tonumber) - 1)]' "$route_file")
-    else
-        tag="$del_input"
-    fi
-    if [ -z "$tag" ] || [ "$tag" == "null" ]; then
-        red "无效的选择"; sleep 1; warp_manage; return
-    fi
-    jq --arg tag "$tag" \
-       'del(.route.rules[] | select(.rule_set != null) | .rule_set[] | select(. == $tag)) |
-        .route.rules = [.route.rules[] | select(.rule_set != null and (.rule_set | length) > 0)]' \
-       "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-    restart_singbox
-    green "规则集 '${tag}' 已禁用。"
-    sleep 1; warp_manage
-}
 add_socks5_proxy() {
     clear
     reading "请输入代理URL (支持socks://,socks5://,http:// 支持v2rayN导出的节点链接): " proxy_url
@@ -4452,6 +4430,30 @@ add_socks5_proxy() {
     restart_singbox
     green "\n${tag} 代理出站已添加\n"
     sleep 2; warp_manage
+}
+delete_socks5_proxy() {
+    clear
+    green "当前可用出站列表:"
+    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "\(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
+    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; return; }
+    echo "$out_list"
+
+    reading "输入要删除的出站编号或标签: " del_input
+    if [[ "$del_input" =~ ^[0-9]+$ ]]; then
+        tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
+        [ -z "$tag" ] && { red "编号无效！"; sleep 1; return; }
+    else
+        tag="$del_input"
+        jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; return; }
+    fi
+    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置，不可删除！"; sleep 2; return; }
+
+    jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    jq --arg tag "$tag" '.route.rules = [.route.rules[] | select(.outbound != $tag)]' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "${tag} 代理出站已删除。"
+    sleep 1
 }
 
 delete_rule_menu() {
