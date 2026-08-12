@@ -1493,6 +1493,26 @@ except Exception as e:
     esac
 }
 
+# 优化并设置 DNS 
+optimize_dns() {
+    local cloudflare_ipv4="1.1.1.1"
+    local google_ipv4="8.8.8.8"
+    local cloudflare_ipv6="2606:4700:4700::1111"
+    local google_ipv6="2001:4860:4860::8888"
+
+    local ipv6_available=0
+    if [[ $(ip -6 addr | grep -c "inet6") -gt 0 ]]; then
+        ipv6_available=1
+    fi
+
+    echo "nameserver $cloudflare_ipv4" > /etc/resolv.conf
+    echo "nameserver $google_ipv4" >> /etc/resolv.conf
+
+    if [[ $ipv6_available -eq 1 ]]; then
+        echo "nameserver $cloudflare_ipv6" >> /etc/resolv.conf
+        echo "nameserver $google_ipv6" >> /etc/resolv.conf
+    fi
+}
 
 disable_open_sub() {
     local nginx_status=$(check_nginx 2>/dev/null)
@@ -4086,6 +4106,8 @@ warp_manage() {
     skyblue "----------------------"
     red "4. 删除 Socks5/HTTP 出站"
     skyblue "----------------------"
+	green "5. 添加 warp 出站"
+    skyblue "----------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     purple "00. 退出脚本"
@@ -4096,6 +4118,7 @@ warp_manage() {
         2)  delete_rule_menu ;;
         3)  add_socks5_proxy ;;
         4)  delete_socks5_proxy ;;
+		5)  wget -N https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh && bash menu.sh ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
@@ -4652,6 +4675,7 @@ while true; do
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
             else
+			    optimize_dns
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
 				install_argo_watchdog
