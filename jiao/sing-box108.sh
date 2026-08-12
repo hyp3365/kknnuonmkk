@@ -575,8 +575,12 @@ cat > "${config_dir}" << EOF
         "server": "time.apple.com",
         "server_port": 123,
         "interval": "60m"
-   },
-   "outbounds": [    
+   }
+}
+EOF
+cat > "${conf_dir}/outbounds.json" << EOF
+{
+  "outbounds": [
     {
       "type": "direct",
       "tag": "direct"
