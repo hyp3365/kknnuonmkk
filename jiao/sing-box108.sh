@@ -4221,40 +4221,6 @@ add_custom_domain_rule() {
     sleep 1.5; warp_manage
 }
 
-# 删除规则菜单
-delete_rule_menu() {
-    clear
-    green "=== 删除分流规则 ==="
-    local rule_count=$(jq '.route.rules | length' "$route_file" 2>/dev/null || echo 0)
-
-    if [ "$rule_count" -eq 0 ]; then
-        yellow "当前没有任何启用的分流规则！"; sleep 1; warp_manage; return
-    fi
-
-    echo ""
-    green "现有分流规则列表:"
-    jq -r '.route.rules | to_entries[] | "  \(.key + 1). [出站: \(.value.outbound)] " + (if .value.rule_set then "规则集: \(.value.rule_set | join(", "))" elif .value.domain_suffix then "域名: \(.value.domain_suffix | join(", "))" else "其他规则" end)' "$route_file"
-
-    echo ""
-    purple "0. 返回上级菜单"
-    reading "请输入要删除的规则编号: " del_num
-
-    if [ "$del_num" -eq 0 ] 2>/dev/null; then
-        warp_manage; return
-    fi
-
-    if [[ ! "$del_num" =~ ^[0-9]+$ ]] || [ "$del_num" -lt 1 ] || [ "$del_num" -gt "$rule_count" ]; then
-        red "无效编号"; sleep 1; delete_rule_menu; return
-    fi
-
-    local index=$((del_num - 1))
-    jq "del(.route.rules[$index])" "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
-    restart_singbox
-    green "第 $del_num 条规则已成功删除！"
-    sleep 1; warp_manage
-}
-
 # 设置全局代理出站
 set_global_outbound() {
     # 检查是否存在 socks5/http 代理出站（排除 direct 和 wireguard-out）
@@ -4488,30 +4454,45 @@ add_socks5_proxy() {
     sleep 2; warp_manage
 }
 
-delete_socks5_proxy() {
+delete_rule_menu() {
     clear
-    green "当前可用出站列表:"
-    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "\(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
-    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; return; }
-    echo "$out_list"
+    green "=== 删除分流规则 ==="
+    local rule_count=$(jq '.route.rules | length' "$route_file" 2>/dev/null || echo 0)
 
-    reading "输入要删除的出站编号或标签: " del_input
-    if [[ "$del_input" =~ ^[0-9]+$ ]]; then
-        tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
-        [ -z "$tag" ] && { red "编号无效！"; sleep 1; return; }
-    else
-        tag="$del_input"
-        jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; return; }
+    if [ "$rule_count" -eq 0 ]; then
+        yellow "当前没有任何启用的分流规则！"; sleep 2; warp_manage; return
     fi
-    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置，不可删除！"; sleep 2; return; }
 
-    jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
-    jq --arg tag "$tag" '.route.rules = [.route.rules[] | select(.outbound != $tag)]' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+    echo ""
+    green "当前已启用的分流规则列表:"
+    
+    jq -r '.route.rules | to_entries[] | "  \(.key + 1). " + 
+        (if .value.rule_set then 
+            "[预设规则集] \(.value.rule_set | join(", "))" 
+         elif .value.domain_suffix then 
+            "[自定义域名] \(.value.domain_suffix | join(", "))" 
+         else 
+            "[其他规则]" 
+         end) + "  (${skyblue}出站: \(.value.outbound)${re})"' "$route_file" 2>/dev/null
 
+    echo ""
+    purple "0. 返回上级菜单"
+    skyblue "---------------------------------"
+    reading "请输入要删除的规则序号: " del_input
+    if [ "$del_input" == "0" ]; then
+        warp_manage; return
+    fi
+    if [[ ! "$del_input" =~ ^[0-9]+$ ]] || [ "$del_input" -lt 1 ] || [ "$del_input" -gt "$rule_count" ]; then
+        red "序号无效，请输入列表中对应的数字！"; sleep 1; delete_rule_menu; return
+    fi
+    local index=$((del_input - 1))
+    jq --argjson idx "$index" 'del(.route.rules[$idx])' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
     restart_singbox
-    green "${tag} 代理出站已删除。"
-    sleep 1
+    green "第 ${del_input} 条分流规则已成功删除！"
+    sleep 1.5
+    warp_manage
 }
+
 
 
 change_cfip() {
