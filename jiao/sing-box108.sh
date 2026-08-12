@@ -4047,21 +4047,32 @@ warp_manage() {
     green "当前已启用的分流规则:"
     
     local has_rules=0
+    
     while read -r line; do
         [ -n "$line" ] && echo -e " - ${skyblue}[规则集] $line${re}" && has_rules=1
-    done < <(jq -r '.route.rules[] | select(.rule_set != null) | "\(.rule_set | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
+    done < <(jq -r --slurpfile outs "$outbound_file" '
+        ($outs[0].outbounds | map({(.tag): (if .server then "[\(.server):\(.server_port)]" else "" end)}) | add // {}) as $map
+        | .route.rules[]?
+        | select(.rule_set != null)
+        | "\(.rule_set | join(", ")) -> 出站: \(.outbound) \($map[.outbound] // "")"
+    ' "$route_file" 2>/dev/null)
 
     while read -r line; do
-        [ -n "$line" ] && echo -e " - ${skyblue}[自定义域名] $line${re}" && has_rules=1
-    done < <(jq -r '.route.rules[] | select(.domain_suffix != null) | "\(.domain_suffix | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
+        [ -n "$line" ] && echo -e " - ${skyblue}[域名] $line${re}" && has_rules=1
+    done < <(jq -r --slurpfile outs "$outbound_file" '
+        ($outs[0].outbounds | map({(.tag): (if .server then "[\(.server):\(.server_port)]" else "" end)}) | add // {}) as $map
+        | .route.rules[]?
+        | select(.domain_suffix != null)
+        | "\(.domain_suffix | join(", ")) -> 出站: \(.outbound) \($map[.outbound] // "")"
+    ' "$route_file" 2>/dev/null)
 
     [ $has_rules -eq 0 ] && echo "  无"
 
     green "\n已添加的 Socks/HTTP 代理出站:"
-    jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
+    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)] \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null || echo "  无"
 
     echo ""
-    green "1. 设置分流服务 "
+    green "1. 设置分流服务 (预设服务 / 自定义域名)"
     skyblue "----------------------"
     red "2. 删除分流规则"
     skyblue "--------------"
@@ -4085,7 +4096,7 @@ warp_manage() {
     esac
 }
 
-# 选择目标出站的通用函数
+# 选择目标出站时的通用函数 (增加 IP:端口 显示)
 select_outbound_target() {
     local out_tags=($(jq -r '.outbounds[].tag' "$outbound_file" 2>/dev/null))
     
@@ -4097,9 +4108,8 @@ select_outbound_target() {
 
     echo ""
     green "请选择分流流量要走的出站线路:"
-    for i in "${!out_tags[@]}"; do
-        echo -e "  ${green}$((i+1)). ${skyblue}${out_tags[$i]}${re}"
-    done
+    jq -r '.outbounds | to_entries[] | "  \(.key + 1). \(.value.tag) " + (if .value.server then "[\(.value.server):\(.value.server_port)]" else "" end)' "$outbound_file" 2>/dev/null
+
     reading "请输入编号: " out_choice
     if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
        [ "$out_choice" -lt 1 ] || \
@@ -4109,6 +4119,7 @@ select_outbound_target() {
     selected_out="${out_tags[$((out_choice-1))]}"
     return 0
 }
+
 
 add_rule_menu() {
     clear
@@ -4155,7 +4166,6 @@ add_rule_menu() {
         yellow "规则集 '${rule_tag}' 已在运行中。"; sleep 1; warp_manage; return
     fi
 
-    # 清理可能存在的空规则结构
     jq 'if (.route.rules | length) == 1 and (.route.rules[0].rule_set | length) == 0 and (.route.rules[0].domain_suffix | length) == 0
         then .route.rules = []
         else . end' \
