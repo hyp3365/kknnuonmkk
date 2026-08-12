@@ -4109,6 +4109,8 @@ warp_manage() {
     skyblue "----------------------"
 	green "5. 添加 warp 出站"
     skyblue "----------------------"
+	green "6. 优化DNS地址"
+    skyblue "----------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     purple "00. 退出脚本"
@@ -4120,6 +4122,40 @@ warp_manage() {
         3)  add_socks5_proxy ;;
         4)  delete_socks5_proxy ;;
 		5)  wget -N https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh && bash menu.sh ;;
+		6)  
+            clear
+            echo "当前DNS地址"
+            echo "------------------------"
+            cat /etc/resolv.conf
+            echo "------------------------"
+            echo ""
+            # 询问用户是否要优化DNS设置
+            read -p $'\033[1;35m是否要设置为Cloudflare和Google的DNS地址？(y/n): \033[0m' choice
+
+            if [ "$choice" == "y" ]; then
+                cloudflare_ipv4="1.1.1.1"
+                google_ipv4="8.8.8.8"
+                cloudflare_ipv6="2606:4700:4700::1111"
+                google_ipv6="2001:4860:4860::8888"
+                ipv6_available=0
+                if [[ $(ip -6 addr | grep -c "inet6") -gt 0 ]]; then
+                    ipv6_available=1
+                fi
+                echo "设置DNS为Cloudflare和Google"
+                echo "nameserver $cloudflare_ipv4" > /etc/resolv.conf
+                echo "nameserver $google_ipv4" >> /etc/resolv.conf
+                if [[ $ipv6_available -eq 1 ]]; then
+                    echo "nameserver $cloudflare_ipv6" >> /etc/resolv.conf
+                    echo "nameserver $google_ipv6" >> /etc/resolv.conf
+                fi
+                echo "DNS地址已更新"
+                echo "------------------------"
+                cat /etc/resolv.conf
+                echo "------------------------"
+            else
+                echo "DNS设置未更改"
+            fi
+              ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
