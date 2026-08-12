@@ -601,7 +601,7 @@ cat > "${config_dir}" << EOF
        }
      ]
    }
-   EOF
+EOF
 
     cat > "${conf_dir}/endpoints.json" << EOF
 {
@@ -4023,6 +4023,391 @@ check_nodes() {
     fi
 }
 
+# WARP 分流管理
+warp_manage() {
+    check_singbox &>/dev/null
+    if [ $? -eq 2 ]; then
+        yellow "sing-box 尚未安装！"; sleep 1; menu; return
+    fi
+
+    clear
+    route_file="${conf_dir}/route.json"
+    outbound_file="${conf_dir}/outbounds.json"
+
+    echo ""
+    green "=== WARP 分流管理 ===\n"
+    green "当前已启用的分流规则集:"
+    jq -r '.route.rules[] | select(.rule_set != null) | .rule_set[]?' "$route_file" 2>/dev/null | sort -u | while read tag; do
+        echo -e " - ${skyblue}$tag${re}"
+    done || echo "  无"
+    green "\n已添加的socks/http代理出站:"
+    jq -r '.outbounds[] | select(.tag != "direct") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
+
+    echo ""
+    green "1. 设置分流服务 (未添加socks/http直接设置则使用WARP)"
+    skyblue "----------------------"
+    red "2. 删除分流服务"
+    skyblue "--------------"
+    green "3. 添加 Socks5/HTTP 出站"
+    skyblue "----------------------"
+    red "4. 删除 Socks5/HTTP 出站"
+    skyblue "----------------------"
+    purple "0. 返回主菜单"
+    skyblue "------------"
+    purple "00. 退出脚本"
+    skyblue "------------"
+    reading "请输入选择: " choice
+    case "${choice}" in
+        1)  add_rule_menu ;;
+        2)  delete_rule_menu ;;
+        3)  add_socks5_proxy ;;
+        4)  delete_socks5_proxy ;;
+        0)  menu ;;
+        00) exit 0 ;;
+        *)  red "无效选项"; sleep 1; warp_manage ;;
+    esac
+}
+
+add_rule_menu() {
+    clear
+    green "选择要分流的服务:\n"
+    green "1.  OpenAI"
+    green "2.  Claude"
+    green "3.  Gemini"
+    green "4.  Google"
+    green "5.  Tiktok"
+    green "6.  Twitter"
+    green "7.  YouTube"
+    green "8.  Netflix"
+    green "9.  Telegram"
+    skyblue "-----------------------------"
+    green "10. 设置全局代理出站 (所有流量走指定代理)"
+    green "11. 恢复服务器原IP出站 (所有流量走服务器ip)"
+    skyblue "-----------------------------"
+    purple "0.  返回上级菜单"
+    skyblue "-----------------------------"
+    reading "请输入选择: " add_choice
+    case "$add_choice" in
+        1)  rule_tag="openai"   ;;
+        2)  rule_tag="claude"   ;;
+        3)  rule_tag="gemini"   ;;
+        4)  rule_tag="google"   ;;
+        5)  rule_tag="tiktok"   ;;
+        6)  rule_tag="twitter"  ;;
+        7)  rule_tag="youtube"  ;;
+        8)  rule_tag="netflix"  ;;
+        9)  rule_tag="telegram" ;;
+        10) set_global_outbound; return ;;
+        11) restore_direct_outbound; return ;;
+        0)  warp_manage; return ;;
+        *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
+    esac
+
+    if jq -e --arg tag "$rule_tag" \
+        '.route.rules[] | select(.rule_set != null) | .rule_set[]? | select(. == $tag)' \
+        "$route_file" > /dev/null 2>&1; then
+        yellow "规则集 '${rule_tag}' 已启用。"; sleep 1; warp_manage; return
+    fi
+
+    jq 'if (.route.rules | length) == 1 and (.route.rules[0].rule_set | length) == 0
+        then .route.rules = []
+        else . end' \
+        "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    local out_tags=($(jq -r '.outbounds[] | select(.tag != "direct") | .tag' "$outbound_file" 2>/dev/null))
+    if [ ${#out_tags[@]} -eq 0 ]; then
+        selected_out="wireguard-out"
+        yellow "未找到其他出站，将自动使用 wireguard-out。"
+    else
+        echo ""
+        green "请选择分流流量要走的出站:"
+        for i in "${!out_tags[@]}"; do
+            echo -e "  ${green}$((i+1)). ${skyblue}${out_tags[$i]}${re}"
+        done
+        reading "请输入编号: " out_choice
+        if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
+           [ "$out_choice" -lt 1 ] || \
+           [ "$out_choice" -gt "${#out_tags[@]}" ]; then
+            red "无效选择"; sleep 1; warp_manage; return
+        fi
+        selected_out="${out_tags[$((out_choice-1))]}"
+    fi
+
+    jq --arg tag "$rule_tag" --arg out "$selected_out" '
+        if (.route.rules | length) == 0 then
+            .route.rules = [{"rule_set": [$tag], "outbound": $out}]
+        else
+            (first(.route.rules[] | select(.outbound == $out)) | .rule_set) as $existing
+            | if $existing then
+                .route.rules = [.route.rules[] | select(.outbound == $out).rule_set += [$tag]]
+              else
+                .route.rules += [{"rule_set": [$tag], "outbound": $out}]
+              end
+        end
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "'${rule_tag}' 已分流至出站 '${selected_out}'"
+    sleep 1; warp_manage
+}
+# 设置全局代理出站
+set_global_outbound() {
+    # 检查是否存在 socks5/http 代理出站（排除 direct 和 wireguard-out）
+    local proxy_tags
+    proxy_tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | .tag' \
+        "$outbound_file" 2>/dev/null))
+
+    if [ ${#proxy_tags[@]} -eq 0 ]; then
+        yellow "\n当前没有可用的 socks5/http 代理出站。"
+        yellow "请先返回 → 设置分流服务 → 添加 Socks5/HTTP 出站，再设置全局代理。\n"
+        sleep 3; add_rule_menu; return
+    fi
+
+    echo ""
+    green "请选择全局代理出站:"
+    for i in "${!proxy_tags[@]}"; do
+        echo -e "  ${green}$((i+1)). ${skyblue}${proxy_tags[$i]}${re}"
+    done
+    echo ""
+    reading "请输入编号: " out_choice
+    if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
+       [ "$out_choice" -lt 1 ] || \
+       [ "$out_choice" -gt "${#proxy_tags[@]}" ]; then
+        red "无效选择"; sleep 1; add_rule_menu; return
+    fi
+    local selected_out="${proxy_tags[$((out_choice-1))]}"
+
+    # 从 outbounds.json 中删除 direct 出站，防止流量绕过代理
+    jq 'del(.outbounds[] | select(.tag == "direct"))' \
+        "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    rm -rf ${route_file} ${conf_dir}/endpoints.json
+    restart_singbox
+    green "\n已设置全局代理出站：${purple}${selected_out}${re}"
+    yellow "所有流量将通过 ${selected_out} 转发，如需恢复请选择「恢复服务器原IP出站」\n"
+    sleep 2; warp_manage
+}
+
+# 恢复服务器原IP出站（恢复默认 route.json）
+restore_direct_outbound() {
+    yellow "\n正在恢复默认路由配置...\n"
+
+    # 恢复 outbounds.json 中的 direct 出站（不存在则插入到数组最前面）
+    if ! jq -e '.outbounds[] | select(.tag == "direct")' "$outbound_file" > /dev/null 2>&1; then
+        jq '.outbounds = [{"type": "direct", "tag": "direct"}] + .outbounds' \
+            "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    fi
+
+    # 恢复默认 route.json
+    cat > "${route_file}" << 'EOF'
+{
+  "route": {
+    "rule_set": [
+      {"tag":"gemini","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/gemini.srs","download_detour":"direct"},
+      {"tag":"claude","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/claude.srs","download_detour":"direct"},
+      {"tag":"openai","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs","download_detour":"direct"},
+      {"tag":"tiktok","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/tiktok.srs","download_detour":"direct"},
+      {"tag":"twitter","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/twitter.srs","download_detour":"direct"},
+      {"tag":"google","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/google.srs","download_detour":"direct"},
+      {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs","download_detour":"direct"},
+      {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs","download_detour":"direct"},
+      {"tag":"netflix","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/netflix.srs","download_detour":"direct"}
+    ],
+    "rules": [{"rule_set": []}],
+    "final": "direct"
+  }
+}
+EOF
+
+    # 恢复默认 endpoints.json
+    cat > "${conf_dir}/endpoints.json" << EOF
+{
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "wireguard-out",
+      "mtu": 1280,
+      "address": [
+        "172.16.0.2/32",
+        "2606:4700:110:8dfe:d141:69bb:6b80:925/128"
+      ],
+      "private_key": "YFYOAdbw1bKTHlNNi+aEjBM3BO7unuFC5rOkMRAz9XY=",
+      "peers": [
+        {
+          "address": "engage.cloudflareclient.com",
+          "port": 2408,
+          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+          "reserved": [78, 135, 76]
+        }
+      ]
+    }
+  ]
+}
+EOF
+    restart_singbox
+    green "\n已恢复服务器原IP出站，所有流量走 direct。\n"
+    sleep 2; warp_manage
+}
+
+delete_rule_menu() {
+    clear
+    green "当前已启用的分流规则集:"
+    jq -r '.route.rules[] | select(.rule_set != null) | .rule_set[]?' "$route_file" | nl -w2 -s'. '
+    reading "\n输入要删除的规则名称或序号: " del_input
+    if [[ "$del_input" =~ ^[0-9]+$ ]]; then
+        tag=$(jq -r --arg idx "$del_input" '[.route.rules[] | select(.rule_set != null) | .rule_set[]] | .[(($idx | tonumber) - 1)]' "$route_file")
+    else
+        tag="$del_input"
+    fi
+    if [ -z "$tag" ] || [ "$tag" == "null" ]; then
+        red "无效的选择"; sleep 1; warp_manage; return
+    fi
+    jq --arg tag "$tag" \
+       'del(.route.rules[] | select(.rule_set != null) | .rule_set[] | select(. == $tag)) |
+        .route.rules = [.route.rules[] | select(.rule_set != null and (.rule_set | length) > 0)]' \
+       "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+    restart_singbox
+    green "规则集 '${tag}' 已禁用。"
+    sleep 1; warp_manage
+}
+add_socks5_proxy() {
+    clear
+    reading "请输入代理URL (支持socks://,socks5://,http:// 支持v2rayN导出的节点链接): " proxy_url
+    [ -z "$proxy_url" ] && { red "输入为空！"; sleep 1; return; }
+
+    proto=$(echo "$proxy_url" | grep -oP '^[a-zA-Z0-9]+(?=://)')
+    [[ ! "$proto" =~ ^(socks5|socks|http)$ ]] && { red "不支持的协议"; sleep 2; return; }
+    case "$proto" in
+        socks|socks5) outbound_type="socks" ;;
+        http)         outbound_type="http" ;;
+    esac
+
+    after_proto="${proxy_url#*://}"
+    if [[ "$after_proto" == *"#"* ]]; then
+        tag_from_url="${after_proto##*#}"; after_proto="${after_proto%%#*}"
+    else
+        tag_from_url=""
+    fi
+
+    if [[ "$after_proto" == *"@"* ]]; then
+        user_pass="${after_proto%%@*}"; host_port="${after_proto##*@}"
+    else
+        user_pass=""; host_port="$after_proto"
+    fi
+
+    user=""; password=""
+    if [ -n "$user_pass" ]; then
+        decoded=$(echo "$user_pass" | base64 -d 2>/dev/null)
+        if [ -n "$decoded" ] && [[ "$decoded" != "$user_pass" ]] && [[ "$decoded" == *":"* ]]; then
+            user="${decoded%%:*}"; password="${decoded#*:}"
+        elif [[ "$user_pass" == *":"* ]]; then
+            user="${user_pass%%:*}"; password="${user_pass#*:}"
+        else
+            user="$user_pass"
+        fi
+    fi
+
+    server="${host_port%%:*}"; port="${host_port##*:}"
+    [ -z "$server" ] || [ -z "$port" ] && { red "格式错误：缺少ip或端口"; sleep 2; return; }
+
+    [[ "$proto" == "socks" || "$proto" == "socks5" ]] && check_proto="socks5" || check_proto="$proto"
+
+    # 判断是否为本地地址，本地地址跳过外部 API 检测，直接用 curl 测试
+    local is_local=false
+    if [[ "$server" == "127.0.0.1" || "$server" == "::1" || "$server" == "localhost" ]]; then
+        is_local=true
+    fi
+
+    local proxy_auth=""
+    [ -n "$user" ] && [ -n "$password" ] && proxy_auth="${user}:${password}@" || \
+        { [ -n "$user" ] && proxy_auth="${user}@"; }
+
+    if [ "$is_local" = true ]; then
+        # 本地代理：直接用 curl 通过代理访问外网测试连通性
+        yellow "检测到本地代理 ${check_proto}://${server}:${port}，跳过外部API检测，正在用curl测试连通性..."
+        local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
+        local test_result
+        test_result=$(curl -s --max-time 8 --proxy "$curl_proxy_url" "https://api.ip.sb/ip" 2>/dev/null)
+        if [ -z "$test_result" ]; then
+            yellow "警告：通过本地代理访问外网失败，请确认代理服务正在运行。"
+            reading "是否仍然添加此代理？(y/n): " force_add
+            [[ ! "$force_add" =~ ^[yY]$ ]] && { yellow "已取消"; sleep 1; return; }
+        else
+            green "本地代理可用，出口IP: $test_result"
+        fi
+    else
+        # 远程代理：调用外部 API 检测
+        yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
+        local api_response
+        api_response=$(curl -s --max-time 8 -G \
+            --data-urlencode "proxy=${check_proto}://${proxy_auth}${server}:${port}" \
+            "https://check.socks5.cmliussss.net/check" 2>/dev/null)
+        [ -z "$api_response" ] && { red "API 请求失败"; sleep 2; return; }
+
+        success=$(echo "$api_response" | jq -r '.success')
+        if [ "$success" != "true" ]; then
+            error_msg=$(echo "$api_response" | jq -r '.error // "未知错误"')
+            red "代理不可用: $error_msg"; sleep 2; return
+        fi
+        exit_ip=$(echo "$api_response" | jq -r '.exit.ip // empty')
+        green "代理可用"
+        [ -n "$exit_ip" ] && green "出口 IP: $exit_ip"
+    fi
+
+    [ -n "$tag_from_url" ] && tag="$tag_from_url" || tag="${outbound_type}-${server}-${port}"
+    jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" >/dev/null 2>&1 \
+        && { red "出站标签 '${tag}' 已存在"; sleep 2; return; }
+
+    # 根据是否有账号密码，决定写入字段，避免空字符串导致 sing-box 报错
+    if [ -n "$user" ] && [ -n "$password" ]; then
+        jq --arg type "$outbound_type" --arg tag "$tag" --arg server "$server" \
+           --arg port "$port" --arg user "$user" --arg password "$password" \
+           '.outbounds += [{"type":$type,"tag":$tag,"server":$server,"server_port":($port|tonumber),"username":$user,"password":$password}]' \
+           "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    else
+        # 无账号密码：不写 username/password 字段
+        jq --arg type "$outbound_type" --arg tag "$tag" --arg server "$server" \
+           --arg port "$port" \
+           '.outbounds += [{"type":$type,"tag":$tag,"server":$server,"server_port":($port|tonumber)}]' \
+           "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    fi
+
+    if jq -e '.route.rules | length > 0' "$route_file" >/dev/null 2>&1; then
+        jq --arg tag "$tag" '.route.rules[].outbound = $tag' "$route_file" > "${route_file}.tmp" \
+            && mv "${route_file}.tmp" "$route_file"
+        yellow "已将现有分流规则出站切换为 '${tag}'。"
+    fi
+
+    restart_singbox
+    green "\n${tag} 代理出站已添加\n"
+    sleep 2; warp_manage
+}
+
+delete_socks5_proxy() {
+    clear
+    green "当前可用出站列表:"
+    local out_list=$(jq -r '[.outbounds[] | select(.tag != "direct")] | to_entries | .[] | "\(.key+1). \(.value.tag) [\(.value.type)]"' "$outbound_file" 2>/dev/null)
+    [ -z "$out_list" ] && { yellow "没有可删除的出站。"; sleep 2; return; }
+    echo "$out_list"
+
+    reading "输入要删除的出站编号或标签: " del_input
+    if [[ "$del_input" =~ ^[0-9]+$ ]]; then
+        tag=$(jq -r --arg idx "$del_input" '.outbounds | map(select(.tag != "direct")) | .[($idx | tonumber)-1].tag // empty' "$outbound_file")
+        [ -z "$tag" ] && { red "编号无效！"; sleep 1; return; }
+    else
+        tag="$del_input"
+        jq -e --arg tag "$tag" '.outbounds[] | select(.tag == $tag)' "$outbound_file" > /dev/null 2>&1 || { red "标签 '${tag}' 不存在！"; sleep 1; return; }
+    fi
+    [ "$tag" == "wireguard-out" ] && { red "wireguard-out 为系统内置，不可删除！"; sleep 2; return; }
+
+    jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+    jq --arg tag "$tag" '.route.rules = [.route.rules[] | select(.outbound != $tag)]' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "${tag} 代理出站已删除。"
+    sleep 1
+}
+
 
 change_cfip() {
     clear
@@ -4118,10 +4503,11 @@ menu() {
    red    "12. iptables"
    red    "13. 快捷指令"
    red    "14. 本机信息"
+   red    "15. WARP分流管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-14): " choice
+   reading "请输入选择(0-15): " choice
    echo ""
 }
 
@@ -4177,6 +4563,7 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/aa.sh)
 		   ;;
 		14) vps_s ;;
+		15)  warp_manage ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 14" ;;
    esac
