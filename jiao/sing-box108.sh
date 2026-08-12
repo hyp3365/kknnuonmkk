@@ -576,6 +576,12 @@ cat > "${config_dir}" << EOF
         "server_port": 123,
         "interval": "60m"
    },
+   "outbounds": [    
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
   "inbounds": [
     {
          "type": "vmess",
@@ -592,8 +598,13 @@ cat > "${config_dir}" << EOF
           "path": "/mPaxe1996Ko-5203aap",
           "early_data_header_name": "Sec-WebSocket-Protocol"
          }
-     }
-   ],
+       }
+     ]
+   }
+   EOF
+
+    cat > "${conf_dir}/endpoints.json" << EOF
+{
   "endpoints": [
     {
       "type": "wireguard",
@@ -607,52 +618,32 @@ cat > "${config_dir}" << EOF
       "peers": [
         {
           "address": "engage.cloudflareclient.com",
-           #洛杉矶ip 2606:4700:d0::a29f:c001 
-		   #洛杉矶ip 162.159.195.1
           "port": 2408,
           "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-          "allowed_ips": [
-            "0.0.0.0/0",
-            "::/0"
-          ],
-          "reserved": [
-            78,
-            135,
-            76
-          ]
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+          "reserved": [78, 135, 76]
         }
       ]
     }
-  ],
-  "outbounds": [    
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ],
+  ]
+}
+EOF
+
+    cat > "${conf_dir}/route.json" << EOF
+{
   "route": {
     "rule_set": [
-      {
-        "tag": "openai",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs",
-        "download_detour": "direct"
-      },
-      {
-        "tag": "netflix",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/netflix.srs",
-        "download_detour": "direct"
-      }
+      {"tag":"gemini","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/gemini.srs","download_detour":"direct"},
+      {"tag":"claude","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/claude.srs","download_detour":"direct"},
+      {"tag":"openai","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs","download_detour":"direct"},
+      {"tag":"tiktok","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/tiktok.srs","download_detour":"direct"},
+      {"tag":"twitter","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/twitter.srs","download_detour":"direct"},
+      {"tag":"google","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/google.srs","download_detour":"direct"},
+      {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs","download_detour":"direct"},
+      {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs","download_detour":"direct"},
+      {"tag":"netflix","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/netflix.srs","download_detour":"direct"}
     ],
-    "rules": [
-      {
-        "rule_set": ["openai", "netflix"],
-        "outbound": "wireguard-out"
-      }
-    ],
+    "rules": [{"rule_set": []}],
     "final": "direct"
   }
 }
