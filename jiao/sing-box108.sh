@@ -4032,6 +4032,7 @@ check_nodes() {
 }
 
 # WARP 分流管理
+# WARP 分流管理
 warp_manage() {
     check_singbox &>/dev/null
     if [ $? -eq 2 ]; then
@@ -4043,18 +4044,29 @@ warp_manage() {
     outbound_file="${conf_dir}/outbounds.json"
 
     echo ""
-    green "=== WARP 分流管理 ===\n"
-    green "当前已启用的分流规则集:"
-    jq -r '.route.rules[] | select(.rule_set != null) | .rule_set[]?' "$route_file" 2>/dev/null | sort -u | while read tag; do
-        echo -e " - ${skyblue}$tag${re}"
-    done || echo "  无"
-    green "\n已添加的socks/http代理出站:"
-    jq -r '.outbounds[] | select(.tag != "direct") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
+    green "=== WARP / 节点分流管理 ===\n"
+    green "当前已启用的分流规则:"
+    
+    # 显示已启用的预设规则集
+    local has_rules=0
+    while read -r line; do
+        [ -n "$line" ] && echo -e " - ${skyblue}[规则集] $line${re}" && has_rules=1
+    done < <(jq -r '.route.rules[] | select(.rule_set != null) | "\(.rule_set | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
+
+    # 显示自定义域名规则
+    while read -r line; do
+        [ -n "$line" ] && echo -e " - ${skyblue}[自定义域名] $line${re}" && has_rules=1
+    done < <(jq -r '.route.rules[] | select(.domain_suffix != null) | "\(.domain_suffix | join(", ")) -> 出站: \(.outbound)"' "$route_file" 2>/dev/null)
+
+    [ $has_rules -eq 0 ] && echo "  无"
+
+    green "\n已添加的 Socks/HTTP 代理出站:"
+    jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
 
     echo ""
-    green "1. 设置分流服务 (未添加socks/http直接设置则使用WARP)"
+    green "1. 设置分流服务 (预设服务 / 自定义域名)"
     skyblue "----------------------"
-    red "2. 删除分流服务"
+    red "2. 删除分流规则"
     skyblue "--------------"
     green "3. 添加 Socks5/HTTP 出站"
     skyblue "----------------------"
@@ -4076,9 +4088,34 @@ warp_manage() {
     esac
 }
 
+# 选择目标出站的通用函数
+select_outbound_target() {
+    local out_tags=($(jq -r '.outbounds[].tag' "$outbound_file" 2>/dev/null))
+    
+    if [ ${#out_tags[@]} -eq 0 ]; then
+        selected_out="wireguard-out"
+        yellow "未找到其他可选择的出站，将自动使用 WARP (wireguard-out)。"
+        return 0
+    fi
+
+    echo ""
+    green "请选择分流流量要走的出站线路:"
+    for i in "${!out_tags[@]}"; do
+        echo -e "  ${green}$((i+1)). ${skyblue}${out_tags[$i]}${re}"
+    done
+    reading "请输入编号: " out_choice
+    if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
+       [ "$out_choice" -lt 1 ] || \
+       [ "$out_choice" -gt "${#out_tags[@]}" ]; then
+        red "无效选择"; return 1
+    fi
+    selected_out="${out_tags[$((out_choice-1))]}"
+    return 0
+}
+
 add_rule_menu() {
     clear
-    green "选择要分流的服务:\n"
+    green "选择要分流的服务或设置自定义域名:\n"
     green "1.  OpenAI"
     green "2.  Claude"
     green "3.  Gemini"
@@ -4089,8 +4126,10 @@ add_rule_menu() {
     green "8.  Netflix"
     green "9.  Telegram"
     skyblue "-----------------------------"
-    green "10. 设置全局代理出站 (所有流量走指定代理)"
-    green "11. 恢复服务器原IP出站 (所有流量走服务器ip)"
+    green "10. ➕ 添加自定义域名分流 (如: example.com)"
+    skyblue "-----------------------------"
+    green "11. 设置全局代理出站 (所有流量走指定代理)"
+    green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
     skyblue "-----------------------------"
     purple "0.  返回上级菜单"
     skyblue "-----------------------------"
@@ -4105,49 +4144,39 @@ add_rule_menu() {
         7)  rule_tag="youtube"  ;;
         8)  rule_tag="netflix"  ;;
         9)  rule_tag="telegram" ;;
-        10) set_global_outbound; return ;;
-        11) restore_direct_outbound; return ;;
+        10) add_custom_domain_rule; return ;;
+        11) set_global_outbound; return ;;
+        12) restore_direct_outbound; return ;;
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
 
+    # 检查预设规则集是否已添加
     if jq -e --arg tag "$rule_tag" \
         '.route.rules[] | select(.rule_set != null) | .rule_set[]? | select(. == $tag)' \
         "$route_file" > /dev/null 2>&1; then
-        yellow "规则集 '${rule_tag}' 已启用。"; sleep 1; warp_manage; return
+        yellow "规则集 '${rule_tag}' 已在运行中。"; sleep 1; warp_manage; return
     fi
 
-    jq 'if (.route.rules | length) == 1 and (.route.rules[0].rule_set | length) == 0
+    # 清理可能存在的空规则结构
+    jq 'if (.route.rules | length) == 1 and (.route.rules[0].rule_set | length) == 0 and (.route.rules[0].domain_suffix | length) == 0
         then .route.rules = []
         else . end' \
         "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
-    local out_tags=($(jq -r '.outbounds[] | select(.tag != "direct") | .tag' "$outbound_file" 2>/dev/null))
-    if [ ${#out_tags[@]} -eq 0 ]; then
-        selected_out="wireguard-out"
-        yellow "未找到其他出站，将自动使用 wireguard-out。"
-    else
-        echo ""
-        green "请选择分流流量要走的出站:"
-        for i in "${!out_tags[@]}"; do
-            echo -e "  ${green}$((i+1)). ${skyblue}${out_tags[$i]}${re}"
-        done
-        reading "请输入编号: " out_choice
-        if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || \
-           [ "$out_choice" -lt 1 ] || \
-           [ "$out_choice" -gt "${#out_tags[@]}" ]; then
-            red "无效选择"; sleep 1; warp_manage; return
-        fi
-        selected_out="${out_tags[$((out_choice-1))]}"
+    # 选择出站
+    if ! select_outbound_target; then
+        sleep 1; add_rule_menu; return
     fi
 
+    # 写入 route.json 规则集
     jq --arg tag "$rule_tag" --arg out "$selected_out" '
         if (.route.rules | length) == 0 then
             .route.rules = [{"rule_set": [$tag], "outbound": $out}]
         else
-            (first(.route.rules[] | select(.outbound == $out)) | .rule_set) as $existing
+            (first(.route.rules[] | select(.outbound == $out and .rule_set != null)) | .rule_set) as $existing
             | if $existing then
-                .route.rules = [.route.rules[] | select(.outbound == $out).rule_set += [$tag]]
+                .route.rules = [.route.rules[] | if .outbound == $out and .rule_set != null then .rule_set += [$tag] else . end]
               else
                 .route.rules += [{"rule_set": [$tag], "outbound": $out}]
               end
@@ -4155,9 +4184,77 @@ add_rule_menu() {
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
-    green "'${rule_tag}' 已分流至出站 '${selected_out}'"
+    green "预设规则 '${rule_tag}' 已成功添加，出站设置为 '${selected_out}'"
     sleep 1; warp_manage
 }
+
+# 添加自定义域名分流规则
+add_custom_domain_rule() {
+    echo ""
+    green "=== 添加自定义域名分流 ==="
+    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re} 会匹配 ${skyblue}baidu.com${re} 及 ${skyblue}*.baidu.com${re}）"
+    reading "请输入域名 (多个域名请用空格或逗号分隔): " custom_input
+
+    if [ -z "$custom_input" ]; then
+        red "未输入任何域名！"; sleep 1; add_rule_menu; return
+    fi
+
+    # 将输入的域名转为 JSON 数组格式
+    local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
+
+    # 选择要走的出站
+    if ! select_outbound_target; then
+        sleep 1; add_rule_menu; return
+    fi
+
+    # 写入自定义域名规则到 route.json
+    jq --argjson doms "$dom_json" --arg out "$selected_out" '
+        if (.route.rules | length) == 0 then
+            .route.rules = [{"domain_suffix": $doms, "outbound": $out}]
+        else
+            .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+        end
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "自定义域名规则 [ $custom_input ] 已添加，出站走 '${selected_out}'"
+    sleep 1.5; warp_manage
+}
+
+# 删除规则菜单
+delete_rule_menu() {
+    clear
+    green "=== 删除分流规则 ==="
+    local rule_count=$(jq '.route.rules | length' "$route_file" 2>/dev/null || echo 0)
+
+    if [ "$rule_count" -eq 0 ]; then
+        yellow "当前没有任何启用的分流规则！"; sleep 1; warp_manage; return
+    fi
+
+    echo ""
+    green "现有分流规则列表:"
+    jq -r '.route.rules | to_entries[] | "  \(.key + 1). [出站: \(.value.outbound)] " + (if .value.rule_set then "规则集: \(.value.rule_set | join(", "))" elif .value.domain_suffix then "域名: \(.value.domain_suffix | join(", "))" else "其他规则" end)' "$route_file"
+
+    echo ""
+    purple "0. 返回上级菜单"
+    reading "请输入要删除的规则编号: " del_num
+
+    if [ "$del_num" -eq 0 ] 2>/dev/null; then
+        warp_manage; return
+    fi
+
+    if [[ ! "$del_num" =~ ^[0-9]+$ ]] || [ "$del_num" -lt 1 ] || [ "$del_num" -gt "$rule_count" ]; then
+        red "无效编号"; sleep 1; delete_rule_menu; return
+    fi
+
+    local index=$((del_num - 1))
+    jq "del(.route.rules[$index])" "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "第 $del_num 条规则已成功删除！"
+    sleep 1; warp_manage
+}
+
 # 设置全局代理出站
 set_global_outbound() {
     # 检查是否存在 socks5/http 代理出站（排除 direct 和 wireguard-out）
