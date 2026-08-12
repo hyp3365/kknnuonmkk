@@ -2911,6 +2911,7 @@ enable_bbr() {
     if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]] && [[ $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
         echo -e "${green}BBR 已经处于开启状态！${plain}"
         before_show_menu
+		return
     fi
 
     if [ -d "/etc/sysctl.d/" ]; then
