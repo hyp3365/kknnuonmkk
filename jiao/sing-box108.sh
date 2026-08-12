@@ -581,9 +581,13 @@ cat > "${config_dir}" << EOF
       "type": "direct",
       "tag": "direct"
     }
-  ],
-  "inbounds": [
-    {
+  ]
+}
+EOF
+cat > "${conf_dir}/inbounds.json" << EOF
+{   
+    "inbounds": [
+     {
          "type": "vmess",
          "tag": "vmess-ws",
          "listen": "::",
@@ -600,7 +604,7 @@ cat > "${config_dir}" << EOF
          }
        }
      ]
-   }
+ }
 EOF
 
     cat > "${conf_dir}/endpoints.json" << EOF
