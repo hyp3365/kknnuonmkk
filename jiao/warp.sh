@@ -59,14 +59,13 @@ show_status() {
 
 # --- 安装函数 ---
 install_warp() {
-    echo -e "${BLUE}开始自动执行安装流程...${NC}"
-    apt-get update && apt-get install -y curl gpg lsb-release
+    echo -e "${BLUE}开始安装流程...${NC}"
+    apt-get update && apt-get install -y --no-install-recommends curl gpg lsb-release ca-certificates
     
-    # 添加官方仓库
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/cloudflare-client.list
     
-    apt-get update && apt-get install -y cloudflare-warp
+    apt-get update && apt-get install -y --no-install-recommends cloudflare-warp
     
     # 初始化配置 (SOCKS5 模式)
     warp-cli --accept-tos registration new >/dev/null 2>&1 || warp-cli registration new >/dev/null 2>&1
@@ -80,6 +79,7 @@ install_warp() {
 
     echo -e "${GREEN}WARP 安装完成！现在可以在任意位置输入 ${YELLOW}warp${GREEN} 呼出菜单${NC}"
 }
+
 
 # --- 深度换 IP 函数 ---
 change_ip() {
