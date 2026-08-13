@@ -4265,6 +4265,68 @@ select_outbound_target() {
     return 0
 }
 
+# 选择规则生效的节点 (入站 Inbound)
+select_inbound_target() {
+    echo ""
+    green "第一步：请选择该规则要生效的节点 (如果不选，则默认所有节点生效)"
+    echo -e "  ${green}0.${re} 全部节点 (默认)"
+    
+    local idx=1
+    in_names=()
+    in_tags=()
+
+    # 1. vmess-argo (默认常驻)
+    echo -e "  ${green}${idx}.${re} vmess-argo"
+    in_names+=("vmess-argo")
+    in_tags+=("vmess-ws")
+    ((idx++))
+
+    # 2. hysteria2
+    if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
+        echo -e "  ${green}${idx}.${re} hysteria2"
+        in_names+=("hysteria2")
+        in_tags+=("hysteria2")
+        ((idx++))
+    fi
+
+    # 3. xtls-reality
+    if [ -f "/etc/sing-box/conf/xtls-reality.json" ]; then
+        echo -e "  ${green}${idx}.${re} xtls-reality"
+        in_names+=("xtls-reality")
+        in_tags+=("vless-reality")
+        ((idx++))
+    fi
+
+    # 4. tuic
+    if [ -f "/etc/sing-box/conf/tuic.json" ]; then
+        echo -e "  ${green}${idx}.${re} tuic"
+        in_names+=("tuic")
+        in_tags+=("tuic")
+        ((idx++))
+    fi
+
+    echo ""
+    reading "请输入节点编号 (直接回车默认选 0): " in_choice
+    
+    if [ -z "$in_choice" ] || [ "$in_choice" == "0" ]; then
+        selected_inbound=""
+        selected_inbound_name="全部节点"
+        return 0
+    fi
+
+    if [[ ! "$in_choice" =~ ^[0-9]+$ ]] || [ "$in_choice" -lt 1 ] || [ "$in_choice" -ge "$idx" ]; then
+        yellow "无效选择，将默认应用于 [全部节点]"
+        selected_inbound=""
+        selected_inbound_name="全部节点"
+        return 0
+    fi
+
+    selected_inbound="${in_tags[$((in_choice-1))]}"
+    selected_inbound_name="${in_names[$((in_choice-1))]}"
+    return 0
+}
+
+
 add_rule_menu() {
     clear
     green "选择要分流的服务或设置自定义域名:\n"
@@ -4302,39 +4364,42 @@ add_rule_menu() {
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
-
-    # 检查预设规则集是否已添加
-    if jq -e --arg tag "$rule_tag" \
-        '.route.rules[]? | select(.rule_set != null) | .rule_set[]? | select(. == $tag)' \
-        "$route_file" > /dev/null 2>&1; then
-        yellow "规则集 '${rule_tag}' 已在运行中。"; sleep 1; warp_manage; return
+    select_inbound_target
+    if jq -e --arg tag "$rule_tag" --arg inb "$selected_inbound" '
+        .route.rules[]? | select(.rule_set != null) | 
+        select( ( ($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]) ) ) | 
+        .rule_set[]? | select(. == $tag)
+    ' "$route_file" > /dev/null 2>&1; then
+        yellow "规则集 '${rule_tag}' 已在 [${selected_inbound_name}] 运行中。"; sleep 1.5; warp_manage; return
     fi
-
-    # 清理可能存在的空规则结构，防止格式混乱
     jq 'if .route.rules then .route.rules |= map(select( (.rule_set | length > 0) or (.domain_suffix | length > 0) )) else . end' \
         "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
-    # 选择出站
+    green "\n第二步："
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
 
-    jq --arg tag "$rule_tag" --arg out "$selected_out" '
+    jq --arg tag "$rule_tag" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .rule_set != null) then
+        if any(.route.rules[]; .outbound == $out and .rule_set != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]))) then
             .route.rules |= map(
-                if .outbound == $out and .rule_set != null then 
+                if .outbound == $out and .rule_set != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb])) then 
                     .rule_set = (.rule_set + [$tag] | unique) 
                 else . end
             )
         else
-            .route.rules += [{"rule_set": [$tag], "outbound": $out}]
+            if $inb == "" then
+                .route.rules += [{"rule_set": [$tag], "outbound": $out}]
+            else
+                .route.rules += [{"inbounds": [$inb], "rule_set": [$tag], "outbound": $out}]
+            end
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
-    green "预设规则 '${rule_tag}' 已成功添加，出站设置为 '${selected_out}'"
-    sleep 1.5; warp_manage
+    green "预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
+    sleep 2; warp_manage
 }
 
 # 添加自定义域名分流规则
@@ -4349,28 +4414,34 @@ add_custom_domain_rule() {
     fi
     local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
     
+    select_inbound_target
+
+    green "\n第二步："
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
     
-    jq --argjson doms "$dom_json" --arg out "$selected_out" '
+    jq --argjson doms "$dom_json" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .domain_suffix != null) then
+        if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]))) then
             .route.rules |= map(
-                if .outbound == $out and .domain_suffix != null then
+                if .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb])) then
                     .domain_suffix = (.domain_suffix + $doms | unique)
                 else . end
             )
         else
-            .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+            if $inb == "" then
+                .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+            else
+                .route.rules += [{"inbounds": [$inb], "domain_suffix": $doms, "outbound": $out}]
+            end
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
-    green "自定义域名规则 [ $custom_input ] 已添加，出站走 '${selected_out}'"
-    sleep 1.5; warp_manage
+    green "自定义域名 [ $custom_input ] 规则已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
+    sleep 2; warp_manage
 }
-
 
 # 设置全局代理出站
 set_global_outbound() {
