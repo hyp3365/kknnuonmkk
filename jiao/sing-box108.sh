@@ -1738,44 +1738,49 @@ EOF
             skyblue "=============================="
             green "       Nginx 版本检查与更新       "
             skyblue "=============================="
-            CURRENT_VERSION=$(nginx -v 2>&1 | awk -F'/' '{print $2}')
-            echo -e "正在检查最新版本..."
-            apt-get update >/dev/null 2>&1
-            LATEST_VERSION=$(apt-cache policy nginx | grep Candidate | awk '{print $2}')        
-            echo -e "当前安装版本: ${CURRENT_VERSION:-未知}"
-            echo -e "仓库最新版本: ${LATEST_VERSION:-未知}"
-            echo ""        
-            read -p "是否确认更新/升级 Nginx？[y/N]: " choice_update
-            if [[ "${choice_update}" =~ ^[Yy]$ ]]; then
-                echo ""
-                green "[+] 开始执行 Nginx 升级..."
-                if [ -f /etc/os-release ]; then
-                    . /etc/os-release
-                    OS=$ID
-                else
-                    OS="debian"
-                fi
-                
-                apt install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring 2>/dev/null
-                curl -s https://nginx.org/keys/nginx_signing.key | gpg --dearmor | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
-                CODENAME=$(lsb_release -cs)
-                echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/$OS $CODENAME nginx" > /etc/apt/sources.list.d/nginx.list
-                
-                cat <<EOF > /etc/apt/preferences.d/99nginx
+            
+            echo -e "正在检测最新版本..."
+            
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                OS=$ID
+            else
+                OS="debian"
+            fi
+            
+            apt install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring >/dev/null 2>&1
+            curl -s https://nginx.org/keys/nginx_signing.key | gpg --dearmor | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null 2>&1
+            CODENAME=$(lsb_release -cs)
+            echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/$OS $CODENAME nginx" > /etc/apt/sources.list.d/nginx.list
+            
+            cat <<EOF > /etc/apt/preferences.d/99nginx
 Package: *
 Pin: origin nginx.org
 Pin: release o=nginx
 Pin-Priority: 900
 EOF
-                apt update
+
+            apt-get update >/dev/null 2>&1
+            
+            CURRENT_VERSION=$(nginx -v 2>&1 | awk -F'/' '{print $2}')
+            LATEST_VERSION=$(apt-cache policy nginx | grep Candidate | awk '{print $2}')
+            
+            echo -e "当前安装版本: ${CURRENT_VERSION:-未知}"
+            echo -e "官方最新版本: ${LATEST_VERSION:-未知}"
+            echo ""
+            
+            read -p "是否确认更新/升级 Nginx 到最新版？[y/N]: " choice_update
+            if [[ "${choice_update}" =~ ^[Yy]$ ]]; then
+                echo ""
+                green "[+] 开始 Nginx 升级..."
                 apt install -y --only-upgrade nginx || apt install -y nginx
-                
                 if [ -f /etc/nginx/nginx.conf ] && ! grep -q "sites-enabled" /etc/nginx/nginx.conf; then
                     if grep -q "conf.d/\*.conf;" /etc/nginx/nginx.conf; then
                         sed -i '/include \/etc\/nginx\/conf.d\/\*.conf;/a \    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
                     fi
                 fi
                 
+                # 测试并重载
                 if nginx -t; then
                     systemctl enable --now nginx
                     systemctl reload nginx
