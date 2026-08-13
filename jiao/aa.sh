@@ -678,6 +678,7 @@ while true; do
    green "5. 3X-UI面板"
    green "6. Cloudreve云盘"
    green "7. FileBrowser网盘"
+   green "8. fanout"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -706,6 +707,8 @@ while true; do
 		7)
             filebrowser_menu
             ;;
+		8) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh) ;;
         0)
             echo "退出脚本"
             exit 0
