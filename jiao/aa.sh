@@ -218,6 +218,36 @@ add_swap() {
 
 #查看内存占用排行
 check_memory_usage() {
+    # 辅助函数：自动清理与程序相关的 systemd 服务文件
+    clean_systemd_service() {
+        local cmd_name="$1"
+        # 匹配可能包含该程序名的 .service 文件
+        local service_files=$(find /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system -maxdepth 2 -iname "*${cmd_name}*.service" 2>/dev/null)
+
+        if [ -n "$service_files" ]; then
+            echo -e "\033[33m[!] 检测到关联的 systemd 自启动服务文件：\033[0m"
+            echo "$service_files"
+            read -p "是否同步停止、删除这些服务文件并重载 systemd？[y/N]: " confirm_svc
+            if [[ "$confirm_svc" =~ ^[Yy]$ ]]; then
+                echo "$service_files" | while read -r file; do
+                    [ -z "$file" ] && continue
+                    local svc_name=$(basename "$file")
+                    # 尝试停止并禁用服务
+                    systemctl stop "$svc_name" 2>/dev/null
+                    systemctl disable "$svc_name" 2>/dev/null
+                    # 删除服务文件
+                    rm -f "$file"
+                    echo -e "\033[32m[+] 已清理服务文件: $file\033[0m"
+                done
+                # 刷新 systemd 配置
+                systemctl daemon-reload
+                echo -e "\033[32m[+] 已成功重载 systemd 配置 (daemon-reload)。\033[0m"
+            fi
+        else
+            echo -e "\033[36m[*] 未检测到与 $cmd_name 相关的 systemd 服务文件。\033[0m"
+        fi
+    }
+
     while true; do
         clear
         echo -e "\033[35m=== 系统内存使用概况 ===\033[0m"
@@ -236,7 +266,6 @@ check_memory_usage() {
         
         echo "--------------------------------------------"
         echo -e "\033[35m=== 进程内存占用排行 (Top 30) ===\033[0m"
-        # 直接使用固定中文字符对齐，抛弃原先过度宽大的 printf 表头
         echo -e "序号  程序名称           内存占用   PID"
         echo "--------------------------------------------"
         
@@ -254,13 +283,9 @@ check_memory_usage() {
             pids[$i]=$pid
             cmds[$i]=$short_cmd
             
-            # 【排版优化核心】
-            # 1. 紧密拼接内存数字与MB单位
             local mem_str="${mem_mb}MB"
-            # 2. 截取过长的程序名称(最多16个字符)，防止手机端折行
             local display_cmd="${short_cmd:0:16}"
             
-            # 3. 使用更紧凑的列宽布局
             printf "%-5s \033[32m%-18s\033[0m %-10s %-8s\n" "${i})" "$display_cmd" "$mem_str" "$pid"
             ((i++))
         done < <(ps aux --sort=-rss | awk 'NR>1 {print $2, $6, $11}' | head -n 30)
@@ -275,8 +300,6 @@ check_memory_usage() {
         elif [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -lt "$i" ]]; then
             local target_pid="${pids[$choice]}"
             local target_cmd="${cmds[$choice]}"
-            
-            # 溯源：寻找该进程的物理执行路径
             local exe_path=$(readlink -f /proc/$target_pid/exe 2>/dev/null)
             
             echo ""
@@ -289,11 +312,11 @@ check_memory_usage() {
             echo ""
             echo "请选择操作:"
             echo "  1) 仅强制结束进程 (释放内存，安全)"
-            echo "  2) 结束进程，并直接删除源文件 (危险，文件将永久丢失)"
+            echo "  2) 结束进程，删除源文件 + 清理自启服务文件"
             if [ -x "$(command -v apt)" ]; then
-                echo "  3) 尝试通过 apt 彻底卸载该文件所属的软件包"
+                echo "  3) 尝试通过 apt 彻底卸载 + 清理残留自启文件"
             elif [ -x "$(command -v yum)" ]; then
-                echo "  3) 尝试通过 yum 彻底卸载该文件所属的软件包"
+                echo "  3) 尝试通过 yum 彻底卸载 + 清理残留自启文件"
             fi
             echo "  0) 取消并返回"
             read -p "请输入操作序号: " sub_choice
@@ -311,7 +334,10 @@ check_memory_usage() {
                         if [[ "$confirm_del" =~ ^[Yy]$ ]]; then
                             kill -9 "$target_pid" 2>/dev/null
                             rm -rf "$exe_path"
-                            echo -e "\033[32m[+] 进程已结束，文件已被彻底删除。\033[0m"
+                            echo -e "\033[32m[+] 进程已结束，主程序文件已被彻底删除。\033[0m"
+                            
+                            # 执行 systemd 检查与清理
+                            clean_systemd_service "$target_cmd"
                         else
                             echo "已取消删除。"
                         fi
@@ -330,20 +356,22 @@ check_memory_usage() {
                                     echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
                                     apt-get purge -y "$pkg_name"
                                     apt-get autoremove -y
-                                    echo -e "\033[32m[+] 卸载完成。\033[0m"
+                                    echo -e "\033[32m[+] 包管理器卸载完成。\033[0m"
                                 else
-                                    echo -e "\033[31m[-] 该文件未通过 apt 安装，无法卸载。\033[0m"
+                                    echo -e "\033[31m[-] 该文件未通过 apt 安装，无法通过 apt 卸载。\033[0m"
                                 fi
                             elif [ -x "$(command -v yum)" ]; then
                                 pkg_name=$(rpm -qf "$exe_path" 2>/dev/null)
                                 if [[ ! "$pkg_name" =~ "is not owned" ]] && [ -n "$pkg_name" ]; then
                                     echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
                                     yum remove -y "$pkg_name"
-                                    echo -e "\033[32m[+] 卸载完成。\033[0m"
+                                    echo -e "\033[32m[+] 包管理器卸载完成。\033[0m"
                                 else
-                                    echo -e "\033[31m[-] 该文件未通过 yum 安装，无法卸载。\033[0m"
+                                    echo -e "\033[31m[-] 该文件未通过 yum 安装，无法通过 yum 卸载。\033[0m"
                                 fi
                             fi
+                            
+                            clean_systemd_service "$target_cmd"
                         else
                             echo "已取消卸载。"
                         fi
@@ -362,7 +390,6 @@ check_memory_usage() {
         fi
     done
 }
-
 
 
 clean_system() {
