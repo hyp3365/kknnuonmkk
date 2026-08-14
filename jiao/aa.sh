@@ -218,35 +218,144 @@ add_swap() {
 
 #查看内存占用排行
 check_memory_usage() {
-    clear
-    purple "=== 系统内存使用概况 ==="
-    local mem_total=$(free -m | awk '/Mem:/ {print $2}')
-    local mem_used=$(free -m | awk '/Mem:/ {print $3}')
-    local swap_total=$(free -m | awk '/Swap:/ {print $2}')
-    local swap_used=$(free -m | awk '/Swap:/ {print $3}')
-    local disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $5}')
-    local disk_total=$(echo $disk_info | awk '{print $1}')
-    local disk_used=$(echo $disk_info | awk '{print $2}')
-    local disk_perc=$(echo $disk_info | awk '{print $3}')
-    
-    red "物理内存: ${mem_used}MB / ${mem_total}MB"
-    red "虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB"
-    red "硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})"
-    
-    echo "--------------------------------------"
-    purple "=== 进程内存占用排行 (Top 20) ==="
-    printf "%-25s %-15s\n" "程序名称" "占用内存"
-    echo "--------------------------------------"
-    ps aux --sort=-rss | awk 'NR>1 {
-        proc=$11;
-        if (proc !~ /^\[.*\]$/) { sub(/.*\//, "", proc) }
-        printf "\033[32m%-25s\033[0m %-10.1f MB\n", proc, $6/1024
-    }' | head -n 30
+    while true; do
+        clear
+        echo -e "\033[35m=== 系统内存使用概况 ===\033[0m"
+        local mem_total=$(free -m | awk '/Mem:/ {print $2}')
+        local mem_used=$(free -m | awk '/Mem:/ {print $3}')
+        local swap_total=$(free -m | awk '/Swap:/ {print $2}')
+        local swap_used=$(free -m | awk '/Swap:/ {print $3}')
+        local disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $5}')
+        local disk_total=$(echo $disk_info | awk '{print $1}')
+        local disk_used=$(echo $disk_info | awk '{print $2}')
+        local disk_perc=$(echo $disk_info | awk '{print $3}')
+        
+        echo -e "\033[31m物理内存: ${mem_used}MB / ${mem_total}MB\033[0m"
+        echo -e "\033[31m虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB\033[0m"
+        echo -e "\033[31m硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})\033[0m"
+        
+        echo "-----------------------------------------------------"
+        echo -e "\033[35m=== 进程内存占用排行 (Top 30) ===\033[0m"
+        printf "%-5s %-25s %-15s %-10s\n" "序号" "程序名称" "占用内存" "PID"
+        echo "-----------------------------------------------------"
+        
+        local -a pids
+        local -a cmds
+        local i=1
+        
+        while read -r pid rss raw_cmd; do
+            local mem_mb=$(awk "BEGIN {printf \"%.1f\", $rss/1024}")
+            local short_cmd=$raw_cmd
+            if [[ ! "$short_cmd" =~ ^\[.*\]$ ]]; then
+                short_cmd="${short_cmd##*/}"
+            fi
+            
+            pids[$i]=$pid
+            cmds[$i]=$short_cmd
+            printf "%2d)   \033[32m%-25s\033[0m %-10s MB   %-10s\n" "$i" "$short_cmd" "$mem_mb" "$pid"
+            ((i++))
+        done < <(ps aux --sort=-rss | awk 'NR>1 {print $2, $6, $11}' | head -n 30)
 
-    echo "--------------------------------------"
-    echo ""
-    read -n 1 -s -r -p "按任意键返回菜单..."
+        echo "-----------------------------------------------------"
+        echo ""
+        
+        read -p "请输入对应的数字进行操作 (输入 0 退出当前页面): " choice
+        
+        if [[ "$choice" == "0" ]]; then
+            break
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -lt "$i" ]]; then
+            local target_pid="${pids[$choice]}"
+            local target_cmd="${cmds[$choice]}"
+            
+            # 溯源：寻找该进程的物理执行路径
+            local exe_path=$(readlink -f /proc/$target_pid/exe 2>/dev/null)
+            
+            echo ""
+            echo "您选中了进程: $target_cmd (PID: $target_pid)"
+            if [ -n "$exe_path" ]; then
+                echo -e "物理文件路径: \033[33m$exe_path\033[0m"
+            else
+                echo -e "物理文件路径: \033[31m无法获取 (可能是内核进程或权限不足)\033[0m"
+            fi
+            echo ""
+            echo "请选择操作:"
+            echo "  1) 仅强制结束进程 (释放内存，安全)"
+            echo "  2) 结束进程，并直接删除源文件 (危险，文件将永久丢失)"
+            if [ -x "$(command -v apt)" ]; then
+                echo "  3) 尝试通过 apt 彻底卸载该文件所属的软件包 (含配置文件)"
+            elif [ -x "$(command -v yum)" ]; then
+                echo "  3) 尝试通过 yum 彻底卸载该文件所属的软件包"
+            fi
+            echo "  0) 取消并返回"
+            read -p "请输入操作序号: " sub_choice
+            
+            case "$sub_choice" in
+                1)
+                    kill -9 "$target_pid" 2>/dev/null
+                    echo -e "\033[32m[+] 进程已结束。\033[0m"
+                    ;;
+                2)
+                    if [ -z "$exe_path" ]; then
+                        echo -e "\033[31m[-] 找不到源文件，无法删除。\033[0m"
+                    else
+                        read -p "【危险】确定要彻底删除文件 $exe_path 吗？这不可恢复！ [y/N]: " confirm_del
+                        if [[ "$confirm_del" =~ ^[Yy]$ ]]; then
+                            kill -9 "$target_pid" 2>/dev/null
+                            rm -rf "$exe_path"
+                            echo -e "\033[32m[+] 进程已结束，文件 $exe_path 已被彻底删除。\033[0m"
+                        else
+                            echo "已取消删除。"
+                        fi
+                    fi
+                    ;;
+                3)
+                    if [ -z "$exe_path" ]; then
+                        echo -e "\033[31m[-] 找不到源文件路径，无法匹配包管理器。\033[0m"
+                    else
+                        read -p "确定要尝试卸载该程序吗？ [y/N]: " confirm_pkg
+                        if [[ "$confirm_pkg" =~ ^[Yy]$ ]]; then
+                            kill -9 "$target_pid" 2>/dev/null
+                            if [ -x "$(command -v apt)" ]; then
+                                # Debian/Ubuntu 系列，寻找包名并 purge
+                                pkg_name=$(dpkg -S "$exe_path" 2>/dev/null | awk -F: '{print $1}')
+                                if [ -n "$pkg_name" ]; then
+                                    echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
+                                    apt-get purge -y "$pkg_name"
+                                    apt-get autoremove -y
+                                    echo -e "\033[32m[+] 卸载完成。\033[0m"
+                                else
+                                    echo -e "\033[31m[-] 该文件不是通过 apt 安装的，无法通过包管理器卸载 (可能是手动下载的脚本或二进制文件)。\033[0m"
+                                fi
+                            elif [ -x "$(command -v yum)" ]; then
+                                # CentOS/RHEL 系列，寻找包名并 remove
+                                pkg_name=$(rpm -qf "$exe_path" 2>/dev/null)
+                                if [[ ! "$pkg_name" =~ "is not owned" ]] && [ -n "$pkg_name" ]; then
+                                    echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
+                                    yum remove -y "$pkg_name"
+                                    echo -e "\033[32m[+] 卸载完成。\033[0m"
+                                else
+                                    echo -e "\033[31m[-] 该文件不是通过 yum 安装的，无法通过包管理器卸载。\033[0m"
+                                fi
+                            fi
+                        else
+                            echo "已取消卸载。"
+                        fi
+                    fi
+                    ;;
+                0|*)
+                    echo "已取消操作。"
+                    ;;
+            esac
+            
+            echo "3秒后自动刷新页面..."
+            sleep 3
+        else
+            echo -e "\033[31m无效的输入，请输入 0 到 $(($i-1)) 之间的数字！\033[0m"
+            sleep 1
+        fi
+    done
 }
+
 
 clean_system() {
     clear
