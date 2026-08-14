@@ -4254,6 +4254,7 @@ extract_fanout_socks() {
 
     mkdir -p "$(dirname "$output_file")"
 
+    # 2. 提取并转换为你要求的标准格式
     local new_fanout_nodes
     new_fanout_nodes=$(jq '[
       .outbounds[]? | 
@@ -4268,13 +4269,19 @@ extract_fanout_socks() {
       }
     ]' "$input_file")
 
+    # 3. 极高安全性的防御式合并：完全避免 Cannot index array 报错
     if [ -f "$output_file" ]; then
         jq --argjson new_nodes "$new_fanout_nodes" '
           .outbounds as $old |
           ($new_nodes | map(.server_port)) as $new_ports |
           if $old then
             .outbounds = [
-              $old[]? | select(.server_port == null or ($new_ports | index(.server_port) == null))
+              $old[]? | select(
+                type != "object" or 
+                (has("server_port") | not) or 
+                (.server_port | type != "number" and type != "string") or
+                ($new_ports | index(.server_port) == null)
+              )
             ] + $new_nodes
           else
             .outbounds = $new_nodes
