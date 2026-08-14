@@ -4172,6 +4172,7 @@ warp_manage() {
 	green "5. 添加 warp 出站"
     skyblue "----------------------"
 	green "6. 优化DNS地址"
+	green "7. fanout"
     skyblue "----------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -4218,10 +4219,43 @@ warp_manage() {
                 echo "DNS设置未更改"
             fi
               ;;
+	    7)  extract_fanout_socks ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
     esac
+}
+
+#把fanout socks出站添加到sing-box出站
+extract_fanout_socks() {
+    local input_file="/var/lib/fanout/xray.json"
+    local output_file="/etc/sing-box/conf/fanout.json"
+    if ! command -v jq &> /dev/null; then
+        echo "错误: 未找到 jq 工具。请先安装 (例如执行: apt install jq)"
+        return 1
+    fi
+    mkdir -p "$(dirname "$output_file")"
+    jq '{
+      outbounds: [
+        .outbounds[]? | select(.protocol == "socks" and (.tag | tostring | test("fanout-"))) |
+        {
+          type: "socks",
+          tag: .tag,
+          server: .settings.servers[0].address,
+          server_port: .settings.servers[0].port
+        } + if (.settings.servers[0].users? | length > 0) then {
+          username: .settings.servers[0].users[0].user,
+          password: .settings.servers[0].users[0].pass
+        } else {} end
+      ]
+    }' "$input_file" > "$output_file"
+    if [ $? -eq 0 ]; then
+        echo "节点提取完成！配置已写入 $output_file"
+        echo "共提取了 $(jq '.outbounds | length' "$output_file") 个 SOCKS 节点。"
+    else
+        echo "提取失败，请检查 $input_file 文件是否存在或格式是否正确。"
+        return 1
+    fi
 }
 
 # 选择目标出站时的通用函数 (增加 IP:端口 显示)
