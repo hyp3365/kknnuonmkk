@@ -2264,9 +2264,28 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            6) yellow "正在配置 anytls..."
-               generate_vars
-               server_ip=$(get_realip)
+            6) 
+			   generate_vars
+               server_ip=$(get_realip)    
+echo ""
+while true; do
+    read -rp "请输入 anytls 端口 (100-65535, 默认 ${anytls_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$anytls_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        anytls_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
+			   yellow "正在配置 anytls..."
                mkdir -p /etc/sing-box
                cat > /etc/sing-box/conf/anytls.json << EOF
 {
@@ -2382,7 +2401,26 @@ EOF
             ;;
 		9)
         check_and_issue_ssl || return 1
-        generate_vars
+		generate_vars
+        server_ip=$(get_realip)    
+echo ""
+while true; do
+    read -rp "请输入 vless_wstls_cdn 端口 (100-65535, 默认 ${vless_wstls_cdn_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$vless_wstls_cdn_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        vless_wstls_cdn_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
         mkdir -p /etc/sing-box
         cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
 {
@@ -2429,9 +2467,28 @@ EOF
             green "--------------------------------------------------"
             ;;
 			10) 
-            generate_vars
+			generate_vars
+                server_ip=$(get_realip)    
+echo ""
+while true; do
+    read -rp "请输入 vless_ws_cdn 端口 (100-65535, 默认 ${vless_ws_cdn_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$vless_ws_cdn_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        vless_ws_cdn_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
             mkdir -p /etc/sing-box
-            read -p '请输入域名 (例如: b.a.com): ' domain
+            read -p '请输入域名: ' domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
             cat > /etc/sing-box/conf/vless-ws-cdn.json << EOF
 {
@@ -2478,8 +2535,27 @@ EOF
             ;;
 	      11)
             generate_vars
+                server_ip=$(get_realip)    
+echo ""
+while true; do
+    read -rp "请输入 vmess_ws_cdn 端口 (100-65535, 默认 ${vmess_ws_cdn_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$vmess_ws_cdn_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        vmess_ws_cdn_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
             mkdir -p /etc/sing-box
-            read -p '请输入域名 (例如: b.a.com): ' domain
+            read -p '请输入域名: ' domain
             [ -z "$domain" ] && red "域名不能为空!" && return 1
             cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
 {
