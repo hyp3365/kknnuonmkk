@@ -4238,7 +4238,7 @@ extract_fanout_socks() {
     fi
 
     local input_file="/var/lib/fanout/xray.json"
-    local output_file="/etc/sing-box/conf/inbounds.json"
+    local output_file="/etc/sing-box/conf/outbounds.json"
 
     if ! command -v jq &> /dev/null; then
         echo "错误: 未找到 jq 工具。请先安装 (例如执行: apt install jq)"
