@@ -4141,25 +4141,22 @@ warp_manage() {
     
     local has_rules=0
     
-    while read -r line; do
-        [ -n "$line" ] && echo -e " - ${skyblue}[规则集] $line${re}" && has_rules=1
+    while IFS='|' read -r p1 p2 p3; do
+        [ -z "$p1" ] && continue
+        echo -e "  - ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
+        has_rules=1
     done < <(jq -r --slurpfile outs "$outbound_file" '
         ($outs[0].outbounds | map({(.tag): (if .server then "[\(.server):\(.server_port)]" else "" end)}) | add // {}) as $map
+        | {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules[]?
-        | select(.rule_set != null)
-        | "\(.rule_set | join(", ")) -> 出站: \(.outbound) \($map[.outbound] // "")"
+        | select(.rule_set != null or .domain_suffix != null)
+        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" else "[自定义域名] \(.domain_suffix | join(", "))" end) as $p1
+        | (if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
+        | "\(.outbound) \($map[.outbound] // "")" as $p3
+        | "\($p1)|\($p2)|\($p3)"
     ' "$route_file" 2>/dev/null)
 
-    while read -r line; do
-        [ -n "$line" ] && echo -e " - ${skyblue}[域名] $line${re}" && has_rules=1
-    done < <(jq -r --slurpfile outs "$outbound_file" '
-        ($outs[0].outbounds | map({(.tag): (if .server then "[\(.server):\(.server_port)]" else "" end)}) | add // {}) as $map
-        | .route.rules[]?
-        | select(.domain_suffix != null)
-        | "\(.domain_suffix | join(", ")) -> 出站: \(.outbound) \($map[.outbound] // "")"
-    ' "$route_file" 2>/dev/null)
-
-    [ $has_rules -eq 0 ] && echo "  无"
+    [ $has_rules -eq 0 ] && echo "    无"
 
     green "\n已添加的 Socks/HTTP 代理出站:"
     jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)] \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null || echo "  无"
@@ -4382,9 +4379,9 @@ add_rule_menu() {
 
     jq --arg tag "$rule_tag" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .rule_set != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]))) then
+        if any(.route.rules[]; .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
             .route.rules |= map(
-                if .outbound == $out and .rule_set != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb])) then 
+                if .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then 
                     .rule_set = (.rule_set + [$tag] | unique) 
                 else . end
             )
@@ -4392,7 +4389,7 @@ add_rule_menu() {
             if $inb == "" then
                 .route.rules += [{"rule_set": [$tag], "outbound": $out}]
             else
-                .route.rules += [{"inbounds": [$inb], "rule_set": [$tag], "outbound": $out}]
+                .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
             end
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
@@ -4423,9 +4420,9 @@ add_custom_domain_rule() {
     
     jq --argjson doms "$dom_json" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]))) then
+        if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
             .route.rules |= map(
-                if .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb])) then
+                if .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then
                     .domain_suffix = (.domain_suffix + $doms | unique)
                 else . end
             )
@@ -4433,7 +4430,7 @@ add_custom_domain_rule() {
             if $inb == "" then
                 .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
             else
-                .route.rules += [{"inbounds": [$inb], "domain_suffix": $doms, "outbound": $out}]
+                .route.rules += [{"inbound": [$inb], "domain_suffix": $doms, "outbound": $out}]
             end
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
@@ -4703,7 +4700,6 @@ delete_socks5_proxy() {
     warp_manage
 }
 
-
 delete_rule_menu() {
     clear
     green "=== 删除分流规则 ==="
@@ -4716,33 +4712,42 @@ delete_rule_menu() {
     echo ""
     green "当前已启用的分流规则列表:"
     
-    jq -r '.route.rules | to_entries[] | "  \(.key + 1). " + 
-        (if .value.rule_set then 
-            "[预设规则集] \(.value.rule_set | join(", "))" 
-         elif .value.domain_suffix then 
-            "[自定义域名] \(.value.domain_suffix | join(", "))" 
-         else 
-            "[其他规则]" 
-         end) + "  (${skyblue}出站: \(.value.outbound)${re})"' "$route_file" 2>/dev/null
+    # 使用相同的映射逻辑，确保展示出的节点名称一致
+    jq -r '
+        {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
+        | .route.rules | to_entries[] | 
+        (if .value.rule_set then "[预设规则] \(.value.rule_set | join(", "))" 
+         elif .value.domain_suffix then "[自定义域名] \(.value.domain_suffix | join(", "))" 
+         else "[其他规则]" end) as $p1
+        | (if .value.inbound and (.value.inbound | length > 0) then ($inMap[.value.inbound[0]] // .value.inbound[0]) else "全部节点" end) as $p2
+        | "\(.key + 1)|\($p1)|\($p2)|\(.value.outbound)"
+    ' "$route_file" 2>/dev/null | while IFS='|' read -r idx p1 p2 p3; do
+        [ -z "$idx" ] && continue
+        # 完美对齐并上色，显示格式： 1. [预设规则] openai - tuic - 出站: 🌐_socks5
+        echo -e "  ${green}${idx}.${re} ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
+    done
 
     echo ""
     purple "0. 返回上级菜单"
     skyblue "---------------------------------"
     reading "请输入要删除的规则序号: " del_input
+    
     if [ "$del_input" == "0" ]; then
         warp_manage; return
     fi
+    
     if [[ ! "$del_input" =~ ^[0-9]+$ ]] || [ "$del_input" -lt 1 ] || [ "$del_input" -gt "$rule_count" ]; then
         red "序号无效，请输入列表中对应的数字！"; sleep 1; delete_rule_menu; return
     fi
+    
     local index=$((del_input - 1))
     jq --argjson idx "$index" 'del(.route.rules[$idx])' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+    
     restart_singbox
     green "第 ${del_input} 条分流规则已成功删除！"
     sleep 1.5
     warp_manage
 }
-
 
 
 change_cfip() {
