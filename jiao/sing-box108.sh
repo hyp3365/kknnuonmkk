@@ -4450,10 +4450,12 @@ add_rule_menu() {
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
+    
     select_inbound_target
+    
     if jq -e --arg tag "$rule_tag" --arg inb "$selected_inbound" '
         .route.rules[]? | select(.rule_set != null) | 
-        select( ( ($inb == "" and (has("inbounds") | not)) or ($inb != "" and .inbounds == [$inb]) ) ) | 
+        select( ( ($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]) ) ) | 
         .rule_set[]? | select(. == $tag)
     ' "$route_file" > /dev/null 2>&1; then
         yellow "规则集 '${rule_tag}' 已在 [${selected_inbound_name}] 运行中。"; sleep 1.5; warp_manage; return
@@ -4488,46 +4490,58 @@ add_rule_menu() {
     sleep 2; warp_manage
 }
 
-# 添加自定义域名分流规则
 add_custom_domain_rule() {
     echo ""
     green "=== 添加自定义域名分流 ==="
-    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re} 会匹配 ${skyblue}baidu.com${re} 及 ${skyblue}*.baidu.com${re}）"
-    reading "请输入域名 (多个域名请用空格或逗号分隔): " custom_input
-
-    if [ -z "$custom_input" ]; then
-        red "未输入任何域名！"; sleep 1; add_rule_menu; return
-    fi
-    local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
-    
+    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re}）"
+    echo -e "      ${purple}直接回车 默认所有域名 ！${re}"
+    reading "请输入域名: " custom_input
     select_inbound_target
-
     green "\n第二步："
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
     
-    jq --argjson doms "$dom_json" --arg out "$selected_out" --arg inb "$selected_inbound" '
-        .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
-            .route.rules |= map(
-                if .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then
-                    .domain_suffix = (.domain_suffix + $doms | unique)
-                else . end
-            )
-        else
+    if [ -z "$custom_input" ]; then
+        jq --arg out "$selected_out" --arg inb "$selected_inbound" '
+            .route.rules //= [] |
             if $inb == "" then
-                .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+                .route.rules += [{"outbound": $out}]
             else
-                .route.rules += [{"inbound": [$inb], "domain_suffix": $doms, "outbound": $out}]
+                .route.rules += [{"inbound": [$inb], "outbound": $out}]
             end
-        end
-    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+        
+        custom_input="所有流量 (全局)"
+    else
+        local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
+        
+        jq --argjson doms "$dom_json" --arg out "$selected_out" --arg inb "$selected_inbound" '
+            .route.rules //= [] |
+            if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
+                .route.rules |= map(
+                    if .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then
+                        .domain_suffix = (.domain_suffix + $doms | unique)
+                    else . end
+                )
+            else
+                if $inb == "" then
+                    .route.rules += [{"domain_suffix": $doms, "outbound": $out}]
+                else
+                    .route.rules += [{"inbound": [$inb], "domain_suffix": $doms, "outbound": $out}]
+                end
+            end
+        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+    fi
 
     restart_singbox
-    green "域名 [ $custom_input ] 规则已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
-    sleep 2; warp_manage
+    green "\n✅ 规则 [ $custom_input ] 已成功添加！"
+    echo -e "   - 生效节点: [ ${skyblue}${selected_inbound_name}${re} ]"
+    echo -e "   - 出站线路: [ ${purple}${selected_out}${re} ]"
+    sleep 2
+    warp_manage
 }
+
 
 # 设置全局代理出站
 set_global_outbound() {
