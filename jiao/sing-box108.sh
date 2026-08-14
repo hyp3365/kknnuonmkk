@@ -4150,7 +4150,7 @@ warp_manage() {
         | {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules[]?
         | select(.rule_set != null or .domain_suffix != null)
-        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" else "[自定义域名] \(.domain_suffix | join(", "))" end) as $p1
+        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" else "[域名] \(.domain_suffix | join(", "))" end) as $p1
         | (if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
         | "\(.outbound) \($map[.outbound] // "")" as $p3
         | "\($p1)|\($p2)|\($p3)"
@@ -4162,7 +4162,7 @@ warp_manage() {
     jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)] \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null || echo "  无"
 
     echo ""
-    green "1. 设置分流服务 (预设服务 / 自定义域名)"
+    green "1. 设置分流服务"
     skyblue "----------------------"
     red "2. 删除分流规则"
     skyblue "--------------"
@@ -4302,6 +4302,14 @@ select_inbound_target() {
         ((idx++))
     fi
 
+	# 5. anytls
+    if [ -f "/etc/sing-box/conf/anytls.json" ]; then
+        echo -e "  ${green}${idx}.${re} anytls"
+        in_names+=("anytls")
+        in_tags+=("anytls")
+        ((idx++))
+    fi
+
     echo ""
     reading "请输入节点编号 (直接回车默认选 0): " in_choice
     
@@ -4436,7 +4444,7 @@ add_custom_domain_rule() {
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
     restart_singbox
-    green "自定义域名 [ $custom_input ] 规则已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
+    green "域名 [ $custom_input ] 规则已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
     sleep 2; warp_manage
 }
 
@@ -4717,7 +4725,7 @@ delete_rule_menu() {
         {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules | to_entries[] | 
         (if .value.rule_set then "[预设规则] \(.value.rule_set | join(", "))" 
-         elif .value.domain_suffix then "[自定义域名] \(.value.domain_suffix | join(", "))" 
+         elif .value.domain_suffix then "[域名] \(.value.domain_suffix | join(", "))" 
          else "[其他规则]" end) as $p1
         | (if .value.inbound and (.value.inbound | length > 0) then ($inMap[.value.inbound[0]] // .value.inbound[0]) else "全部节点" end) as $p2
         | "\(.key + 1)|\($p1)|\($p2)|\(.value.outbound)"
