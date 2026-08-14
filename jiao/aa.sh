@@ -234,10 +234,11 @@ check_memory_usage() {
         echo -e "\033[31m虚拟内存: ${mem_used_swap:-$swap_used}MB / ${swap_total}MB\033[0m"
         echo -e "\033[31m硬盘占用: ${disk_used} / ${disk_total} (${disk_perc})\033[0m"
         
-        echo "-----------------------------------------------------"
+        echo "--------------------------------------------"
         echo -e "\033[35m=== 进程内存占用排行 (Top 30) ===\033[0m"
-        printf "%-5s %-25s %-15s %-10s\n" "序号" "程序名称" "占用内存" "PID"
-        echo "-----------------------------------------------------"
+        # 直接使用固定中文字符对齐，抛弃原先过度宽大的 printf 表头
+        echo -e "序号  程序名称           内存占用   PID"
+        echo "--------------------------------------------"
         
         local -a pids
         local -a cmds
@@ -252,14 +253,22 @@ check_memory_usage() {
             
             pids[$i]=$pid
             cmds[$i]=$short_cmd
-            printf "%2d)   \033[32m%-25s\033[0m %-10s MB   %-10s\n" "$i" "$short_cmd" "$mem_mb" "$pid"
+            
+            # 【排版优化核心】
+            # 1. 紧密拼接内存数字与MB单位
+            local mem_str="${mem_mb}MB"
+            # 2. 截取过长的程序名称(最多16个字符)，防止手机端折行
+            local display_cmd="${short_cmd:0:16}"
+            
+            # 3. 使用更紧凑的列宽布局
+            printf "%-5s \033[32m%-18s\033[0m %-10s %-8s\n" "${i})" "$display_cmd" "$mem_str" "$pid"
             ((i++))
         done < <(ps aux --sort=-rss | awk 'NR>1 {print $2, $6, $11}' | head -n 30)
 
-        echo "-----------------------------------------------------"
+        echo "--------------------------------------------"
         echo ""
         
-        read -p "请输入对应的数字进行操作 (输入 0 退出当前页面): " choice
+        read -p "请输入对应数字进行操作 (输入 0 退出当前页): " choice
         
         if [[ "$choice" == "0" ]]; then
             break
@@ -282,7 +291,7 @@ check_memory_usage() {
             echo "  1) 仅强制结束进程 (释放内存，安全)"
             echo "  2) 结束进程，并直接删除源文件 (危险，文件将永久丢失)"
             if [ -x "$(command -v apt)" ]; then
-                echo "  3) 尝试通过 apt 彻底卸载该文件所属的软件包 (含配置文件)"
+                echo "  3) 尝试通过 apt 彻底卸载该文件所属的软件包"
             elif [ -x "$(command -v yum)" ]; then
                 echo "  3) 尝试通过 yum 彻底卸载该文件所属的软件包"
             fi
@@ -298,11 +307,11 @@ check_memory_usage() {
                     if [ -z "$exe_path" ]; then
                         echo -e "\033[31m[-] 找不到源文件，无法删除。\033[0m"
                     else
-                        read -p "【危险】确定要彻底删除文件 $exe_path 吗？这不可恢复！ [y/N]: " confirm_del
+                        read -p "【危险】确定彻底删除 $exe_path 吗？[y/N]: " confirm_del
                         if [[ "$confirm_del" =~ ^[Yy]$ ]]; then
                             kill -9 "$target_pid" 2>/dev/null
                             rm -rf "$exe_path"
-                            echo -e "\033[32m[+] 进程已结束，文件 $exe_path 已被彻底删除。\033[0m"
+                            echo -e "\033[32m[+] 进程已结束，文件已被彻底删除。\033[0m"
                         else
                             echo "已取消删除。"
                         fi
@@ -316,7 +325,6 @@ check_memory_usage() {
                         if [[ "$confirm_pkg" =~ ^[Yy]$ ]]; then
                             kill -9 "$target_pid" 2>/dev/null
                             if [ -x "$(command -v apt)" ]; then
-                                # Debian/Ubuntu 系列，寻找包名并 purge
                                 pkg_name=$(dpkg -S "$exe_path" 2>/dev/null | awk -F: '{print $1}')
                                 if [ -n "$pkg_name" ]; then
                                     echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
@@ -324,17 +332,16 @@ check_memory_usage() {
                                     apt-get autoremove -y
                                     echo -e "\033[32m[+] 卸载完成。\033[0m"
                                 else
-                                    echo -e "\033[31m[-] 该文件不是通过 apt 安装的，无法通过包管理器卸载 (可能是手动下载的脚本或二进制文件)。\033[0m"
+                                    echo -e "\033[31m[-] 该文件未通过 apt 安装，无法卸载。\033[0m"
                                 fi
                             elif [ -x "$(command -v yum)" ]; then
-                                # CentOS/RHEL 系列，寻找包名并 remove
                                 pkg_name=$(rpm -qf "$exe_path" 2>/dev/null)
                                 if [[ ! "$pkg_name" =~ "is not owned" ]] && [ -n "$pkg_name" ]; then
                                     echo -e "找到归属软件包: \033[33m$pkg_name\033[0m，开始卸载..."
                                     yum remove -y "$pkg_name"
                                     echo -e "\033[32m[+] 卸载完成。\033[0m"
                                 else
-                                    echo -e "\033[31m[-] 该文件不是通过 yum 安装的，无法通过包管理器卸载。\033[0m"
+                                    echo -e "\033[31m[-] 该文件未通过 yum 安装，无法卸载。\033[0m"
                                 fi
                             fi
                         else
@@ -350,11 +357,12 @@ check_memory_usage() {
             echo "3秒后自动刷新页面..."
             sleep 3
         else
-            echo -e "\033[31m无效的输入，请输入 0 到 $(($i-1)) 之间的数字！\033[0m"
+            echo -e "\033[31m无效的输入！\033[0m"
             sleep 1
         fi
     done
 }
+
 
 
 clean_system() {
