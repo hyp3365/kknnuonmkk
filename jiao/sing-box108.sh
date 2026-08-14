@@ -4160,7 +4160,7 @@ warp_manage() {
     green "\n已添加的 Socks/HTTP 代理出站:"
     jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
 
-while true; do
+
     echo ""
     green "1. 设置分流服务"
     skyblue "----------------------"
