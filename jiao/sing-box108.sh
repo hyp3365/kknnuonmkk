@@ -4230,6 +4230,7 @@ warp_manage() {
             else
                 echo "DNS设置未更改"
             fi
+			sleep 1; warp_manage
               ;;
 	    7)  extract_fanout_socks ;;
         0)  menu ;;
