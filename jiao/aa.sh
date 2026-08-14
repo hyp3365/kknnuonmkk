@@ -241,7 +241,7 @@ check_memory_usage() {
         proc=$11;
         if (proc !~ /^\[.*\]$/) { sub(/.*\//, "", proc) }
         printf "\033[32m%-25s\033[0m %-10.1f MB\n", proc, $6/1024
-    }' | head -n 20
+    }' | head -n 30
 
     echo "--------------------------------------"
     echo ""
