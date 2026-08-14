@@ -4168,7 +4168,7 @@ warp_manage() {
     skyblue "--------------"
     green "3. 添加 Socks5/HTTP 出站"
     skyblue "----------------------"
-    red "4. 删除 Socks5/HTTP 出站"
+    red "4. 管理 Socks5/HTTP 出站"
     skyblue "----------------------"
 	green "5. 添加 warp 出站"
     skyblue "----------------------"
@@ -4666,7 +4666,6 @@ delete_socks5_proxy() {
     clear
     green "=== 出站代理管理 (测试 / 删除) ==="
     
-    # 获取所有自定义出站标签（排除内置节点）
     local tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireproxy" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
     
     if [ ${#tags[@]} -eq 0 ]; then
@@ -4677,29 +4676,22 @@ delete_socks5_proxy() {
     fi
     
     green "当前可用出站列表:"
-    # 定义26个字母映射表
     local letters=(a b c d e f g h i j k l m n o p q r s t u v w x y z)
     local i=1
     
     for tag in "${tags[@]}"; do
-        # 获取出站详情，缺失时赋予默认提示文字
-        local proxy_info=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | "\(.type)|\(.server // "无IP")|\(.server_port // "无端口")"' "$outbound_file")
-        local type=$(echo "$proxy_info" | cut -d'|' -f1)
-        local server=$(echo "$proxy_info" | cut -d'|' -f2)
-        local port=$(echo "$proxy_info" | cut -d'|' -f3)
+        local type=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | .type' "$outbound_file")
         
-        # 取对应序号的字母 (如 1 对应 a)
         local letter="${letters[$((i-1))]}"
         
-        # 显示格式:  [1 / a] . 节点名称 [socks]  (IP:端口)
-        echo -e "  [${green}${i}${re} / ${skyblue}${letter}${re}] . ${tag} [${type}]  (${server}:${port})"
+        echo -e "  [${green}${i}${re} / ${skyblue}${letter}${re}] . ${tag} [${type}]"
         ((i++))
     done
     
     echo ""
     purple "0. 返回上级菜单"
     echo -e "---------------------------------"
-    echo -e "提示: 输入 ${green}数字${re} 测试连通性，输入 ${skyblue}字母${re} 删除出站"
+    echo -e "提示: 输入 ${green}对应数字${re} 测试连通性，输入 ${skyblue}对应字母${re} 删除出站"
     reading "请输入你的选择 (如输入 1 测试，输入 a 删除): " input
     
     if [ "$input" == "0" ]; then
@@ -4707,13 +4699,10 @@ delete_socks5_proxy() {
         return
     fi
     
-    # ==================================
-    # 逻辑一：纯数字 -> 测试节点连通性
-    # ==================================
     if [[ "$input" =~ ^[0-9]+$ ]]; then
         if [ "$input" -lt 1 ] || [ "$input" -gt "${#tags[@]}" ]; then
             red "输入的数字编号无效！"
-            sleep 1; Delete_socks5_proxy; return
+            sleep 1; delete_socks5_proxy; return
         fi
         
         local tag="${tags[$((input-1))]}"
@@ -4726,7 +4715,6 @@ delete_socks5_proxy() {
         local user=$(echo "$proxy_json" | jq -r '.username // ""')
         local pass=$(echo "$proxy_json" | jq -r '.password // ""')
 
-        # 仅支持对标准的 HTTP 和 SOCKS 代理进行 curl 测试
         if [[ "$type" != "socks" && "$type" != "http" ]]; then
             yellow "脚本内置测试目前仅支持 socks / http 协议，该出站为 [${type}]，跳过网络测试。"
         elif [[ -z "$server" || -z "$port" ]]; then
@@ -4735,20 +4723,17 @@ delete_socks5_proxy() {
             local auth=""
             [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
             
-            # 使用 socks5h 可以将 DNS 解析也交给远端，更准确且能防污染
             local scheme="socks5h"
             [ "$type" == "http" ] && scheme="http"
             
             local proxy_url="${scheme}://${auth}${server}:${port}"
             echo -e "正在发起网络请求测试，请稍候 (超时5秒)..."
             
-            # 使用 curl 自带变量记录状态码和总耗时
             local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204")
             local http_code=$(echo "$curl_out" | cut -d'|' -f1)
             local time_total=$(echo "$curl_out" | cut -d'|' -f2)
             
             if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
-                # 计算毫秒级延迟
                 local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
                 green "✅ 测试成功！目标网站连通正常。"
                 echo -e "   - HTTP 状态码: ${http_code}"
@@ -4761,15 +4746,11 @@ delete_socks5_proxy() {
         
         echo ""
         read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m\n'
-        Delete_socks5_proxy
+        delete_socks5_proxy
         return
 
-    # ==================================
-    # 逻辑二：纯小写字母 -> 删除出站
-    # ==================================
     elif [[ "$input" =~ ^[a-z]$ ]]; then
         local idx=-1
-        # 将输入的字母转换成数组索引
         for j in "${!letters[@]}"; do
             if [ "${letters[$j]}" == "$input" ]; then
                 idx=$j
@@ -4779,15 +4760,14 @@ delete_socks5_proxy() {
         
         if [ "$idx" -eq -1 ] || [ "$idx" -ge "${#tags[@]}" ]; then
             red "输入的字母无效或不存在对应的出站！"
-            sleep 1; Delete_socks5_proxy; return
+            sleep 1; delete_socks5_proxy; return
         fi
         
         local tag="${tags[$idx]}"
         
-        # 安全保险：禁止删除系统内置出站
         if [[ "$tag" == "wireproxy" || "$tag" == "wireguard-out" || "$tag" == "direct" ]]; then
             red "系统内置出站，不可删除！"
-            sleep 2; Delete_socks5_proxy; return
+            sleep 2; delete_socks5_proxy; return
         fi
 
         jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
@@ -4802,12 +4782,12 @@ delete_socks5_proxy() {
         restart_singbox
         green "\n✅ 代理出站 '${tag}' 及其绑定的分流规则已彻底删除！"
         sleep 1.5
-        Delete_socks5_proxy
+        delete_socks5_proxy
         return
 
     else
         red "输入格式有误，请输入列表内对应的数字或小写字母！"
-        sleep 1; Delete_socks5_proxy; return
+        sleep 1; delete_socks5_proxy; return
     fi
 }
 
