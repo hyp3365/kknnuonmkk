@@ -4137,6 +4137,15 @@ warp_manage() {
 
     echo ""
     green "=== WARP / 节点分流管理 ===\n"
+    local current_final
+    current_final=$(jq -r '.route.final // empty' "$route_file" 2>/dev/null)
+    if [ -z "$current_final" ] || [ "$current_final" == "direct" ] || [ "$current_final" == "null" ]; then
+        echo -e "当前全局默认出站: ${skyblue}direct (服务器原IP直连)${re}\n"
+    else
+        echo -e "当前全局默认出站: ${purple}${current_final} ${yellow}[全局代理已开启]${re}\n"
+    fi
+    # ------------------------------------------------------------
+
     green "当前已启用的分流规则:"
     
     local has_rules=0
@@ -4157,9 +4166,9 @@ warp_manage() {
 
     [ $has_rules -eq 0 ] && echo "    无"
 
-    green "\n已添加的 Socks/HTTP 代理出站:"
-    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
-
+    echo ""
+    green "已添加的 Socks/HTTP 代理出站:"
+    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | "  - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "    无"
 
     echo ""
     green "1. 设置分流服务"
@@ -4522,17 +4531,15 @@ add_custom_domain_rule() {
 
 # 设置全局代理出站
 set_global_outbound() {
-    # 检查是否存在 socks5/http 代理出站（排除 direct 和 wireguard-out）
     local proxy_tags
-    proxy_tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | .tag' \
+    proxy_tags=($(jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | .tag' \
         "$outbound_file" 2>/dev/null))
 
     if [ ${#proxy_tags[@]} -eq 0 ]; then
         yellow "\n当前没有可用的 socks5/http 代理出站。"
-        yellow "请先返回 → 设置分流服务 → 添加 Socks5/HTTP 出站，再设置全局代理。\n"
+        yellow "请先返回 → 设置分流服务 → 添加代理出站，再设置全局代理。\n"
         sleep 3; add_rule_menu; return
     fi
-
     echo ""
     green "请选择全局代理出站:"
     for i in "${!proxy_tags[@]}"; do
@@ -4546,15 +4553,29 @@ set_global_outbound() {
         red "无效选择"; sleep 1; add_rule_menu; return
     fi
     local selected_out="${proxy_tags[$((out_choice-1))]}"
-
-    # 从 outbounds.json 中删除 direct 出站，防止流量绕过代理
-    jq 'del(.outbounds[] | select(.tag == "direct"))' \
-        "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
-    rm -rf ${route_file} ${conf_dir}/endpoints.json
+    cat > "${route_file}" <<EOF
+{
+  "route": {
+    "final": "${selected_out}",
+    "rules": [
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ]
+  }
+}
+EOF
+    rm -rf ${conf_dir}/endpoints.json
     restart_singbox
-    green "\n已设置全局代理出站：${purple}${selected_out}${re}"
-    yellow "所有流量将通过 ${selected_out} 转发，如需恢复请选择「恢复服务器原IP出站」\n"
-    sleep 2; warp_manage
+    green "\n已安全设置全局代理出站：${purple}${selected_out}${re}"
+    yellow "✅ 所有外网流量将通过 ${selected_out} 转发。"
+    yellow "✅ 局域网及 SSH 连接已自动绕过代理 (直连)，防止断网。"
+    yellow "如需恢复，请选择「恢复服务器原IP出站」\n"
+    
+    echo ""
+    read -n 1 -s -r -p "按任意键返回菜单..."
+    warp_manage
 }
 
 # 恢复服务器原IP出站（恢复默认 route.json）
