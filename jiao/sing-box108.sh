@@ -4172,6 +4172,7 @@ warp_manage() {
 	green "5. 添加 warp 出站"
     skyblue "----------------------"
 	green "6. 优化DNS地址"
+	skyblue "----------------------"
 	green "7. fanout"
     skyblue "----------------------"
     purple "0. 返回主菜单"
@@ -4228,32 +4229,61 @@ warp_manage() {
 
 #把fanout socks出站添加到sing-box出站
 extract_fanout_socks() {
+    if [ ! -d "/var/lib/fanout" ] || ! command -v f &> /dev/null; then
+        echo "检测到 fanout 尚未安装，正在为您执行安装..."
+        bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+        echo ""
+        echo "----------------------------------------"
+        read -p "安装已完成，快捷命令f已创建, 按回车键返回主菜单..."
+    fi
+
     local input_file="/var/lib/fanout/xray.json"
-    local output_file="/etc/sing-box/conf/fanout.json"
+    local output_file="/etc/sing-box/conf/inbounds.json"
+
     if ! command -v jq &> /dev/null; then
         echo "错误: 未找到 jq 工具。请先安装 (例如执行: apt install jq)"
         return 1
     fi
+
+    if [ ! -f "$input_file" ]; then
+        echo "错误: 找不到 $input_file，请确保 fanout 已成功配置节点。"
+        return 1
+    fi
+
     mkdir -p "$(dirname "$output_file")"
-    jq '{
-      outbounds: [
-        .outbounds[]? | select(.protocol == "socks" and (.tag | tostring | test("fanout-"))) |
-        {
-          type: "socks",
-          tag: .tag,
-          server: .settings.servers[0].address,
-          server_port: .settings.servers[0].port
-        } + if (.settings.servers[0].users? | length > 0) then {
-          username: .settings.servers[0].users[0].user,
-          password: .settings.servers[0].users[0].pass
-        } else {} end
-      ]
-    }' "$input_file" > "$output_file"
-    if [ $? -eq 0 ]; then
-        echo "节点提取完成！配置已写入 $output_file"
-        echo "共提取了 $(jq '.outbounds | length' "$output_file") 个 SOCKS 节点。"
+
+    local new_fanout_nodes
+    new_fanout_nodes=$(jq '[
+      .outbounds[]? | 
+      select(.protocol == "socks" and (.tag | tostring | test("fanout-"))) |
+      {
+        type: "socks",
+        tag: .tag,
+        server: .settings.servers[0].address,
+        server_port: .settings.servers[0].port
+      } + if (.settings.servers[0].users? | length > 0) then {
+        username: .settings.servers[0].users[0].user,
+        password: .settings.servers[0].users[0].pass
+      } else {} end
+    ]' "$input_file")
+
+    if [ -f "$output_file" ]; then
+        jq --argjson new_nodes "$new_fanout_nodes" '
+          ($new_nodes | map(.server_port)) as $new_ports |
+          .outbounds = [
+            (.outbounds[]? | select(.server_port == null or ($new_ports | index(.server_port) | not)))
+          ] + $new_nodes
+        ' "$output_file" > "${output_file}.tmp" && mv "${output_file}.tmp" "$output_file"
     else
-        echo "提取失败，请检查 $input_file 文件是否存在或格式是否正确。"
+    
+        echo "{\"outbounds\": $new_nodes}" > "$output_file"
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "更新成功！已同步至 $output_file。"
+        echo "当前文件中共有 $(jq '.outbounds | length' "$output_file") 个出站节点。"
+    else
+        echo "更新失败，请检查配置文件格式。"
         return 1
     fi
 }
