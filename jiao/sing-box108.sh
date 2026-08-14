@@ -4145,21 +4145,20 @@ warp_manage() {
         [ -z "$p1" ] && continue
         echo -e "  - ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
         has_rules=1
-    done < <(jq -r --slurpfile outs "$outbound_file" '
-        ($outs[0].outbounds | map({(.tag): (if .server then "[\(.server):\(.server_port)]" else "" end)}) | add // {}) as $map
-        | {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
+    done < <(jq -r '
+        {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules[]?
         | select(.rule_set != null or .domain_suffix != null)
         | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" else "[域名] \(.domain_suffix | join(", "))" end) as $p1
         | (if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
-        | "\(.outbound) \($map[.outbound] // "")" as $p3
+        | "\(.outbound)" as $p3
         | "\($p1)|\($p2)|\($p3)"
     ' "$route_file" 2>/dev/null)
 
     [ $has_rules -eq 0 ] && echo "    无"
 
     green "\n已添加的 Socks/HTTP 代理出站:"
-    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)] \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null || echo "  无"
+    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | " - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "  无"
 
     echo ""
     green "1. 设置分流服务"
