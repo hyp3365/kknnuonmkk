@@ -4293,6 +4293,7 @@ extract_fanout_socks() {
         echo "更新失败，请检查配置文件格式。"
         return 1
     fi
+	sleep 1; warp_manage
 }
 
 
@@ -4860,6 +4861,7 @@ delete_socks5_proxy() {
         red "输入格式有误，请输入列表内对应的数字或小写字母！"
         sleep 1; delete_socks5_proxy; return
     fi
+	sleep 1.5; warp_manage
 }
 
 
