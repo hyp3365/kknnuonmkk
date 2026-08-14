@@ -4230,7 +4230,6 @@ warp_manage() {
 
 #把fanout socks出站添加到sing-box出站
 extract_fanout_socks() {
-    # 1. 检查 fanout 是否已安装
     if [ ! -d "/var/lib/fanout" ] || ! command -v f &> /dev/null; then
         echo "检测到 fanout 尚未安装，正在为您执行安装..."
         bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
@@ -4254,7 +4253,6 @@ extract_fanout_socks() {
 
     mkdir -p "$(dirname "$output_file")"
 
-    # 2. 提取并转换为你要求的标准格式
     local new_fanout_nodes
     new_fanout_nodes=$(jq '[
       .outbounds[]? | 
@@ -4269,18 +4267,15 @@ extract_fanout_socks() {
       }
     ]' "$input_file")
 
-    # 3. 极高安全性的防御式合并：完全避免 Cannot index array 报错
     if [ -f "$output_file" ]; then
         jq --argjson new_nodes "$new_fanout_nodes" '
           .outbounds as $old |
-          ($new_nodes | map(.server_port)) as $new_ports |
           if $old then
             .outbounds = [
               $old[]? | select(
                 type != "object" or 
-                (has("server_port") | not) or 
-                (.server_port | type != "number" and type != "string") or
-                ($new_ports | index(.server_port) == null)
+                (has("tag") | not) or 
+                (.tag | tostring | test("^fanout-") | not)
               )
             ] + $new_nodes
           else
