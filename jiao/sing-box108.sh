@@ -4157,8 +4157,9 @@ warp_manage() {
     done < <(jq -r '
         {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules[]?
-        | select(.rule_set != null or .domain_suffix != null)
-        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" else "[域名] \(.domain_suffix | join(", "))" end) as $p1
+        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" 
+           elif .domain_suffix then "[域名] \(.domain_suffix | join(", "))" 
+           else "[所有流量]" end) as $p1
         | (if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
         | "\(.outbound)" as $p3
         | "\($p1)|\($p2)|\($p3)"
