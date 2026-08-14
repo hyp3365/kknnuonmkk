@@ -4494,7 +4494,7 @@ add_rule_menu() {
 add_custom_domain_rule() {
     echo ""
     green "=== 添加自定义域名分流 ==="
-    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re}）"
+    echo -e "提示: 输入要匹配的域名（后缀匹配，如输入 ${skyblue}baidu.com${re}）多个域名用英文逗号隔开"
     echo -e "      ${purple}直接回车 默认所有域名 ！${re}"
     reading "请输入域名: " custom_input
     select_inbound_target
@@ -4913,13 +4913,12 @@ delete_rule_menu() {
     echo ""
     green "当前已启用的分流规则列表:"
     
-    # 使用相同的映射逻辑，确保展示出的节点名称一致
     jq -r '
         {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
         | .route.rules | to_entries[] | 
         (if .value.rule_set then "[预设规则] \(.value.rule_set | join(", "))" 
          elif .value.domain_suffix then "[域名] \(.value.domain_suffix | join(", "))" 
-         else "[其他规则]" end) as $p1
+         else "[所有流量]" end) as $p1
         | (if .value.inbound and (.value.inbound | length > 0) then ($inMap[.value.inbound[0]] // .value.inbound[0]) else "全部节点" end) as $p2
         | "\(.key + 1)|\($p1)|\($p2)|\(.value.outbound)"
     ' "$route_file" 2>/dev/null | while IFS='|' read -r idx p1 p2 p3; do
