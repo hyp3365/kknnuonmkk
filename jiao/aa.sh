@@ -852,7 +852,11 @@ while true; do
             filebrowser_menu
             ;;
 		8) 
-		    bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh) ;;
+		    bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+		    echo ""
+		    echo "----------------------------------------"
+		    read -p "安装已完成，快捷命令f已创建, 按回车键返回主菜单..."
+		    ;;
         0)
             echo "退出脚本"
             exit 0
