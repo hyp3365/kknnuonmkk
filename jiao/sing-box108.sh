@@ -4229,6 +4229,7 @@ warp_manage() {
 
 #把fanout socks出站添加到sing-box出站
 extract_fanout_socks() {
+    # 检查 fanout 是否已安装
     if [ ! -d "/var/lib/fanout" ] || ! command -v f &> /dev/null; then
         echo "检测到 fanout 尚未安装，正在为您执行安装..."
         bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
@@ -4266,27 +4267,27 @@ extract_fanout_socks() {
         password: .settings.servers[0].users[0].pass
       } else {} end
     ]' "$input_file")
-
+	
     if [ -f "$output_file" ]; then
         jq --argjson new_nodes "$new_fanout_nodes" '
           ($new_nodes | map(.server_port)) as $new_ports |
           .outbounds = [
-            (.outbounds[]? | select(.server_port == null or ($new_ports | index(.server_port) | not)))
+            (.outbounds[]? | select(.server_port == null or (.server_port | type != "null" and ($new_ports | index(.server_port) | not))))
           ] + $new_nodes
         ' "$output_file" > "${output_file}.tmp" && mv "${output_file}.tmp" "$output_file"
     else
-    
         echo "{\"outbounds\": $new_nodes}" > "$output_file"
     fi
 
     if [ $? -eq 0 ]; then
-        echo "更新成功！已同步至 $output_file。"
+        echo "更新成功！已同步至 $output_file"
         echo "当前文件中共有 $(jq '.outbounds | length' "$output_file") 个出站节点。"
     else
         echo "更新失败，请检查配置文件格式。"
         return 1
     fi
 }
+
 
 # 选择目标出站时的通用函数 (增加 IP:端口 显示)
 select_outbound_target() {
