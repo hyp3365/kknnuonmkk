@@ -3079,9 +3079,8 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    vmess_remark_enc=$(echo -n "$vmess_remark" | jq -sRr @uri)
     VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)#${vmess_remark_enc}"
+    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
 
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
     vless_url="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
@@ -3407,7 +3406,8 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    60) 
+		    
+		 60) 
         targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
         configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
         
@@ -3425,11 +3425,34 @@ EOF
                 fi
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
-
             if [ -f "/etc/sing-box/url.txt" ]; then
-                for t in "${targets[@]}"; do
-                    sed -i "/$t/d" /etc/sing-box/url.txt
-                done
+                tmp_file=$(mktemp)
+                while IFS= read -r line || [ -n "$line" ]; do
+                    [ -z "$line" ] && continue
+                    skip=0
+                    
+                    for t in "${targets[@]}"; do
+                        if [[ "$line" == *"$t"* ]]; then
+                            skip=1
+                            break
+                        fi
+                    done
+                
+                    if [ $skip -eq 0 ] && [[ "$line" == vmess://* ]]; then
+                        b64_str="${line#vmess://}"
+                        decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
+                        for t in "${targets[@]}"; do
+                            if [[ "$decoded" == *"$t"* ]]; then
+                                skip=1
+                                break
+                            fi
+                        done
+                    fi
+                    
+                    [ $skip -eq 0 ] && echo "$line" >> "$tmp_file"
+                done < "/etc/sing-box/url.txt"
+
+                mv "$tmp_file" /etc/sing-box/url.txt
                 sed -i '/^$/d' /etc/sing-box/url.txt
                 echo "" >> /etc/sing-box/url.txt
             fi
