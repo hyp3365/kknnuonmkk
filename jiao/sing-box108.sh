@@ -3075,9 +3075,11 @@ EOF
   ]
 }
 EOF
-    vmess_remark="${isp}_vmess_ws_cdn"
+                          
+	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
+    
     VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
 
@@ -3088,21 +3090,17 @@ EOF
     trojan_url="trojan://${uuid}@${CFIP}:${CFPORT}?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
 
     if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/#.*${vmess_remark}$/{N;d;}" /etc/sing-box/url.txt
-        sed -i "/#.*${vless_remark}$/{N;d;}" /etc/sing-box/url.txt
-        sed -i "/#.*${trojan_remark}$/{N;d;}" /etc/sing-box/url.txt
+        sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
+        sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
+        sed -i "/${trojan_remark}/d" /etc/sing-box/url.txt
     fi                              
     
     echo "$vmess_url" >> /etc/sing-box/url.txt
-    echo "#$vmess_remark" >> /etc/sing-box/url.txt
     echo "$vless_url" >> /etc/sing-box/url.txt
-    echo "#$vless_remark" >> /etc/sing-box/url.txt
     echo "$trojan_url" >> /etc/sing-box/url.txt
-    echo "#$trojan_remark" >> /etc/sing-box/url.txt
     
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                        
-    
-    restart_singbox                            
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+    restart_singbox
     
     green "--------------------------------------------------"
     green " CDN 节点生成成功 (VMess / VLESS / Trojan)"
@@ -3424,6 +3422,7 @@ EOF
                 fi
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
+
             if [ -f "/etc/sing-box/url.txt" ]; then
                 for t in "${targets[@]}"; do
                     sed -i "/$t/d" /etc/sing-box/url.txt
@@ -3431,6 +3430,7 @@ EOF
                 sed -i '/^$/d' /etc/sing-box/url.txt
                 echo "" >> /etc/sing-box/url.txt
             fi
+
             if [ -s "/etc/sing-box/url.txt" ]; then
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
             else
@@ -3439,10 +3439,10 @@ EOF
             
             restart_singbox                
             green "==============================================="
-            green " 对应的 CDN 节点已精准移除！"
+            green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
             green "==============================================="
         else
-            red "错误: 未找到相关的配置文件，删除取消。"
+            red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
         fi
         ;;
             0) break ;;
