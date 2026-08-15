@@ -2948,6 +2948,7 @@ EOF
             
             merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')     
             if cf_put_origin_rules "$zone_id" "$merged"; then
+			   green "✓ 回源规则创建成功！"
             else
                 yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
             fi
