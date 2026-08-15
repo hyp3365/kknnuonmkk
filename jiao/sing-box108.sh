@@ -2858,30 +2858,83 @@ EOF
             green "--------------------------------------------------"
             ;;
 	      11)
-            generate_vars
-                server_ip=$(get_realip)    
-echo ""
-while true; do
-    read -rp "请输入 vmess_ws_cdn 端口 (100-65535, 默认 ${vmess_ws_cdn_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$vmess_ws_cdn_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        vmess_ws_cdn_port=$custom_port
-        break
+    generate_vars
+    server_ip=$(get_realip)    
+    echo ""
+    while true; do
+        read -rp "请输入 vmess_ws_cdn 端口 (100-65535, 默认 ${vmess_ws_cdn_port}): " custom_port
+        if [ -z "$custom_port" ]; then
+            custom_port=$vmess_ws_cdn_port
+            break
+        fi
+        if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+            if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+                red "该端口已被占用，请重新输入！"
+                continue
+            fi      
+            vmess_ws_cdn_port=$custom_port
+            break
+        else
+            red "输入错误！请输入有效的端口号 (100-65535)。"
+        fi
+    done
+    read -p '请输入域名 : ' domain
+    [ -z "$domain" ] && red "域名不能为空!" && return 1
+
+    # 2. 选择 Cloudflare 鉴权方式
+    echo ""
+    echo "请选择 Cloudflare 验证方式："
+    echo "1) Cloudflare API Token (推荐)"
+    echo "2) Cloudflare Global API Key (邮箱 + Key)"
+    read -rp "请输入选择 [1-2]: " cf_type
+
+    if [[ "$cf_type" == "1" ]]; then
+        echo ""
+        skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
+        echo -e " 1. 登录 Cloudflare 官网，点击 \033[33m管理账户 -> API 令牌\033[0m"
+        echo -e " 2. 点击右侧 \033[33m创建令牌\033[0m"
+        echo -e " 3. 配置权限策略 (需要两个权限)："
+        echo -e "    - 范围: 选择 \033[33m所有域名\033[0m"
+        echo -e "    - 找到 \033[33mDNS & Zones (区域) - Zone (区域)\033[0m，权限设为 \033[32mRead (读取)\033[0m"
+        echo -e "    - 找到 \033[33mDNS & Zones (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+        echo -e " 4. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
+        skyblue "--------------------------------------------------"
+        
+        read -rp "请输入你的 Cloudflare API Token: " cf_token
+        export CF_TOKEN=$(echo "$cf_token" | tr -d '[:space:]')
+        unset CF_EMAIL CF_KEY
+    elif [[ "$cf_type" == "2" ]]; then
+        read -rp "请输入 Cloudflare 登录邮箱: " cf_email
+        read -rp "请输入 Cloudflare Global API Key: " cf_key
+        export CF_EMAIL=$(echo "$cf_email" | tr -d '[:space:]')
+        export CF_KEY=$(echo "$cf_key" | tr -d '[:space:]')
+        unset CF_TOKEN
     else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
+        red "无效选择，跳过 Cloudflare 自动化配置。"
     fi
-done
-            mkdir -p /etc/sing-box
-            read -p '请输入域名: ' domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
-            cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
+    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+        skyblue "正在自动查找 Cloudflare Zone ID..."
+        zone_id=$(cf_find_zone "$domain" 2>/dev/null)      
+        if [[ -n "$zone_id" ]]; then
+            green "匹配成功 (Zone ID: $zone_id)"
+            skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
+            if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+                green "✓ DNS 解析已更新并开启 CDN 代理"
+            else
+                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
+            fi
+            cf_set_ssl "$zone_id" "flexible"
+            if set_domain_origin_port "$zone_id" "$domain" "$vmess_ws_cdn_port"; then
+                green "✓ 回源规则已自动下发: ${domain} -> 本机端口 ${vmess_ws_cdn_port}"
+            else
+                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
+            fi
+        else
+            yellow "⚠ 未能匹配到 Zone ID，请确认域名已托管在该账号下且凭证正确。"
+        fi
+    fi
+    mkdir -p /etc/sing-box/conf
+    cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2903,27 +2956,21 @@ done
   ]
 }
 EOF
-            allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1      
-            node_remark="${isp}_vmess_ws_cdn"
-            VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-            vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
-            fi                              
-            echo "$vmess_url" >> /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                    
-            
-            restart_singbox                            
-            green "--------------------------------------------------"
-            green " 节点连接: $vmess_url"
-            green "--------------------------------------------------"
-            yellow " 已生成 VMess 节点，请去 Cloudflare 添加端口回源规则："
-            yellow " 回源端口: $vmess_ws_cdn_port"
-            yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
-            green "--------------------------------------------------"
-            ;;   
-		
+    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1      
+    node_remark="${isp}_vmess_ws_cdn"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
+    fi                              
+    echo "$vmess_url" >> /etc/sing-box/url.txt
+    echo "" >> /etc/sing-box/url.txt
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                        
+    restart_singbox                            
+    green "--------------------------------------------------"
+    green " 节点连接: $vmess_url"
+    green "--------------------------------------------------"
+    ;;		
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
