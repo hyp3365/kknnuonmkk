@@ -2137,16 +2137,6 @@ EOF
 
     cat > "$avail_file" <<EOF
 server {
-    listen 80 default_server;
-    listen 443 ssl default_server;
-    server_name _;
-
-    ssl_certificate ${final_cert};
-    ssl_certificate_key ${final_key};
-
-    return 444;
-}
-server {
     listen 80;
     server_name ${proxy_domain};
     return 301 https://\$host\$request_uri;
