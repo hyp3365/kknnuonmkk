@@ -102,6 +102,7 @@ grpc_reality=$(get_available_port)
 vless_wstls_cdn_port=$(get_available_port)
 vless_ws_cdn_port=$(get_available_port)
 vmess_ws_cdn_port=$(get_available_port)
+trojan_ws_cdn_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
@@ -2204,8 +2205,7 @@ manage_nodes_menu() {
             "socks5.json|socks5|7"
             "http.json|HTTP|8"
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-			"vless-ws-cdn.json|vless-ws-cdn|10"
-			"vmess-ws-cdn.json|vmess-ws-cdn|11"			
+			"vless-ws-cdn.json|ws-cdn|10"		
         )
 		
         clear
@@ -2848,98 +2848,21 @@ EOF
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
             green "--------------------------------------------------"
             ;;
-			10) 
-			generate_vars
-                server_ip=$(get_realip)    
-echo ""
-while true; do
-    read -rp "请输入 vless_ws_cdn 端口 (100-65535, 默认 ${vless_ws_cdn_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$vless_ws_cdn_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        vless_ws_cdn_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-            mkdir -p /etc/sing-box
-            read -p '请输入域名: ' domain
-            [ -z "$domain" ] && red "域名不能为空!" && return 1
-            cat > /etc/sing-box/conf/vless-ws-cdn.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-ws-cdn",
-      "listen": "::",
-      "listen_port": $vless_ws_cdn_port,
-      "users": [
-        {
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/sspsksavxaszass",
-        "max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-			allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
-            node_remark="${isp}_vless_ws_cdn"
-            vless_url="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspsksavxaszass#${node_remark}"         
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
-            fi                    
-            echo "$vless_url" >> /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null           
-            
-            restart_singbox      
-          
-            green "--------------------------------------------------"
-            green " 节点连接 $vless_url"
-            green "--------------------------------------------------"
-            yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
-            yellow " 回源端口: $vless_ws_cdn_port"
-			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '灵活'"
-            green "--------------------------------------------------"
-            ;;
-	      11)
+		10)
     generate_vars
     server_ip=$(get_realip)    
     echo ""
-    while true; do
-        read -rp "请输入 vmess_ws_cdn 端口 (100-65535, 默认 ${vmess_ws_cdn_port}): " custom_port
-        if [ -z "$custom_port" ]; then
-            custom_port=$vmess_ws_cdn_port
-            break
-        fi
-        if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-            if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-                red "该端口已被占用，请重新输入！"
-                continue
-            fi      
-            vmess_ws_cdn_port=$custom_port
-            break
-        else
-            red "输入错误！请输入有效的端口号 (100-65535)。"
-        fi
-    done
+    vmess_ws_cdn_port=$(get_available_port)
+    vless_ws_cdn_port=$(get_available_port)
+    trojan_ws_cdn_port=$(get_available_port)
+
+    vmess_path="/vmess-ws"
+    vless_path="/vless-ws"
+    trojan_path="/trojan-ws"
+
     read -p '请输入域名 : ' domain
     [ -z "$domain" ] && red "域名不能为空!" && return 1
 
-    # 2. 选择 Cloudflare 鉴权方式
     echo ""
     echo "请选择 Cloudflare 验证方式："
     echo "1) Cloudflare API Token (推荐)"
@@ -2970,20 +2893,61 @@ EOF
     else
         red "无效选择，跳过 Cloudflare 自动化配置。"
     fi
+
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
         skyblue "正在自动查找 Cloudflare Zone ID..."
         zone_id=$(cf_find_zone "$domain" 2>/dev/null)      
         if [[ -n "$zone_id" ]]; then
             green "匹配成功 (Zone ID: $zone_id)"
+            
             skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
             if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
                 green "✓ DNS 解析已更新并开启 CDN 代理"
             else
                 yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
             fi
+            
             cf_set_ssl "$zone_id" "flexible"
-            if set_domain_origin_port "$zone_id" "$domain" "$vmess_ws_cdn_port"; then
-                green "✓ 回源规则已自动下发: ${domain} -> 本机端口 ${vmess_ws_cdn_port}"
+            green "✓ SSL 模式已自动设置为: Flexible"
+            pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
+            existing=$(cf_get_origin_rules "$zone_id")
+            kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
+                .[] | select(
+                    (.description | startswith($pfx) | not) or
+                    (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
+                )
+            ]')
+            
+            new_managed=$(jq -n \
+                --arg d "$domain" --arg pfx "$pfx" \
+                --argjson p1 "$vmess_ws_cdn_port" --arg path1 "$vmess_path" \
+                --argjson p2 "$vless_ws_cdn_port" --arg path2 "$vless_path" \
+                --argjson p3 "$trojan_ws_cdn_port" --arg path3 "$trojan_path" '[
+                {
+                    description: ($pfx + "VMESS_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p1 } }
+                },
+                {
+                    description: ($pfx + "VLESS_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p2 } }
+                },
+                {
+                    description: ($pfx + "TROJAN_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p3 } }
+                }
+            ]')
+            
+            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')     
+            if cf_put_origin_rules "$zone_id" "$merged"; then
             else
                 yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
             fi
@@ -2991,7 +2955,14 @@ EOF
             yellow "⚠ 未能匹配到 Zone ID，请确认域名已托管在该账号下且凭证正确。"
         fi
     fi
+
+    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1      
+    allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1      
+    allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1      
+
     mkdir -p /etc/sing-box/conf
+
+    # 1. 写入 VMess 配置文件
     cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
 {
   "inbounds": [
@@ -3008,27 +2979,101 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "/sspsksavxaszassas"
+        "path": "$vmess_path"
       }
     }
   ]
 }
 EOF
-    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1      
-    node_remark="${isp}_vmess_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"/sspsksavxaszassas\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+
+    # 2. 写入 VLESS 配置文件
+    cat > /etc/sing-box/conf/vless-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-cdn",
+      "listen": "::",
+      "listen_port": $vless_ws_cdn_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "flow": ""
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$vless_path"
+      }
+    }
+  ]
+}
+EOF
+
+    # 3. 写入 Trojan 配置文件 
+    cat > /etc/sing-box/conf/trojan-ws-cdn.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "trojan",
+      "tag": "trojan-ws-cdn",
+      "listen": "::",
+      "listen_port": $trojan_ws_cdn_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$trojan_path"
+      }
+    }
+  ]
+}
+EOF
+    vmess_remark="${isp}_vmess_ws_cdn"
+    vless_remark="${isp}_vless_ws_cdn"
+    trojan_remark="${isp}_trojan_ws_cdn"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+
+    vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
+    vless_url="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
+
+    trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
+    trojan_url="trojan://${uuid}@${CFIP}:${CFPORT}?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
+
     if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/#.*${node_remark}$/{N;d;}" /etc/sing-box/url.txt
+        sed -i "/#.*${vmess_remark}$/{N;d;}" /etc/sing-box/url.txt
+        sed -i "/#.*${vless_remark}$/{N;d;}" /etc/sing-box/url.txt
+        sed -i "/#.*${trojan_remark}$/{N;d;}" /etc/sing-box/url.txt
     fi                              
+    
     echo "$vmess_url" >> /etc/sing-box/url.txt
-    echo "" >> /etc/sing-box/url.txt
+    echo "#$vmess_remark" >> /etc/sing-box/url.txt
+    echo "$vless_url" >> /etc/sing-box/url.txt
+    echo "#$vless_remark" >> /etc/sing-box/url.txt
+    echo "$trojan_url" >> /etc/sing-box/url.txt
+    echo "#$trojan_remark" >> /etc/sing-box/url.txt
+    
     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null                        
+    
     restart_singbox                            
+    
     green "--------------------------------------------------"
-    green " 节点连接: $vmess_url"
+    green " CDN 节点生成成功 (VMess / VLESS / Trojan)"
     green "--------------------------------------------------"
-    ;;		
+    green " VMess 节点 : "
+    echo "$vmess_url"
+    echo ""
+    green " VLESS 节点 : "
+    echo "$vless_url"
+    echo ""
+    green " Trojan 节点: "
+    echo "$trojan_url"
+    green "--------------------------------------------------"
+    ;;
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
@@ -3318,80 +3363,72 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-			60) 
-			target="_vless_ws_cdn"
-            target_conf="/etc/sing-box/conf/vless-ws-cdn.json"
-            if [ -f "$target_conf" ]; then
-			    vless_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$vless_ws_cdn_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_ws_cdn_port" '$0~"dport "p {print $NF}'); do
+		    60) 
+    targets=("vmess-ws-cdn" "vless-ws-cdn" "trojan-ws-cdn")
+    configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
+    exist_flag=0
+    for conf in "${configs[@]}"; do
+        [ -f "$conf" ] && exist_flag=1 && break
+    done
+    if [ "$exist_flag" -eq 1 ]; then
+        for conf in "${configs[@]}"; do
+            if [ -f "$conf" ]; then
+                port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
+                if [ -n "$port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
                         nft delete rule inet filter input handle $handle 2>/dev/null
                     done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
                 fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+                rm -f "$conf"
             fi
-            ;;	
-		    61) 
-		    target="_vmess_ws_cdn"
-            target_conf="/etc/sing-box/conf/vmess-ws-cdn.json"
-            if [ -f "$target_conf" ]; then
-			    vmess_ws_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$vmess_ws_cdn_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vmess_ws_cdn_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    new_urls=$(while read -r line; do
-                        [ -z "$line" ] && continue              
-                        if [[ "$line" == vmess://* ]]; then
-                            content=$(echo "${line#vmess://}" | cut -d'#' -f1 | base64 -d 2>/dev/null)
-                            if [[ ! "$content" =~ "$target" ]]; then
-                                echo "$line"
-                                echo "" 
-                            fi
-                        else
-                            echo "$line"
-                            echo ""
+        done
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            new_urls=$(while read -r line; do
+                [ -z "$line" ] && continue              
+                skip=0
+                for t in "${targets[@]}"; do
+                    if [[ "$line" == *"${t}"* ]]; then
+                        skip=1
+                        break
+                    fi
+                done
+                if [[ "$line" == vmess://* || "$line" == vless://* || "$line" == trojan://* ]]; then
+                    for t in "${targets[@]}"; do
+                        if [[ "$line" == *"${t}"* ]]; then
+                            skip=1
+                            break
                         fi
-                    done < "/etc/sing-box/url.txt")
-                    echo "$new_urls" > "/etc/sing-box/url.txt"
-					sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
+                    done
                 fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi      
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-			;;
+                
+                if [ "$skip" -eq 0 ]; then
+                    echo "$line"
+                    echo "" 
+                fi
+            done < "/etc/sing-box/url.txt")
+            
+            echo "$new_urls" > "/etc/sing-box/url.txt"
+            for t in "${targets[@]}"; do
+                sed -i "/${t}/d" /etc/sing-box/url.txt
+            done
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi      
+        restart_singbox                
+        green "==============================================="
+        green " 3个 CDN 节点 (VMess/VLESS/Trojan) 已全部移除！"
+        green " 对应的端口防火墙、配置文件及订阅链接已清理。"
+        green "==============================================="
+    else
+        red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
+    fi
+    ;;
 
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
