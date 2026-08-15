@@ -3425,10 +3425,15 @@ EOF
                 fi
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
+            
             if [ -f "/etc/sing-box/url.txt" ]; then
                 tmp_file=$(mktemp)
                 while IFS= read -r line || [ -n "$line" ]; do
-                    [ -z "$line" ] && continue
+                    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+                        echo "" >> "$tmp_file"
+                        continue
+                    fi
+                    
                     skip=0
                     
                     for t in "${targets[@]}"; do
@@ -3453,7 +3458,8 @@ EOF
                 done < "/etc/sing-box/url.txt"
 
                 mv "$tmp_file" /etc/sing-box/url.txt
-                sed -i '/^$/d' /etc/sing-box/url.txt
+                
+                sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
                 echo "" >> /etc/sing-box/url.txt
             fi
 
