@@ -2782,29 +2782,14 @@ EOF
             green "==============================================="
             ;;
 		9)
-        check_and_issue_ssl || return 1
-		generate_vars
-        server_ip=$(get_realip)    
-echo ""
-while true; do
-    read -rp "请输入 vless_wstls_cdn 端口 (100-65535, 默认 ${vless_wstls_cdn_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$vless_wstls_cdn_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        vless_wstls_cdn_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-        mkdir -p /etc/sing-box
-        cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
+                check_and_issue_ssl || return 1
+    generate_vars
+    server_ip=$(get_realip)    
+    echo ""
+    vless_wstls_cdn_port=$(get_available_port)
+    ws_path="/sspaasksavxssaszass"
+    mkdir -p /etc/sing-box/conf
+    cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -2815,13 +2800,13 @@ done
       "users": [ { "uuid": "$uuid" } ],
       "tls": {
         "enabled": true,
-        "server_name": "$domain",
+        "server_name": "${domain:-$server_ip}",
         "certificate_path": "$cert_file",
         "key_path": "$key_file"
       },
       "transport": {
         "type": "ws",
-        "path": "/sspaasksavxssaszass",
+        "path": "$ws_path",
         "max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
@@ -2829,25 +2814,82 @@ done
   ]
 }
 EOF
-			allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
-			node_remark="${isp}_vless_wstls_cdn"
-            encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
-            VLESS_URL="vless://${uuid}@${server_ip}:$vless_wstls_cdn_port?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspaasksavxssaszass%3Fed%3D2560#${node_remark}"
-            if [ -f "${work_dir}/url.txt" ]; then
-                grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+    allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
+    node_remark_direct="${isp}_vless_wstls_direct"
+    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}%3Fed%3D2560#${node_remark_direct}"
+
+    if [ -f "${work_dir}/url.txt" ]; then
+        sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
+    fi
+    echo "$VLESS_DIRECT_URL" >> "${work_dir}/url.txt"
+    echo "" >> "${work_dir}/url.txt"
+    echo ""
+    read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
+    if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
+        if [ -n "$domain" ]; then
+            if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+                zone_id=$(cf_find_zone "$domain" 2>/dev/null)      
+                if [[ -n "$zone_id" ]]; then
+                    cf_upsert_dns "$zone_id" "$domain" "$server_ip" >/dev/null 2>&1
+                    cf_set_ssl "$zone_id" "full" >/dev/null 2>&1
+
+                    pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
+                    existing=$(cf_get_origin_rules "$zone_id")
+                    
+                    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
+                        .[] | select(
+                            (.description | startswith($pfx) | not) or
+                            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
+                        )
+                    ]')
+                    
+                    new_managed=$(jq -n \
+                        --arg d "$domain" --arg pfx "$pfx" \
+                        --argjson p "$vless_wstls_cdn_port" \
+                        --arg path "$ws_path" '[
+                        {
+                            description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
+                            enabled: true,
+                            expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path + "\")"),
+                            action: "route",
+                            action_parameters: { origin: { port: $p } }
+                        }
+                    ]')
+                    
+                    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+                    cf_put_origin_rules "$zone_id" "$merged" >/dev/null 2>&1
+                fi
+            else
+                yellow "提示: 未检测到 Cloudflare API 凭据，已跳过自动下发回源规则（如需CDN请自行在CF后台添加端口回源）。"
             fi
-            echo "$VLESS_URL" >> "${work_dir}/url.txt"
+
+            node_remark_cdn="${isp}_vless_wstls_cdn"
+            VLESS_CDN_URL="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+
+            if [ -f "${work_dir}/url.txt" ]; then
+                sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
+            fi
+            echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
             echo "" >> "${work_dir}/url.txt"
-            base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-            restart_singbox
-			green "--------------------------------------------------"
-            green " 节点连接 $VLESS_URL"
-            green "--------------------------------------------------"
-            yellow " 已生成节点，套CDN请去 Cloudflare 添加端口回源规则："
-            yellow " 回源端口: $vless_wstls_cdn_port"
-			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
-            green "--------------------------------------------------"
-            ;;
+        else
+            yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
+        fi
+    fi
+
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+    restart_singbox
+    green "--------------------------------------------------"
+    green " 节点创建完成！"
+    green "--------------------------------------------------"
+    green " 1. 直连节点链接："
+    echo "$VLESS_DIRECT_URL"
+    if [[ -n "${VLESS_CDN_URL:-}" ]]; then
+        echo ""
+        green " 2. CDN 节点链接："
+        echo "$VLESS_CDN_URL"
+    fi
+    green "--------------------------------------------------"
+    ;;
 		10)
     generate_vars
     server_ip=$(get_realip)    
