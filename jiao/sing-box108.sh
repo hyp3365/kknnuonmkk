@@ -252,6 +252,19 @@ ip_address() {
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
 
+# ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
+cf_call() {
+    local method="$1" endpoint="$2" data="${3:-}"
+    local args=(-s -f -X "$method" -H "Content-Type: application/json")
+    if [[ -n "${CF_TOKEN:-}" ]]; then
+        args+=(-H "Authorization: Bearer $CF_TOKEN")
+    else
+        args+=(-H "X-Auth-Email: $CF_EMAIL" -H "X-Auth-Key: $CF_KEY")
+    fi    
+    [[ -n "$data" ]] && args+=(-d "$data")
+    curl "${args[@]}" "https://api.cloudflare.com/client/v4${endpoint}"
+}
+
 # ── 辅助函数：获取 Zone ID  ──────
 cf_find_zone() {
     local domain="$1" zones best_name="" best_id=""
@@ -470,6 +483,7 @@ issue_cf_token_cert() {
     
     reading "请输入你的 Cloudflare API Token: " cf_token
     [[ -z "$cf_token" ]] && red "Token 不能为空!" && return 1
+	unset CF_Email CF_Key CF_EMAIL CF_KEY
     export CF_Token=$(echo "$cf_token" | tr -d '[:space:]')
     export CF_TOKEN="$CF_Token"
 
