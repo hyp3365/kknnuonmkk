@@ -3425,29 +3425,11 @@ EOF
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
             if [ -f "/etc/sing-box/url.txt" ]; then
-                temp_url_file=$(mktemp)
-                while IFS= read -r line || [[ -n "$line" ]]; do
-                    [ -z "$line" ] && continue
-                    is_target=0
-                    if [[ "$line" == vmess://* ]]; then
-                        content=$(echo "${line#vmess://}" | base64 -d 2>/dev/null)
-                        for t in "${targets[@]}"; do
-                            if [[ "$content" == *"$t"* ]]; then is_target=1; break; fi
-                        done
-                    fi
-                    if [[ "$line" == vless://* || "$line" == trojan://* ]]; then
-                        for t in "${targets[@]}"; do
-                            if [[ "$line" == *"$t"* ]]; then is_target=1; break; fi
-                        done
-                    fi
-                    if [ "$is_target" -eq 0 ]; then
-                        echo "$line" >> "$temp_url_file"
-                    fi
-                done < "/etc/sing-box/url.txt"
-                cat "$temp_url_file" > /etc/sing-box/url.txt
+                for t in "${targets[@]}"; do
+                    sed -i "/$t/d" /etc/sing-box/url.txt
+                done
                 sed -i '/^$/d' /etc/sing-box/url.txt
                 echo "" >> /etc/sing-box/url.txt
-                rm -f "$temp_url_file"
             fi
             if [ -s "/etc/sing-box/url.txt" ]; then
                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
@@ -3457,13 +3439,12 @@ EOF
             
             restart_singbox                
             green "==============================================="
-            green " CDN 节点已移除！"
+            green " 对应的 CDN 节点已精准移除！"
             green "==============================================="
         else
             red "错误: 未找到相关的配置文件，删除取消。"
         fi
         ;;
-
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
