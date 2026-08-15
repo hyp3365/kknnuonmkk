@@ -4910,7 +4910,6 @@ extract_fanout_socks() {
 	sleep 1; warp_manage
 }
 
-
 # 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
 select_outbound_target() {
     echo ""
@@ -4918,54 +4917,64 @@ select_outbound_target() {
     
     local out_tags=("wireguard-out" "wireproxy")
     local display_lines=()
-    
     display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (系统内置 WARP 出站)")
     display_lines+=("  ${green}2.${re} ${skyblue}wireproxy${re} (wireproxy)")
-    
+    local custom_tags=($(jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out" and .tag != "wireproxy") | .tag' "$outbound_file" 2>/dev/null))
+    local tmp_dir=$(mktemp -d)
     local i=3
-    while read -r tag; do
-        [ -z "$tag" ] && continue
-        [[ "$tag" == "wireguard-out" || "$tag" == "wireproxy" ]] && continue
-        local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" 2>/dev/null)
-        local type=$(echo "$proxy_json" | jq -r '.type // ""')
-        local server=$(echo "$proxy_json" | jq -r '.server // ""')
-        local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
-        local user=$(echo "$proxy_json" | jq -r '.username // ""')
-        local pass=$(echo "$proxy_json" | jq -r '.password // ""')
-        
-        local status_str=""
-        if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
-            local auth=""
-            [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
-            local scheme="socks5h"
-            [ "$type" == "http" ] && scheme="http"
-            local proxy_url="${scheme}://${auth}${server}:${port}"
+    for tag in "${custom_tags[@]}"; do
+        (
+            local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" 2>/dev/null)
+            local type=$(echo "$proxy_json" | jq -r '.type // ""')
+            local server=$(echo "$proxy_json" | jq -r '.server // ""')
+            local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
+            local user=$(echo "$proxy_json" | jq -r '.username // ""')
+            local pass=$(echo "$proxy_json" | jq -r '.password // ""')
             
-            local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204" 2>/dev/null)
-            local http_code=$(echo "$curl_out" | cut -d'|' -f1)
-            local time_total=$(echo "$curl_out" | cut -d'|' -f2)
-            
-            if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
-                local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
-                status_str="${green}[延迟: ${ms_delay} ms]${re}"
+            local status_str=""
+            if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
+                local auth=""
+                [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
+                local scheme="socks5h"
+                [ "$type" == "http" ] && scheme="http"
+                local proxy_url="${scheme}://${auth}${server}:${port}"
+                
+                local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204" 2>/dev/null)
+                local http_code=$(echo "$curl_out" | cut -d'|' -f1)
+                local time_total=$(echo "$curl_out" | cut -d'|' -f2)
+                
+                if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
+                    local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
+                    status_str="${green}[延迟: ${ms_delay} ms]${re}"
+                else
+                    status_str="${red}[连接超时/不通]${re}"
+                fi
             else
-                status_str="${red}[连接超时/不通]${re}"
+                status_str="${yellow}[${type}]${re}"
             fi
-        else
-            status_str="${yellow}[${type}]${re}"
+            echo "$status_str" > "$tmp_dir/$i.res"
+        ) &
+        ((i++))
+    done
+    wait
+    i=3
+    for tag in "${custom_tags[@]}"; do
+        local status_str=""
+        if [ -f "$tmp_dir/$i.res" ]; then
+            status_str=$(cat "$tmp_dir/$i.res")
         fi
         
         display_lines+=("  ${green}${i}.${re} ${skyblue}${tag}${re} ${status_str}")
         out_tags+=("$tag")
         ((i++))
-    done < <(jq -r '.outbounds[]? | select(.tag != "direct") | .tag' "$outbound_file" 2>/dev/null)
-
+    done
+    rm -rf "$tmp_dir"
     echo ""
     green "请选择分流流量要走的出站线路:"
     for line in "${display_lines[@]}"; do
         echo -e "$line"
     done
-    echo ""
+    echo ""    
     reading "请输入编号: " out_choice    
     if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || [ "$out_choice" -lt 1 ] || [ "$out_choice" -gt "${#out_tags[@]}" ]; then
         red "无效选择"
@@ -5437,46 +5446,60 @@ delete_socks5_proxy() {
     
     green "正在检测所有出站的连通性及延迟，请稍候 (最长5秒)..."
     echo ""
+    local tmp_dir=$(mktemp -d)
+    local i=1
+    for tag in "${tags[@]}"; do
+        (
+            local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file")
+            local type=$(echo "$proxy_json" | jq -r '.type // ""')
+            local server=$(echo "$proxy_json" | jq -r '.server // ""')
+            local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
+            local user=$(echo "$proxy_json" | jq -r '.username // ""')
+            local pass=$(echo "$proxy_json" | jq -r '.password // ""')
+            
+            local status_str=""
+            if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
+                local auth=""
+                [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
+                
+                local scheme="socks5h"
+                [ "$type" == "http" ] && scheme="http"
+                
+                local proxy_url="${scheme}://${auth}${server}:${port}"
+                
+                local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204")
+                local http_code=$(echo "$curl_out" | cut -d'|' -f1)
+                local time_total=$(echo "$curl_out" | cut -d'|' -f2)
+                
+                if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
+                    local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
+                    status_str="${green}[延迟: ${ms_delay} ms]${re}"
+                else
+                    status_str="${red}[连接超时/不通]${re}"
+                fi
+            else
+                status_str="${yellow}[${type}]${re}"
+            fi
+            
+            echo "$status_str" > "$tmp_dir/$i.res"
+        ) &  # 这个 & 符号代表放入后台并发执行
+        ((i++))
+    done
+    
+    wait
     
     local display_lines=()
-    local i=1
-    
+    i=1
     for tag in "${tags[@]}"; do
-        local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file")
-        local type=$(echo "$proxy_json" | jq -r '.type // ""')
-        local server=$(echo "$proxy_json" | jq -r '.server // ""')
-        local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
-        local user=$(echo "$proxy_json" | jq -r '.username // ""')
-        local pass=$(echo "$proxy_json" | jq -r '.password // ""')
-        
         local status_str=""
-        if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
-            local auth=""
-            [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
-            
-            local scheme="socks5h"
-            [ "$type" == "http" ] && scheme="http"
-            
-            local proxy_url="${scheme}://${auth}${server}:${port}"
-            
-            # 发起 5 秒超时测速
-            local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204")
-            local http_code=$(echo "$curl_out" | cut -d'|' -f1)
-            local time_total=$(echo "$curl_out" | cut -d'|' -f2)
-            
-            if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
-                local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
-                status_str="${green}[延迟: ${ms_delay} ms]${re}"
-            else
-                status_str="${red}[连接超时/不通]${re}"
-            fi
-        else
-            status_str="${yellow}[${type}]${re}"
+        if [ -f "$tmp_dir/$i.res" ]; then
+            status_str=$(cat "$tmp_dir/$i.res")
         fi
-        
         display_lines+=("  [${green}${i}${re}] . ${skyblue}${tag}${re} ${status_str}")
         ((i++))
     done
+    
+    rm -rf "$tmp_dir"
     
     green "当前可用出站列表:"
     for line in "${display_lines[@]}"; do
@@ -5507,7 +5530,6 @@ delete_socks5_proxy() {
             sleep 2; delete_socks5_proxy; return
         fi
 
-        # 执行删除逻辑
         jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
         jq --arg tag "$tag" '
             if .route.rules then
@@ -5526,7 +5548,7 @@ delete_socks5_proxy() {
         red "输入格式有误，请输入列表内对应的数字！"
         sleep 1; delete_socks5_proxy; return
     fi
-}
+}        
 
 delete_rule_menu() {
     clear
