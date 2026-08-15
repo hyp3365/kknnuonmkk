@@ -1812,14 +1812,14 @@ EOF
     
     echo -e "请输入目标反代地址"
     echo -e "(例如 \033[33mhttp://127.0.0.1:8899\033[0m 或 \033[33mhttp://127.0.0.1:8899/aGnZvKr7AL/\033[0m): "
-    read -p "反代地址 > " proxy_target
+    read -p "反代地址 : " proxy_target
     if [ -z "$proxy_target" ]; then
         red "错误：反代地址不能为空！"
         sleep 1.5; continue
     fi
 
     echo -e "\n请输入要绑定的域名: "
-    read -p "域名 > " proxy_domain
+    read -p "域名 : " proxy_domain
     if [ -z "$proxy_domain" ]; then
         red "错误：域名不能为空！"
         sleep 1.5; continue
@@ -1840,7 +1840,7 @@ EOF
     final_key="${nginx_cert_dir}/privkey.pem"
 
     echo -e "\n请输入 Nginx 配置文件名称 (直接回车则自动生成随机名称): "
-    read -p "配置名 > " custom_conf_name
+    read -p "配置名 : " custom_conf_name
     
     if [ -z "$custom_conf_name" ]; then
         rand_str=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1)
@@ -1903,7 +1903,8 @@ EOF
         rm -f "$enabled_file"
     fi
     
-    sleep 1.5
+    echo ""
+    read -n 1 -s -r -p "按任意键返回上级菜单..."
     disable_open_sub
     ;;
 
