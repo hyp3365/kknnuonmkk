@@ -303,6 +303,64 @@ cf_upsert_dns() {
     fi
 }
 
+# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ──
+cf_set_ssl() {
+    local zone_id="$1" ssl_mode="$2"
+    local payload
+    payload=$(jq -n --arg v "$ssl_mode" '{value:$v}')
+    cf_call PATCH "/zones/${zone_id}/settings/ssl" "$payload" >/dev/null
+}
+
+# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
+cf_get_origin_rules() {
+    local zone_id="$1"
+    local response
+    response=$(cf_call GET "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
+    echo "$response" | jq -r 'if .success then .result.rules // [] else [] end' 2>/dev/null || echo '[]'
+}
+
+cf_put_origin_rules() {
+    local zone_id="$1" rules_json="$2"
+    local response
+    response=$(cf_call PUT "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
+        "$(jq -n --argjson r "$rules_json" '{rules:$r}')")
+    if echo "$response" | jq -e '.success' >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+set_domain_origin_port() {
+    local zone_id="$1" domain="$2" target_port="$3"
+    local pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
+    [[ -z "$zone_id" || -z "$domain" || -z "$target_port" ]] && return 1
+
+    local existing kept new_managed merged
+    existing=$(cf_get_origin_rules "$zone_id")
+    
+    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
+        .[] | select(
+            (.description | startswith($pfx) | not) or
+            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
+        )
+    ]')
+    
+    new_managed=$(jq -n --arg d "$domain" --argjson port "$target_port" --arg pfx "$pfx" '[
+        {
+            description: ($pfx + $d),
+            enabled: true,
+            expression: ("(http.host eq \"" + $d + "\")"),
+            action: "route",
+            action_parameters: { origin: { port: $port } }
+        }
+    ]')
+    
+    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+    cf_put_origin_rules "$zone_id" "$merged"
+}
+
+
 # 80 端口申请模式
 run_ssl_task() {
     local domain="$1"
