@@ -4911,39 +4911,66 @@ extract_fanout_socks() {
 }
 
 
-# 选择目标出站时的通用函数 (增加 IP:端口 显示)
+# 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
 select_outbound_target() {
     echo ""
-    green "请选择分流流量要走的出站线路:"
+    green "正在检测已添加出站的连通性及延迟，请稍候 (最长5秒)..."
+    
     local out_tags=("wireguard-out" "wireproxy")
-    echo -e "  ${green}1.${re} ${skyblue}wireguard-out${re} (系统内置 WARP 出站)"
-    echo -e "  ${green}2.${re} ${skyblue}wireproxy${re} (wireproxy)"
+    local display_lines=()
+    
+    display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (系统内置 WARP 出站)")
+    display_lines+=("  ${green}2.${re} ${skyblue}wireproxy${re} (wireproxy)")
     
     local i=3
-    while read -r line; do
-        [ -z "$line" ] && continue
+    while read -r tag; do
+        [ -z "$tag" ] && continue
+        [[ "$tag" == "wireguard-out" || "$tag" == "wireproxy" ]] && continue
+        local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" 2>/dev/null)
+        local type=$(echo "$proxy_json" | jq -r '.type // ""')
+        local server=$(echo "$proxy_json" | jq -r '.server // ""')
+        local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
+        local user=$(echo "$proxy_json" | jq -r '.username // ""')
+        local pass=$(echo "$proxy_json" | jq -r '.password // ""')
         
-        # 提取 tag 名称和后面的 IP:端口 信息
-        local tag=$(echo "$line" | awk '{print $1}')
-        local info=$(echo "$line" | awk '{$1=""; print $0}' | sed 's/^ *//')
-        
-        if [[ "$tag" == "wireguard-out" || "$tag" == "wireproxy" ]]; then
-            continue
+        local status_str=""
+        if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
+            local auth=""
+            [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
+            local scheme="socks5h"
+            [ "$type" == "http" ] && scheme="http"
+            local proxy_url="${scheme}://${auth}${server}:${port}"
+            
+            local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204" 2>/dev/null)
+            local http_code=$(echo "$curl_out" | cut -d'|' -f1)
+            local time_total=$(echo "$curl_out" | cut -d'|' -f2)
+            
+            if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
+                local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
+                status_str="${green}[延迟: ${ms_delay} ms]${re}"
+            else
+                status_str="${red}[连接超时/不通]${re}"
+            fi
+        else
+            status_str="${yellow}[${type}]${re}"
         fi
         
-        echo -e "  ${green}${i}.${re} ${skyblue}${tag}${re} ${info}"
+        display_lines+=("  ${green}${i}.${re} ${skyblue}${tag}${re} ${status_str}")
         out_tags+=("$tag")
         ((i++))
-    done < <(jq -r '.outbounds[]? | "\(.tag) \((if .server then "[\(.server):\(.server_port)]" else "" end))"' "$outbound_file" 2>/dev/null)
+    done < <(jq -r '.outbounds[]? | select(.tag != "direct") | .tag' "$outbound_file" 2>/dev/null)
 
     echo ""
-    reading "请输入编号: " out_choice
-    
+    green "请选择分流流量要走的出站线路:"
+    for line in "${display_lines[@]}"; do
+        echo -e "$line"
+    done
+    echo ""
+    reading "请输入编号: " out_choice    
     if [[ ! "$out_choice" =~ ^[0-9]+$ ]] || [ "$out_choice" -lt 1 ] || [ "$out_choice" -gt "${#out_tags[@]}" ]; then
         red "无效选择"
         return 1
-    fi
-    
+    fi    
     selected_out="${out_tags[$((out_choice-1))]}"
     return 0
 }
@@ -5009,6 +5036,13 @@ select_inbound_target() {
         in_tags+=("vmess-ws-cdn")
         ((idx++))
     fi
+	# 7. trojan-ws-cdn
+    if [ -f "/etc/sing-box/conf/trojan-ws-cdn.json" ]; then
+        echo -e "  ${green}${idx}.${re} trojan-ws-cdn"
+        in_names+=("trojan-ws-cdn")
+        in_tags+=("trojan-ws-cdn")
+        ((idx++))
+    fi
 
     echo ""
     reading "请输入节点编号 (直接回车默认选 0): " in_choice
@@ -5045,7 +5079,7 @@ add_rule_menu() {
     green "8.  Netflix"
     green "9.  Telegram"
     skyblue "-----------------------------"
-    green "10. ➕ 自定义域名分流"
+    green "10. ➕ 自定义分流"
     skyblue "-----------------------------"
     green "11. 设置全局代理出站 (所有流量走指定代理)"
     green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
