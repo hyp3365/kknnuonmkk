@@ -3079,9 +3079,9 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    
+    vmess_remark_enc=$(echo -n "$vmess_remark" | jq -sRr @uri)
     VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)#${vmess_remark_enc}"
 
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
     vless_url="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
@@ -3096,8 +3096,11 @@ EOF
     fi                              
     
     echo "$vmess_url" >> /etc/sing-box/url.txt
+	echo "" >> /etc/sing-box/url.txt
     echo "$vless_url" >> /etc/sing-box/url.txt
+	echo "" >> /etc/sing-box/url.txt
     echo "$trojan_url" >> /etc/sing-box/url.txt
+	echo "" >> /etc/sing-box/url.txt
     
     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
     restart_singbox
