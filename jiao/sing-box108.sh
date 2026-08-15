@@ -341,7 +341,7 @@ EOF
 }
 
 
-# Cloudflare DNS API 模式申请证书函数
+# Cloudflare DNS API 模式申请证书
 issue_cf_dns_cert() {
     if [[ -z "$domain" ]]; then
         reading "请输入域名 (支持通配符如 *.example.com): " domain
@@ -380,11 +380,12 @@ issue_cf_dns_cert() {
     fi
 }
 
-# ---  Cloudflare API Token 申请证书---
+# --- 使用 Cloudflare API Token 申请证书 ---
 issue_cf_token_cert() {
-    local domain="$1"   
+    local domain="$1"
+    
     echo ""
-    green "=== Cloudflare API Token 获取指引 ==="
+    green "=== Cloudflare API Token 获取 ==="
     skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
     echo -e " 1. 登录 Cloudflare 官网，点击左侧或顶部的 \033[33m管理账户\033[0m"
     echo -e " 2. 点击 \033[33mAPI 令牌\033[0m -> 点击右上角 \033[33m创建令牌\033[0m"
@@ -395,38 +396,38 @@ issue_cf_token_cert() {
     echo -e " 4. 点击【继续以进行预览】-> 点击【创建令牌】并复制生成的字符串"
     skyblue "--------------------------------------------------"
     
-    reading "请输入 Cloudflare API Token: " cf_token
-    [[ -z "$cf_token" ]] && red "Token 不能为空!" && return 1    
-    reading "请输入 Cloudflare Account ID: " cf_account_id
-    [[ -z "$cf_account_id" ]] && red "Account ID 不能为空!" && return 1
+    reading "请输入你的 Cloudflare API Token: " cf_token
+    [[ -z "$cf_token" ]] && red "Token 不能为空!" && return 1
     export CF_Token="$cf_token"
-    export CF_Account_ID="$cf_account_id"
     local cert_dir="/root/cert/${domain}"
     mkdir -p "$cert_dir"
     local acme_cmd="/root/.acme.sh/acme.sh"
     if [ ! -f "$acme_cmd" ]; then
         acme_cmd="acme.sh" 
     fi
-    echo -e "\n\033[1;33m开始通过 DNS API (Token) 申请证书，这可能需要1-3分钟，请稍候...\033[0m"
+
+    echo -e "\n\033[1;33m开始通过 API Token 自动申请证书，这通常需要 30 秒至 1 分钟...\033[0m"
+    
     $acme_cmd --issue --dns dns_cf -d "${domain}" --server letsencrypt
     
     if [ $? -ne 0 ]; then
-        red "证书申请流程报错，请检查 Token 权限或 Account ID 是否正确！"
+        red "证书申请失败！请检查 Token 是否复制完整，以及 DNS Edit 权限是否勾选正确。"
         return 1
     fi
 
-    green "证书签发成功，正在安装到目标目录..."
+    green "证书签发成功，正在安装并整理到目标目录..."
     $acme_cmd --install-cert -d "${domain}" \
         --key-file       "${cert_dir}/privkey.pem"  \
         --fullchain-file "${cert_dir}/fullchain.pem"
-        
+  
     if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
         return 0
     else
-        red "提取证书文件失败，未能找到 ${cert_dir}/fullchain.pem"
+        red "提取证书文件失败，未能找到生成的证书路径。"
         return 1
     fi
 }
+
 
 # 综合证书检查与申请 调用check_and_issue_ssl || return 1
 check_and_issue_ssl() {
