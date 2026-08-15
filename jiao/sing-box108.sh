@@ -1571,11 +1571,15 @@ disable_open_sub() {
 		4)
             while true; do
                 clear
-                green "=== Nginx配置 ==="
+                green "=== Nginx配置管理 ==="
                 skyblue "------------"
                 avail_dir="/etc/nginx/sites-available"
                 enabled_dir="/etc/nginx/sites-enabled"                        
-                mapfile -t all_conf < <(ls "$avail_dir" | grep '\.conf$')
+                
+                # 防止目录不存在导致报错
+                mkdir -p "$avail_dir" "$enabled_dir"
+
+                mapfile -t all_conf < <(ls "$avail_dir" 2>/dev/null | grep '\.conf$')
 				disabled_list=()
                 enabled_list=()
                 for conf in "${all_conf[@]}"; do
@@ -1589,7 +1593,7 @@ disable_open_sub() {
                 local mapping=()
 
                 # --- 上部分：显示未启用 (不在 sites-enabled 中) ---
-                green "未启用配置 (输入数字启用):"
+                green "未启用配置:"
                 if [ ${#disabled_list[@]} -eq 0 ]; then
                     echo " (暂无)"
                 else
@@ -1601,7 +1605,7 @@ disable_open_sub() {
                 fi
                 skyblue "------------"
                 # --- 下部分：显示已启用 (已链接到 sites-enabled) ---
-                green "已启用配置 (输入数字停用):"
+                green "已启用配置:"
                 if [ ${#enabled_list[@]} -eq 0 ]; then
                     echo " (暂无)"
                 else
@@ -1615,10 +1619,45 @@ disable_open_sub() {
                 skyblue "------------"
                 purple "0. 返回上级菜单"
                 skyblue "------------"
-                echo -n "请选择操作数字: "
+                echo -e "操作指南: 输入 \033[33m纯数字\033[0m 切换启用/停用状态"
+                echo -e "          输入 \033[31md+数字\033[0m 彻底删除对应配置 (例如 d1)"
+                echo -n "请选择操作: "
                 read sub_choice
 
                 [ "$sub_choice" == "0" ] && break
+
+                if [[ "$sub_choice" =~ ^[dD]([0-9]+)$ ]]; then
+                    del_idx="${BASH_REMATCH[1]}"
+                    target_info=${mapping[$del_idx]}
+                    if [ -z "$target_info" ]; then
+                        yellow "选择无效，请重新输入"
+                        sleep 1
+                        continue
+                    fi
+                    filename=${target_info%:*}
+                    
+                    echo ""
+                    read -p "⚠️ : 确定要彻底删除配置 [$filename] 吗？(y/n): " confirm_del
+                    if [[ "$confirm_del" == [yY]* ]]; then
+                        rm -f "$avail_dir/$filename"
+                        rm -f "$enabled_dir/$filename"
+                        green "已彻底删除配置文件: $filename"
+                        
+                        echo -e "\033[1;33m正在验证并重载 Nginx 配置...\033[0m"
+                        if nginx -t > /dev/null 2>&1; then
+                            if command_exists rc-service 2>/dev/null; then
+                                rc-service nginx reload
+                            else 
+                                systemctl reload nginx
+                            fi
+                            green "Nginx 已自动重载！"
+                        else
+                            red "错误：Nginx 配置检查失败，请手动排查！"
+                        fi
+                        sleep 2
+                    fi
+                    continue
+                fi
 
                 target_info=${mapping[$sub_choice]}
                 if [ -z "$target_info" ]; then
@@ -1629,11 +1668,9 @@ disable_open_sub() {
                 filename=${target_info%:*}
                 action=${target_info#*:}
                 if [ "$action" == "enable" ]; then
-                    # 启用：创建软链接
                     ln -sf "$avail_dir/$filename" "$enabled_dir/$filename"
                     green "已创建软链接: $filename"
                 else
-                    # 停用：删除软链接 (源文件在 sites-available 不受影响)
                     rm -f "$enabled_dir/$filename"
                     yellow "已断开软链接: $filename"
                 fi
@@ -1648,10 +1685,15 @@ disable_open_sub() {
                     green "Nginx 配置正常，已自动重载！"
                 else
                     red "错误：Nginx 配置语法检查失败，请手动排查！"
+                    
+                    if [ "$action" == "enable" ]; then
+                        yellow "已撤销刚才启用的软链接，以保证Nginx正常运行。"
+                        rm -f "$enabled_dir/$filename"
+                    fi
                 fi
                 sleep 2
             done
-			sleep 1.5; disable_open_sub
+			disable_open_sub
             ;;
         5)
            rm -f /etc/nginx/conf.d/sing-box.conf
@@ -1815,21 +1857,21 @@ EOF
     read -p "反代地址 : " proxy_target
     if [ -z "$proxy_target" ]; then
         red "错误：反代地址不能为空！"
-        sleep 1.5; continue
+        sleep 1.5; return 1
     fi
 
     echo -e "\n请输入要绑定的域名: "
     read -p "域名 : " proxy_domain
     if [ -z "$proxy_domain" ]; then
         red "错误：域名不能为空！"
-        sleep 1.5; continue
+        sleep 1.5; return 1
     fi
 
     echo -e "\n\033[1;33m正在检查并处理 SSL 证书...\033[0m"
     check_and_issue_ssl "$proxy_domain"
     if [ $? -ne 0 ]; then
         red "证书获取失败，无法继续配置反代！"
-        sleep 2; continue
+        sleep 2; return 1
     fi
     nginx_cert_dir="/etc/nginx/cert/${proxy_domain}"
     mkdir -p "$nginx_cert_dir"
