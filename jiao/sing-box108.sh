@@ -2205,7 +2205,7 @@ manage_nodes_menu() {
             "socks5.json|socks5|7"
             "http.json|HTTP|8"
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-			"vless-ws-cdn.json|ws-cdn|10"		
+			"vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"		
         )
 		
         clear
@@ -3423,8 +3423,7 @@ EOF
         fi      
         restart_singbox                
         green "==============================================="
-        green " 3个 CDN 节点 (VMess/VLESS/Trojan) 已全部移除！"
-        green " 对应的端口防火墙、配置文件及订阅链接已清理。"
+        green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
         green "==============================================="
     else
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
