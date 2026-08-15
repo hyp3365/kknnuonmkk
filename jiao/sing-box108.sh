@@ -408,7 +408,7 @@ issue_cf_token_cert() {
 
     echo -e "\n\033[1;33m开始通过 API Token 自动申请证书，这通常需要 30 秒至 1 分钟...\033[0m"
     
-    $acme_cmd --issue --dns dns_cf -d "${domain}" --server letsencrypt
+    $acme_cmd --issue --dns dns_cf -d "${domain}" --server letsencrypt --force
     
     if [ $? -ne 0 ]; then
         red "证书申请失败！请检查 Token 是否复制完整，以及 DNS Edit 权限是否勾选正确。"
