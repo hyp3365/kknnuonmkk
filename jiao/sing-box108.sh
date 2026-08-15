@@ -5424,7 +5424,7 @@ add_socks5_proxy() {
 
 delete_socks5_proxy() {
     clear
-    green "=== 出站代理管理 (测试 / 删除) ==="
+    green "=== 出站代理管理 (删除) ==="
     
     local tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireproxy" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
     
@@ -5435,24 +5435,59 @@ delete_socks5_proxy() {
         return
     fi
     
-    green "当前可用出站列表:"
-    local letters=(a b c d e f g h i j k l m n o p q r s t u v w x y z)
+    green "正在检测所有出站的连通性及延迟，请稍候 (最长5秒)..."
+    echo ""
+    
+    local display_lines=()
     local i=1
     
     for tag in "${tags[@]}"; do
-        local type=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | .type' "$outbound_file")
+        local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file")
+        local type=$(echo "$proxy_json" | jq -r '.type // ""')
+        local server=$(echo "$proxy_json" | jq -r '.server // ""')
+        local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
+        local user=$(echo "$proxy_json" | jq -r '.username // ""')
+        local pass=$(echo "$proxy_json" | jq -r '.password // ""')
         
-        local letter="${letters[$((i-1))]}"
+        local status_str=""
+        if [[ "$type" == "socks" || "$type" == "http" ]] && [[ -n "$server" && -n "$port" ]]; then
+            local auth=""
+            [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
+            
+            local scheme="socks5h"
+            [ "$type" == "http" ] && scheme="http"
+            
+            local proxy_url="${scheme}://${auth}${server}:${port}"
+            
+            # 发起 5 秒超时测速
+            local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204")
+            local http_code=$(echo "$curl_out" | cut -d'|' -f1)
+            local time_total=$(echo "$curl_out" | cut -d'|' -f2)
+            
+            if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
+                local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
+                status_str="${green}[延迟: ${ms_delay} ms]${re}"
+            else
+                status_str="${red}[连接超时/不通]${re}"
+            fi
+        else
+            status_str="${yellow}[${type}]${re}"
+        fi
         
-        echo -e "  [${green}${i}${re} / ${skyblue}${letter}${re}] . ${tag} [${type}]"
+        display_lines+=("  [${green}${i}${re}] . ${skyblue}${tag}${re} ${status_str}")
         ((i++))
+    done
+    
+    green "当前可用出站列表:"
+    for line in "${display_lines[@]}"; do
+        echo -e "$line"
     done
     
     echo ""
     purple "0. 返回上级菜单"
     echo -e "---------------------------------"
-    echo -e "提示: 输入 ${green}对应数字${re} 测试连通性，输入 ${skyblue}对应字母${re} 删除出站"
-    reading "请输入你的选择 (如输入 1 测试，输入 a 删除): " input
+    echo -e "提示: 请直接输入 ${red}对应数字${re} 删除无效或不需要的出站"
+    reading "请输入你要删除的编号: " input
     
     if [ "$input" == "0" ]; then
         warp_manage
@@ -5467,69 +5502,12 @@ delete_socks5_proxy() {
         
         local tag="${tags[$((input-1))]}"
         
-        echo -e "\n${skyblue}准备测试出站 -> ${tag}${re}"
-        local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file")
-        local type=$(echo "$proxy_json" | jq -r '.type')
-        local server=$(echo "$proxy_json" | jq -r '.server // ""')
-        local port=$(echo "$proxy_json" | jq -r '.server_port // ""')
-        local user=$(echo "$proxy_json" | jq -r '.username // ""')
-        local pass=$(echo "$proxy_json" | jq -r '.password // ""')
-
-        if [[ "$type" != "socks" && "$type" != "http" ]]; then
-            yellow "脚本内置测试目前仅支持 socks / http 协议，该出站为 [${type}]，跳过网络测试。"
-        elif [[ -z "$server" || -z "$port" ]]; then
-            red "未检测到该出站的 IP 或端口，无法进行网络测试。"
-        else
-            local auth=""
-            [ -n "$user" ] && [ -n "$pass" ] && auth="${user}:${pass}@"
-            
-            local scheme="socks5h"
-            [ "$type" == "http" ] && scheme="http"
-            
-            local proxy_url="${scheme}://${auth}${server}:${port}"
-            echo -e "正在发起网络请求测试，请稍候 (超时5秒)..."
-            
-            local curl_out=$(curl -m 5 -s -o /dev/null -w "%{http_code}|%{time_total}" -x "$proxy_url" "https://www.gstatic.com/generate_204")
-            local http_code=$(echo "$curl_out" | cut -d'|' -f1)
-            local time_total=$(echo "$curl_out" | cut -d'|' -f2)
-            
-            if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
-                local ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
-                green "✅ 测试成功！目标网站连通正常。"
-                echo -e "   - HTTP 状态码: ${http_code}"
-                echo -e "   - 响应延迟:   ${ms_delay} ms"
-            else
-                red "❌ 测试失败！"
-                echo -e "   - 无法连接，可能节点已失效，或 IP/端口/密码 填写错误。"
-            fi
-        fi
-        
-        echo ""
-        read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m\n'
-        delete_socks5_proxy
-        return
-
-    elif [[ "$input" =~ ^[a-z]$ ]]; then
-        local idx=-1
-        for j in "${!letters[@]}"; do
-            if [ "${letters[$j]}" == "$input" ]; then
-                idx=$j
-                break
-            fi
-        done
-        
-        if [ "$idx" -eq -1 ] || [ "$idx" -ge "${#tags[@]}" ]; then
-            red "输入的字母无效或不存在对应的出站！"
-            sleep 1; delete_socks5_proxy; return
-        fi
-        
-        local tag="${tags[$idx]}"
-        
         if [[ "$tag" == "wireproxy" || "$tag" == "wireguard-out" || "$tag" == "direct" ]]; then
             red "系统内置出站，不可删除！"
             sleep 2; delete_socks5_proxy; return
         fi
 
+        # 执行删除逻辑
         jq --arg tag "$tag" 'del(.outbounds[] | select(.tag == $tag))' "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
         jq --arg tag "$tag" '
             if .route.rules then
@@ -5544,14 +5522,11 @@ delete_socks5_proxy() {
         sleep 1.5
         delete_socks5_proxy
         return
-
     else
-        red "输入格式有误，请输入列表内对应的数字或小写字母！"
+        red "输入格式有误，请输入列表内对应的数字！"
         sleep 1; delete_socks5_proxy; return
     fi
-	sleep 1.5; warp_manage
 }
-
 
 delete_rule_menu() {
     clear
