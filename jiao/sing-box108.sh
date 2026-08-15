@@ -613,20 +613,31 @@ check_and_issue_ssl() {
     domain="$input_domain"
     cert_file="/root/cert/${domain}/fullchain.pem"
     key_file="/root/cert/${domain}/privkey.pem"
-
     if [[ -f "$cert_file" && -f "$key_file" ]]; then
         skyblue "检测到域名 ${domain} 的证书已存在，直接使用。"
         return 0
     fi
     if [[ "$domain" == *.*.* ]]; then
         local parent_domain=$(echo "$domain" | cut -d'.' -f2-)
+        local w_cert="/root/cert/*.${parent_domain}/fullchain.pem"
+        local w_key="/root/cert/*.${parent_domain}/privkey.pem"
+        if [[ -f "$w_cert" && -f "$w_key" ]]; then
+            yellow "检测到可用泛域名证书 (*.${parent_domain})。"
+            reading "是否直接使用该泛域名证书保护 ${domain}？(y/n): " use_wildcard
+            if [[ "$use_wildcard" == "y" || "$use_wildcard" == "Y" ]]; then
+                cert_file="$w_cert"
+                key_file="$w_key"
+                green "已选择使用泛域名证书 (*.${parent_domain})。"
+                return 0
+            fi
+        fi
         local p_cert="/root/cert/${parent_domain}/fullchain.pem"
         local p_key="/root/cert/${parent_domain}/privkey.pem"
 
         if [[ -f "$p_cert" && -f "$p_key" ]]; then
-            yellow "当前域名无证书，但检测到父域名 ${parent_domain} 已有证书。"
-            reading "是否直接使用父域名证书？(y/n): " use_parent
-            if [[ "$use_parent" == "y" ]]; then
+            yellow "当前域名无证书，但检测到父域名 ${parent_domain} 已有普通证书。"
+            reading "是否尝试使用父域名证书？(y/n): " use_parent
+            if [[ "$use_parent" == "y" || "$use_parent" == "Y" ]]; then
                 cert_file="$p_cert"
                 key_file="$p_key"
                 green "已选择使用 ${parent_domain} 的证书。"
