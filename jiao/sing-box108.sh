@@ -1547,6 +1547,8 @@ disable_open_sub() {
     skyblue "------------"
 	green "9. nginx更新"
     skyblue "------------"
+	green "10. Nginx 反向代理"
+    skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
@@ -1803,6 +1805,107 @@ EOF
             read -p "按回车键继续..."
 			sleep 1.5; disable_open_sub
             ;;
+       10)
+    clear
+    green "=== 添加 Nginx 反向代理 ==="
+    skyblue "------------"
+    
+    echo -e "请输入目标反代地址"
+    echo -e "(例如 \033[33mhttp://127.0.0.1:8899\033[0m 或 \033[33mhttp://127.0.0.1:8899/aGnZvKr7AL/\033[0m): "
+    read -p "反代地址 > " proxy_target
+    if [ -z "$proxy_target" ]; then
+        red "错误：反代地址不能为空！"
+        sleep 1.5; continue
+    fi
+
+    echo -e "\n请输入要绑定的域名: "
+    read -p "域名 > " proxy_domain
+    if [ -z "$proxy_domain" ]; then
+        red "错误：域名不能为空！"
+        sleep 1.5; continue
+    fi
+
+    echo -e "\n\033[1;33m正在检查并处理 SSL 证书...\033[0m"
+    check_and_issue_ssl "$proxy_domain"
+    if [ $? -ne 0 ]; then
+        red "证书获取失败，无法继续配置反代！"
+        sleep 2; continue
+    fi
+    nginx_cert_dir="/etc/nginx/cert/${proxy_domain}"
+    mkdir -p "$nginx_cert_dir"
+    cp -f "$cert_file" "${nginx_cert_dir}/fullchain.pem"
+    cp -f "$key_file" "${nginx_cert_dir}/privkey.pem"
+  
+    final_cert="${nginx_cert_dir}/fullchain.pem"
+    final_key="${nginx_cert_dir}/privkey.pem"
+
+    echo -e "\n请输入 Nginx 配置文件名称 (直接回车则自动生成随机名称): "
+    read -p "配置名 > " custom_conf_name
+    
+    if [ -z "$custom_conf_name" ]; then
+        rand_str=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1)
+        conf_name="${proxy_domain}_${rand_str}"
+    else
+        conf_name="${custom_conf_name%.conf}"
+    fi
+
+    avail_file="/etc/nginx/sites-available/${conf_name}.conf"
+    enabled_file="/etc/nginx/sites-enabled/${conf_name}.conf"
+
+    cat > "$avail_file" <<EOF
+server {
+    listen 80;
+    server_name ${proxy_domain};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${proxy_domain};
+
+    ssl_certificate ${final_cert};
+    ssl_certificate_key ${final_key};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass ${proxy_target};
+        
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF
+    ln -sf "$avail_file" "$enabled_file"
+    echo -e "\n\033[1;33m正在验证并加载 Nginx 配置...\033[0m"
+    if nginx -t >/dev/null 2>&1; then
+        if command_exists rc-service 2>/dev/null; then
+            rc-service nginx reload
+        elif type restart_nginx >/dev/null 2>&1; then
+            restart_nginx
+        else 
+            systemctl reload nginx
+        fi
+        
+        green "配置生成成功！"
+        skyblue "配置文件: $avail_file"
+        skyblue "访问地址: https://${proxy_domain}"
+    else
+        red "Nginx 配置语法检查失败！已自动撤销此配置。"
+        rm -f "$enabled_file"
+    fi
+    
+    sleep 1.5
+    disable_open_sub
+    ;;
 
         0)  menu ;; 
         *)  red "无效的选项！" ;;
