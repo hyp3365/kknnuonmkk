@@ -380,6 +380,54 @@ issue_cf_dns_cert() {
     fi
 }
 
+# ---  Cloudflare API Token 申请证书---
+issue_cf_token_cert() {
+    local domain="$1"   
+    echo ""
+    green "=== Cloudflare API Token 获取指引 ==="
+    skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
+    echo -e " 1. 登录 Cloudflare 官网，点击左侧或顶部的 \033[33m管理账户\033[0m"
+    echo -e " 2. 点击 \033[33mAPI 令牌\033[0m -> 点击右上角 \033[33m创建令牌\033[0m"
+    echo -e " 3. 配置权限策略："
+    echo -e "    - 资源范围: 选择 \033[33m所有域名\033[0m (或特定域名)"
+    echo -e "    - 权限项: 展开 \033[33mDNS & Zones\033[0m"
+    echo -e "    - 找到 \033[33mDNS\033[0m，将其权限设置为 \033[32mEdit (编辑)\033[0m"
+    echo -e " 4. 点击【继续以进行预览】-> 点击【创建令牌】并复制生成的字符串"
+    skyblue "--------------------------------------------------"
+    
+    reading "请输入 Cloudflare API Token: " cf_token
+    [[ -z "$cf_token" ]] && red "Token 不能为空!" && return 1    
+    reading "请输入 Cloudflare Account ID: " cf_account_id
+    [[ -z "$cf_account_id" ]] && red "Account ID 不能为空!" && return 1
+    export CF_Token="$cf_token"
+    export CF_Account_ID="$cf_account_id"
+    local cert_dir="/root/cert/${domain}"
+    mkdir -p "$cert_dir"
+    local acme_cmd="/root/.acme.sh/acme.sh"
+    if [ ! -f "$acme_cmd" ]; then
+        acme_cmd="acme.sh" 
+    fi
+    echo -e "\n\033[1;33m开始通过 DNS API (Token) 申请证书，这可能需要1-3分钟，请稍候...\033[0m"
+    $acme_cmd --issue --dns dns_cf -d "${domain}" --server letsencrypt
+    
+    if [ $? -ne 0 ]; then
+        red "证书申请流程报错，请检查 Token 权限或 Account ID 是否正确！"
+        return 1
+    fi
+
+    green "证书签发成功，正在安装到目标目录..."
+    $acme_cmd --install-cert -d "${domain}" \
+        --key-file       "${cert_dir}/privkey.pem"  \
+        --fullchain-file "${cert_dir}/fullchain.pem"
+        
+    if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
+        return 0
+    else
+        red "提取证书文件失败，未能找到 ${cert_dir}/fullchain.pem"
+        return 1
+    fi
+}
+
 # 综合证书检查与申请 调用check_and_issue_ssl || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
@@ -409,22 +457,27 @@ check_and_issue_ssl() {
             fi
         fi
     fi
-    echo -e "未检测到可用证书，请选择申请方式"
-	echo -e "通过80端口申请 确保域名已解析到服务器并且已关闭代理模式"
-    echo -e "1) 通过 80 端口申请 "
-    echo -e "2) 通过 Cloudflare DNS API"
-    reading "请输入选择 [1-2]: " ssl_choice
+    
+    echo ""
+    echo -e "未检测到可用证书，请选择申请方式:"
+    skyblue "注意: 方式1需要确保域名已解析到服务器，且云朵(CDN)是灰色状态，并放行了 80 端口。"
+    echo -e "1) 通过 80 端口申请"
+    echo -e "2) 通过 Cloudflare DNS API (Global Key 模式)"
+    echo -e "3) 通过 Cloudflare API Token (推荐，更安全)"
+    reading "请输入选择 [1-3]: " ssl_choice
 
     case "$ssl_choice" in
         1) run_ssl_task "$domain" ;;
         2) issue_cf_dns_cert "$domain" ;;
+        3) issue_cf_token_cert "$domain" ;;
         *) red "无效选择"; return 1 ;;
     esac
+    
     if [[ $? -eq 0 && -f "$cert_file" ]]; then
         green "证书申请成功并已就绪！"
         return 0
     else
-        red "证书申请失败，请检查日志。"
+        red "证书获取失败，请排查。"
         return 1
     fi
 }
