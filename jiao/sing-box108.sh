@@ -2131,11 +2131,21 @@ EOF
     else
         conf_name="${custom_conf_name%.conf}"
     fi
-
+    rm -f /etc/nginx/sites-enabled/default
     avail_file="/etc/nginx/sites-available/${conf_name}.conf"
     enabled_file="/etc/nginx/sites-enabled/${conf_name}.conf"
 
     cat > "$avail_file" <<EOF
+server {
+    listen 80 default_server;
+    listen 443 ssl default_server;
+    server_name _;
+
+    ssl_certificate ${final_cert};
+    ssl_certificate_key ${final_key};
+
+    return 444;
+}
 server {
     listen 80;
     server_name ${proxy_domain};
@@ -2195,7 +2205,6 @@ EOF
         *)  red "无效的选项！" ;;
     esac
 }
-
 
 
 manage_nodes_menu() {
