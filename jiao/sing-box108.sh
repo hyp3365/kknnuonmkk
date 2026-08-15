@@ -4677,6 +4677,20 @@ select_inbound_target() {
         in_tags+=("anytls")
         ((idx++))
     fi
+	# 6. vless-ws-cdn
+    if [ -f "/etc/sing-box/conf/vless-ws-cdn.json" ]; then
+        echo -e "  ${green}${idx}.${re} vless-ws-cdn"
+        in_names+=("vless-ws-cdn")
+        in_tags+=("vless-ws-cdn")
+        ((idx++))
+    fi
+	# 7. vmess-ws-cdn
+    if [ -f "/etc/sing-box/conf/vmess-ws-cdn.json" ]; then
+        echo -e "  ${green}${idx}.${re} vmess-ws-cdn"
+        in_names+=("vmess-ws-cdn")
+        in_tags+=("vmess-ws-cdn")
+        ((idx++))
+    fi
 
     echo ""
     reading "请输入节点编号 (直接回车默认选 0): " in_choice
