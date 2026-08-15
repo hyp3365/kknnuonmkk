@@ -2659,7 +2659,7 @@ EOF
 			allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
 			node_remark="${isp}_vless_wstls_cdn"
             encoded_path=$(echo "$ws_path" | sed 's/\//%2F/g')
-            VLESS_URL="vless://${uuid}@cf.877774.xyz:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspaasksavxssaszass%3Fed%3D2560#${node_remark}"
+            VLESS_URL="vless://${uuid}@$domain:$vless_ws_cdn_port?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=/sspaasksavxssaszass%3Fed%3D2560#${node_remark}"
             if [ -f "${work_dir}/url.txt" ]; then
                 grep -q "#${node_remark}$" "${work_dir}/url.txt" && sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
             fi
@@ -2670,8 +2670,8 @@ EOF
 			green "--------------------------------------------------"
             green " 节点连接 $VLESS_URL"
             green "--------------------------------------------------"
-            yellow " 已生成节点，请去 Cloudflare 添加端口回源规则："
-            yellow " 回源端口: $vless_ws_cdn_port"
+            yellow " 已生成节点，套CDN请去 Cloudflare 添加端口回源规则："
+            yellow " 回源端口: $vless_wstls_cdn_port"
 			yellow " Cloudflare -> SSL/TLS -> 概述：模式改为 '完全 (Flexible)'"
             green "--------------------------------------------------"
             ;;
