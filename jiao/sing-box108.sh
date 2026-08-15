@@ -252,6 +252,44 @@ ip_address() {
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
 
+# ── 辅助函数：获取 Zone ID  ──────
+cf_find_zone() {
+    local domain="$1" zones best_name="" best_id=""
+    zones=$(cf_call GET "/zones?per_page=500" | jq -r '.result[] | "\(.name) \(.id)"')
+    while IFS=' ' read -r zone_name zone_id; do
+        if [[ "$domain" == "$zone_name" || "$domain" == *".$zone_name" ]]; then
+            if [[ ${#zone_name} -gt ${#best_name} ]]; then
+                best_name="$zone_name"
+                best_id="$zone_id"
+            fi
+        fi
+    done <<< "$zones"
+    [[ -n "$best_id" ]] || return 1
+    echo "$best_id"
+}
+
+# ── 自动添加或【修改/覆盖】 DNS 记录 ──────────
+cf_upsert_dns() {
+    local zone_id="$1" domain="$2" raw_ip="$3"
+    local existing rid payload type clean_ip
+    clean_ip="${raw_ip//[/}"
+    clean_ip="${clean_ip//]/}"
+    if [[ "$clean_ip" =~ ":" ]]; then
+        type="AAAA"
+    else
+        type="A"
+    fi
+    existing=$(cf_call GET "/zones/$zone_id/dns_records?type=$type&name=$domain" | jq '.result[0] // empty')
+    payload=$(jq -n --arg n "$domain" --arg c "$clean_ip" --arg t "$type" '{type:$t,name:$n,content:$c,proxied:true,ttl:1}')
+    
+    if [[ -n "$existing" && "$existing" != "null" ]]; then
+        rid=$(echo "$existing" | jq -r '.id')
+        cf_call PUT "/zones/${zone_id}/dns_records/${rid}" "$payload" >/dev/null
+    else
+        cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
+    fi
+}
+
 # 80 端口申请模式
 run_ssl_task() {
     local domain="$1"
@@ -340,40 +378,70 @@ EOF
     fi
 }
 
-
-# Cloudflare DNS API 模式申请证书
+# Cloudflare DNS API 模式申请证书 (Global API Key)
 issue_cf_dns_cert() {
+    local domain="$1"
     if [[ -z "$domain" ]]; then
-        reading "请输入域名 (支持通配符如 *.example.com): " domain
+        reading "请输入域名 : " domain
     fi
     [[ -z "$domain" ]] && red "域名不能为空" && return 1    
+    
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
+    
     reading "请输入 Cloudflare Global API Key: " cf_key
     [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1      
+    
     export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
-    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')      
+    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')
+    export CF_EMAIL="$CF_Email"
+    export CF_KEY="$CF_Key"
+
+    skyblue "正在获取本机真实 IP..."
+    local public_ip=$(get_realip)
+    if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
+        red "获取本机 IP 失败！" && return 1
+    fi
+    green "本机 IP: $public_ip"
+
+    skyblue "正在自动查找 Cloudflare Zone ID..."
+    local zone_id=$(cf_find_zone "$domain")
+    if [[ -z "$zone_id" ]]; then
+        red "匹配 Zone ID 失败，请确认邮箱和 Key 正确，且域名托管在该账号下。" && return 1
+    fi
+    green "匹配成功 (Zone ID: $zone_id)"
+
+    skyblue "正在修改 Cloudflare DNS 解析 ($domain -> $public_ip)..."
+    if cf_upsert_dns "$zone_id" "$domain" "$public_ip"; then
+        green "DNS 解析已成功更新并开启代理"
+    else
+        red "DNS 解析更新失败，请检查 API 权限。" && return 1
+    fi
+
     manage_packages "install" "curl" "socat" "cron" "psmisc"     
     if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
         skyblue "正在安装 acme.sh..."
         curl https://get.acme.sh | sh -s email="$CF_Email" >/dev/null 2>&1
     fi      
     "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1      
+    
     local save_path="/root/cert/${domain}"
     mkdir -p "$save_path"  
+    
     skyblue "正在通过 DNS API 为 ${domain} 申请证书..."
     "$HOME/.acme.sh/acme.sh" --issue --dns dns_cf -d "$domain" --keylength ec-256 --force   
+    
     if [ $? -eq 0 ]; then
         "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" --ecc \
             --key-file "${save_path}/privkey.pem" \
             --fullchain-file "${save_path}/fullchain.pem"                
+        
         chmod 600 "${save_path}/privkey.pem"
-        cert_file="${save_path}/fullchain.pem"
-        key_file="${save_path}/privkey.pem"        
         green "申请成功！"
-        green "证书: ${cert_file}"
-        green "私钥: ${key_file}"      
+        green "证书: ${save_path}/fullchain.pem"
+        green "私钥: ${save_path}/privkey.pem"      
         "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
+        return 0
     else
         red "申请失败，请检查 CF 邮箱/Key 是否正确，或 API 频率限制。"
         return 1
@@ -383,44 +451,77 @@ issue_cf_dns_cert() {
 # --- 使用 Cloudflare API Token 申请证书 ---
 issue_cf_token_cert() {
     local domain="$1"
-    
+    if [[ -z "$domain" ]]; then
+        reading "请输入域名 (例如 sub.example.com): " domain
+    fi
+    [[ -z "$domain" ]] && red "域名不能为空" && return 1 
+
     echo ""
     green "=== Cloudflare API Token 获取 ==="
     skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
-    echo -e " 1. 登录 Cloudflare 官网，点击左侧或顶部的 \033[33m管理账户\033[0m"
-    echo -e " 2. 点击 \033[33mAPI 令牌\033[0m -> 点击右上角 \033[33m创建令牌\033[0m"
-    echo -e " 3. 配置权限策略："
-    echo -e "    - 资源范围: 选择 \033[33m所有域名\033[0m (或特定域名)"
-    echo -e "    - 权限项: 展开 \033[33mDNS & Zones\033[0m"
-    echo -e "    - 找到 \033[33mDNS\033[0m，将其权限设置为 \033[32mEdit (编辑)\033[0m"
-    echo -e " 4. 点击【继续以进行预览】-> 点击【创建令牌】并复制生成的字符串"
+    echo -e " 1. 登录 Cloudflare 官网，点击 \033[33m我的个人资料 -> API 令牌\033[0m"
+    echo -e " 2. 点击右侧 \033[33m创建令牌 -> 创建自定义令牌\033[0m"
+    echo -e " 3. 配置权限策略 (需要两个权限)："
+    echo -e "    - 找到 \033[33mZone (区域) - Zone (区域)\033[0m，权限设为 \033[32mRead (读取)\033[0m"
+    echo -e "    - 找到 \033[33mZone (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e " 4. 资源范围: 选择 \033[33mSpecific zone (特定区域)\033[0m -> 选择你的主域名"
+    echo -e " 5. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
     skyblue "--------------------------------------------------"
     
     reading "请输入你的 Cloudflare API Token: " cf_token
     [[ -z "$cf_token" ]] && red "Token 不能为空!" && return 1
-    export CF_Token="$cf_token"
+    export CF_Token=$(echo "$cf_token" | tr -d '[:space:]')
+    export CF_TOKEN="$CF_Token"
+
+    skyblue "正在获取本机真实 IP..."
+    local public_ip=$(get_realip)
+    if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
+        red "获取本机 IP 失败！" && return 1
+    fi
+    green "本机 IP: $public_ip"
+
+    skyblue "正在自动查找 Cloudflare Zone ID..."
+    local zone_id=$(cf_find_zone "$domain")
+    if [[ -z "$zone_id" ]]; then
+        red "匹配 Zone ID 失败，请确认 Token 包含 Read 权限且域名选择正确。" && return 1
+    fi
+    green "匹配成功 (Zone ID: $zone_id)"
+
+    skyblue "正在覆盖/更新 Cloudflare DNS 解析 ($domain -> $public_ip)..."
+    if cf_upsert_dns "$zone_id" "$domain" "$public_ip"; then
+        green "DNS 解析已成功更新并开启代理"
+    else
+        red "DNS 解析更新失败，请检查 DNS Edit 权限。" && return 1
+    fi
+
+    manage_packages "install" "curl" "socat" "cron" "psmisc"   
+    local acme_cmd="$HOME/.acme.sh/acme.sh"
+    if [ ! -f "$acme_cmd" ]; then
+        skyblue "正在安装 acme.sh..."
+        curl https://get.acme.sh | sh >/dev/null 2>&1
+    fi
+    "$acme_cmd" --set-default-ca --server letsencrypt >/dev/null 2>&1      
+
     local cert_dir="/root/cert/${domain}"
     mkdir -p "$cert_dir"
-    local acme_cmd="/root/.acme.sh/acme.sh"
-    if [ ! -f "$acme_cmd" ]; then
-        acme_cmd="acme.sh" 
-    fi
 
-    echo -e "\n\033[1;33m开始通过 API Token 自动申请证书，这通常需要 30 秒至 1 分钟...\033[0m"
-    
-    $acme_cmd --issue --dns dns_cf -d "${domain}" --server letsencrypt --force
+    skyblue "开始通过 API Token 自动申请证书，这通常需要 30 秒至 1 分钟..."
+    "$acme_cmd" --issue --dns dns_cf -d "${domain}" --keylength ec-256 --force
     
     if [ $? -ne 0 ]; then
-        red "证书申请失败！请检查 Token 是否复制完整，以及 DNS Edit 权限是否勾选正确。"
+        red "证书申请失败！请检查 Token 是否复制完整，以及权限是否勾选正确。"
         return 1
     fi
-
-    green "证书签发成功，正在安装并整理到目标目录..."
-    $acme_cmd --install-cert -d "${domain}" \
+    "$acme_cmd" --installcert -d "${domain}" --ecc \
         --key-file       "${cert_dir}/privkey.pem"  \
         --fullchain-file "${cert_dir}/fullchain.pem"
   
     if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
+        chmod 600 "${cert_dir}/privkey.pem"
+        green "申请成功！"
+        green "证书: ${cert_dir}/fullchain.pem"
+        green "私钥: ${cert_dir}/privkey.pem"
+        "$acme_cmd" --upgrade --auto-upgrade >/dev/null 2>&1
         return 0
     else
         red "提取证书文件失败，未能找到生成的证书路径。"
