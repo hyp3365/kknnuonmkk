@@ -392,6 +392,8 @@ view_certs() {
     if [[ $found -eq 0 ]]; then
         yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
     fi
+	echo ""
+    reading "按任意键返回证书管理菜单..." dummy_var
 }
 # 交互获取 Cloudflare 凭证 (用于删除解析)
 get_cf_credentials_for_delete() {
@@ -473,9 +475,10 @@ delete_cert() {
     green "=== 域名 $del_domain 的清理工作已全部完成 ==="
 }
 
+# 证书管理菜单
 cert_manager() {
     while true; do
-        echo ""
+        clear  
         skyblue "====================================================="
         skyblue "               证书管理"
         skyblue "====================================================="
@@ -485,21 +488,48 @@ cert_manager() {
         echo -e " 4. 申请新证书 (${green}CF Token模式${re})"
         echo -e " 5. 智能申请向导 (自动检测已有证书/泛域名，再选模式)"
         echo -e " 6. 删除证书"
-        echo -e " 0. 退出"
-        skyblue "====================================================="
-        
+        echo -e " 0. 返回上一级菜单"
+        skyblue "====================================================="       
         local choice
-        reading "请输入选择 [0-6]: " choice
-        
+        reading "请输入选择 [0-6]: " choice      
         case "$choice" in
-            1) echo ""; view_certs ;;
-            2) echo ""; run_ssl_task "" ;;
-            3) echo ""; issue_cf_dns_cert "" ;;
-            4) echo ""; issue_cf_token_cert "" ;;
-            5) echo ""; check_and_issue_ssl "" ;;
-            6) echo ""; delete_cert ;;
-            0) green "已退出。"; break ;;
-            *) red "无效输入，请重新选择！" ;;
+            1)
+                view_certs
+                ;;
+            2)
+                clear
+                run_ssl_task ""
+                echo ""
+                reading "按任意键返回证书管理菜单..." dummy_var
+                ;;
+            3)
+                clear
+                issue_cf_dns_cert ""
+                echo ""
+                reading "按任意键返回证书管理菜单..." dummy_var
+                ;;
+            4)
+                clear
+                issue_cf_token_cert ""
+                echo ""
+                reading "按任意键返回证书管理菜单..." dummy_var
+                ;;
+            5)
+                clear
+                check_and_issue_ssl ""
+                echo ""
+                reading "按任意键返回证书管理菜单..." dummy_var
+                ;;
+            6)
+                delete_cert
+                ;;
+            0)
+                sleep 0.5
+                ;;
+            *)
+                red "无效输入，请重新选择！"
+                sleep 1
+                ;;
         esac
     done
 }
