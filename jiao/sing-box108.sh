@@ -361,6 +361,117 @@ set_domain_origin_port() {
     cf_put_origin_rules "$zone_id" "$merged"
 }
 
+view_certs() {
+    skyblue "=== 扫描已申请的证书及到期时间 ==="
+    local found=0
+    for base_dir in "/root/cert" "/etc/nginx/cert"; do
+        if [[ -d "$base_dir" ]]; then
+            for domain_dir in "$base_dir"/*; do
+                if [[ -d "$domain_dir" ]]; then
+                    local domain=$(basename "$domain_dir")
+                    local cert_file="$domain_dir/fullchain.pem"
+                    local key_file="$domain_dir/privkey.pem" 
+                    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+                        local exp_raw=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
+                        
+                        green "域名: $domain"
+                        echo "  证书路径: $cert_file"
+                        echo "  私钥路径: $key_file"
+                        if [[ -n "$exp_raw" ]]; then
+                            yellow "  到期时间: $exp_raw"
+                        else
+                            red "  到期时间: 读取失败"
+                        fi
+                        echo "----------------------------------------"
+                        found=1
+                    fi
+                fi
+            done
+        fi
+    done
+    if [[ $found -eq 0 ]]; then
+        yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
+    fi
+}
+# 交互获取 Cloudflare 凭证 (用于删除解析)
+get_cf_credentials_for_delete() {
+    # 如果环境变量已经有 Token 或 Key，直接使用，免去重复输入
+    if [[ -n "$CF_TOKEN" || ( -n "$CF_EMAIL" && -n "$CF_KEY" ) ]]; then
+        return 0
+    fi
+    echo ""
+    skyblue "删除 Cloudflare 上的 DNS 记录需要验证凭证:"
+    echo "1) Global API Key"
+    echo "2) API Token"
+    local cred_choice
+    reading "请选择凭证类型 [1-2]: " cred_choice
+    
+    if [[ "$cred_choice" == "1" ]]; then
+        reading "请输入 Cloudflare 登录邮箱: " cf_email
+        reading "请输入 Cloudflare Global API Key: " cf_key
+        export CF_EMAIL=$(echo "$cf_email" | tr -d '[:space:]')
+        export CF_KEY=$(echo "$cf_key" | tr -d '[:space:]')
+    elif [[ "$cred_choice" == "2" ]]; then
+        reading "请输入 Cloudflare API Token: " cf_token
+        export CF_TOKEN=$(echo "$cf_token" | tr -d '[:space:]')
+    else
+        red "无效选择"
+        return 1
+    fi
+}
+
+# 删除证书 (自动移除DNS解析可选跳过)
+delete_cert() {
+    local del_domain
+    reading "请输入要删除证书的域名: " del_domain
+    [[ -z "$del_domain" ]] && red "域名不能为空!" && return 1
+    if [ -f "$HOME/.acme.sh/acme.sh" ]; then
+        "$HOME/.acme.sh/acme.sh" --remove -d "$del_domain" >/dev/null 2>&1
+        green "[1/3] 已从 acme.sh 中取消该域名的续签任务。"
+    fi
+    local cert_removed=0
+    for base_dir in "/root/cert" "/etc/nginx/cert"; do
+        if [[ -d "$base_dir/$del_domain" ]]; then
+            rm -rf "$base_dir/$del_domain"
+            green "[2/3] 已删除本地证书目录: $base_dir/$del_domain"
+            cert_removed=1
+        fi
+    done
+    if [[ $cert_removed -eq 0 ]]; then
+        yellow "[2/3] 提示：未在 /root/cert 或 /etc/nginx/cert 中找到该域名的文件夹。"
+    fi
+    local rm_dns
+    reading "是否要从 Cloudflare 中删除该域名的 DNS 解析记录？(y/N，默认跳过): " rm_dns
+    if [[ "$rm_dns" == "y" || "$rm_dns" == "Y" ]]; then
+        if ! get_cf_credentials_for_delete; then
+            yellow "未提供有效凭证，跳过 DNS 删除。"
+            return 1
+        fi
+        
+        skyblue "正在查找 Cloudflare Zone ID..."
+        local zone_id
+        zone_id=$(cf_find_zone "$del_domain")
+        
+        if [[ -n "$zone_id" ]]; then
+            local existing rid
+            existing=$(cf_call GET "/zones/$zone_id/dns_records?name=$del_domain" | jq '.result[0] // empty')
+            if [[ -n "$existing" && "$existing" != "null" ]]; then
+                rid=$(echo "$existing" | jq -r '.id')
+                cf_call DELETE "/zones/${zone_id}/dns_records/${rid}" >/dev/null
+                green "[3/3] 成功！已从 Cloudflare 删除域名 $del_domain 的 DNS 解析记录。"
+            else
+                yellow "[3/3] 在 Cloudflare 中未找到域名 $del_domain 的 DNS 解析记录。"
+            fi
+        else
+            red "[3/3] 匹配 Zone ID 失败，可能是凭证权限不足或域名不在当前账户下。"
+        fi
+    else
+        yellow "[3/3] 用户选择跳过，保留当前 DNS 解析记录。"
+    fi
+    
+    echo ""
+    green "=== 域名 $del_domain 的清理工作已全部完成 ==="
+}
 
 # 80 端口申请模式
 run_ssl_task() {
@@ -2190,7 +2301,61 @@ EOF
     read -n 1 -s -r -p "按任意键返回上级菜单..."
     disable_open_sub
     ;;
-
+    11)
+    cert_manager() {
+    while true; do
+        echo ""
+        skyblue "====================================================="
+        skyblue "               证书管理"
+        skyblue "====================================================="
+        echo -e " 1. 查看已申请的证书、路径及到期时间"
+        echo -e " 2. 申请新证书 (${green}80端口模式${re}"
+        echo -e " 3. 申请新证书 (${green}CF API Key模式${re}"
+        echo -e " 4. 申请新证书 (${green}CF Token模式${re}"
+        echo -e " 5. 智能申请向导 (自动检测已有证书/泛域名，再选模式)"
+        echo -e " 6. 删除证书"
+        echo -e " 0. 退出"
+        skyblue "====================================================="
+        
+        local choice
+        reading "请输入选择 [0-6]: " choice
+        
+        case "$choice" in
+            1)
+                echo ""
+                view_certs
+                ;;
+            2)
+                echo ""
+                run_ssl_task ""
+                ;;
+            3)
+                echo ""
+                issue_cf_dns_cert ""
+                ;;
+            4)
+                echo ""
+                issue_cf_token_cert ""
+                ;;
+            5)
+                echo ""
+                check_and_issue_ssl ""
+                ;;
+            6)
+                echo ""
+                delete_cert
+                ;;
+            0)
+                green "已退出。"
+                break
+                ;;
+            *)
+                red "无效输入，请重新选择！"
+                ;;
+        esac
+    done
+}
+;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
