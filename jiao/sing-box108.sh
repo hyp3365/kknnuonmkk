@@ -362,10 +362,10 @@ set_domain_origin_port() {
 }
 
 # 查看已申请证书
-# 查看已申请证书
 view_certs() {
     clear
-    skyblue "=== 正在扫描已申请的证书 ==="
+    echo ""
+    skyblue "=== 已申请的证书信息 ==="
     local found=0
     for base_dir in "/root/cert" "/etc/nginx/cert"; do
         [[ -d "$base_dir" ]] || continue
@@ -386,26 +386,25 @@ view_certs() {
                 fi
                 
                 green "域名: $domain"
-                echo "  证书路径: $cert_file"
-                echo "  私钥路径: $key_file"
                 if [[ "$exp_formatted" != "读取失败" ]]; then
-                    yellow "  到期时间: $exp_formatted"
+                    yellow "到期时间: $exp_formatted"
                 else
-                    red "  到期时间: 读取失败"
+                    red "到期时间: 读取失败"
                 fi
+                
+                echo -e "证书路径: \033[35m${cert_file}\033[0m"
+                echo -e "私钥路径: \033[35m${key_file}\033[0m"
                 echo "----------------------------------------"
                 found=1
             fi
         done
     done
+    
     [[ $found -eq 0 ]] && yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
     
-    # 【核心修改】：使用原生 过滤掉所有的鼠标干扰
     echo ""
-    echo -e "\033[1;32m信息已输出，现在你可以随意使用鼠标选中和复制。\033[0m"
-    read -p "复制完成后，请按【回车键 (Enter)】返回上级菜单..."
+    reading "按任意键返回..." dummy_var
 }
-
 
 # 删除证书 
 delete_cert() {
