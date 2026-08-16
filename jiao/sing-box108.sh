@@ -535,6 +535,7 @@ cert_manager() {
                 ;;
             3) delete_cert ;;
             0) disable_open_sub
+			   break
                 ;;
             *) 
                 red "无效输入，请重新选择！"
