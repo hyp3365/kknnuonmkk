@@ -1901,6 +1901,8 @@ disable_open_sub() {
     skyblue "------------"
 	green "10. Nginx 反向代理"
     skyblue "------------"
+	green "11. 域名证书管理"
+    skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
