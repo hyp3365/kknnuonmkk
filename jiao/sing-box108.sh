@@ -398,8 +398,6 @@ view_certs() {
         done
     done
     [[ $found -eq 0 ]] && yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
-    echo ""
-    reading "按任意键返回..." dummy_var
 }
 
 # 删除证书 
@@ -536,9 +534,7 @@ cert_manager() {
                 reading "按任意键返回..." dummy_var
                 ;;
             3) delete_cert ;;
-            0) 
-                green "返回上一级菜单..."
-                sleep 1; disable_open_sub
+            0) disable_open_sub
                 ;;
             *) 
                 red "无效输入，请重新选择！"
