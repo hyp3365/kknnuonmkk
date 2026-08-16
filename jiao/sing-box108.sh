@@ -2396,6 +2396,7 @@ EOF
     disable_open_sub
     ;;
        11) cert_manager
+	       sleep 1; disable_open_sub
 		   ;;
         0) 
         menu 
