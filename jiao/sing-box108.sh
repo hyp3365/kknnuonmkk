@@ -2168,11 +2168,32 @@ EOF
 		   sleep 1.5; disable_open_sub
 		    ;;
 		7)
-		   stop_nginx
-		   check_and_issue_ssl
-		   nginx2_port=$(shuf -i 1000-65000 -n 1)
-           password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
-		   cat > /etc/nginx/conf.d/sing-box1.conf << EOF
+        clear
+        skyblue "=== 配置域名 ==="
+        local domain
+        reading "请输入你的订阅域名: " domain
+        [[ -z "$domain" ]] && { red "错误：域名不能为空！"; sleep 1; return 1; }
+        stop_nginx
+        check_and_issue_ssl "$domain"
+        local cert_file="" key_file=""
+        for base_dir in "/root/cert" "/etc/nginx/cert"; do
+            if [[ -f "$base_dir/$domain/fullchain.pem" && -f "$base_dir/$domain/privkey.pem" ]]; then
+                cert_file="$base_dir/$domain/fullchain.pem"
+                key_file="$base_dir/$domain/privkey.pem"
+                break
+            fi
+        done
+        if [[ -z "$cert_file" ]]; then
+            red "错误：未能获取到域名 $domain 的有效 SSL 证书（申请可能已失败），配置终止！"
+            restart_nginx
+            sleep 2
+            return 1
+        fi
+        stop_nginx
+        nginx2_port=$(shuf -i 1000-65000 -n 1)
+        password=$(tr -dc A-Za-z < /dev/urandom | head -c 32) 
+        
+        cat > /etc/nginx/conf.d/sing-box1.conf << EOF
 server {
     listen $nginx2_port ssl;
     listen [::]:$nginx2_port ssl;
@@ -2203,11 +2224,11 @@ server {
     }
 }
 EOF
-		   allow_port $nginx2_port/tcp > /dev/null 2>&1   
-           restart_nginx
-           green "域名订阅链接为：https://$domain:$nginx2_port/$password"
-		   sleep 1.5; disable_open_sub
-		    ;;
+        allow_port $nginx2_port/tcp > /dev/null 2>&1   
+        restart_nginx
+        green "域名订阅链接为：https://$domain:$nginx2_port/$password"
+        sleep 1.5; disable_open_sub
+        ;;
 		8)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
 		   restart_nginx
