@@ -2402,7 +2402,7 @@ EOF
        11) cert_manager
 		   ;;
         0) 
-        sleep 0.5
+        sleep 0.1
         reading "按任意键返回..." dummy_var
         menu 
         ;; 
