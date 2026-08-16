@@ -4952,6 +4952,7 @@ warp_manage() {
 
     echo ""
     green "=== WARP / 节点分流管理 ===\n"
+
     local current_final
     current_final=$(jq -r '.route.final // empty' "$route_file" 2>/dev/null)
     if [ -z "$current_final" ] || [ "$current_final" == "direct" ] || [ "$current_final" == "null" ]; then
@@ -4959,25 +4960,30 @@ warp_manage() {
     else
         echo -e "当前全局默认出站: ${purple}${current_final} ${yellow}[全局代理已开启]${re}\n"
     fi
-    # ------------------------------------------------------------
-
-    green "当前已启用的分流规则:"
+    green "当前已启用的分流规则 (输入对应字母可快捷切换出站):"
     
     local has_rules=0
-    
-    while IFS='|' read -r p1 p2 p3; do
+    local rule_letters=("a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z")
+    local rule_indices=()
+    local rule_count=0
+
+    while IFS='|' read -r p1 p2 p3 r_idx; do
         [ -z "$p1" ] && continue
-        echo -e "  - ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
+        local current_letter="${rule_letters[$rule_count]}"
+        echo -e "  - ${yellow}[${current_letter}]${re} ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
+        rule_indices[$rule_count]="$r_idx"
+        rule_count=$((rule_count + 1))
         has_rules=1
     done < <(jq -r '
         {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
-        | .route.rules[]?
-        | (if .rule_set then "[预设规则] \(.rule_set | join(", "))" 
-           elif .domain_suffix then "[域名] \(.domain_suffix | join(", "))" 
-           else "[所有流量]" end) as $p1
-        | (if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
-        | "\(.outbound)" as $p3
-        | "\($p1)|\($p2)|\($p3)"
+        | (.route.rules // []) | to_entries[]
+        | select(.value.rule_set != null or .value.domain_suffix != null)
+        | .key as $idx
+        | .value as $r
+        | ($r | if .rule_set then "[预设规则] \(.rule_set | join(", "))" elif .domain_suffix then "[域名] \(.domain_suffix | join(", "))" else "[所有流量]" end) as $p1
+        | ($r | if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
+        | $r.outbound as $p3
+        | "\($p1)|\($p2)|\($p3)|\($idx)"
     ' "$route_file" 2>/dev/null)
 
     [ $has_rules -eq 0 ] && echo "    无"
@@ -5006,6 +5012,31 @@ warp_manage() {
     purple "00. 退出脚本"
     skyblue "------------"
     reading "请输入选择: " choice
+	local target_rule_idx=-1
+    for i in "${!rule_letters[@]}"; do
+        if [ "$choice" == "${rule_letters[$i]}" ]; then
+            if [ $i -lt ${#rule_indices[@]} ]; then
+                target_rule_idx="${rule_indices[$i]}"
+            fi
+            break
+        fi
+    done
+    if [ "$target_rule_idx" -ne -1 ]; then
+        local selected_out=""
+        if select_outbound_target; then
+            jq --argjson r_idx "$target_rule_idx" --arg new_out "$selected_out" \
+                '.route.rules[$r_idx].outbound = $new_out' \
+                "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+            
+            restart_singbox
+            green "\n成功将该规则的出站修改为：${purple}${selected_out}${re}"
+            sleep 1
+        else
+            red "操作已取消"; sleep 1
+        fi
+        warp_manage
+        return
+    fi
     case "${choice}" in
         1)  add_rule_menu ;;
         2)  delete_rule_menu ;;
@@ -5076,20 +5107,20 @@ extract_fanout_socks() {
         echo "错误: 找不到 $input_file，请确保 fanout 已成功配置节点。"
         return 1
     fi
-
     mkdir -p "$(dirname "$output_file")"
-
     local new_fanout_nodes
     new_fanout_nodes=$(jq '[
       .outbounds[]? | 
       select(.protocol == "socks" and (.tag | tostring | test("fanout-"))) |
+      . as $item |
+      $item.settings.servers[0].port as $port |
       {
         type: "socks",
-        tag: .tag,
-        server: .settings.servers[0].address,
-        server_port: .settings.servers[0].port,
-        username: .settings.servers[0].users[0].user,
-        password: .settings.servers[0].users[0].pass
+        tag: ("fanout-" + ($port | tostring)),
+        server: $item.settings.servers[0].address,
+        server_port: $port,
+        username: $item.settings.servers[0].users[0].user,
+        password: $item.settings.servers[0].users[0].pass
       }
     ]' "$input_file")
 
@@ -5119,7 +5150,7 @@ extract_fanout_socks() {
         echo "更新失败，请检查配置文件格式。"
         return 1
     fi
-	sleep 1; warp_manage
+    sleep 1; warp_manage
 }
 
 # 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
