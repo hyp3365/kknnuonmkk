@@ -2403,7 +2403,10 @@ EOF
         0) 
         break
         ;; 
-        *)  red "无效的选项！" ;;
+        *)  
+        red "无效的选项！"
+        sleep 1 
+        ;;
     esac
   done
 }
