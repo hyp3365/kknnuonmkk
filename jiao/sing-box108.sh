@@ -1985,17 +1985,17 @@ disable_open_sub() {
 	    1)
             start_nginx
             green "Nginx 服务已启动"
-			sleep 1.5; disable_open_sub
+			sleep 1; disable_open_sub
             ;;
         2)
             stop_nginx
             yellow "Nginx 服务已停止"
-			sleep 1.5; disable_open_sub
+			sleep 1; disable_open_sub
             ;;
         3)
             restart_nginx
             green "Nginx 服务已重启"
-			sleep 1.5; disable_open_sub
+			sleep 1; disable_open_sub
             ;;
 		4)
             while true; do
@@ -2128,7 +2128,7 @@ disable_open_sub() {
            rm -f /etc/nginx/conf.d/sing-box.conf
 		   restart_nginx
 		   green "节点订阅已删除"
-		   sleep 1.5; disable_open_sub
+		   sleep 1; disable_open_sub
 		   ;;
         6)
 		   nginx_port=$(shuf -i 1000-65000 -n 1)
@@ -2165,14 +2165,14 @@ EOF
 		   allow_port $nginx_port/tcp > /dev/null 2>&1   
            restart_nginx
            green "新的订阅链接为：http://$server_ip:$sub_port/$password"
-		   sleep 1.5; disable_open_sub
+		   sleep 1; disable_open_sub
 		    ;;
 		7)
         clear
         skyblue "=== 配置域名 ==="
         local domain
         reading "请输入你的订阅域名: " domain
-        [[ -z "$domain" ]] && { red "错误：域名不能为空！"; sleep 1; return 1; }
+        [[ -z "$domain" ]] && { red "错误：域名不能为空！"; sleep 1; disable_open_sub return 1; }
         stop_nginx
         check_and_issue_ssl "$domain"
         local cert_file="" key_file=""
@@ -2186,7 +2186,7 @@ EOF
         if [[ -z "$cert_file" ]]; then
             red "错误：未能获取到域名 $domain 的有效 SSL 证书（申请可能已失败），配置终止！"
             restart_nginx
-            sleep 2
+            sleep 1; disable_open_sub
             return 1
         fi
         stop_nginx
@@ -2227,13 +2227,13 @@ EOF
         allow_port $nginx2_port/tcp > /dev/null 2>&1   
         restart_nginx
         green "域名订阅链接为：https://$domain:$nginx2_port/$password"
-        sleep 1.5; disable_open_sub
+        sleep 1; disable_open_sub
         ;;
 		8)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
 		   restart_nginx
 		   green "域名订阅已删除"
-		   sleep 1.5; disable_open_sub
+		   sleep 1; disable_open_sub
 		   ;;
 	    9)
             clear
@@ -2295,7 +2295,7 @@ EOF
             fi
             echo ""
             read -p "按回车键继续..."
-			sleep 1.5; disable_open_sub
+			sleep 1; disable_open_sub
             ;;
        10)
     clear
@@ -2401,7 +2401,11 @@ EOF
     ;;
        11) cert_manager
 		   ;;
-        0)  menu ;; 
+        0) 
+        sleep 0.5
+        reading "按任意键返回..." dummy_var
+        menu 
+        ;; 
         *)  red "无效的选项！" ;;
     esac
 }
