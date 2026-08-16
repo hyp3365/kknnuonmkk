@@ -473,6 +473,37 @@ delete_cert() {
     green "=== 域名 $del_domain 的清理工作已全部完成 ==="
 }
 
+cert_manager() {
+    while true; do
+        echo ""
+        skyblue "====================================================="
+        skyblue "               证书管理"
+        skyblue "====================================================="
+        echo -e " 1. 查看已申请的证书、路径及到期时间"
+        echo -e " 2. 申请新证书 (${green}80端口模式${re})"
+        echo -e " 3. 申请新证书 (${green}CF API Key模式${re})"
+        echo -e " 4. 申请新证书 (${green}CF Token模式${re})"
+        echo -e " 5. 智能申请向导 (自动检测已有证书/泛域名，再选模式)"
+        echo -e " 6. 删除证书"
+        echo -e " 0. 退出"
+        skyblue "====================================================="
+        
+        local choice
+        reading "请输入选择 [0-6]: " choice
+        
+        case "$choice" in
+            1) echo ""; view_certs ;;
+            2) echo ""; run_ssl_task "" ;;
+            3) echo ""; issue_cf_dns_cert "" ;;
+            4) echo ""; issue_cf_token_cert "" ;;
+            5) echo ""; check_and_issue_ssl "" ;;
+            6) echo ""; delete_cert ;;
+            0) green "已退出。"; break ;;
+            *) red "无效输入，请重新选择！" ;;
+        esac
+    done
+}
+
 # 80 端口申请模式
 run_ssl_task() {
     local domain="$1"
@@ -2303,61 +2334,8 @@ EOF
     read -n 1 -s -r -p "按任意键返回上级菜单..."
     disable_open_sub
     ;;
-    11)
-    cert_manager() {
-    while true; do
-        echo ""
-        skyblue "====================================================="
-        skyblue "               证书管理"
-        skyblue "====================================================="
-        echo -e " 1. 查看已申请的证书、路径及到期时间"
-        echo -e " 2. 申请新证书 (${green}80端口模式${re}"
-        echo -e " 3. 申请新证书 (${green}CF API Key模式${re}"
-        echo -e " 4. 申请新证书 (${green}CF Token模式${re}"
-        echo -e " 5. 智能申请向导 (自动检测已有证书/泛域名，再选模式)"
-        echo -e " 6. 删除证书"
-        echo -e " 0. 退出"
-        skyblue "====================================================="
-        
-        local choice
-        reading "请输入选择 [0-6]: " choice
-        
-        case "$choice" in
-            1)
-                echo ""
-                view_certs
-                ;;
-            2)
-                echo ""
-                run_ssl_task ""
-                ;;
-            3)
-                echo ""
-                issue_cf_dns_cert ""
-                ;;
-            4)
-                echo ""
-                issue_cf_token_cert ""
-                ;;
-            5)
-                echo ""
-                check_and_issue_ssl ""
-                ;;
-            6)
-                echo ""
-                delete_cert
-                ;;
-            0)
-                green "已退出。"
-                break
-                ;;
-            *)
-                red "无效输入，请重新选择！"
-                ;;
-        esac
-    done
-}
-;;
+       11) cert_manager
+		   ;;
         0)  menu ;; 
         *)  red "无效的选项！" ;;
     esac
