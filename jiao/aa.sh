@@ -822,11 +822,12 @@ while true; do
    green "5. 3X-UI面板"
    green "6. Cloudreve云盘"
    green "7. FileBrowser网盘"
-   green "8. fanout"
+   green "8. 切换优先ipv4/ipv6"
+   green "9. fanout"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-8): " choice
+   reading "请输入选择: " choice
    echo ""
 
    case $choice in
@@ -851,7 +852,89 @@ while true; do
 		7)
             filebrowser_menu
             ;;
-		8) 
+		8)
+            clear
+            GAI_CONF="/etc/gai.conf"
+
+            echo ""
+            if grep -qE '^\s*precedence\s+::ffff:0:0/96\s+100' "$GAI_CONF" 2>/dev/null; then
+                echo "当前网络优先级设置: IPv4 优先"
+            else
+                echo "当前网络优先级设置: IPv6 优先"
+            fi
+            echo "------------------------"
+
+            echo ""
+            echo "切换的网络优先级"
+            echo "------------------------"
+            echo "1. IPv4 优先          2. IPv6 优先      3. 禁用 IPv6"
+            echo "------------------------"
+            read -p "选择优先的网络: " choice
+
+            case $choice in
+                1)
+                    [ ! -f "${GAI_CONF}.bak" ] && cp "$GAI_CONF" "${GAI_CONF}.bak" 2>/dev/null
+                    [ ! -f "$GAI_CONF" ] && touch "$GAI_CONF"
+                    sed -i '/^\s*precedence\s\+::ffff:0:0\/96/d' "$GAI_CONF"
+                    echo "precedence ::ffff:0:0/96  100" >> "$GAI_CONF"
+                                       
+                    v6_disabled=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null)
+                    if [ "$v6_disabled" -eq 1 ]; then
+                        echo -e "\n${yellow}IPv6 已禁用，是否需要开启？[Y/N]${re}"
+                        read -p "是否需要开启？[Y/N]" choice
+                        if [[ "$choice" =~ [Yy] ]]; then
+                            sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1
+                            sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1
+                            sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1
+                
+                            sed -i '/net.ipv6.conf.all.disable_ipv6/d' /etc/sysctl.conf
+                            sed -i '/net.ipv6.conf.default.disable_ipv6/d' /etc/sysctl.conf
+                            sed -i '/net.ipv6.conf.lo.disable_ipv6/d' /etc/sysctl.conf
+
+                            {
+                                echo "net.ipv6.conf.all.disable_ipv6 = 0"
+                                echo "net.ipv6.conf.default.disable_ipv6 = 0"
+                                echo "net.ipv6.conf.lo.disable_ipv6 = 0"
+                            } >> /etc/sysctl.conf
+
+                            sysctl -p >/dev/null 2>&1
+                        fi
+                    fi
+                    echo -e "\n${green}已切换为 IPv4 优先(IPv6 仍然可用，只是优先级降低)${re}\n"
+                    ;;
+                2)
+                    [ ! -f "${GAI_CONF}.bak" ] && cp "$GAI_CONF" "${GAI_CONF}.bak" 2>/dev/null
+                    [ ! -f "$GAI_CONF" ] && touch "$GAI_CONF"
+                    # 移除 IPv4 优先规则即可恢复默认 IPv6 优先
+                    sed -i '/^\s*precedence\s\+::ffff:0:0\/96/d' "$GAI_CONF"
+                    sysctl -w net.ipv6.conf.all.disable_ipv6=0 > /dev/null 2>&1
+                    echo -e "\n${green}已切换为 IPv6 优先(IPv4 仍然可用，只是优先级降低)${re}\n"
+                    ;;
+                3)
+                    sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1
+
+                    sed -i '/net.ipv6.conf.all.disable_ipv6/d' /etc/sysctl.conf
+                    sed -i '/net.ipv6.conf.default.disable_ipv6/d' /etc/sysctl.conf
+                    sed -i '/net.ipv6.conf.lo.disable_ipv6/d' /etc/sysctl.conf
+
+                    {
+                        echo "net.ipv6.conf.all.disable_ipv6 = 1"
+                        echo "net.ipv6.conf.default.disable_ipv6 = 1"
+                        echo "net.ipv6.conf.lo.disable_ipv6 = 1"
+                    } >> /etc/sysctl.conf
+
+                    sysctl -p >/dev/null 2>&1
+                    sed -i '/^\s*precedence\s\+::ffff:0:0\/96/d' "$GAI_CONF" 2>/dev/null
+                    echo -e "\n${yellow}✓ IPv6 已在系统层禁用${re}\n"
+                    ;;
+                *)
+                    echo "无效的选择"
+                    ;;
+            esac
+            ;;
+		9) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
 		    echo ""
 		    echo "----------------------------------------"
