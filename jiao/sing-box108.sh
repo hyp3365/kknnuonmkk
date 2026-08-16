@@ -388,6 +388,7 @@ view_certs() {
     if [[ $found -eq 0 ]]; then
         yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
     fi
+	reading "按任意键返回..." dummy_var
 }
 
 # 删除证书 
