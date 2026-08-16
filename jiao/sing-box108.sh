@@ -2399,7 +2399,7 @@ EOF
        11) cert_manager
 		   ;;
         0) 
-        menu 
+        break
         ;; 
         *)  red "无效的选项！" ;;
     esac
