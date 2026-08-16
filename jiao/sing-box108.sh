@@ -1938,60 +1938,6 @@ optimize_dns() {
     fi
 }
 
-# --- Fail2Ban 模块  ---
-install_fail2ban() {
-    skyblue "安装防暴力破解 Fail2Ban"
-    eval "$PM_INSTALL fail2ban"
-    
-    CUR_SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
-    CUR_SSH_PORT=${CUR_SSH_PORT:-ssh}
-
-    cat > /etc/fail2ban/jail.local <<EOF
-[DEFAULT]
-bantime = 86400
-findtime = 600
-maxretry = 5
-banaction = nftables-multiport
-banaction_allports = nftables-allports
-
-[sshd]
-enabled = true
-port = $CUR_SSH_PORT
-logpath = %(sshd_log)s
-backend = %(sshd_backend)s
-EOF
-
-    systemctl enable fail2ban
-    systemctl restart fail2ban
-    green "Fail2Ban 安装完成！ 设定连续错误 5 次封禁 1 天)"
-    read -n 1 -s -r -p "$(yellow "按任意键继续...")"
-    echo ""
-}
-
-status_fail2ban() {
-    yellow ">>> Fail2ban 服务运行状态 <<<"
-    systemctl status fail2ban --no-pager | grep Active || red "Fail2ban 服务未运行或未安装！"
-    echo ""
-    yellow ">>> 正在通过 nftables 拦截的 IP 列表 (SSH) <<<"
-    
-    if ! fail2ban-client status sshd 2>/dev/null; then
-        red "无法获取状态：Fail2ban 服务未启动，或 sshd 监狱尚未激活。"
-    fi
-    
-    echo ""
-    purple "提示: 你也可以通过命令 'nft list ruleset' 查看底层的 f2b 防火墙规则。"
-    read -n 1 -s -r -p "$(yellow "按任意键退出...")"
-    echo ""
-}
-
-view_fail2ban_log() {
-    yellow ">>> 查看最新拦截日志 (最近 15 行) <<<"
-    tail -n 15 /var/log/fail2ban.log 2>/dev/null || yellow "暂无日志文件或未安装 Fail2Ban。"
-    read -n 1 -s -r -p "$(yellow "按任意键退出...")"
-    echo ""
-}
-
-
 disable_open_sub() {
     while true; do
     local nginx_status=$(check_nginx 2>/dev/null)
@@ -4637,8 +4583,142 @@ SRVEOF
                 sleep 2 && iptables_ssl
             fi
             ;;
-		11) install_fail2ban
-		    sleep 1 && iptables_ssl ;;	
+		
+        11)
+        if [ -x "$(command -v fail2ban-client)" ] && [ -d "/etc/fail2ban" ]; then
+          while true; do
+              clear
+              echo "服务器防御程序已启动"
+              echo "------------------------"
+              echo "1. 开启SSH防暴力破解              2. 关闭SSH防暴力破解"
+              echo "3. 开启网站保护                   4. 关闭网站保护"
+              echo "------------------------"
+              echo "5. 查看SSH拦截记录                6. 查看网站拦截记录"
+              echo "7. 查看防御规则列表               8. 查看日志实时监控"
+              echo "------------------------"
+              echo "9. 卸载防御程序"
+              echo "------------------------"
+              echo "0. 退出"
+              echo "------------------------"
+              read -p $'\033[1;91m请输入你的选择: \033[0m' sub_choice
+              case $sub_choice in
+                  1)
+                      sed -i 's/false/true/g' /etc/fail2ban/jail.d/sshd.local
+                      systemctl restart fail2ban
+                      sleep 1
+                      fail2ban-client status
+                      ;;
+                  2)
+                      sed -i 's/true/false/g' /etc/fail2ban/jail.d/sshd.local
+                      systemctl restart fail2ban
+                      sleep 1
+                      fail2ban-client status
+                      ;;
+                  3)
+                      sed -i 's/false/true/g' /etc/fail2ban/jail.d/nginx.local
+                      systemctl restart fail2ban
+                      sleep 1
+                      fail2ban-client status
+                      ;;
+                  4)
+                      sed -i 's/true/false/g' /etc/fail2ban/jail.d/nginx.local
+                      systemctl restart fail2ban
+                      sleep 1
+                      fail2ban-client status
+                      ;;
+                  5)
+                      echo "------------------------"
+                      fail2ban-client status sshd
+                      echo "------------------------"
+                      ;;
+                  6)
+                      echo "------------------------"
+                      fail2ban-client status nginx-bad-request
+                      echo "------------------------"
+                      fail2ban-client status nginx-botsearch
+                      echo "------------------------"
+                      fail2ban-client status nginx-http-auth
+                      echo "------------------------"
+                      fail2ban-client status nginx-limit-req
+                      echo "------------------------"
+                      fail2ban-client status php-url-fopen
+                      echo "------------------------"
+                      ;;
+
+                  7)
+                      fail2ban-client status
+                      ;;
+                  8)
+                      tail -f /var/log/fail2ban.log
+
+                      ;;
+                  9)
+                      remove fail2ban
+                      break
+                      ;;
+                  0)
+                      break
+                      ;;
+                  *)
+                      echo "无效的选择，请重新输入。"
+                      ;;
+              esac
+              break_end
+
+          done
+      else
+          clear
+          # 安装Fail2ban
+          if [ -f /etc/debian_version ]; then
+              # Debian/Ubuntu系统
+              install fail2ban
+          elif [ -f /etc/redhat-release ]; then
+              # CentOS系统
+              install epel-release fail2ban
+          else
+              echo "不支持的操作系统类型"
+              exit 1
+          fi
+
+          # 启动Fail2ban
+          systemctl start fail2ban
+
+          # 设置Fail2ban开机自启
+          systemctl enable fail2ban
+
+          # 配置Fail2ban
+          rm -rf /etc/fail2ban/jail.d/*
+          cd /etc/fail2ban/jail.d/
+          curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/sshd.local
+          systemctl restart fail2ban
+          docker rm -f nginx
+
+          wget -O /home/web/nginx.conf https://raw.githubusercontent.com/kejilion/nginx/main/nginx10.conf
+          wget -O /home/web/conf.d/default.conf https://raw.githubusercontent.com/kejilion/nginx/main/default10.conf
+          default_server_ssl
+          docker run -d --name nginx --restart always --network web_default -p 80:80 -p 443:443 -v /home/web/nginx.conf:/etc/nginx/nginx.conf -v /home/web/conf.d:/etc/nginx/conf.d -v /home/web/certs:/etc/nginx/certs -v /home/web/html:/var/www/html -v /home/web/log/nginx:/var/log/nginx nginx
+          docker exec -it nginx chmod -R 777 /var/www/html
+
+          # 获取宿主机当前时区
+          HOST_TIMEZONE=$(timedatectl show --property=Timezone --value)
+
+          # 调整多个容器的时区
+          docker exec -it nginx ln -sf "/usr/share/zoneinfo/$HOST_TIMEZONE" /etc/localtime
+          docker exec -it php ln -sf "/usr/share/zoneinfo/$HOST_TIMEZONE" /etc/localtime
+          docker exec -it php74 ln -sf "/usr/share/zoneinfo/$HOST_TIMEZONE" /etc/localtime
+          docker exec -it mysql ln -sf "/usr/share/zoneinfo/$HOST_TIMEZONE" /etc/localtime
+          docker exec -it redis ln -sf "/usr/share/zoneinfo/$HOST_TIMEZONE" /etc/localtime
+          rm -rf /home/web/log/nginx/*
+          docker restart nginx
+
+          curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/nginx.local
+          systemctl restart fail2ban
+          sleep 1
+          fail2ban-client status
+          echo "防御程序已开启"
+      fi
+
+        ;;	
         0) menu ;;
         *) iptables_ssl ;;
     esac
