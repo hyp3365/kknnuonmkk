@@ -1940,14 +1940,12 @@ optimize_dns() {
 
 # --- Fail2Ban 模块  ---
 install_fail2ban() {
-    skyblue "安装防暴力破解 Fail2Ban (适配 nftables)..."
+    skyblue "安装防暴力破解 Fail2Ban"
     eval "$PM_INSTALL fail2ban"
     
-    # 智能获取当前 SSH 端口（兼容 sshd_config 中被注释或写在 Include 里的情况）
     CUR_SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
     CUR_SSH_PORT=${CUR_SSH_PORT:-ssh}
 
-    # 写入带有 nftables 动作的 jail.local 配置文件
     cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 bantime = 86400
@@ -1965,27 +1963,34 @@ EOF
 
     systemctl enable fail2ban
     systemctl restart fail2ban
-    green "Fail2Ban 预制防护安装完成！(基于 nftables 联动 | 连续错误 5 次封禁 1 天)"
-    pause
+    green "Fail2Ban 安装完成！ 设定连续错误 5 次封禁 1 天)"
+    read -n 1 -s -r -p "$(yellow "按任意键继续...")"
+    echo ""
 }
 
 status_fail2ban() {
     yellow ">>> Fail2ban 服务运行状态 <<<"
-    systemctl status fail2ban --no-pager | grep Active
+    systemctl status fail2ban --no-pager | grep Active || red "Fail2ban 服务未运行或未安装！"
     echo ""
     yellow ">>> 正在通过 nftables 拦截的 IP 列表 (SSH) <<<"
-    fail2ban-client status sshd 2>/dev/null || red "无法获取状态，检查是否尚未安装或服务未运行。"
+    
+    if ! fail2ban-client status sshd 2>/dev/null; then
+        red "无法获取状态：Fail2ban 服务未启动，或 sshd 监狱尚未激活。"
+    fi
+    
     echo ""
-    # 顺便展示一条 nftables 的底层检查提示，方便你确认规则链
     purple "提示: 你也可以通过命令 'nft list ruleset' 查看底层的 f2b 防火墙规则。"
-    pause
+    read -n 1 -s -r -p "$(yellow "按任意键退出...")"
+    echo ""
 }
 
 view_fail2ban_log() {
     yellow ">>> 查看最新拦截日志 (最近 15 行) <<<"
     tail -n 15 /var/log/fail2ban.log 2>/dev/null || yellow "暂无日志文件或未安装 Fail2Ban。"
-    pause
+    read -n 1 -s -r -p "$(yellow "按任意键退出...")"
+    echo ""
 }
+
 
 disable_open_sub() {
     while true; do
