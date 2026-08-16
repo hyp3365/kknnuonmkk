@@ -1939,6 +1939,7 @@ optimize_dns() {
 }
 
 disable_open_sub() {
+    while true; do
     local nginx_status=$(check_nginx 2>/dev/null)
     
     if [ $singbox_installed -eq 2 ]; then
@@ -1977,22 +1978,23 @@ disable_open_sub() {
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
+	local choice
     reading "请输入选择: " choice
     case "${choice}" in
 	    1)
             start_nginx
             green "Nginx 服务已启动"
-			sleep 1; disable_open_sub
+			sleep 1
             ;;
         2)
             stop_nginx
             yellow "Nginx 服务已停止"
-			sleep 1; disable_open_sub
+			sleep 1
             ;;
         3)
             restart_nginx
             green "Nginx 服务已重启"
-			sleep 1; disable_open_sub
+			sleep 1
             ;;
 		4)
             while true; do
@@ -2119,13 +2121,13 @@ disable_open_sub() {
                 fi
                 sleep 2
             done
-			disable_open_sub
+			sleep 1
             ;;
         5)
            rm -f /etc/nginx/conf.d/sing-box.conf
 		   restart_nginx
 		   green "节点订阅已删除"
-		   sleep 1; disable_open_sub
+		   sleep 1
 		   ;;
         6)
 		   nginx_port=$(shuf -i 1000-65000 -n 1)
@@ -2162,7 +2164,7 @@ EOF
 		   allow_port $nginx_port/tcp > /dev/null 2>&1   
            restart_nginx
            green "新的订阅链接为：http://$server_ip:$sub_port/$password"
-		   sleep 1; disable_open_sub
+		   sleep 1
 		    ;;
 		7)
         clear
@@ -2224,13 +2226,13 @@ EOF
         allow_port $nginx2_port/tcp > /dev/null 2>&1   
         restart_nginx
         green "域名订阅链接为：https://$domain:$nginx2_port/$password"
-        sleep 1; disable_open_sub
+        sleep 1
         ;;
 		8)
 		   rm -f /etc/nginx/conf.d/sing-box1.conf
 		   restart_nginx
 		   green "域名订阅已删除"
-		   sleep 1; disable_open_sub
+		   sleep 1
 		   ;;
 	    9)
             clear
@@ -2292,7 +2294,7 @@ EOF
             fi
             echo ""
             read -p "按回车键继续..."
-			sleep 1; disable_open_sub
+			sleep 1
             ;;
        10)
     clear
@@ -2394,7 +2396,7 @@ EOF
     
     echo ""
     read -n 1 -s -r -p "按任意键返回上级菜单..."
-    disable_open_sub
+    sleep 1
     ;;
        11) cert_manager
 		   ;;
