@@ -362,6 +362,7 @@ set_domain_origin_port() {
 }
 
 # 查看已申请证书
+# 查看已申请证书
 view_certs() {
     clear
     skyblue "=== 正在扫描已申请的证书 ==="
@@ -398,7 +399,13 @@ view_certs() {
         done
     done
     [[ $found -eq 0 ]] && yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
+    
+    # 【核心修改】：使用原生 过滤掉所有的鼠标干扰
+    echo ""
+    echo -e "\033[1;32m信息已输出，现在你可以随意使用鼠标选中和复制。\033[0m"
+    read -p "复制完成后，请按【回车键 (Enter)】返回上级菜单..."
 }
+
 
 # 删除证书 
 delete_cert() {
