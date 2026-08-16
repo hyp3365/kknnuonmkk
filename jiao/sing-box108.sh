@@ -534,7 +534,7 @@ cert_manager() {
                 reading "按任意键返回..." dummy_var
                 ;;
             3) delete_cert ;;
-            0) disable_open_sub
+            0) 
 			   break
                 ;;
             *) 
