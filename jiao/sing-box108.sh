@@ -547,6 +547,7 @@ cert_manager() {
         esac       
         echo -e "\n\033[31m按任意键返回...\033[0m"
         read -n 1
+      esac
     done
 }
 
