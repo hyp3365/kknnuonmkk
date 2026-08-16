@@ -363,55 +363,32 @@ set_domain_origin_port() {
 
 # 查看已申请证书
 view_certs() {
-    clear
-    local temp_file="/tmp/certs_info.txt"
-    > "$temp_file"    
-    echo -e "\033[36m=== 已申请的证书信息 ===\033[0m" >> "$temp_file"
-    echo "" >> "$temp_file"
-    
+    skyblue "=== 正在扫描已申请的证书 ==="
     local found=0
+ 
     for base_dir in "/root/cert" "/etc/nginx/cert"; do
-        [[ -d "$base_dir" ]] || continue
-        for domain_dir in "$base_dir"/*; do
-            [[ -d "$domain_dir" ]] || continue
-            local domain=$(basename "$domain_dir")
-            local cert_file="$domain_dir/fullchain.pem"
-            local key_file="$domain_dir/privkey.pem"
-            
-            if [[ -f "$cert_file" && -f "$key_file" ]]; then
-                local exp_raw exp_formatted
-                exp_raw=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
-                if [[ -n "$exp_raw" ]]; then
-                    exp_formatted=$(date -d "$exp_raw" "+%Y.%m.%d %H:%M:%S" 2>/dev/null)
-                    [[ -z "$exp_formatted" ]] && exp_formatted="$exp_raw" # 兼容性回退
-                else
-                    exp_formatted="读取失败"
+        if [[ -d "$base_dir" ]]; then
+            for domain_dir in "$base_dir"/*; do
+                if [[ -d "$domain_dir" ]]; then
+                    local domain=$(basename "$domain_dir")
+                    local cert_file="$domain_dir/fullchain.pem"
+                    local key_file="$domain_dir/privkey.pem"
+                    
+                    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+                        green "域名: $domain"
+                        echo "  证书路径: $cert_file"
+                        echo "  私钥路径: $key_file"
+                        echo "----------------------------------------"
+                        found=1
+                    fi
                 fi
-                
-                echo -e "\033[32m域名: $domain\033[0m" >> "$temp_file"
-                if [[ "$exp_formatted" != "读取失败" ]]; then
-                    echo -e "\033[33m到期时间: $exp_formatted\033[0m" >> "$temp_file"
-                else
-                    echo -e "\033[31m到期时间: 读取失败\033[0m" >> "$temp_file"
-                fi
-                
-                echo -e "证书路径: \033[35m${cert_file}\033[0m" >> "$temp_file"
-                echo -e "私钥路径: \033[35m${key_file}\033[0m" >> "$temp_file"
-                echo "----------------------------------------" >> "$temp_file"
-                found=1
-            fi
-        done
+            done
+        fi
     done
-    
     if [[ $found -eq 0 ]]; then
-        echo -e "\033[33m未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。\033[0m" >> "$temp_file"
-    fi    
-    cat "$temp_file"
-    echo ""
-    rm -f "$temp_file"    
-    reading "按任意键返回..." dummy_var
+        yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
+    fi
 }
-
 
 # 删除证书 
 delete_cert() {
