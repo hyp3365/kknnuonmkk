@@ -363,33 +363,50 @@ set_domain_origin_port() {
 
 # 查看已申请证书
 view_certs() {
-    skyblue "=== 正在扫描已申请的证书 ==="
+    clear
+    echo ""
+    skyblue "=== 已申请的证书信息 ==="
     local found=0
- 
     for base_dir in "/root/cert" "/etc/nginx/cert"; do
-        if [[ -d "$base_dir" ]]; then
-            for domain_dir in "$base_dir"/*; do
-                if [[ -d "$domain_dir" ]]; then
-                    local domain=$(basename "$domain_dir")
-                    local cert_file="$domain_dir/fullchain.pem"
-                    local key_file="$domain_dir/privkey.pem"
-                    
-                    if [[ -f "$cert_file" && -f "$key_file" ]]; then
-                        green "域名: $domain"
-                        echo "  证书路径: $cert_file"
-                        echo "  私钥路径: $key_file"
-                        echo "----------------------------------------"
-                        found=1
-                    fi
+        [[ -d "$base_dir" ]] || continue
+        for domain_dir in "$base_dir"/*; do
+            [[ -d "$domain_dir" ]] || continue
+            local domain=$(basename "$domain_dir")
+            local cert_file="$domain_dir/fullchain.pem"
+            local key_file="$domain_dir/privkey.pem"
+            
+            if [[ -f "$cert_file" && -f "$key_file" ]]; then
+                local exp_raw exp_formatted
+                exp_raw=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
+                if [[ -n "$exp_raw" ]]; then
+                    exp_formatted=$(date -d "$exp_raw" "+%Y.%m.%d %H:%M:%S" 2>/dev/null)
+                    [[ -z "$exp_formatted" ]] && exp_formatted="$exp_raw" # 兼容性回退
+                else
+                    exp_formatted="读取失败"
                 fi
-            done
-        fi
+                
+                green "域名: $domain"
+                if [[ "$exp_formatted" != "读取失败" ]]; then
+                    yellow "到期时间: $exp_formatted"
+                else
+                    red "到期时间: 读取失败"
+                fi
+                
+                # 核心改进：取消空格缩进，像打印节点链接一样打印路径，方便手机长按选中
+                echo -e "证书路径: \033[35m${cert_file}\033[0m"
+                echo -e "私钥路径: \033[35m${key_file}\033[0m"
+                echo "----------------------------------------"
+                found=1
+            fi
+        done
     done
-    if [[ $found -eq 0 ]]; then
-        yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
-    fi
-	reading "按任意键返回..." dummy_var
+    
+    [[ $found -eq 0 ]] && yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
+    
+    echo ""
+    reading "按任意键返回..." dummy_var
 }
+
 
 # 删除证书 
 delete_cert() {
@@ -525,14 +542,11 @@ cert_manager() {
                 reading "按任意键返回..." dummy_var
                 ;;
             3) delete_cert ;;
-            0) 
-			   break
-                ;;
-            *) 
-                red "无效输入，请重新选择！"
-                sleep 1 
-                ;;
-        esac
+            0) break ;;
+            *) red "无效选项"; sleep 1; continue ;;
+        esac       
+        echo -e "\n\033[31m按任意键返回...\033[0m"
+        read -n 1
     done
 }
 
