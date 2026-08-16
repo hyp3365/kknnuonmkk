@@ -538,14 +538,13 @@ cert_manager() {
                 ;;
             3) delete_cert ;;
             0) break ;;
-            *) red "无效选项"; sleep 1; continue ;;
-        esac       
-        echo -e "\n\033[31m按任意键返回...\033[0m"
-        read -n 1
-      esac
+            *) 
+                red "无效输入，请重新选择！"
+                sleep 1 
+                ;;
+        esac
     done
 }
-
 # 80 端口申请模式
 run_ssl_task() {
     local domain="$1"
