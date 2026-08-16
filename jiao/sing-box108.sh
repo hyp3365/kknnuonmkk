@@ -361,39 +361,45 @@ set_domain_origin_port() {
     cf_put_origin_rules "$zone_id" "$merged"
 }
 
+# 查看已申请证书
 view_certs() {
-    skyblue "=== 扫描已申请的证书及到期时间 ==="
+    clear
+    skyblue "=== 正在扫描已申请的证书 ==="
     local found=0
     for base_dir in "/root/cert" "/etc/nginx/cert"; do
-        if [[ -d "$base_dir" ]]; then
-            for domain_dir in "$base_dir"/*; do
-                if [[ -d "$domain_dir" ]]; then
-                    local domain=$(basename "$domain_dir")
-                    local cert_file="$domain_dir/fullchain.pem"
-                    local key_file="$domain_dir/privkey.pem" 
-                    if [[ -f "$cert_file" && -f "$key_file" ]]; then
-                        local exp_raw=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
-                        
-                        green "域名: $domain"
-                        echo "  证书路径: $cert_file"
-                        echo "  私钥路径: $key_file"
-                        if [[ -n "$exp_raw" ]]; then
-                            yellow "  到期时间: $exp_raw"
-                        else
-                            red "  到期时间: 读取失败"
-                        fi
-                        echo "----------------------------------------"
-                        found=1
-                    fi
+        [[ -d "$base_dir" ]] || continue
+        for domain_dir in "$base_dir"/*; do
+            [[ -d "$domain_dir" ]] || continue
+            local domain=$(basename "$domain_dir")
+            local cert_file="$domain_dir/fullchain.pem"
+            local key_file="$domain_dir/privkey.pem"
+            
+            if [[ -f "$cert_file" && -f "$key_file" ]]; then
+                local exp_raw exp_formatted
+                exp_raw=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
+                if [[ -n "$exp_raw" ]]; then
+                    exp_formatted=$(date -d "$exp_raw" "+%Y.%m.%d %H:%M:%S" 2>/dev/null)
+                    [[ -z "$exp_formatted" ]] && exp_formatted="$exp_raw" # 兼容性回退
+                else
+                    exp_formatted="读取失败"
                 fi
-            done
-        fi
+                
+                green "域名: $domain"
+                echo "  证书路径: $cert_file"
+                echo "  私钥路径: $key_file"
+                if [[ "$exp_formatted" != "读取失败" ]]; then
+                    yellow "  到期时间: $exp_formatted"
+                else
+                    red "  到期时间: 读取失败"
+                fi
+                echo "----------------------------------------"
+                found=1
+            fi
+        done
     done
-    if [[ $found -eq 0 ]]; then
-        yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
-    fi
-	echo ""
-    reading "按任意键返回证书管理菜单..." dummy_var
+    [[ $found -eq 0 ]] && yellow "未在 /root/cert 或 /etc/nginx/cert 中找到任何证书。"
+    echo ""
+    reading "按任意键返回..." dummy_var
 }
 
 # 删除证书 
@@ -531,9 +537,8 @@ cert_manager() {
                 ;;
             3) delete_cert ;;
             0) 
-                green "正在返回上一级菜单..."
-                sleep 0.5
-                break 
+                green "返回上一级菜单..."
+                sleep 1.5; disable_open_sub
                 ;;
             *) 
                 red "无效输入，请重新选择！"
