@@ -538,7 +538,7 @@ cert_manager() {
             3) delete_cert ;;
             0) 
                 green "返回上一级菜单..."
-                sleep 1.5; disable_open_sub
+                sleep 1; disable_open_sub
                 ;;
             *) 
                 red "无效输入，请重新选择！"
