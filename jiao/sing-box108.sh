@@ -5011,6 +5011,8 @@ warp_manage() {
 	skyblue "----------------------"
 	green "7. fanout"
     skyblue "----------------------"
+	green "8. 网页版分流"
+    skyblue "----------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     purple "00. 退出脚本"
@@ -5083,6 +5085,73 @@ warp_manage() {
 			sleep 1; warp_manage
               ;;
 	    7)  extract_fanout_socks ;;
+		8)
+            clear
+            green "=== 网页版分流面 ==="
+            skyblue "------------------------"
+            green "1. 开启面板"
+            red "2. 卸载面板"
+            skyblue "------------------------"
+            purple "0. 返回上级菜单"
+            skyblue "------------------------"
+            read -p "请输入选择: " web_choice
+            case "$web_choice" in
+                1)
+                    echo "正在启动..."
+                    local WEB_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/singbox_web.py"
+                    
+                    mkdir -p /etc/sing-box
+                    curl -sSL -o /etc/sing-box/singbox_web.py "$WEB_SCRIPT_URL"
+                    
+                    if [ ! -f "/etc/sing-box/singbox_web.py" ]; then
+                        red "下载失败，请检查远程链接是否正确！"
+                        sleep 2
+                        warp_manage
+                        return
+                    fi
+                    
+                    # 停止旧进程
+                    pkill -f singbox_web.py
+                    # 后台运行
+                    nohup python3 /etc/sing-box/singbox_web.py > /dev/null 2>&1 &
+                    sleep 1
+                    
+                    if [ -f "/etc/sing-box/web_config.json" ]; then
+                        local web_port=$(grep -o '"port": *[0-9]*' /etc/sing-box/web_config.json | grep -o '[0-9]*')
+                        local web_pwd=$(grep -o '"password": *"[^"]*"' /etc/sing-box/web_config.json | cut -d'"' -f4)
+                        local server_ip=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
+                        
+                        echo ""
+                        green "=========================================="
+                        green "🚀 网页面板已成功启动！"
+                        skyblue "访问地址: http://${server_ip}:${web_port}"
+                        skyblue "访问密码: ${web_pwd}"
+                        green "=========================================="
+                    else
+                        red "面板启动异常，请检查 Python 环境或依赖。"
+                    fi
+                    echo ""
+                    read -p "按回车键继续..."
+                    ;;
+                2)
+                    echo "正在卸载..."
+                    pkill -f singbox_web.py
+                    rm -f /etc/sing-box/singbox_web.py
+                    rm -f /etc/sing-box/web_config.json
+                    green "面板已成功卸载！"
+                    sleep 1
+                    ;;
+                0)
+                    warp_manage
+                    return
+                    ;;
+                *)
+                    red "无效选项"
+                    sleep 1
+                    ;;
+            endcase
+            warp_manage
+            ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
