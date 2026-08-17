@@ -64,7 +64,7 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>身份认证</h3>
+        <h3>  </h3>
         <input type="password" id="pwd">
         <button onclick="login()">登 录</button>
     </div>
@@ -112,7 +112,7 @@ HTML_PAGE = """
     </style>
 </head>
 <body>
-    <h2>🚀 分流与节点管理</h2>
+    <h2>🚀</h2>
     <div class="card" style="text-align: right; background: #f8f9fa;">
         <button class="success" onclick="syncFanout()">🔄 同步 Fanout 节点</button>
     </div>
