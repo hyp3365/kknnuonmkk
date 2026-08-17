@@ -940,16 +940,19 @@ ssl_certificate() {
   local CERT_200_FILE="${work_dir}/cert_200.pem"
   local CERT_200_SNI
 
-  [ ! -d ${WORK_DIR}/cert ] && mkdir -p ${WORK_DIR}/cert
+  # 确保主目录存在
+  [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}"
 
+  # 处理私钥（直接存放在 work_dir 下）
   if [ "$CERT_MODE" != 'naive_only' ]; then
-    openssl ecparam -genkey -name prime256v1 -out ${work_dir}/private.key
-  elif [ ! -s ${work_dir}/private.key ] || [ ! -s ${work_dir}/cert.pem ]; then
+    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
+  elif [ ! -s "${work_dir}/private.key" ] || [ ! -s "${work_dir}/cert.pem" ]; then
     CERT_MODE=''
-    openssl ecparam -genkey -name prime256v1 -out ${work_dir}/private.key
+    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
   fi
 
-  cat > ${work_dir}/cert.conf << EOF
+  # 生成 OpenSSL 临时配置文件
+  cat > "${work_dir}/cert.conf" << EOF
 [req]
 distinguished_name = req_distinguished_name
 x509_extensions = v3_req
@@ -965,17 +968,19 @@ subjectAltName = @alt_names
 DNS = ${TLS_SERVER}
 EOF
 
+  # 生成证书（直接存放在 work_dir 下）
   if [ "$CERT_MODE" != 'naive_only' ]; then
-    openssl req -new -x509 -days 36500 -key ${work_dir}/cert/private.key -out ${work_dir}/cert.pem -config ${work_dir}/cert.conf -extensions v3_req
-    openssl req -new -x509 -days 200 -key ${work_dir}/cert/private.key -out ${work_dir}/cert_200.pem -config ${work_dir}/cert.conf -extensions v3_req
+    openssl req -new -x509 -days 36500 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -config "${work_dir}/cert.conf" -extensions v3_req
+    openssl req -new -x509 -days 200 -key "${work_dir}/private.key" -out "${work_dir}/cert_200.pem" -config "${work_dir}/cert.conf" -extensions v3_req
   else
     CERT_200_SNI=$(openssl x509 -noout -ext subjectAltName -in "$CERT_200_FILE" 2>/dev/null | awk -F 'DNS:' '/DNS:/{gsub(/,.*/, "", $2); print $2}')
     if [ ! -s "$CERT_200_FILE" ] || ! openssl x509 -checkend 0 -noout -in "$CERT_200_FILE" >/dev/null 2>&1 || [ "$CERT_200_SNI" != "$TLS_SERVER" ]; then
-      openssl req -new -x509 -days 200 -key ${work_dir}/private.key -out ${work_dir}/cert_200.pem -config ${work_dir}/cert.conf -extensions v3_req
+      openssl req -new -x509 -days 200 -key "${work_dir}/private.key" -out "${work_dir}/cert_200.pem" -config "${work_dir}/cert.conf" -extensions v3_req
     fi
   fi
 
-  rm -f ${work_dir}/cert.conf
+  # 清理临时配置文件
+  rm -f "${work_dir}/cert.conf"
 }
 
 
