@@ -5086,7 +5086,6 @@ warp_manage() {
               ;;
 	    7)  extract_fanout_socks ;;
 	    8)
-		while true; do
         clear
         green "=== 网页版分流 ==="
         skyblue "------------------------"
@@ -5143,52 +5142,10 @@ warp_manage() {
                 green "已卸载"
                 sleep 1
                 ;;
-			3)   local state port pw ip
-                if pgrep -f "singbox_web.py" >/dev/null 2>&1; then
-                    state="running"
-                else
-                    state="stopped"
-                fi
-
-                if [ -f "/etc/sing-box/web_config.json" ]; then
-                    port=$(grep -o '"port": *[0-9]*' /etc/sing-box/web_config.json | grep -o '[0-9]*')
-                    pw=$(grep -o '"password": *"[^"]*"' /etc/sing-box/web_config.json | cut -d'"' -f4)
-                else
-                    port="-"
-                    pw="-"
-                fi
-                
-                ip=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
-
-                echo
-                if [[ $state == running ]]; then
-                    echo "  面板状态: 运行中"
-                else
-                    echo "  面板状态: 已停止"
-                fi
-                echo
-                echo "  管理地址: http://${ip}:${port}/"
-                echo -e " ${B}访问口令  ${pw}${N}"
-                echo
-                echo ""
-                read -p "按回车键继续..."
-                ;;
-            0)
-                warp_manage
-                return
-                ;;
-            *)
-                red "无效选项"
-                sleep 1
-                ;;
-        esac
-        warp_manage
-        ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
     esac
-  done
 }
 
 #把fanout socks出站添加到sing-box出站
