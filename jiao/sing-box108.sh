@@ -5167,7 +5167,7 @@ warp_manage() {
                 fi
                 echo
                 echo "  管理地址: http://${ip}:${port}/"
-                echo -e "  访问口令: ${pw}"
+                echo -e " ${B}访问口令  ${pw}${N}"
                 echo
                 echo ""
                 read -p "按回车键继续..."
