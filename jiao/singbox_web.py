@@ -383,6 +383,8 @@ async function addRule() {
 }
 
 async function updateRule(idx) {
+    alert("进入updateRule");
+
     let val = document.getElementById(`rule-sel-${idx}`).value;
 
     let res = await fetch(
