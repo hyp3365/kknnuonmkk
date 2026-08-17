@@ -582,8 +582,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
                 
-                subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-                msg = {"code": 0, "msg": f"切换成功！已调整为 {outbound}"}
+                subprocess.Popen(
+    ["systemctl", "restart", "sing-box"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL
+)
+msg = {"code": 0, "msg": f"切换成功！已调整为 {outbound}"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"切换失败: {str(e)}"}
 
@@ -610,8 +614,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     rules.pop(target_i)
                     with open(ROUTE_FILE, "w") as f:
                         json.dump(r_json, f, indent=2)
-                    subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-                    msg = {"code": 0, "msg": "规则删除成功！"}
+                    subprocess.Popen(
+    ["systemctl", "restart", "sing-box"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL
+)
+msg = {"code": 0, "msg": "规则删除成功！"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
             except Exception as e:
@@ -665,8 +673,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
                 
-                subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-                msg = {"code": 0, "msg": "添加规则成功！"}
+                subprocess.Popen(
+    ["systemctl", "restart", "sing-box"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL
+)
+msg = {"code": 0, "msg": "添加规则成功！"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"添加失败: {str(e)}"}
 
