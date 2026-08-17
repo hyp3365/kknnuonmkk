@@ -5086,6 +5086,7 @@ warp_manage() {
               ;;
 	    7)  extract_fanout_socks ;;
 	    8)
+		while true; do
         clear
         green "=== 网页版分流 ==="
         skyblue "------------------------"
@@ -5187,6 +5188,7 @@ warp_manage() {
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
     esac
+  done
 }
 
 #把fanout socks出站添加到sing-box出站
