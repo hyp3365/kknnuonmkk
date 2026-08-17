@@ -5091,6 +5091,7 @@ warp_manage() {
         skyblue "------------------------"
         green "1. 开启"
         red "2. 卸载"
+		green "3. 查看"
         skyblue "------------------------"
         purple "0. 返回上级菜单"
         skyblue "------------------------"
@@ -5140,6 +5141,35 @@ warp_manage() {
                 rm -f /etc/sing-box/web_config.json
                 green "已卸载"
                 sleep 1
+                ;;
+			3)
+                local state port pw ip
+                if pgrep -f "singbox_web.py" >/dev/null 2>&1; then
+                    state="running"
+                else
+                    state="stopped"
+                fi
+                if [ -f "/etc/sing-box/web_config.json" ]; then
+                    port=$(grep -o '"port": *[0-9]*' /etc/sing-box/web_config.json | grep -o '[0-9]*')
+                    pw=$(grep -o '"password": *"[^"]*"' /etc/sing-box/web_config.json | cut -d'"' -f4)
+                else
+                    port="-"
+                    pw="-"
+                fi
+                ip=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
+
+                echo
+                if [[ $state == running ]]; then
+                    echo -e "  面板状态    ${G}运行中${N}"
+                else
+                    echo -e "  面板状态    ${R}已停止${N}"
+                fi
+                echo
+                echo -e "  ${B}管理地址  http://${ip}:${port}/${N}"
+                echo -e "  ${B}访问口令  ${pw}${N}"
+                echo
+                echo ""
+                read -p "按回车键继续..."
                 ;;
             0)
                 warp_manage
