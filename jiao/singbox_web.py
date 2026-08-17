@@ -383,22 +383,31 @@ async function addRule() {
 }
 
 async function updateRule(idx) {
+
     alert("进入updateRule");
 
     let val = document.getElementById(`rule-sel-${idx}`).value;
+
+    alert("准备请求:" + val);
+
 
     let res = await fetch(
         `/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`
     );
 
+
+    alert("收到HTTP:" + res.status);
+
+
     let result = await res.json();
 
-    if (result.code === 0) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        await loadData();
-    }
 
-    alert(result.msg);
+    alert("返回内容:" + result.msg);
+
+
+    if (result.code === 0) {
+        loadData();
+    }
 }
 
 
