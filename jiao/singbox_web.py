@@ -182,6 +182,11 @@ HTML_PAGE = """
 
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
+function reloadAfterDelay(seconds = 3) {
+    setTimeout(() => {
+        location.reload();
+    }, seconds * 1000);
+}
 
 function toggleRuleInput() {
     let type = document.getElementById('new-rule-type').value;
@@ -276,9 +281,11 @@ async function loadData() {
 async function syncFanout() {
     let res = await fetch('/api/sync_fanout?' + new Date().getTime());
     let result = await res.json();
+
     alert(result.msg);
+
     if (result.code === 0) {
-        loadData();
+        reloadAfterDelay(3);
     }
 }
 
@@ -308,10 +315,9 @@ async function addRule() {
     let result = await res.json();
     
     alert(result.msg);
-    if (result.code === 0) { 
-        document.getElementById('new-domain-value').value = '';
-        loadData(); 
-    }
+    if (result.code === 0) {
+    reloadAfterDelay(3);
+   }
 }
 
 async function updateRule(idx) {
@@ -320,7 +326,9 @@ async function updateRule(idx) {
     let result = await res.json();
     
     alert(result.msg);
-    if (result.code === 0) { loadData(); }
+    if (result.code === 0) {
+    reloadAfterDelay(3);
+  }
 }
 
 async function deleteRule(idx) {
@@ -329,7 +337,9 @@ async function deleteRule(idx) {
     let result = await res.json();
     
     alert(result.msg);
-    if (result.code === 0) { loadData(); }
+    if (result.code === 0) {
+    reloadAfterDelay(2);
+   }
 }
 
 loadData();
