@@ -6003,6 +6003,7 @@ while true; do
                 yellow "sing-box 已经安装！\n"
             else
 			    optimize_dns
+				ssl_certificate
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
 				install_argo_watchdog
