@@ -5149,7 +5149,7 @@ warp_manage() {
                     red "无效选项"
                     sleep 1
                     ;;
-            endcase
+            esac
             warp_manage
             ;;
         0)  menu ;;
