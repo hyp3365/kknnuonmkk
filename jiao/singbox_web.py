@@ -20,18 +20,14 @@ def load_or_generate_config():
                 port = cfg.get("port")
                 pwd_hash = cfg.get("password_hash")
                 if port and pwd_hash:
-                    # 返回 None 代表不显示明文密码
                     return int(port), str(pwd_hash), None
         except:
             pass
     
-    # 重新生成配置：固定端口 9999，随机 4 位密码
     port = 9999
     plain_password = str(random.randint(1000, 9999))
-    # 将明文密码转换为 SHA-256 哈希值
     pwd_hash = hashlib.sha256(plain_password.encode()).hexdigest()
     
-    # 配置文件中只保存哈希值，不保存明文！
     cfg = {"port": port, "password_hash": pwd_hash}
     try:
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
@@ -56,7 +52,7 @@ LOGIN_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>你好</title>
+    <title>身份验证</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
@@ -69,16 +65,16 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>你好</h3>
-        <input type="password" id="pwd" placeholder="你好" inputmode="numeric" pattern="[0-9]*" maxlength="4">
+        <h3>身份认证</h3>
+        <input type="password" id="pwd" placeholder="请输入访问密码">
         <button onclick="login()">登 录</button>
     </div>
     <script>
         if (document.cookie.includes('auth=')) {
             let pwdInput = document.getElementById('pwd');
-            pwdInput.placeholder = "请输入";
+            pwdInput.placeholder = "密码错误，请重试";
             pwdInput.style.borderColor = "red";
-            document.cookie = "auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"; // 清除错误 cookie
+            document.cookie = "auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
         }
         function login() {
             let p = document.getElementById('pwd').value;
@@ -303,9 +299,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         if cookie_header:
             cookies = http.cookies.SimpleCookie(cookie_header)
             if 'auth' in cookies:
-                
                 input_pwd = cookies['auth'].value
-        
                 input_hash = hashlib.sha256(input_pwd.encode()).hexdigest()
                 if input_hash == WEB_PASSWORD_HASH:
                     return True
@@ -575,13 +569,10 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print("=" * 50)
-    print(f"🚀 Web面板启动！")
-    print(f"🔗 访问地址: http://<你的服务器IP>:{PORT}")
-    
+    print(f"🚀 Web 面板已启动！端口: {PORT}")
     if PLAIN_PASSWORD:
-        print(f"🔑 密码: {PLAIN_PASSWORD}")
+        print(f"🔑 初始访问密码: {PLAIN_PASSWORD}")
     else:
-        print("💡 如需重置密码，请执行: rm /etc/sing-box/web_config.json 然后重启本脚本。")
-    
+        print("🔑 密码已由已有配置文件加载。")
     print("=" * 50)
     server.serve_forever()
