@@ -939,11 +939,12 @@ ssl_certificate() {
   local CERT_MODE="$2"
   local CERT_200_FILE="${work_dir}/cert_200.pem"
   local CERT_200_SNI
+  local cn_val
 
   # 确保主目录存在
   [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}"
 
-  # 处理私钥（直接存放在 work_dir 下）
+  # 1. 处理私钥
   if [ "$CERT_MODE" != 'naive_only' ]; then
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
   elif [ ! -s "${work_dir}/private.key" ] || [ ! -s "${work_dir}/cert.pem" ]; then
@@ -951,7 +952,10 @@ ssl_certificate() {
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
   fi
 
-  # 生成 OpenSSL 临时配置文件
+  # 2. 在 cat 外部提前计算好 CN（彻底避免 Bash 语法冲突）
+  cn_val=$(awk -F . '{print $(NF-1)"."$NF}' <<< "$TLS_SERVER")
+
+  # 3. 生成 OpenSSL 临时配置文件
   cat > "${work_dir}/cert.conf" << EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -959,7 +963,7 @@ x509_extensions = v3_req
 prompt = no
 
 [req_distinguished_name]
-CN = $(awk -F . '{print $(NF-1)"."$NF}' <<< "$TLS_SERVER")
+CN = ${cn_val}
 
 [v3_req]
 subjectAltName = @alt_names
@@ -968,7 +972,7 @@ subjectAltName = @alt_names
 DNS = ${TLS_SERVER}
 EOF
 
-  # 生成证书（直接存放在 work_dir 下）
+  # 4. 生成证书
   if [ "$CERT_MODE" != 'naive_only' ]; then
     openssl req -new -x509 -days 36500 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -config "${work_dir}/cert.conf" -extensions v3_req
     openssl req -new -x509 -days 200 -key "${work_dir}/private.key" -out "${work_dir}/cert_200.pem" -config "${work_dir}/cert.conf" -extensions v3_req
@@ -979,7 +983,7 @@ EOF
     fi
   fi
 
-  # 清理临时配置文件
+  # 5. 清理临时配置文件
   rm -f "${work_dir}/cert.conf"
 }
 
