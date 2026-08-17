@@ -1,4 +1,3 @@
-cat << 'EOF' > /etc/sing-box/singbox_web.py
 #!/usr/bin/env python3
 import http.server
 import http.cookies
@@ -741,4 +740,4 @@ if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print(WEB_PASSWORD)
     server.serve_forever()
-EOF
+
