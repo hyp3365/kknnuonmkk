@@ -45,7 +45,7 @@ OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 # ==========================================
 
-# 判断规则是否为面板可以管理的规则（域名、规则集，或者是没有任何匹配条件的“全匹配规则”）
+# 判断规则是否为面板可以管理的规则
 def is_managed_rule(r):
     if not isinstance(r, dict):
         return False
@@ -108,7 +108,7 @@ HTML_PAGE = """
         .card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
         .table-container { width: 100%; overflow-x: auto; }
         table { width: 100%; min-width: 600px; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; }
         th { background: #fafafa; color: #555; }
         select, input[type="text"] { width: 100%; max-width: 300px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; font-size: 14px; }
         button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
@@ -117,10 +117,16 @@ HTML_PAGE = """
         .success:hover { background: #0b5121; }
         .danger { background: #d93025; }
         .danger:hover { background: #b31412; }
+        .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 12px; padding: 3px 8px; margin-top: 6px; border-radius: 4px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
+        .edit-btn:hover { background: #d2e3fc; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; font-weight: bold; margin-bottom: 5px; }
         .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
         .type-badge.all { background: #fce8e6; color: #d93025; }
+        
+        /* 弹窗样式 */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
+        .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
     </style>
 </head>
 <body>
@@ -133,7 +139,7 @@ HTML_PAGE = """
         <h3>➕ 添加规则</h3>
         <div class="form-group">
             <label>规则类型与内容:</label>
-            <select id="new-rule-type" onchange="toggleRuleInput()">
+            <select id="new-rule-type" onchange="toggleRuleInput('new')">
                 <option value="domain_suffix">域名后缀</option>
                 <option value="rule_set">规则集</option>
             </select>
@@ -172,17 +178,37 @@ HTML_PAGE = """
         </div>
     </div>
 
+    <!-- 修改规则内容的弹窗 -->
+    <div id="modalOverlay" class="modal-overlay" onclick="closeEditModal()"></div>
+    <div id="editModal" class="modal-content">
+        <h3 style="margin-top:0;">✏️ 修改规则内容</h3>
+        <input type="hidden" id="edit-idx">
+        <div class="form-group">
+            <label>新规则类型与内容:</label>
+            <select id="edit-rule-type" onchange="toggleRuleInput('edit')" style="width: 100%; max-width: 100%;">
+                <option value="domain_suffix">域名后缀</option>
+                <option value="rule_set">规则集</option>
+            </select>
+            <input type="text" id="edit-domain-value" placeholder="输入域名 (留空则匹配所有流量)" style="width: 100%; max-width: 100%; margin-top: 8px;">
+            <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 8px;"></select>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
+            <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
+        </div>
+    </div>
+
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
 
-function toggleRuleInput() {
-    let type = document.getElementById('new-rule-type').value;
+function toggleRuleInput(prefix) {
+    let type = document.getElementById(prefix + '-rule-type').value;
     if (type === 'rule_set') {
-        document.getElementById('new-domain-value').style.display = 'none';
-        document.getElementById('new-ruleset-select').style.display = 'inline-block';
+        document.getElementById(prefix + '-domain-value').style.display = 'none';
+        document.getElementById(prefix + '-ruleset-select').style.display = 'inline-block';
     } else {
-        document.getElementById('new-domain-value').style.display = 'inline-block';
-        document.getElementById('new-ruleset-select').style.display = 'none';
+        document.getElementById(prefix + '-domain-value').style.display = 'inline-block';
+        document.getElementById(prefix + '-ruleset-select').style.display = 'none';
     }
 }
 
@@ -229,13 +255,18 @@ async function loadData() {
                 
                 ruleHtml += `<tr>
                     <td><span class="${badgeClass}">${typeName}</span></td>
-                    <td style="word-break: break-all;"><b>${r.values}</b></td>
+                    <td>
+                        <div style="word-break: break-all;"><b>${r.values}</b></div>
+                        <div class="edit-btn" onclick="openEditModal(${idx})">✏️ 修改内容</div>
+                    </td>
                     <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
                     <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
                     <td>
-                        <select id="rule-sel-${idx}" style="width: auto;">${opts}</select>
-                        <button onclick="updateRule(${idx})" style="padding: 4px 8px; margin-bottom: 2px;">切换</button>
-                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
+                        <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 5px;">${opts}</select>
+                        <div>
+                            <button onclick="updateRule(${idx})" style="padding: 4px 8px;">切换</button>
+                            <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
+                        </div>
                     </td>
                 </tr>`;
             });
@@ -243,6 +274,53 @@ async function loadData() {
         document.getElementById('rules-table').innerHTML = ruleHtml;
     } catch (e) {
         console.error('获取数据失败');
+    }
+}
+
+function openEditModal(idx) {
+    let rule = globalData.rules[idx];
+    document.getElementById('edit-idx').value = idx;
+    
+    let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
+    globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
+    document.getElementById('edit-ruleset-select').innerHTML = rsHtml;
+
+    if (rule.type === 'match_all') {
+        document.getElementById('edit-rule-type').value = 'domain_suffix';
+        document.getElementById('edit-domain-value').value = '';
+    } else if (rule.type === 'rule_set') {
+        document.getElementById('edit-rule-type').value = 'rule_set';
+        document.getElementById('edit-ruleset-select').value = rule.values;
+    } else {
+        document.getElementById('edit-rule-type').value = 'domain_suffix';
+        document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 - 所有流量)' ? rule.values : '';
+    }
+    
+    toggleRuleInput('edit');
+    document.getElementById('modalOverlay').style.display = 'block';
+    document.getElementById('editModal').style.display = 'block';
+}
+
+function closeEditModal() {
+    document.getElementById('modalOverlay').style.display = 'none';
+    document.getElementById('editModal').style.display = 'none';
+}
+
+async function saveEdit() {
+    let idx = document.getElementById('edit-idx').value;
+    let type = document.getElementById('edit-rule-type').value;
+    let val = type === 'domain_suffix' ? document.getElementById('edit-domain-value').value.trim() : document.getElementById('edit-ruleset-select').value;
+
+    let res = await fetch('/api/edit_rule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: parseInt(idx), type: type, value: val })
+    });
+    let result = await res.json();
+    alert(result.msg);
+    if (result.code === 0) {
+        closeEditModal();
+        loadData();
     }
 }
 
@@ -503,7 +581,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
                 
-                # 如果没有输入域名或规则集，则直接生成只包含 outbound (和 inbound) 的规则，这在 sing-box 中意味着匹配所有
                 new_rule = { "outbound": outbound }
                 
                 if val_str:
@@ -531,6 +608,58 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 msg = {"code": 1, "msg": f"添加失败: {str(e)}"}
 
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
+
+        # 新增的修改规则接口
+        elif path == "/api/edit_rule":
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            
+            try:
+                data = json.loads(post_data)
+                idx = int(data.get("index", 0))
+                r_type = data.get("type", "domain_suffix")
+                val_str = data.get("value", "").strip()
+                
+                with open(ROUTE_FILE, "r") as f:
+                    r_json = json.load(f)
+                
+                rules = r_json["route"].get("rules", [])
+                valid_rules = 0
+                target_r = None
+                
+                for r in rules:
+                    if is_managed_rule(r):
+                        if valid_rules == idx:
+                            target_r = r
+                            break
+                        valid_rules += 1
+                
+                if target_r is not None:
+                    # 清除原有的匹配条件
+                    target_r.pop("domain_suffix", None)
+                    target_r.pop("rule_set", None)
+                    
+                    # 重新写入新的匹配条件（如果留空，则不写入，变为全匹配）
+                    if val_str:
+                        if r_type == "domain_suffix":
+                            vals = [v.strip() for v in val_str.split(",") if v.strip()]
+                            if vals:
+                                target_r["domain_suffix"] = vals
+                        else:
+                            target_r["rule_set"] = [val_str]
+                    
+                    with open(ROUTE_FILE, "w") as f:
+                        json.dump(r_json, f, indent=2)
+                    
+                    subprocess.run(["systemctl", "restart", "sing-box"], check=False)
+                    msg = {"code": 0, "msg": "规则内容修改成功！"}
+                else:
+                    msg = {"code": 1, "msg": "未找到指定规则"}
+            except Exception as e:
+                msg = {"code": 1, "msg": f"修改失败: {str(e)}"}
+
+            self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
+
 
     def do_sync_fanout_action(self):
         if not os.path.exists(FANOUT_FILE):
