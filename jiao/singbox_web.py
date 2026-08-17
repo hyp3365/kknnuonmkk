@@ -1,3 +1,4 @@
+cat << 'EOF' > /etc/sing-box/singbox_web.py
 #!/usr/bin/env python3
 import http.server
 import http.cookies
@@ -7,6 +8,7 @@ import subprocess
 import urllib.parse
 import random
 import time
+import threading
 
 # ================= 配置区 =================
 CONFIG_FILE = "/etc/sing-box/web_config.json"
@@ -45,7 +47,11 @@ OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 # ==========================================
 
-# 判断规则是否为面板可以管理的规则
+def restart_singbox_async():
+    def _restart():
+        subprocess.run(["systemctl", "restart", "sing-box"], check=False)
+    threading.Thread(target=_restart, daemon=True).start()
+
 def is_managed_rule(r):
     if not isinstance(r, dict):
         return False
@@ -75,8 +81,8 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>身份认证</h3>
-        <input type="password" id="pwd">
+        <h3>面板登录</h3>
+        <input type="password" id="pwd" placeholder="请输入访问密码">
         <button onclick="login()">登 录</button>
     </div>
     <script>
@@ -84,7 +90,7 @@ LOGIN_PAGE = """
             let p = document.getElementById('pwd').value;
             if (!p) return;
             document.cookie = "auth=" + p + "; path=/; max-age=2592000";
-            window.location.replace('/?t=' + Date.now());
+            window.location.href = '/?t=' + new Date().getTime();
         }
         document.getElementById('pwd').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') login();
@@ -111,12 +117,13 @@ HTML_PAGE = """
         th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; }
         th { background: #fafafa; color: #555; }
         select, input[type="text"] { width: 100%; max-width: 300px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; font-size: 14px; }
-        button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
-        button:hover { background: #1557b0; }
+        button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        button:hover:not(:disabled) { background: #1557b0; }
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
         .success { background: #137333; }
-        .success:hover { background: #0b5121; }
+        .success:hover:not(:disabled) { background: #0b5121; }
         .danger { background: #d93025; }
-        .danger:hover { background: #b31412; }
+        .danger:hover:not(:disabled) { background: #b31412; }
         .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 12px; padding: 3px 8px; margin-top: 6px; border-radius: 4px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
         .edit-btn:hover { background: #d2e3fc; }
         .form-group { margin-bottom: 15px; }
@@ -124,7 +131,6 @@ HTML_PAGE = """
         .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
         .type-badge.all { background: #fce8e6; color: #d93025; }
         
-        /* 弹窗样式 */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
         .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
     </style>
@@ -132,7 +138,7 @@ HTML_PAGE = """
 <body>
     <h2>🚀 分流与节点管理</h2>
     <div class="card" style="text-align: right; background: #f8f9fa;">
-        <button class="success" onclick="syncFanout()">🔄 同步 Fanout 节点</button>
+        <button class="success" onclick="syncFanout(this)">🔄 同步 Fanout 节点</button>
     </div>
 
     <div class="card">
@@ -154,7 +160,7 @@ HTML_PAGE = """
         <div class="form-group">
             <label>出站节点:</label>
             <select id="new-rule-outbound"></select>
-            <button onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
+            <button onclick="addRule(this)" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
         </div>
     </div>
 
@@ -178,7 +184,6 @@ HTML_PAGE = """
         </div>
     </div>
 
-    <!-- 修改规则内容的弹窗 -->
     <div id="modalOverlay" class="modal-overlay" onclick="closeEditModal()"></div>
     <div id="editModal" class="modal-content">
         <h3 style="margin-top:0;">✏️ 修改规则内容</h3>
@@ -193,7 +198,7 @@ HTML_PAGE = """
             <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 8px;"></select>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
+            <button onclick="saveEdit(this)" style="flex: 1;">保存修改</button>
             <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
         </div>
     </div>
@@ -214,7 +219,7 @@ function toggleRuleInput(prefix) {
 
 async function loadData() {
     try {
-        let res = await fetch('/api/status?_=' + Math.random());
+        let res = await fetch('/api/status?' + new Date().getTime());
         if (res.status === 401) {
             window.location.reload();
             return;
@@ -263,19 +268,15 @@ async function loadData() {
                     <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
                     <td>
                         <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 5px;">${opts}</select>
-                        <div>
-                            <button onclick="updateRule(${idx})" style="padding: 4px 8px;">切换</button>
-                            <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
+                        <div style="display: flex; gap: 5px;">
+                            <button onclick="updateRule(${idx}, this)" style="padding: 4px 8px;">切换</button>
+                            <button class="danger" onclick="deleteRule(${idx}, this)" style="padding: 4px 8px;">删除</button>
                         </div>
                     </td>
                 </tr>`;
             });
         }
-        let table = document.getElementById('rules-table');
-
-requestAnimationFrame(() => {
-    table.innerHTML = ruleHtml;
-});
+        document.getElementById('rules-table').innerHTML = ruleHtml;
     } catch (e) {
         console.error('获取数据失败');
     }
@@ -310,127 +311,88 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-async function saveEdit() {
+// 通用异步请求处理：不弹成功提示，强制转3秒给后台重启留时间
+async function handleReq(btn, reqPromise, onSuccess) {
+    let oldHtml = btn.innerHTML;
+    btn.innerHTML = "⏳ 处理中...";
+    btn.disabled = true;
+    
+    let resObj = null;
+    try {
+        let res = await reqPromise;
+        resObj = await res.json();
+        // 只有报错时才提示
+        if (resObj.code !== 0) {
+            alert(resObj.msg);
+        } else if (onSuccess) {
+            onSuccess();
+        }
+    } catch (e) {
+        alert("网络请求异常");
+    }
+
+    // 强制按钮转3秒钟
+    setTimeout(() => {
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+        if (resObj && resObj.code === 0) {
+            loadData(); // 数据更新
+        }
+    }, 3000);
+}
+
+function syncFanout(btn) {
+    let req = fetch('/api/sync_fanout?' + new Date().getTime());
+    handleReq(btn, req);
+}
+
+function addRule(btn) {
+    let type = document.getElementById('new-rule-type').value;
+    let outbound = document.getElementById('new-rule-outbound').value;
+    let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
+
+    let inboundsSelect = document.getElementById('new-rule-inbounds');
+    let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
+
+    let req = fetch('/api/add_rule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
+    });
+    
+    handleReq(btn, req, () => {
+        document.getElementById('new-domain-value').value = '';
+    });
+}
+
+function updateRule(idx, btn) {
+    let val = document.getElementById(`rule-sel-${idx}`).value;
+    let req = fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
+    handleReq(btn, req);
+}
+
+function deleteRule(idx, btn) {
+    if (!confirm('确认删除？')) return;
+    let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
+    handleReq(btn, req);
+}
+
+function saveEdit(btn) {
     let idx = document.getElementById('edit-idx').value;
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix' ? document.getElementById('edit-domain-value').value.trim() : document.getElementById('edit-ruleset-select').value;
 
-    let res = await fetch('/api/edit_rule', {
+    let req = fetch('/api/edit_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: parseInt(idx), type: type, value: val })
     });
-    let result = await res.json();
-    alert(result.msg);
-    if (result.code === 0) {
+    
+    handleReq(btn, req, () => {
         closeEditModal();
-        loadData();
-    }
-}
-
-async function syncFanout() {
-
-    let res = await fetch(
-        '/api/sync_fanout?t=' + Date.now()
-    );
-
-    let result = await res.json();
-
-    if (result.code === 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        await loadData();
-    }
-
-    alert(result.msg);
-}
-
-
-async function addRule() {
-    let type = document.getElementById('new-rule-type').value;
-    let outbound = document.getElementById('new-rule-outbound').value;
-    let val = type === 'domain_suffix'
-        ? document.getElementById('new-domain-value').value.trim()
-        : document.getElementById('new-ruleset-select').value;
-
-    let inboundsSelect = document.getElementById('new-rule-inbounds');
-    let selectedInbounds = Array.from(inboundsSelect.selectedOptions)
-        .map(opt => opt.value);
-
-    let res = await fetch('/api/add_rule', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            type: type,
-            value: val,
-            inbounds: selectedInbounds,
-            outbound: outbound
-        })
     });
-
-    let result = await res.json();
-
-    if (result.code === 0) {
-        document.getElementById('new-domain-value').value = '';
-
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        await loadData();
-    }
-
-    alert(result.msg);
 }
 
-async function updateRule(idx) {
-
-    alert("进入updateRule");
-
-    let val = document.getElementById(`rule-sel-${idx}`).value;
-
-    alert("准备请求:" + val);
-
-
-    let res = await fetch(
-        `/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`
-    );
-
-
-    alert("收到HTTP:" + res.status);
-
-
-    let result = await res.json();
-
-
-    alert("返回内容:" + result.msg);
-
-
-    if (result.code === 0) {
-        loadData();
-    }
-}
-
-
-async function deleteRule(idx) {
-
-    if (!confirm('确认删除？')) return;
-
-    let res = await fetch(
-        `/api/del_rule?index=${idx}&t=${Date.now()}`
-    );
-
-    let result = await res.json();
-
-    if (result.code === 0) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        await loadData();
-    }
-
-    alert(result.msg);
-}
-
-
-alert("JS已加载");
 loadData();
 </script>
 </body>
@@ -582,12 +544,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
                 
-                subprocess.Popen(
-    ["systemctl", "restart", "sing-box"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
-)
-msg = {"code": 0, "msg": f"切换成功！已调整为 {outbound}"}
+                restart_singbox_async()
+                msg = {"code": 0, "msg": "success"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"切换失败: {str(e)}"}
 
@@ -614,12 +572,8 @@ msg = {"code": 0, "msg": f"切换成功！已调整为 {outbound}"}
                     rules.pop(target_i)
                     with open(ROUTE_FILE, "w") as f:
                         json.dump(r_json, f, indent=2)
-                    subprocess.Popen(
-    ["systemctl", "restart", "sing-box"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
-)
-msg = {"code": 0, "msg": "规则删除成功！"}
+                    restart_singbox_async()
+                    msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
             except Exception as e:
@@ -673,18 +627,13 @@ msg = {"code": 0, "msg": "规则删除成功！"}
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
                 
-                subprocess.Popen(
-    ["systemctl", "restart", "sing-box"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
-)
-msg = {"code": 0, "msg": "添加规则成功！"}
+                restart_singbox_async()
+                msg = {"code": 0, "msg": "success"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"添加失败: {str(e)}"}
 
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
 
-        # 新增的修改规则接口
         elif path == "/api/edit_rule":
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
@@ -710,11 +659,9 @@ msg = {"code": 0, "msg": "添加规则成功！"}
                         valid_rules += 1
                 
                 if target_r is not None:
-                    # 清除原有的匹配条件
                     target_r.pop("domain_suffix", None)
                     target_r.pop("rule_set", None)
                     
-                    # 重新写入新的匹配条件（如果留空，则不写入，变为全匹配）
                     if val_str:
                         if r_type == "domain_suffix":
                             vals = [v.strip() for v in val_str.split(",") if v.strip()]
@@ -726,15 +673,14 @@ msg = {"code": 0, "msg": "添加规则成功！"}
                     with open(ROUTE_FILE, "w") as f:
                         json.dump(r_json, f, indent=2)
                     
-                    subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-                    msg = {"code": 0, "msg": "规则内容修改成功！"}
+                    restart_singbox_async()
+                    msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"修改失败: {str(e)}"}
 
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
-
 
     def do_sync_fanout_action(self):
         if not os.path.exists(FANOUT_FILE):
@@ -786,8 +732,8 @@ msg = {"code": 0, "msg": "添加规则成功！"}
             with open(OUTBOUND_FILE, "w") as f:
                 json.dump(outbound_data, f, indent=2)
                 
-            subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-            return {"code": 0, "msg": f"同步成功！已提取 {len(new_fanout_nodes)} 个 Fanout 节点。"}
+            restart_singbox_async()
+            return {"code": 0, "msg": "success"}
         except Exception as e:
             return {"code": 1, "msg": f"同步出错: {str(e)}"}
 
@@ -795,3 +741,4 @@ if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print(WEB_PASSWORD)
     server.serve_forever()
+EOF
