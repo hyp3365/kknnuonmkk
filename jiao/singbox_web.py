@@ -22,10 +22,9 @@ def load_or_generate_config():
                     return int(port), str(password)
         except:
             pass
-    
-    # 首次运行：自动随机生成端口 (10000-60000之间) 和 16 位随机密码
-    port = random.randint(10000, 50000)
-    password = secrets.token_hex(8)  # 16位随机十六进制字符串
+            
+    port = 9909
+    password = str(random.randint(100000, 999999))
     
     cfg = {"port": port, "password": password}
     try:
@@ -33,7 +32,7 @@ def load_or_generate_config():
         with open(CONFIG_FILE, "w") as f:
             json.dump(cfg, f, indent=2)
     except Exception as e:
-        print(f"保存随机配置失败: {e}")
+        print(f"保存配置失败: {e}")
         
     return port, password
 
