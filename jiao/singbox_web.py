@@ -6,11 +6,11 @@ import os
 import subprocess
 import urllib.parse
 import random
-import hashlib
 import time
 
-# ================= 安全配置区 =================
+# ================= 配置区 =================
 CONFIG_FILE = "/etc/sing-box/web_config.json"
+FAILED_LOCK_UNTIL = 0
 
 def load_or_generate_config():
     if os.path.exists(CONFIG_FILE):
@@ -18,17 +18,16 @@ def load_or_generate_config():
             with open(CONFIG_FILE, "r") as f:
                 cfg = json.load(f)
                 port = cfg.get("port")
-                pwd_hash = cfg.get("password_hash")
-                if port and pwd_hash:
-                    return int(port), str(pwd_hash), None
+                pwd = cfg.get("password")
+                if port and pwd:
+                    return int(port), str(pwd)
         except:
             pass
     
     port = 9999
     plain_password = str(random.randint(1000, 9999))
-    pwd_hash = hashlib.sha256(plain_password.encode()).hexdigest()
     
-    cfg = {"port": port, "password_hash": pwd_hash}
+    cfg = {"port": port, "password": plain_password}
     try:
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
@@ -36,9 +35,9 @@ def load_or_generate_config():
     except Exception as e:
         print(f"保存配置失败: {e}")
         
-    return port, pwd_hash, plain_password
+    return port, plain_password
 
-PORT, WEB_PASSWORD_HASH, PLAIN_PASSWORD = load_or_generate_config()
+PORT, WEB_PASSWORD = load_or_generate_config()
 
 CONF_DIR = "/etc/sing-box/conf"
 ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
@@ -58,7 +57,7 @@ LOGIN_PAGE = """
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
         .login-box { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center; width: 100%; max-width: 320px; }
         h3 { color: #333; margin-top: 0; margin-bottom: 20px; }
-        input { padding: 12px; width: 100%; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 16px; text-align: center; letter-spacing: 2px; }
+        input { padding: 12px; width: 100%; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 16px; text-align: center; }
         button { padding: 12px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; }
         button:hover { background: #1557b0; }
     </style>
@@ -66,16 +65,10 @@ LOGIN_PAGE = """
 <body>
     <div class="login-box">
         <h3>身份认证</h3>
-        <input type="password" id="pwd" placeholder="请输入访问密码">
+        <input type="password" id="pwd">
         <button onclick="login()">登 录</button>
     </div>
     <script>
-        if (document.cookie.includes('auth=')) {
-            let pwdInput = document.getElementById('pwd');
-            pwdInput.placeholder = "密码错误，请重试";
-            pwdInput.style.borderColor = "red";
-            document.cookie = "auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        }
         function login() {
             let p = document.getElementById('pwd').value;
             if (!p) return;
@@ -295,16 +288,23 @@ loadData();
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     
     def check_auth(self):
+        global FAILED_LOCK_UNTIL
+        current_time = time.time()
+        
+        if current_time < FAILED_LOCK_UNTIL:
+            return False
+            
         cookie_header = self.headers.get('Cookie')
         if cookie_header:
             cookies = http.cookies.SimpleCookie(cookie_header)
             if 'auth' in cookies:
                 input_pwd = cookies['auth'].value
-                input_hash = hashlib.sha256(input_pwd.encode()).hexdigest()
-                if input_hash == WEB_PASSWORD_HASH:
+                if input_pwd == WEB_PASSWORD:
+                    FAILED_LOCK_UNTIL = 0
                     return True
                 else:
-                    time.sleep(2)
+                    FAILED_LOCK_UNTIL = current_time + 30
+                    time.sleep(1)
         return False
 
     def send_no_cache_response(self, code, content_type, body_bytes):
@@ -568,11 +568,5 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
-    print("=" * 50)
-    print(f"🚀 Web 面板已启动！端口: {PORT}")
-    if PLAIN_PASSWORD:
-        print(f"🔑 初始访问密码: {PLAIN_PASSWORD}")
-    else:
-        print("🔑 密码已由已有配置文件加载。")
-    print("=" * 50)
+    print(WEB_PASSWORD)
     server.serve_forever()
