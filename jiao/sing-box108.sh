@@ -5142,6 +5142,17 @@ warp_manage() {
                 green "已卸载"
                 sleep 1
                 ;;
+			0)
+                warp_manage
+                return
+                ;;
+            *)
+                red "无效选项"
+                sleep 1
+                ;;
+        esac
+        warp_manage
+        ;;
         0)  menu ;;
         00) exit 0 ;;
         *)  red "无效选项"; sleep 1; warp_manage ;;
