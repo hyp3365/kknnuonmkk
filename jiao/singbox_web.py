@@ -64,8 +64,8 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>面板安全认证</h3>
-        <input type="password" id="pwd" placeholder="请输入 16 位访问密码">
+        <h3>你好</h3>
+        <input type="password" id="pwd" placeholder="请输入密码">
         <br>
         <button onclick="login()">登 录</button>
     </div>
@@ -117,7 +117,7 @@ HTML_PAGE = """
     </style>
 </head>
 <body>
-    <h2>🚀 Sing-box 分流与节点管理</h2>
+    <h2>分流管理</h2>
 
     <!-- 同步节点 -->
     <div class="card" style="display: flex; justify-content: flex-end; align-items: center; background: #f8f9fa;">
