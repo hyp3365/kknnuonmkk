@@ -5142,26 +5142,7 @@ warp_manage() {
                 green "已卸载"
                 sleep 1
                 ;;
-			3) show_info; pause ;;
-            0)
-                warp_manage
-                return
-                ;;
-            *)
-                red "无效选项"
-                sleep 1
-                ;;
-        esac
-        warp_manage
-        ;;
-        0)  menu ;;
-        00) exit 0 ;;
-        *)  red "无效选项"; sleep 1; warp_manage ;;
-    esac
-}
-
-show_info() {
-local state port pw ip
+			3)   local state port pw ip
                 if pgrep -f "singbox_web.py" >/dev/null 2>&1; then
                     state="running"
                 else
@@ -5186,9 +5167,27 @@ local state port pw ip
                 fi
                 echo
                 echo "  管理地址: http://${ip}:${port}/"
-                echo "  访问口令: ${pw}"
+                echo -e "  访问口令: ${pw}"
                 echo
-           }
+                echo ""
+                read -p "按回车键继续..."
+                ;;
+            0)
+                warp_manage
+                return
+                ;;
+            *)
+                red "无效选项"
+                sleep 1
+                ;;
+        esac
+        warp_manage
+        ;;
+        0)  menu ;;
+        00) exit 0 ;;
+        *)  red "无效选项"; sleep 1; warp_manage ;;
+    esac
+}
 
 #把fanout socks出站添加到sing-box出站
 extract_fanout_socks() {
