@@ -5,10 +5,11 @@ import json
 import os
 import subprocess
 import urllib.parse
-import secrets
 import random
+import hashlib
+import time
 
-# ================= 自动随机配置区 =================
+# ================= 安全配置区 =================
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 
 def load_or_generate_config():
@@ -17,16 +18,21 @@ def load_or_generate_config():
             with open(CONFIG_FILE, "r") as f:
                 cfg = json.load(f)
                 port = cfg.get("port")
-                password = cfg.get("password")
-                if port and password:
-                    return int(port), str(password)
+                pwd_hash = cfg.get("password_hash")
+                if port and pwd_hash:
+                    # 返回 None 代表不显示明文密码
+                    return int(port), str(pwd_hash), None
         except:
             pass
-            
-    port = 9909
-    password = str(random.randint(100000, 999999))
     
-    cfg = {"port": port, "password": password}
+    # 重新生成配置：固定端口 9999，随机 4 位密码
+    port = 9999
+    plain_password = str(random.randint(1000, 9999))
+    # 将明文密码转换为 SHA-256 哈希值
+    pwd_hash = hashlib.sha256(plain_password.encode()).hexdigest()
+    
+    # 配置文件中只保存哈希值，不保存明文！
+    cfg = {"port": port, "password_hash": pwd_hash}
     try:
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
@@ -34,9 +40,9 @@ def load_or_generate_config():
     except Exception as e:
         print(f"保存配置失败: {e}")
         
-    return port, password
+    return port, pwd_hash, plain_password
 
-PORT, WEB_PASSWORD = load_or_generate_config()
+PORT, WEB_PASSWORD_HASH, PLAIN_PASSWORD = load_or_generate_config()
 
 CONF_DIR = "/etc/sing-box/conf"
 ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
@@ -50,28 +56,29 @@ LOGIN_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>身份验证</title>
+    <title>你好</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .login-box { background: #fff; padding: 30px 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
+        .login-box { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center; width: 100%; max-width: 320px; }
         h3 { color: #333; margin-top: 0; margin-bottom: 20px; }
-        input { padding: 12px; width: 220px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 15px; text-align: center; }
-        input:focus { border-color: #1a73e8; outline: none; }
-        button { padding: 12px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold; width: 100%; }
+        input { padding: 12px; width: 100%; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 16px; text-align: center; letter-spacing: 2px; }
+        button { padding: 12px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; }
         button:hover { background: #1557b0; }
     </style>
 </head>
 <body>
     <div class="login-box">
         <h3>你好</h3>
-        <input type="password" id="pwd" placeholder="请输入密码">
-        <br>
+        <input type="password" id="pwd" placeholder="你好" inputmode="numeric" pattern="[0-9]*" maxlength="4">
         <button onclick="login()">登 录</button>
     </div>
     <script>
         if (document.cookie.includes('auth=')) {
-            document.getElementById('pwd').placeholder = "密码错误，请重新输入";
-            document.getElementById('pwd').style.borderColor = "red";
+            let pwdInput = document.getElementById('pwd');
+            pwdInput.placeholder = "请输入";
+            pwdInput.style.borderColor = "red";
+            document.cookie = "auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"; // 清除错误 cookie
         }
         function login() {
             let p = document.getElementById('pwd').value;
@@ -92,110 +99,89 @@ HTML_PAGE = """
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Sing-box 分流面板</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 30px auto; padding: 0 15px; background: #f4f6f9; color: #333; }
-        h2 { color: #1a73e8; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-bottom: 20px; }
-        .card { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 12px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 0 auto; padding: 15px; background: #f4f6f9; color: #333; }
+        h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        .card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .table-container { width: 100%; overflow-x: auto; }
+        table { width: 100%; min-width: 600px; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
         th { background: #fafafa; color: #555; }
-        select, input[type="text"] { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; background: #fff; font-size: 14px; margin-right: 8px; }
-        input[type="text"] { width: 340px; }
-        button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 14px; }
+        select, input[type="text"] { width: 100%; max-width: 300px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; font-size: 14px; }
+        button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
         button:hover { background: #1557b0; }
-        button.success { background: #137333; }
-        button.success:hover { background: #0b5121; }
-        button.danger { background: #d93025; }
-        button.danger:hover { background: #b31412; }
-        .form-group { margin-bottom: 15px; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
-        .form-group label { min-width: 110px; font-weight: bold; padding-top: 8px; }
+        .success { background: #137333; }
+        .success:hover { background: #0b5121; }
+        .danger { background: #d93025; }
+        .danger:hover { background: #b31412; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; }
         .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
-        .help-text { font-size: 12px; color: #666; margin-top: 4px; width: 100%; }
     </style>
 </head>
 <body>
-    <h2>分流管理</h2>
-
-    <!-- 同步节点 -->
-    <div class="card" style="display: flex; justify-content: flex-end; align-items: center; background: #f8f9fa;">
-        <button class="success" onclick="syncFanout()">🔄 同步</button>
+    <h2>🚀 分流与节点管理</h2>
+    <div class="card" style="text-align: right; background: #f8f9fa;">
+        <button class="success" onclick="syncFanout()">🔄 同步 Fanout 节点</button>
     </div>
 
-    <!-- 添加新规则 -->
     <div class="card">
-        <h3>➕ 添加分流规则</h3>
-        
+        <h3>➕ 添加规则</h3>
         <div class="form-group">
-            <label>1. 规则与内容:</label>
-            <div>
-                <select id="new-rule-type" onchange="toggleRuleInput()">
-                    <option value="domain_suffix">域名后缀 (支持逗号多选)</option>
-                    <option value="rule_set">规则集 (GeoSite)</option>
-                </select>
-                <span id="input-container-domain">
-                    <input type="text" id="new-domain-value" placeholder="例如: ping0.cc, google.com">
-                </span>
-                <span id="input-container-ruleset" style="display: none;">
-                    <select id="new-ruleset-select"></select>
-                </span>
-                <div class="help-text">域名可输入多个用英文逗号隔开；规则集将直接从 route.json 中读取已有标签。</div>
-            </div>
+            <label>规则类型与内容:</label>
+            <select id="new-rule-type" onchange="toggleRuleInput()">
+                <option value="domain_suffix">域名后缀</option>
+                <option value="rule_set">规则集</option>
+            </select>
+            <input type="text" id="new-domain-value" placeholder="例如: google.com">
+            <select id="new-ruleset-select" style="display: none;"></select>
         </div>
-
         <div class="form-group">
-            <label>2. 生效节点:</label>
-            <div>
-                <select id="new-rule-inbounds" multiple style="height: 90px; width: 340px;"></select>
-                <div class="help-text"><b>如果不选任何项（留空），则默认对全部节点生效。</b></div>
-            </div>
+            <label>生效节点:</label>
+            <select id="new-rule-inbounds" multiple style="height: 70px;"></select>
+            <div style="font-size:12px; color:#666; margin-top:2px;">留空则默认对全部节点生效</div>
         </div>
-
         <div class="form-group">
-            <label>3. 选择出站:</label>
-            <div>
-                <select id="new-rule-outbound"></select>
-                <button onclick="addRule()" style="margin-left: 10px;">确认添加规则</button>
-            </div>
+            <label>出站节点:</label>
+            <select id="new-rule-outbound"></select>
+            <button onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
         </div>
     </div>
 
-    <!-- 规则列表 -->
     <div class="card">
         <h3>⚡ 已有分流规则列表</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th style="width: 12%;">类型</th>
-                    <th style="width: 35%;">内容 / 规则集</th>
-                    <th style="width: 18%;">生效入口</th>
-                    <th style="width: 15%;">当前出站</th>
-                    <th style="width: 20%;">操作</th>
-                </tr>
-            </thead>
-            <tbody id="rules-table">
-                <tr><td colspan="5" style="text-align:center;">正在加载规则...</td></tr>
-            </tbody>
-        </table>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">类型</th>
+                        <th style="width: 30%;">内容</th>
+                        <th style="width: 15%;">入口</th>
+                        <th style="width: 15%;">出站</th>
+                        <th style="width: 25%;">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="rules-table">
+                    <tr><td colspan="5" style="text-align:center;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
-function reloadAfterDelay(seconds = 3) {
-    setTimeout(() => {
-        location.reload();
-    }, seconds * 1000);
-}
 
 function toggleRuleInput() {
     let type = document.getElementById('new-rule-type').value;
     if (type === 'rule_set') {
-        document.getElementById('input-container-domain').style.display = 'none';
-        document.getElementById('input-container-ruleset').style.display = 'inline-block';
+        document.getElementById('new-domain-value').style.display = 'none';
+        document.getElementById('new-ruleset-select').style.display = 'inline-block';
     } else {
-        document.getElementById('input-container-domain').style.display = 'inline-block';
-        document.getElementById('input-container-ruleset').style.display = 'none';
+        document.getElementById('new-domain-value').style.display = 'inline-block';
+        document.getElementById('new-ruleset-select').style.display = 'none';
     }
 }
 
@@ -209,55 +195,35 @@ async function loadData() {
         globalData = await res.json();
         
         let outHtml = '';
-        if (globalData.outbounds.length === 0) {
-            outHtml = '<option value="" disabled>(无可用出站)</option>';
-        } else {
-            globalData.outbounds.forEach(o => {
-                outHtml += `<option value="${o}">${o}</option>`;
-            });
-        }
-        document.getElementById('new-rule-outbound').innerHTML = outHtml;
+        globalData.outbounds.forEach(o => outHtml += `<option value="${o}">${o}</option>`);
+        document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
 
         let inHtml = '';
-        if (globalData.inbounds.length === 0) {
-            inHtml = '<option value="" disabled>(未检测到入站节点)</option>';
-        } else {
-            globalData.inbounds.forEach(ib => {
-                inHtml += `<option value="${ib}">${ib}</option>`;
-            });
-        }
-        document.getElementById('new-rule-inbounds').innerHTML = inHtml;
+        globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
+        document.getElementById('new-rule-inbounds').innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
 
         let rsHtml = '';
-        if (globalData.available_rule_sets.length === 0) {
-            rsHtml = '<option value="">(未发现 rule_set 定义)</option>';
-        } else {
-            globalData.available_rule_sets.forEach(rs => {
-                rsHtml += `<option value="${rs}">${rs}</option>`;
-            });
-        }
-        document.getElementById('new-ruleset-select').innerHTML = rsHtml;
+        globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
+        document.getElementById('new-ruleset-select').innerHTML = rsHtml || '<option value="">(无规则集)</option>';
 
         let ruleHtml = '';
         if (globalData.rules.length === 0) {
-            ruleHtml = '<tr><td colspan="5" style="text-align:center; color:#888;">当前无自定义分流规则</td></tr>';
+            ruleHtml = '<tr><td colspan="5" style="text-align:center; color:#888;">暂无规则</td></tr>';
         } else {
             globalData.rules.forEach((r, idx) => {
                 let opts = '';
                 let isOutboundInList = false;
-                
                 globalData.outbounds.forEach(o => {
                     let selected = (o === r.outbound) ? 'selected' : '';
                     if (o === r.outbound) isOutboundInList = true;
                     opts += `<option value="${o}" ${selected}>${o}</option>`;
                 });
-                
                 if (!isOutboundInList && r.outbound) {
                     opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
                 }
                 
                 let typeName = r.type === 'domain_suffix' ? '域名后缀' : '规则集';
-                let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部节点</span>';
+                let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
                 
                 ruleHtml += `<tr>
                     <td><span class="type-badge">${typeName}</span></td>
@@ -265,81 +231,63 @@ async function loadData() {
                     <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
                     <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
                     <td>
-                        <select id="rule-sel-${idx}">${opts}</select>
-                        <button onclick="updateRule(${idx})">切换</button>
-                        <button class="danger" onclick="deleteRule(${idx})">删除</button>
+                        <select id="rule-sel-${idx}" style="width: auto;">${opts}</select>
+                        <button onclick="updateRule(${idx})" style="padding: 4px 8px; margin-bottom: 2px;">切换</button>
+                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
                     </td>
                 </tr>`;
             });
         }
         document.getElementById('rules-table').innerHTML = ruleHtml;
     } catch (e) {
-        alert('获取数据失败');
+        console.error('获取数据失败');
     }
 }
 
 async function syncFanout() {
     let res = await fetch('/api/sync_fanout?' + new Date().getTime());
     let result = await res.json();
-
     alert(result.msg);
-
-    if (result.code === 0) {
-        reloadAfterDelay(3);
-    }
+    if (result.code === 0) loadData();
 }
 
 async function addRule() {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
-    let val = '';
+    let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
 
-    if (type === 'domain_suffix') {
-        val = document.getElementById('new-domain-value').value.trim();
-        if (!val) { alert('请输入要匹配的域名后缀！'); return; }
-    } else {
-        val = document.getElementById('new-ruleset-select').value;
-        if (!val) { alert('未选中有效规则集！'); return; }
-    }
+    if (!val) { alert('请输入内容或选择规则集！'); return; }
 
     let inboundsSelect = document.getElementById('new-rule-inbounds');
     let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
 
-    let payload = { type: type, value: val, inbounds: selectedInbounds, outbound: outbound };
-
     let res = await fetch('/api/add_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
     });
     let result = await res.json();
-    
     alert(result.msg);
-    if (result.code === 0) {
-    reloadAfterDelay(3);
-   }
+    if (result.code === 0) { 
+        document.getElementById('new-domain-value').value = '';
+        loadData(); 
+    }
 }
 
 async function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
     let res = await fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
     let result = await res.json();
-    
     alert(result.msg);
-    if (result.code === 0) {
-    reloadAfterDelay(3);
-  }
+    if (result.code === 0) loadData();
 }
 
 async function deleteRule(idx) {
-    if (!confirm('确认要删除这条分流规则吗？')) return;
+    if (!confirm('确认删除？')) return;
     let res = await fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
     let result = await res.json();
-    
     alert(result.msg);
-    if (result.code === 0) {
-    reloadAfterDelay(2);
-   }
+    if (result.code === 0) loadData();
 }
 
 loadData();
@@ -354,8 +302,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         cookie_header = self.headers.get('Cookie')
         if cookie_header:
             cookies = http.cookies.SimpleCookie(cookie_header)
-            if 'auth' in cookies and cookies['auth'].value == WEB_PASSWORD:
-                return True
+            if 'auth' in cookies:
+                
+                input_pwd = cookies['auth'].value
+        
+                input_hash = hashlib.sha256(input_pwd.encode()).hexdigest()
+                if input_hash == WEB_PASSWORD_HASH:
+                    return True
+                else:
+                    time.sleep(2)
         return False
 
     def send_no_cache_response(self, code, content_type, body_bytes):
@@ -620,8 +575,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print("=" * 50)
-    print(f"🚀 Web Panel 已启动！")
+    print(f"🚀 Web面板启动！")
     print(f"🔗 访问地址: http://<你的服务器IP>:{PORT}")
-    print(f"🔑 随机密码: {WEB_PASSWORD}")
+    
+    if PLAIN_PASSWORD:
+        print(f"🔑 密码: {PLAIN_PASSWORD}")
+    else:
+        print("💡 如需重置密码，请执行: rm /etc/sing-box/web_config.json 然后重启本脚本。")
+    
     print("=" * 50)
     server.serve_forever()
