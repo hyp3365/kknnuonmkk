@@ -931,6 +931,53 @@ close_port() {
     fi
 }
 
+# 生成自签证书，区分使用 IPv4 / IPv6 / 域名
+# 默认同时更新 cert.pem(36500天) 和 cert_200.pem(200天)
+# 传参 naive_only 时，仅检测 cert_200.pem 是否缺失 / 过期 / SNI 不一致，符合条件才更新
+ssl_certificate() {
+  local TLS_SERVER="$1"
+  local CERT_MODE="$2"
+  local CERT_200_FILE="${work_dir}/cert_200.pem"
+  local CERT_200_SNI
+
+  [ ! -d ${WORK_DIR}/cert ] && mkdir -p ${WORK_DIR}/cert
+
+  if [ "$CERT_MODE" != 'naive_only' ]; then
+    openssl ecparam -genkey -name prime256v1 -out ${work_dir}/private.key
+  elif [ ! -s ${work_dir}/private.key ] || [ ! -s ${work_dir}/cert.pem ]; then
+    CERT_MODE=''
+    openssl ecparam -genkey -name prime256v1 -out ${work_dir}/private.key
+  fi
+
+  cat > ${work_dir}/cert.conf << EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = $(awk -F . '{print $(NF-1)"."$NF}' <<< "$TLS_SERVER")
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS = ${TLS_SERVER}
+EOF
+
+  if [ "$CERT_MODE" != 'naive_only' ]; then
+    openssl req -new -x509 -days 36500 -key ${work_dir}/cert/private.key -out ${work_dir}/cert.pem -config ${work_dir}/cert.conf -extensions v3_req
+    openssl req -new -x509 -days 200 -key ${work_dir}/cert/private.key -out ${work_dir}/cert_200.pem -config ${work_dir}/cert.conf -extensions v3_req
+  else
+    CERT_200_SNI=$(openssl x509 -noout -ext subjectAltName -in "$CERT_200_FILE" 2>/dev/null | awk -F 'DNS:' '/DNS:/{gsub(/,.*/, "", $2); print $2}')
+    if [ ! -s "$CERT_200_FILE" ] || ! openssl x509 -checkend 0 -noout -in "$CERT_200_FILE" >/dev/null 2>&1 || [ "$CERT_200_SNI" != "$TLS_SERVER" ]; then
+      openssl req -new -x509 -days 200 -key ${work_dir}/private.key -out ${work_dir}/cert_200.pem -config ${work_dir}/cert.conf -extensions v3_req
+    fi
+  fi
+
+  rm -f ${work_dir}/cert.conf
+}
+
 
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
@@ -967,11 +1014,6 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
-
-    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
-    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
-    
-    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
     
     dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
         (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
