@@ -214,7 +214,7 @@ function toggleRuleInput(prefix) {
 
 async function loadData() {
     try {
-        let res = await fetch('/api/status?' + new Date().getTime());
+        let res = await fetch('/api/status?_=' + Math.random());
         if (res.status === 401) {
             window.location.reload();
             return;
@@ -271,7 +271,11 @@ async function loadData() {
                 </tr>`;
             });
         }
-        document.getElementById('rules-table').innerHTML = ruleHtml;
+        let table = document.getElementById('rules-table');
+
+requestAnimationFrame(() => {
+    table.innerHTML = ruleHtml;
+});
     } catch (e) {
         console.error('获取数据失败');
     }
@@ -325,48 +329,95 @@ async function saveEdit() {
 }
 
 async function syncFanout() {
-    let res = await fetch('/api/sync_fanout?' + new Date().getTime());
+
+    let res = await fetch(
+        '/api/sync_fanout?t=' + Date.now()
+    );
+
     let result = await res.json();
+
+    if (result.code === 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await loadData();
+    }
+
     alert(result.msg);
-    if (result.code === 0) loadData();
 }
+
 
 async function addRule() {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
-    let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
+    let val = type === 'domain_suffix'
+        ? document.getElementById('new-domain-value').value.trim()
+        : document.getElementById('new-ruleset-select').value;
 
     let inboundsSelect = document.getElementById('new-rule-inbounds');
-    let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
+    let selectedInbounds = Array.from(inboundsSelect.selectedOptions)
+        .map(opt => opt.value);
 
     let res = await fetch('/api/add_rule', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
+        headers: { 
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            type: type,
+            value: val,
+            inbounds: selectedInbounds,
+            outbound: outbound
+        })
     });
+
     let result = await res.json();
-    alert(result.msg);
-    if (result.code === 0) { 
+
+    if (result.code === 0) {
         document.getElementById('new-domain-value').value = '';
-        loadData(); 
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        await loadData();
     }
+
+    alert(result.msg);
 }
 
 async function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
-    let res = await fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
+
+    let res = await fetch(
+        `/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`
+    );
+
     let result = await res.json();
+
+    if (result.code === 0) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await loadData();
+    }
+
     alert(result.msg);
-    if (result.code === 0) loadData();
 }
 
+
 async function deleteRule(idx) {
+
     if (!confirm('确认删除？')) return;
-    let res = await fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
+
+    let res = await fetch(
+        `/api/del_rule?index=${idx}&t=${Date.now()}`
+    );
+
     let result = await res.json();
+
+    if (result.code === 0) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await loadData();
+    }
+
     alert(result.msg);
-    if (result.code === 0) loadData();
 }
+
 
 loadData();
 </script>
