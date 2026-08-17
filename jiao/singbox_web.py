@@ -45,6 +45,17 @@ OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 # ==========================================
 
+# 判断规则是否为面板可以管理的规则（域名、规则集，或者是没有任何匹配条件的“全匹配规则”）
+def is_managed_rule(r):
+    if not isinstance(r, dict):
+        return False
+    if "domain_suffix" in r or "rule_set" in r:
+        return True
+    conditions = ["domain", "domain_suffix", "domain_keyword", "domain_regex", "geosite", "geoip", "ip_cidr", "ip_is_private", "port", "port_range", "source_ip_cidr", "source_ip_is_private", "source_port", "source_port_range", "network", "type", "protocol", "user", "clash_mode", "rule_set", "auth_user", "client", "pcap"]
+    if not any(c in r for c in conditions):
+        return True
+    return False
+
 LOGIN_PAGE = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -64,7 +75,7 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>  </h3>
+        <h3>身份认证</h3>
         <input type="password" id="pwd">
         <button onclick="login()">登 录</button>
     </div>
@@ -109,10 +120,11 @@ HTML_PAGE = """
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; font-weight: bold; margin-bottom: 5px; }
         .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
+        .type-badge.all { background: #fce8e6; color: #d93025; }
     </style>
 </head>
 <body>
-    <h2>🚀</h2>
+    <h2>🚀 分流与节点管理</h2>
     <div class="card" style="text-align: right; background: #f8f9fa;">
         <button class="success" onclick="syncFanout()">🔄 同步 Fanout 节点</button>
     </div>
@@ -125,7 +137,7 @@ HTML_PAGE = """
                 <option value="domain_suffix">域名后缀</option>
                 <option value="rule_set">规则集</option>
             </select>
-            <input type="text" id="new-domain-value" placeholder="例如: google.com">
+            <input type="text" id="new-domain-value" placeholder="输入域名 (留空则匹配所有流量)">
             <select id="new-ruleset-select" style="display: none;"></select>
         </div>
         <div class="form-group">
@@ -191,9 +203,9 @@ async function loadData() {
         globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
         document.getElementById('new-rule-inbounds').innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
 
-        let rsHtml = '';
+        let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
         globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
-        document.getElementById('new-ruleset-select').innerHTML = rsHtml || '<option value="">(无规则集)</option>';
+        document.getElementById('new-ruleset-select').innerHTML = rsHtml;
 
         let ruleHtml = '';
         if (globalData.rules.length === 0) {
@@ -211,11 +223,12 @@ async function loadData() {
                     opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
                 }
                 
-                let typeName = r.type === 'domain_suffix' ? '域名后缀' : '规则集';
+                let typeName = r.type === 'domain_suffix' ? '域名后缀' : (r.type === 'rule_set' ? '规则集' : '全部流量');
+                let badgeClass = r.type === 'match_all' ? 'type-badge all' : 'type-badge';
                 let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
                 
                 ruleHtml += `<tr>
-                    <td><span class="type-badge">${typeName}</span></td>
+                    <td><span class="${badgeClass}">${typeName}</span></td>
                     <td style="word-break: break-all;"><b>${r.values}</b></td>
                     <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
                     <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
@@ -244,8 +257,6 @@ async function addRule() {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
     let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
-
-    if (!val) { alert('请输入内容或选择规则集！'); return; }
 
     let inboundsSelect = document.getElementById('new-rule-inbounds');
     let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
@@ -375,26 +386,33 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
                         rules = route_cfg.get("rules", [])
                         for r in rules:
-                            for r_type in ["domain_suffix", "rule_set"]:
-                                if r_type in r:
-                                    val = r.get(r_type)
+                            if is_managed_rule(r):
+                                r_type = "match_all"
+                                vals = "(全匹配 - 所有流量)"
+                                
+                                if "domain_suffix" in r:
+                                    r_type = "domain_suffix"
+                                    val = r["domain_suffix"]
                                     vals = ", ".join(val) if isinstance(val, list) else str(val)
-                                    
-                                    inbound_val = r.get("inbound", [])
-                                    if isinstance(inbound_val, str):
-                                        inbounds = [inbound_val]
-                                    elif isinstance(inbound_val, list):
-                                        inbounds = inbound_val
-                                    else:
-                                        inbounds = []
+                                elif "rule_set" in r:
+                                    r_type = "rule_set"
+                                    val = r["rule_set"]
+                                    vals = ", ".join(val) if isinstance(val, list) else str(val)
+                                
+                                inbound_val = r.get("inbound", [])
+                                if isinstance(inbound_val, str):
+                                    inbounds = [inbound_val]
+                                elif isinstance(inbound_val, list):
+                                    inbounds = inbound_val
+                                else:
+                                    inbounds = []
 
-                                    data["rules"].append({
-                                        "type": r_type,
-                                        "values": vals,
-                                        "inbounds": inbounds,
-                                        "outbound": r.get("outbound", "direct")
-                                    })
-                                    break
+                                data["rules"].append({
+                                    "type": r_type,
+                                    "values": vals,
+                                    "inbounds": inbounds,
+                                    "outbound": r.get("outbound", "direct")
+                                })
             except Exception as e:
                 pass
 
@@ -414,7 +432,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 
                 valid_rules = 0
                 for r in r_json["route"]["rules"]:
-                    if any(k in r for k in ["domain_suffix", "rule_set"]):
+                    if is_managed_rule(r):
                         if valid_rules == idx:
                             r["outbound"] = outbound
                             break
@@ -441,7 +459,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 target_i = -1
                 
                 for i, r in enumerate(rules):
-                    if any(k in r for k in ["domain_suffix", "rule_set"]):
+                    if is_managed_rule(r):
                         if valid_rules == idx:
                             target_i = i
                             break
@@ -479,19 +497,22 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 inbounds = data.get("inbounds", [])
                 outbound = data.get("outbound")
                 
-                if not val_str:
-                    raise Exception("匹配内容不能为空")
                 if not outbound:
                     raise Exception("未选择有效出站")
 
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
                 
-                if r_type == "domain_suffix":
-                    vals = [v.strip() for v in val_str.split(",") if v.strip()]
-                    new_rule = { "domain_suffix": vals, "outbound": outbound }
-                else:
-                    new_rule = { "rule_set": [val_str], "outbound": outbound }
+                # 如果没有输入域名或规则集，则直接生成只包含 outbound (和 inbound) 的规则，这在 sing-box 中意味着匹配所有
+                new_rule = { "outbound": outbound }
+                
+                if val_str:
+                    if r_type == "domain_suffix":
+                        vals = [v.strip() for v in val_str.split(",") if v.strip()]
+                        if vals:
+                            new_rule["domain_suffix"] = vals
+                    else:
+                        new_rule["rule_set"] = [val_str]
                 
                 if inbounds and len(inbounds) > 0:
                     new_rule["inbound"] = inbounds
