@@ -479,7 +479,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/status":
             data = {"outbounds": [], "inbounds": [], "available_rule_sets": [], "rules": []}
             try:
-                ignore_outbounds = ["direct", "proxy", "dns-out", "block"]
+                ignore_outbounds = ["direct", "dns-out", "block"]
                 if os.path.exists(OUTBOUND_FILE):
                     with open(OUTBOUND_FILE, "r") as f:
                         o_json = json.load(f)
