@@ -8,6 +8,7 @@ import urllib.parse
 import random
 import time
 import threading
+import node_panel
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -46,7 +47,6 @@ FANOUT_FILE = "/var/lib/fanout/xray.json"
 
 def restart_singbox_async():
     def _restart():
-
         subprocess.run(["systemctl", "restart", "sing-box"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
@@ -66,7 +66,7 @@ LOGIN_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>你好</title>
+    <title>身份验证</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
@@ -79,8 +79,8 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>登录</h3>
-        <input type="password" id="pwd" placeholder="哈哈">
+        <h3>面板登录</h3>
+        <input type="password" id="pwd" placeholder="请输入访问密码">
         <button onclick="login()">登 录</button>
     </div>
     <script>
@@ -104,7 +104,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>Sing-box 分流</title>
+    <title>Sing-box 分流与节点管理</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 0 auto; padding: 15px; background: #f4f6f9; color: #333; }
@@ -133,7 +133,6 @@ HTML_PAGE = """
         .type-badge.all { background: #fce8e6; color: #d93025; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
         .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
-        tr.updating { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -142,51 +141,61 @@ HTML_PAGE = """
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <div class="card" style="text-align: right; background: #f8f9fa;">
-        <button class="success" onclick="syncFanout(this)">🔄 同步 Fanout 节点</button>
+    <div class="card" style="background: #f8f9fa; display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
+        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8;">分流</button>
+        <button id="btn-tab-nodes" onclick="switchTab('nodes')" style="background: #5f6368;">节点</button>
+        <button class="success" onclick="syncFanout(this)">🔄 同步 Fanout</button>
     </div>
 
-    <div class="card">
-        <h3>➕ 添加规则</h3>
-        <div class="form-group">
-            <label>规则类型与内容:</label>
-            <select id="new-rule-type" onchange="toggleRuleInput('new')">
-                <option value="domain_suffix">域名后缀</option>
-                <option value="rule_set">规则集</option>
-            </select>
-            <input type="text" id="new-domain-value" placeholder="输入域名 (留空则匹配所有流量)">
-            <select id="new-ruleset-select" style="display: none;"></select>
+    <!-- 分流管理视图 -->
+    <div id="view-routing">
+        <div class="card">
+            <h3>➕ 添加规则</h3>
+            <div class="form-group">
+                <label>规则类型与内容:</label>
+                <select id="new-rule-type" onchange="toggleRuleInput('new')">
+                    <option value="domain_suffix">域名后缀</option>
+                    <option value="rule_set">规则集</option>
+                </select>
+                <input type="text" id="new-domain-value" placeholder="输入域名 (留空则匹配所有流量)">
+                <select id="new-ruleset-select" style="display: none;"></select>
+            </div>
+            <div class="form-group">
+                <label>生效节点:</label>
+                <select id="new-rule-inbounds" multiple style="height: 70px;"></select>
+                <div style="font-size:12px; color:#666; margin-top:2px;">留空则默认对全部节点生效</div>
+            </div>
+            <div class="form-group">
+                <label>出站节点:</label>
+                <select id="new-rule-outbound"></select>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
+            </div>
         </div>
-        <div class="form-group">
-            <label>生效节点:</label>
-            <select id="new-rule-inbounds" multiple style="height: 70px;"></select>
-            <div style="font-size:12px; color:#666; margin-top:2px;">留空则默认对全部节点生效</div>
-        </div>
-        <div class="form-group">
-            <label>出站节点:</label>
-            <select id="new-rule-outbound"></select>
-            <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
+
+        <div class="card">
+            <h3>⚡ 已有分流规则列表</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">类型</th>
+                            <th style="width: 30%;">内容</th>
+                            <th style="width: 15%;">入口</th>
+                            <th style="width: 15%;">出站</th>
+                            <th style="width: 25%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rules-table">
+                        <tr><td colspan="5" style="text-align:center;">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <div class="card">
-        <h3>⚡ 已有分流规则列表</h3>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 15%;">类型</th>
-                        <th style="width: 30%;">内容</th>
-                        <th style="width: 15%;">入口</th>
-                        <th style="width: 15%;">出站</th>
-                        <th style="width: 25%;">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="rules-table">
-                    <tr><td colspan="5" style="text-align:center;">加载中...</td></tr>
-                </tbody>
-            </table>
-        </div>
+    <!-- 节点管理视图 -->
+    <div id="view-nodes" style="display: none;">
+        PLACEHOLDER_NODES_HTML
     </div>
 
     <div id="modalOverlay" class="modal-overlay" onclick="closeEditModal()"></div>
@@ -211,6 +220,21 @@ HTML_PAGE = """
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
 let isReconnecting = false;
+
+function switchTab(tab) {
+    if (tab === 'routing') {
+        document.getElementById('view-routing').style.display = 'block';
+        document.getElementById('view-nodes').style.display = 'none';
+        document.getElementById('btn-tab-routing').style.background = '#1a73e8';
+        document.getElementById('btn-tab-nodes').style.background = '#5f6368';
+    } else {
+        document.getElementById('view-routing').style.display = 'none';
+        document.getElementById('view-nodes').style.display = 'block';
+        document.getElementById('btn-tab-routing').style.background = '#5f6368';
+        document.getElementById('btn-tab-nodes').style.background = '#1a73e8';
+        if (typeof loadNodes === 'function') loadNodes();
+    }
+}
 
 function toggleRuleInput(prefix) {
     let type = document.getElementById(prefix + '-rule-type').value;
@@ -244,7 +268,7 @@ function renderTable() {
             let badgeClass = r.type === 'match_all' ? 'type-badge all' : 'type-badge';
             let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
             
-            ruleHtml += `<tr id="row-${idx}">
+            ruleHtml += `<tr>
                 <td><span class="${badgeClass}">${typeName}</span></td>
                 <td>
                     <div style="word-break: break-all;"><b>${r.values}</b></div>
@@ -279,7 +303,6 @@ function renderSelects() {
     document.getElementById('new-ruleset-select').innerHTML = rsHtml;
 }
 
-// 首次加载真实数据
 async function loadData() {
     try {
         let res = await fetch('/api/status?' + new Date().getTime());
@@ -346,18 +369,14 @@ function silentBackgroundCheck() {
                 isReconnecting = false;
                 return;
             }
-        } catch (e) {
-        }
+        } catch (e) {}
         setTimeout(checkLoop, 1000);
     };
-    
-    setTimeout(checkLoop, 500); 
+    setTimeout(checkLoop, 500);
 }
 
 async function handleBackgroundReq(reqPromise) {
-    try {
-        await reqPromise;
-    } catch (e) { }
+    try { await reqPromise; } catch (e) { }
     silentBackgroundCheck();
 }
 
@@ -374,10 +393,9 @@ function addRule() {
         inbounds: selectedInbounds,
         outbound: outbound
     };
-    globalData.rules.unshift(newRuleData); 
-    renderTable(); 
-    
-    document.getElementById('new-domain-value').value = ''; 
+    globalData.rules.unshift(newRuleData);
+    renderTable();
+    document.getElementById('new-domain-value').value = '';
 
     let req = fetch('/api/add_rule', {
         method: 'POST',
@@ -389,7 +407,6 @@ function addRule() {
 
 function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
-    
     globalData.rules[idx].outbound = val;
     renderTable();
 
@@ -399,8 +416,7 @@ function updateRule(idx) {
 
 function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
-
-    globalData.rules.splice(idx, 1); 
+    globalData.rules.splice(idx, 1);
     renderTable();
 
     let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
@@ -443,6 +459,9 @@ loadData();
 </html>
 """
 
+# 动态注入节点页面的 HTML 片段
+HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_NODES_HTML", node_panel.get_nodes_html())
+
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     def check_auth(self):
         global FAILED_LOCK_UNTIL
@@ -482,6 +501,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_no_cache_response(200, "text/html; charset=utf-8", LOGIN_PAGE.encode("utf-8"))
             return
+
+        # 委派节点相关的 API 请求给 node_panel
+        if path.startswith("/api/nodes_'") or path in ["/api/nodes_list", "/api/del_node"]:
+            res_dict = node_panel.handle_nodes_api(path, query)
+            if res_dict is not None:
+                self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
+                return
 
         if path == "/":
             self.send_no_cache_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
