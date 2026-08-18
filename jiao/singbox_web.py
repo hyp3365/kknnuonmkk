@@ -421,11 +421,14 @@ function syncFanout(btn) {
     let oldHtml = btn.innerHTML;
     btn.innerHTML = "⏳ 同步中...";
     btn.disabled = true;
-    let req = fetch('/api/sync_fanout?' + new Date().getTime())
-        .finally(() => {
-            btn.innerHTML = oldHtml;
-            btn.disabled = false;
-        });
+    
+    let req = fetch('/api/sync_fanout?' + new Date().getTime());
+
+    setTimeout(() => {
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+    }, 2000);
+    
     handleBackgroundReq(req);
 }
 
