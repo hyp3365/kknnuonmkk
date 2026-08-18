@@ -148,7 +148,6 @@ HTML_PAGE = """
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <!-- 占满整行的同步按钮 -->
     <div class="card" style="background: #f8f9fa; padding: 12px 14px;">
         <button class="success" onclick="syncFanout(this)" style="width: 100%; padding: 10px 0; font-size: 14px; font-weight: bold;">🔄 同步节点</button>
     </div>
@@ -316,7 +315,7 @@ function openEditModal(idx) {
         document.getElementById('edit-ruleset-select').value = rule.values;
     } else {
         document.getElementById('edit-rule-type').value = 'domain_suffix';
-        document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 -所有流量)' ? rule.values : '';
+        document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 - 所有流量)' ? rule.values : '';
     }
     toggleRuleInput('edit');
     document.getElementById('modalOverlay').style.display = 'block';
@@ -417,7 +416,7 @@ function saveEdit() {
     handleBackgroundReq(req);
 }
 
-let isSyncing = false; // 专属于同步按钮的锁
+let isSyncing = false; 
 
 function syncFanout(btn) {
     if (isSyncing) return;
@@ -436,7 +435,6 @@ function syncFanout(btn) {
         isSyncing = false;
     }, 2500);
 }
-
 
 loadData();
 </script>
@@ -505,11 +503,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in data["inbounds"]:
                                 data["inbounds"].append(tag)
 
-                                possible_node_files = [
+                # 【修复】移除了原代码此处破坏结构的缩进错误，避免 UnboundLocalError
+                possible_node_files = [
                     "vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
                     "tuic.json", "anytls.json", "vless-ws-cdn.json", 
                     "vmess-ws-cdn.json", "trojan-ws-cdn.json", "h2-reality.json", "endpoints.json"
                 ]
+                
                 for node_filename in possible_node_files:
                     node_filepath = os.path.join(CONF_DIR, node_filename)
                     if os.path.exists(node_filepath):
@@ -586,8 +586,11 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 outbound = query.get("outbound", ["direct"])[0]
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
+                
+                # 【修复】防止 KeyError，健壮获取规则列表
+                rules = r_json.get("route", {}).get("rules", [])
                 valid_rules = 0
-                for r in r_json["route"]["rules"]:
+                for r in rules:
                     if is_managed_rule(r):
                         if valid_rules == idx:
                             r["outbound"] = outbound
@@ -606,7 +609,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 idx = int(query.get("index", [0])[0])
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                rules = r_json["route"]["rules"]
+                
+                rules = r_json.get("route", {}).get("rules", [])
                 valid_rules = 0
                 target_i = -1
                 for i, r in enumerate(rules):
@@ -660,8 +664,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 if inbounds and len(inbounds) > 0:
                     new_rule["inbound"] = inbounds
 
+                # 【修复】防止 route 或 rules 不存在时直接赋值导致的 KeyError
+                if "route" not in r_json:
+                    r_json["route"] = {}
                 if "rules" not in r_json["route"]:
                     r_json["route"]["rules"] = []
+                
                 r_json["route"]["rules"].insert(0, new_rule)
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
@@ -681,7 +689,9 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 val_str = data.get("value", "").strip()
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                rules = r_json["route"].get("rules", [])
+                
+                # 【修复】使用 get 防止 KeyError
+                rules = r_json.get("route", {}).get("rules", [])
                 valid_rules = 0
                 target_r = None
                 for r in rules:
@@ -761,3 +771,4 @@ if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print(f"Panel is running on port {PORT}. Password: {WEB_PASSWORD}")
     server.serve_forever()
+
