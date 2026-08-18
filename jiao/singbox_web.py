@@ -168,7 +168,7 @@ HTML_PAGE = """
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">添加规则</button>
             </div>
         </div>
 
