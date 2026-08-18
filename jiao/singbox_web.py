@@ -427,7 +427,7 @@ function syncFanout(btn) {
     setTimeout(() => {
         btn.innerHTML = oldHtml;
         btn.disabled = false;
-    }, 2000);
+    }, 2500);
     
     handleBackgroundReq(req);
 }
