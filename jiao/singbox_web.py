@@ -5,9 +5,13 @@ import json
 import os
 import subprocess
 import urllib.parse
+import urllib.request
+import urllib.error
 import random
 import time
 import threading
+import socket
+import socks # 需要 pysocks 库支持代理请求测试，如未安装可通过 pip install PySocks 补充
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -111,7 +115,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>Sing-box 分流</title>
+    <title>Sing-box 分流与测速</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
@@ -132,6 +136,8 @@ HTML_PAGE = """
         .success:hover:not(:disabled) { background: #0b5121; }
         .danger { background: #d93025; }
         .danger:hover:not(:disabled) { background: #b31412; }
+        .warning { background: #f9ab00; color: #fff; }
+        .warning:hover:not(:disabled) { background: #e39e00; }
         .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 3px 8px; margin-top: 6px; border-radius: 4px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
         .edit-btn:hover { background: #d2e3fc; }
         .form-group { margin-bottom: 12px; }
@@ -140,17 +146,41 @@ HTML_PAGE = """
         .type-badge.all { background: #fce8e6; color: #d93025; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
         .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 100; width: 90%; max-width: 380px; }
+        .ping-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #f1f3f4; color: #555; }
+        .ping-tag.good { background: #e6f4ea; color: #137333; }
+        .ping-tag.medium { background: #fef7e0; color: #b06000; }
+        .ping-tag.bad { background: #fce8e6; color: #d93025; }
     </style>
 </head>
 <body>
     <h2>
-        <span>🚀 分流</span>
+        <span>🚀 分流与测速</span>
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <!-- 占满整行的同步按钮 -->
-    <div class="card" style="background: #f8f9fa; padding: 12px 14px;">
-        <button class="success" onclick="syncFanout(this)" style="width: 100%; padding: 10px 0; font-size: 14px; font-weight: bold;">🔄 同步节点</button>
+    <!-- 顶部操作按钮 -->
+    <div class="card" style="background: #f8f9fa; padding: 12px 14px; display: flex; gap: 10px;">
+        <button class="success" onclick="syncFanout(this)" style="flex: 1; padding: 10px 0; font-size: 14px; font-weight: bold;">🔄 同步节点</button>
+        <button class="warning" onclick="testAllPing(this)" style="flex: 1; padding: 10px 0; font-size: 14px; font-weight: bold;">⚡ 全部节点测速</button>
+    </div>
+
+    <!-- 节点列表与延迟卡片 -->
+    <div class="card">
+        <h3 style="margin: 0 0 10px 0; font-size: 15px;">📊 SOCKS 节点与延迟状态</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40%;">节点标签 (Tag)</th>
+                        <th style="width: 25%;">延迟</th>
+                        <th style="width: 35%;">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="nodes-table">
+                    <tr><td colspan="3" style="text-align:center;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div id="view-routing">
@@ -218,7 +248,7 @@ HTML_PAGE = """
     </div>
 
 <script>
-let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
+let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [], node_details: {} };
 let isReconnecting = false;
 
 function toggleRuleInput(prefix) {
@@ -230,6 +260,37 @@ function toggleRuleInput(prefix) {
         document.getElementById(prefix + '-domain-value').style.display = 'inline-block';
         document.getElementById(prefix + '-ruleset-select').style.display = 'none';
     }
+}
+
+function renderNodesTable() {
+    let nodeHtml = '';
+    let socksOutbounds = globalData.outbounds.filter(o => o.startsWith('fanout-') || globalData.node_details[o]);
+    if (socksOutbounds.length === 0) {
+        nodeHtml = '<tr><td colspan="3" style="text-align:center; color:#888;">暂无SOCKS或可测速出站节点</td></tr>';
+    } else {
+        socksOutbounds.forEach(o => {
+            let pingData = globalData.node_details[o] || { ping: -1 };
+            let pingClass = 'ping-tag';
+            let pingText = '未测速';
+            if (pingData.ping >= 0) {
+                if (pingData.ping < 300) { pingClass += ' good'; pingText = pingData.ping + ' ms'; }
+                else if (pingData.ping < 1000) { pingClass += ' medium'; pingText = pingData.ping + ' ms'; }
+                else { pingClass += ' bad'; pingText = pingData.ping + ' ms (超时/过高)'; }
+            } else if (pingData.ping === -2) {
+                pingClass += ' bad';
+                pingText = '连接失败';
+            }
+
+            nodeHtml += `<tr>
+                <td><b>${o}</b></td>
+                <td><span class="${pingClass}">${pingText}</span></td>
+                <td>
+                    <button onclick="testPing('${o}', this)" style="padding: 3px 8px; font-size:11px;">单节点测速</button>
+                </td>
+            </tr>`;
+        });
+    }
+    document.getElementById('nodes-table').innerHTML = nodeHtml;
 }
 
 function renderTable() {
@@ -296,9 +357,53 @@ async function loadData() {
         globalData = await res.json();
         renderSelects();
         renderTable();
+        renderNodesTable();
     } catch (e) {
         console.error('获取数据失败');
     }
+}
+
+async function testPing(tag, btn) {
+    let oldText = btn.innerHTML;
+    btn.innerHTML = "测速中...";
+    btn.disabled = true;
+    try {
+        let res = await fetch(`/api/ping?tag=${encodeURIComponent(tag)}&` + new Date().getTime());
+        let data = await res.json();
+        if (data.code === 0) {
+            globalData.node_details[tag] = { ping: data.ping };
+        } else {
+            globalData.node_details[tag] = { ping: -2 };
+        }
+    } catch (e) {
+        globalData.node_details[tag] = { ping: -2 };
+    }
+    btn.innerHTML = oldText;
+    btn.disabled = false;
+    renderNodesTable();
+}
+
+async function testAllPing(btn) {
+    let oldText = btn.innerHTML;
+    btn.innerHTML = "⚡ 测速中...";
+    btn.disabled = true;
+    let socksOutbounds = globalData.outbounds.filter(o => o.startsWith('fanout-'));
+    for (let tag of socksOutbounds) {
+        try {
+            let res = await fetch(`/api/ping?tag=${encodeURIComponent(tag)}&` + new Date().getTime());
+            let data = await res.json();
+            if (data.code === 0) {
+                globalData.node_details[tag] = { ping: data.ping };
+            } else {
+                globalData.node_details[tag] = { ping: -2 };
+            }
+        } catch (e) {
+            globalData.node_details[tag] = { ping: -2 };
+        }
+        renderNodesTable();
+    }
+    btn.innerHTML = oldText;
+    btn.disabled = false;
 }
 
 function openEditModal(idx) {
@@ -343,6 +448,7 @@ function silentBackgroundCheck() {
             if (checkRes.ok || checkRes.status === 401) {
                 globalData = await checkRes.json();
                 renderTable();
+                renderNodesTable();
                 statusEl.innerHTML = '<span class="status-dot"></span>在线';
                 isReconnecting = false;
                 return;
@@ -425,6 +531,7 @@ function syncFanout(btn) {
         .finally(() => {
             btn.innerHTML = oldHtml;
             btn.disabled = false;
+            loadData();
         });
     handleBackgroundReq(req);
 }
@@ -557,6 +664,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+        elif path == "/api/ping":
+            tag = query.get("tag", [""])[0]
+            ping_ms = self.do_socks_ping(tag)
+            if ping_ms >= 0:
+                res = {"code": 0, "ping": ping_ms}
+            else:
+                res = {"code": 1, "msg": "timeout or error"}
+            self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif path == "/api/sync_fanout":
             msg = self.do_sync_fanout_action()
@@ -691,6 +807,71 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 msg = {"code": 1, "msg": f"修改失败: {str(e)}"}
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
+
+    def do_socks_ping(self, tag):
+        try:
+            # 1. 在 outbounds.json 中寻找对应标签的 SOCKS 节点信息
+            target_outbound = None
+            if os.path.exists(OUTBOUND_FILE):
+                with open(OUTBOUND_FILE, "r") as f:
+                    o_json = json.load(f)
+                    for o in o_json.get("outbounds", []):
+                        if o.get("tag") == tag and o.get("type") == "socks":
+                            target_outbound = o
+                            break
+            
+            # 如果没在 outbounds.json 找到，尝试从 fanout 配置文件获取
+            if not target_outbound and os.path.exists(FANOUT_FILE):
+                with open(FANOUT_FILE, "r") as f:
+                    xray_data = json.load(f)
+                    for outbound in xray_data.get("outbounds", []):
+                        if outbound.get("protocol") == "socks" and str(outbound.get("tag", "")) == tag:
+                            servers = outbound.get("settings", {}).get("servers", [])
+                            if servers:
+                                s_info = servers[0]
+                                users = s_info.get("users", [])
+                                target_outbound = {
+                                    "server": s_info.get("address"),
+                                    "server_port": s_info.get("port"),
+                                    "username": users[0].get("user") if users else "",
+                                    "password": users[0].get("pass") if users else ""
+                                }
+                            break
+
+            if not target_outbound:
+                return -1
+
+            server = target_outbound.get("server")
+            port = target_outbound.get("server_port")
+            username = target_outbound.get("username")
+            password = target_outbound.get("password")
+
+            if not server or not port:
+                return -1
+
+            # 2. 配置 PySocks 代理环境进行 HTTP 测速请求
+            socks.set_default_proxy(socks.SOCKS5, server, int(port), username=username if username else None, password=password if password else None)
+            socket.socket = socks.socksocket
+
+            start_time = time.time()
+            req = urllib.request.Request("http://www.gstatic.com/generate_204", headers={"User-Agent": "Mozilla/5.0"})
+            
+            # 限制总超时时间 4 秒
+            with urllib.request.urlopen(req, timeout=4) as response:
+                end_time = time.time()
+                if response.status == 204 or response.status == 200:
+                    return int((end_time - start_time) * 1000)
+        except Exception as e:
+            pass
+        finally:
+            # 恢复默认 socket，避免影响其他模块
+            socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+            # 如果 socket.socket 被修改为原生，可以安全地将默认代理重置为空
+            try:
+                socks.set_default_proxy()
+            except:
+                pass
+        return -1
 
     def do_sync_fanout_action(self):
         if not os.path.exists(FANOUT_FILE):
