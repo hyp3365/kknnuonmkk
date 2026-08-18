@@ -46,7 +46,7 @@ FANOUT_FILE = "/var/lib/fanout/xray.json"
 
 def restart_singbox_async():
     def _restart():
-        # 立刻重启，不做延迟
+
         subprocess.run(["systemctl", "restart", "sing-box"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
@@ -66,7 +66,7 @@ LOGIN_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>身份验证</title>
+    <title>你好</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
@@ -79,8 +79,8 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>面板登录</h3>
-        <input type="password" id="pwd" placeholder="请输入访问密码">
+        <h3>登录</h3>
+        <input type="password" id="pwd" placeholder="哈哈">
         <button onclick="login()">登 录</button>
     </div>
     <script>
@@ -104,7 +104,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>Sing-box 分流面板</title>
+    <title>Sing-box 分流</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 0 auto; padding: 15px; background: #f4f6f9; color: #333; }
@@ -223,7 +223,6 @@ function toggleRuleInput(prefix) {
     }
 }
 
-// 单独提取渲染表格的逻辑，以便随时“秒切”UI
 function renderTable() {
     let ruleHtml = '';
     if (globalData.rules.length === 0) {
@@ -325,7 +324,6 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-// 统一的后台探测逻辑：不阻塞前端渲染，只是在右上角显示状态
 function silentBackgroundCheck() {
     if (isReconnecting) return;
     isReconnecting = true;
@@ -341,32 +339,27 @@ function silentBackgroundCheck() {
             clearTimeout(timeoutId);
             
             if (checkRes.ok || checkRes.status === 401) {
-                // 后台重启成功，拉取最新真实数据对齐一次
                 let realData = await checkRes.json();
                 globalData = realData;
-                renderTable(); // 确保一致性
+                renderTable();
                 statusEl.innerHTML = '<span class="status-dot"></span>在线';
                 isReconnecting = false;
                 return;
             }
         } catch (e) {
-            // 继续重试
         }
         setTimeout(checkLoop, 1000);
     };
     
-    setTimeout(checkLoop, 500); // 半秒后开始探测
+    setTimeout(checkLoop, 500); 
 }
 
-// 处理普通的按钮请求，并静默重连
 async function handleBackgroundReq(reqPromise) {
     try {
-        await reqPromise; // 发出请求，不管返回值，因为一定会被断流
+        await reqPromise;
     } catch (e) { }
     silentBackgroundCheck();
 }
-
-// -------- 核心逻辑：乐观更新（先改前端，再发后台） --------
 
 function addRule() {
     let type = document.getElementById('new-rule-type').value;
@@ -375,19 +368,17 @@ function addRule() {
     let inboundsSelect = document.getElementById('new-rule-inbounds');
     let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
 
-    // 1. 乐观更新前端
     let newRuleData = {
         type: type === "domain_suffix" && !val ? "match_all" : type,
         values: val || "(全匹配 - 所有流量)",
         inbounds: selectedInbounds,
         outbound: outbound
     };
-    globalData.rules.unshift(newRuleData); // 插入最前面
-    renderTable(); // 立刻重绘
+    globalData.rules.unshift(newRuleData); 
+    renderTable(); 
     
-    document.getElementById('new-domain-value').value = ''; // 清空输入框
+    document.getElementById('new-domain-value').value = ''; 
 
-    // 2. 发送请求给后端
     let req = fetch('/api/add_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -399,23 +390,19 @@ function addRule() {
 function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
     
-    // 1. 乐观更新前端
     globalData.rules[idx].outbound = val;
     renderTable();
 
-    // 2. 发送请求给后端
     let req = fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
     handleBackgroundReq(req);
 }
 
 function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
-    
-    // 1. 乐观更新前端
-    globalData.rules.splice(idx, 1); // 瞬间删掉
+
+    globalData.rules.splice(idx, 1); 
     renderTable();
 
-    // 2. 发送请求给后端
     let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
     handleBackgroundReq(req);
 }
@@ -425,13 +412,11 @@ function saveEdit() {
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix' ? document.getElementById('edit-domain-value').value.trim() : document.getElementById('edit-ruleset-select').value;
 
-    // 1. 乐观更新前端
     globalData.rules[idx].type = type === "domain_suffix" && !val ? "match_all" : type;
     globalData.rules[idx].values = val || "(全匹配 - 所有流量)";
     closeEditModal();
     renderTable();
 
-    // 2. 发送请求给后端
     let req = fetch('/api/edit_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
