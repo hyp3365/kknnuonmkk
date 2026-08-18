@@ -8,23 +8,6 @@ import urllib.parse
 import random
 import time
 import threading
-import importlib.util
-
-# 安全加载外部模块（即使文件不存在或未开启，也不影响主控启动）
-def load_optional_module(module_name, file_path):
-    if not os.path.exists(file_path):
-        return None
-    try:
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-    except Exception as e:
-        print(f"加载可选模块 {file_path} 失败: {e}")
-        return None
-
-inbound_panel = load_optional_module("web_inbounds", "/etc/sing-box/web-inbounds.py")
-outbound_panel = load_optional_module("web_outbounds", "/etc/sing-box/web-outbounds.py")
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -105,8 +88,8 @@ LOGIN_PAGE = """
 </head>
 <body>
     <div class="login-box">
-        <h3>面板登录</h3>
-        <input type="password" id="pwd" placeholder="请输入访问密码">
+        <h3>你好</h3>
+        <input type="password" id="pwd" placeholder="哈哈">
         <button onclick="login()">登 录</button>
     </div>
     <script>
@@ -128,7 +111,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>Sing-box 分流与节点管理</title>
+    <title>Sing-box 分流</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
@@ -161,18 +144,15 @@ HTML_PAGE = """
 </head>
 <body>
     <h2>
-        <span>🚀 分流与节点管理</span>
+        <span>🚀 分流</span>
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <div class="card" style="background: #f8f9fa; display: flex; gap: 8px; align-items: center; padding: 10px 14px;">
-        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 8px 10px; font-size: 13px; flex: 1;">分流</button>
-        TAB_BTN_INBOUND
-        TAB_BTN_OUTBOUND
-        <button class="success" onclick="syncFanout(this)" style="padding: 8px 10px; font-size: 13px; flex: 1;">🔄 同步</button>
+    <!-- 占满整行的同步按钮 -->
+    <div class="card" style="background: #f8f9fa; padding: 12px 14px;">
+        <button class="success" onclick="syncFanout(this)" style="width: 100%; padding: 10px 0; font-size: 14px; font-weight: bold;">🔄 同步节点</button>
     </div>
 
-    <!-- 分流视图 -->
     <div id="view-routing">
         <div class="card">
             <h3 style="margin: 0 0 10px 0; font-size: 15px;">➕ 添加规则</h3>
@@ -193,7 +173,7 @@ HTML_PAGE = """
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">确认添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">添加规则</button>
             </div>
         </div>
 
@@ -218,16 +198,6 @@ HTML_PAGE = """
         </div>
     </div>
 
-    <!-- 入站视图 -->
-    <div id="view-inbound" style="display: none;">
-        PLACEHOLDER_INBOUND_HTML
-    </div>
-
-    <!-- 出站视图 -->
-    <div id="view-outbound" style="display: none;">
-        PLACEHOLDER_OUTBOUND_HTML
-    </div>
-
     <div id="modalOverlay" class="modal-overlay" onclick="closeEditModal()"></div>
     <div id="editModal" class="modal-content">
         <h3 style="margin-top:0; font-size: 16px;">✏️ 修改规则内容</h3>
@@ -250,18 +220,6 @@ HTML_PAGE = """
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
 let isReconnecting = false;
-
-function switchTab(tab) {
-    let tabs = ['routing', 'inbound', 'outbound'];
-    tabs.forEach(t => {
-        let el = document.getElementById('view-' + t);
-        if (el) el.style.display = (t === tab) ? 'block' : 'none';
-        let btn = document.getElementById('btn-tab-' + t);
-        if (btn) btn.style.background = (t === tab) ? '#1a73e8' : '#5f6368';
-    });
-    if (tab === 'inbound' && typeof loadInbounds === 'function') loadInbounds();
-    if (tab === 'outbound' && typeof loadOutbounds === 'function') loadOutbounds();
-}
 
 function toggleRuleInput(prefix) {
     let type = document.getElementById(prefix + '-rule-type').value;
@@ -477,22 +435,6 @@ loadData();
 </html>
 """
 
-# 根据入站/出站模块是否存在，安全注入对应的标签页按钮和HTML内容
-if inbound_panel and hasattr(inbound_panel, "get_inbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 8px 10px; font-size: 13px; flex: 1;">入站</button>')
-    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
-else:
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", "")
-    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">入站管理模块未启用或文件不存在 (/etc/sing-box/web-inbounds.py)</p></div>')
-
-if outbound_panel and hasattr(outbound_panel, "get_outbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 8px 10px; font-size: 13px; flex: 1;">出站</button>')
-    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
-else:
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", "")
-    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">出站管理模块未启用或文件不存在 (/etc/sing-box/web-outbounds.py)</p></div>')
-
-
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     def check_auth(self):
         global FAILED_LOCK_UNTIL
@@ -531,26 +473,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_no_cache_response(200, "text/html; charset=utf-8", LOGIN_PAGE.encode("utf-8"))
             return
-        if inbound_panel and hasattr(inbound_panel, "handle_request"):
-            if inbound_panel.handle_request(self, self.path, "GET"):
-                return
-        if outbound_panel and hasattr(outbound_panel, "handle_request"):
-            if outbound_panel.handle_request(self, self.path, "GET"):
-                return
-
-        # 委派入站 API 请求
-        if path == "/api/inbounds_list" and inbound_panel and hasattr(inbound_panel, "handle_inbounds_api"):
-            res_dict = inbound_panel.handle_inbounds_api(path, query)
-            if res_dict is not None:
-                self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
-                return
-
-        # 委派出站 API 请求
-        if path == "/api/outbounds_list" and outbound_panel and hasattr(outbound_panel, "handle_outbounds_api"):
-            res_dict = outbound_panel.handle_outbounds_api(path, query)
-            if res_dict is not None:
-                self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
-                return
 
         if path == "/":
             self.send_no_cache_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
@@ -566,7 +488,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
                                 data["outbounds"].append(tag)
 
-                # 1. 扫描 inbounds.json
                 if os.path.exists(INBOUND_FILE):
                     with open(INBOUND_FILE, "r") as f:
                         i_json = json.load(f)
@@ -575,7 +496,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in data["inbounds"]:
                                 data["inbounds"].append(tag)
 
-                # 2. 动态扫描 conf 目录下的所有独立节点配置文件（解决网页分流无法判断已有节点的问题）
                 possible_node_files = [
                     "vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
                     "tuic.json", "anytls.json", "vless-ws-cdn.json", 
@@ -587,7 +507,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         try:
                             with open(node_filepath, "r") as nf:
                                 node_data = json.load(nf)
-                                # 尝试从文件中提取真实的 tag
                                 found_tag = None
                                 if "inbounds" in node_data and len(node_data["inbounds"]) > 0:
                                     found_tag = node_data["inbounds"][0].get("tag")
@@ -697,13 +616,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
     
         parsed_path = urllib.parse.urlparse(self.path)
         path = parsed_path.path
-
-        if inbound_panel and hasattr(inbound_panel, "handle_request"):
-            if inbound_panel.handle_request(self, self.path, "POST"):
-                return
-        if outbound_panel and hasattr(outbound_panel, "handle_request"):
-            if outbound_panel.handle_request(self, self.path, "POST"):
-                return
 
         if path == "/api/add_rule":
             content_length = int(self.headers.get('Content-Length', 0))
