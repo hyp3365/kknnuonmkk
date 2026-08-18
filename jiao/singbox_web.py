@@ -97,7 +97,7 @@ LOGIN_PAGE = """
             let p = document.getElementById('pwd').value;
             if (!p) return;
             document.cookie = "auth=" + p + "; path=/; max-age=2592000";
-            window.location.href = '/?t=' + new Date().getTime();
+            window.location.href = window.location.pathname + '?t=' + new Date().getTime();
         }
         document.getElementById('pwd').addEventListener('keypress', function (e) { if (e.key === 'Enter') login(); });
     </script>
