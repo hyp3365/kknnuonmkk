@@ -9,7 +9,6 @@ import random
 import time
 import threading
 
-# ================= 配置区 =================
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
 
@@ -44,10 +43,10 @@ CONF_DIR = "/etc/sing-box/conf"
 ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
 OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
-# ==========================================
 
 def restart_singbox_async():
     def _restart():
+        # 立刻重启，不做延迟
         subprocess.run(["systemctl", "restart", "sing-box"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
@@ -118,7 +117,7 @@ HTML_PAGE = """
         select, input[type="text"] { width: 100%; max-width: 300px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; font-size: 14px; }
         button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
         button:hover:not(:disabled) { background: #1557b0; }
-        button:disabled { cursor: not-allowed; opacity: 0.6; }
+        button:disabled { cursor: not-allowed; opacity: 0.8; }
         .success { background: #137333; }
         .success:hover:not(:disabled) { background: #0b5121; }
         .danger { background: #d93025; }
@@ -129,7 +128,6 @@ HTML_PAGE = """
         .form-group label { display: block; font-weight: bold; margin-bottom: 5px; }
         .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
         .type-badge.all { background: #fce8e6; color: #d93025; }
-        
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
         .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
     </style>
@@ -310,7 +308,6 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-// 通用异步请求处理：不弹成功提示，强制转3秒给后台重启留时间
 async function handleReq(btn, reqPromise, onSuccess) {
     let oldHtml = btn.innerHTML;
     btn.innerHTML = "⏳ 处理中...";
@@ -320,24 +317,44 @@ async function handleReq(btn, reqPromise, onSuccess) {
     try {
         let res = await reqPromise;
         resObj = await res.json();
-        // 只有报错时才提示
+        // 如果后端明确返回了错误（例如参数不对等）
         if (resObj.code !== 0) {
             alert(resObj.msg);
+            btn.innerHTML = oldHtml;
+            btn.disabled = false;
+            return;
         } else if (onSuccess) {
-            onSuccess();
+            onSuccess(); // 成功则执行回调清理输入框等
         }
     } catch (e) {
-        alert("网络请求异常");
+        // 捕获到异常：说明 sing-box 被重启，导致代理连接断开，静默吃掉错误
     }
 
-    // 强制按钮转3秒钟
-    setTimeout(() => {
-        btn.innerHTML = oldHtml;
-        btn.disabled = false;
-        if (resObj && resObj.code === 0) {
-            loadData(); // 数据更新
+    // 轮询检查功能，每隔 1 秒尝试发一次请求看后端是否活过来
+    const checkConnection = async () => {
+        try {
+            const controller = new AbortController();
+            // 设置 1 秒超时
+            const timeoutId = setTimeout(() => controller.abort(), 1000);
+            let checkRes = await fetch('/api/status?' + new Date().getTime(), { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            // 如果能连通后端（返回 200 或要求重新登录的 401）
+            if (checkRes.ok || checkRes.status === 401) {
+                btn.innerHTML = oldHtml;
+                btn.disabled = false;
+                loadData();
+                return;
+            }
+        } catch (e) {
+            // 继续失败说明 sing-box 还没启动完，静默等下一次
         }
-    }, 3000);
+        // 如果没成功，1 秒后再探一次
+        setTimeout(checkConnection, 1000);
+    };
+
+    // 操作完成后，1 秒后开始探测
+    setTimeout(checkConnection, 1000);
 }
 
 function syncFanout(btn) {
@@ -349,7 +366,6 @@ function addRule(btn) {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
     let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
-
     let inboundsSelect = document.getElementById('new-rule-inbounds');
     let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
 
@@ -399,14 +415,11 @@ loadData();
 """
 
 class PanelHandler(http.server.BaseHTTPRequestHandler):
-    
     def check_auth(self):
         global FAILED_LOCK_UNTIL
         current_time = time.time()
-        
         if current_time < FAILED_LOCK_UNTIL:
             return False
-            
         cookie_header = self.headers.get('Cookie')
         if cookie_header:
             cookies = http.cookies.SimpleCookie(cookie_header)
@@ -443,7 +456,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/":
             self.send_no_cache_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
-
         elif path == "/api/status":
             data = {"outbounds": [], "inbounds": [], "available_rule_sets": [], "rules": []}
             try:
@@ -478,7 +490,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     with open(ROUTE_FILE, "r") as f:
                         r_json = json.load(f)
                         route_cfg = r_json.get("route", {})
-                        
                         rule_sets = route_cfg.get("rule_set", [])
                         for rs in rule_sets:
                             if isinstance(rs, dict) and "tag" in rs:
@@ -491,7 +502,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if is_managed_rule(r):
                                 r_type = "match_all"
                                 vals = "(全匹配 - 所有流量)"
-                                
                                 if "domain_suffix" in r:
                                     r_type = "domain_suffix"
                                     val = r["domain_suffix"]
@@ -528,10 +538,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 idx = int(query.get("index", [0])[0])
                 outbound = query.get("outbound", ["direct"])[0]
-                
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                
                 valid_rules = 0
                 for r in r_json["route"]["rules"]:
                     if is_managed_rule(r):
@@ -539,15 +547,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             r["outbound"] = outbound
                             break
                         valid_rules += 1
-                
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
-                
                 restart_singbox_async()
                 msg = {"code": 0, "msg": "success"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"切换失败: {str(e)}"}
-
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
 
         elif path == "/api/del_rule":
@@ -555,18 +560,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 idx = int(query.get("index", [0])[0])
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                
                 rules = r_json["route"]["rules"]
                 valid_rules = 0
                 target_i = -1
-                
                 for i, r in enumerate(rules):
                     if is_managed_rule(r):
                         if valid_rules == idx:
                             target_i = i
                             break
                         valid_rules += 1
-                
                 if target_i != -1:
                     rules.pop(target_i)
                     with open(ROUTE_FILE, "w") as f:
@@ -577,7 +579,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     msg = {"code": 1, "msg": "未找到指定规则"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"删除失败: {str(e)}"}
-
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
 
     def do_POST(self):
@@ -591,22 +592,18 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/add_rule":
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
-            
             try:
                 data = json.loads(post_data)
                 r_type = data.get("type", "domain_suffix")
                 val_str = data.get("value", "").strip()
                 inbounds = data.get("inbounds", [])
                 outbound = data.get("outbound")
-                
                 if not outbound:
                     raise Exception("未选择有效出站")
 
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                
                 new_rule = { "outbound": outbound }
-                
                 if val_str:
                     if r_type == "domain_suffix":
                         vals = [v.strip() for v in val_str.split(",") if v.strip()]
@@ -614,53 +611,42 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             new_rule["domain_suffix"] = vals
                     else:
                         new_rule["rule_set"] = [val_str]
-                
                 if inbounds and len(inbounds) > 0:
                     new_rule["inbound"] = inbounds
 
                 if "rules" not in r_json["route"]:
                     r_json["route"]["rules"] = []
-                
                 r_json["route"]["rules"].insert(0, new_rule)
-                
                 with open(ROUTE_FILE, "w") as f:
                     json.dump(r_json, f, indent=2)
-                
                 restart_singbox_async()
                 msg = {"code": 0, "msg": "success"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"添加失败: {str(e)}"}
-
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
 
         elif path == "/api/edit_rule":
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
-            
             try:
                 data = json.loads(post_data)
                 idx = int(data.get("index", 0))
                 r_type = data.get("type", "domain_suffix")
                 val_str = data.get("value", "").strip()
-                
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
-                
                 rules = r_json["route"].get("rules", [])
                 valid_rules = 0
                 target_r = None
-                
                 for r in rules:
                     if is_managed_rule(r):
                         if valid_rules == idx:
                             target_r = r
                             break
                         valid_rules += 1
-                
                 if target_r is not None:
                     target_r.pop("domain_suffix", None)
                     target_r.pop("rule_set", None)
-                    
                     if val_str:
                         if r_type == "domain_suffix":
                             vals = [v.strip() for v in val_str.split(",") if v.strip()]
@@ -668,27 +654,22 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 target_r["domain_suffix"] = vals
                         else:
                             target_r["rule_set"] = [val_str]
-                    
                     with open(ROUTE_FILE, "w") as f:
                         json.dump(r_json, f, indent=2)
-                    
                     restart_singbox_async()
                     msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"修改失败: {str(e)}"}
-
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(msg, ensure_ascii=False).encode("utf-8"))
 
     def do_sync_fanout_action(self):
         if not os.path.exists(FANOUT_FILE):
             return {"code": 1, "msg": f"找不到 Fanout 配置文件 ({FANOUT_FILE})"}
-        
         try:
             with open(FANOUT_FILE, "r") as f:
                 xray_data = json.load(f)
-            
             new_fanout_nodes = []
             for outbound in xray_data.get("outbounds", []):
                 if outbound.get("protocol") == "socks":
@@ -702,7 +683,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             users = server_info.get("users", [])
                             username = users[0].get("user") if users else ""
                             password = users[0].get("pass") if users else ""
-                            
                             new_fanout_nodes.append({
                                 "type": "socks",
                                 "tag": f"fanout-{port}",
@@ -711,26 +691,21 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "username": username,
                                 "password": password
                             })
-            
             outbound_data = {"outbounds": []}
             if os.path.exists(OUTBOUND_FILE):
                 with open(OUTBOUND_FILE, "r") as f:
                     try: outbound_data = json.load(f)
                     except: pass
-            
             if "outbounds" not in outbound_data:
                 outbound_data["outbounds"] = []
-                
             outbound_data["outbounds"] = [
                 o for o in outbound_data["outbounds"] 
                 if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
             ]
             outbound_data["outbounds"].extend(new_fanout_nodes)
-            
             os.makedirs(os.path.dirname(OUTBOUND_FILE), exist_ok=True)
             with open(OUTBOUND_FILE, "w") as f:
                 json.dump(outbound_data, f, indent=2)
-                
             restart_singbox_async()
             return {"code": 0, "msg": "success"}
         except Exception as e:
@@ -738,6 +713,5 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
-    print(WEB_PASSWORD)
+    print(f"Panel is running on port {PORT}. Password: {WEB_PASSWORD}")
     server.serve_forever()
-
