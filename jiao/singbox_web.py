@@ -10,8 +10,6 @@ import urllib.error
 import random
 import time
 import threading
-import socket
-import socks # 需要 pysocks 库支持代理请求测试，如未安装可通过 pip install PySocks 补充
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -278,7 +276,7 @@ function renderNodesTable() {
                 else { pingClass += ' bad'; pingText = pingData.ping + ' ms (超时/过高)'; }
             } else if (pingData.ping === -2) {
                 pingClass += ' bad';
-                pingText = '连接失败';
+                pingText = '连接/依赖错误';
             }
 
             nodeHtml += `<tr>
@@ -810,17 +808,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
     def do_socks_ping(self, tag):
         try:
-            # 1. 在 outbounds.json 中寻找对应标签的 SOCKS 节点信息
             target_outbound = None
             if os.path.exists(OUTBOUND_FILE):
                 with open(OUTBOUND_FILE, "r") as f:
                     o_json = json.load(f)
                     for o in o_json.get("outbounds", []):
-                        if o.get("tag") == tag and o.get("type") == "socks":
+                        if o.get("tag") == tag and (o.get("type") == "socks" or o.get("type") == "http"):
                             target_outbound = o
                             break
             
-            # 如果没在 outbounds.json 找到，尝试从 fanout 配置文件获取
             if not target_outbound and os.path.exists(FANOUT_FILE):
                 with open(FANOUT_FILE, "r") as f:
                     xray_data = json.load(f)
@@ -831,6 +827,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 s_info = servers[0]
                                 users = s_info.get("users", [])
                                 target_outbound = {
+                                    "type": "socks",
                                     "server": s_info.get("address"),
                                     "server_port": s_info.get("port"),
                                     "username": users[0].get("user") if users else "",
@@ -841,6 +838,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             if not target_outbound:
                 return -1
 
+            p_type = target_outbound.get("type", "socks")
             server = target_outbound.get("server")
             port = target_outbound.get("server_port")
             username = target_outbound.get("username")
@@ -849,28 +847,30 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             if not server or not port:
                 return -1
 
-            # 2. 配置 PySocks 代理环境进行 HTTP 测速请求
-            socks.set_default_proxy(socks.SOCKS5, server, int(port), username=username if username else None, password=password if password else None)
-            socket.socket = socks.socksocket
-
-            start_time = time.time()
-            req = urllib.request.Request("http://www.gstatic.com/generate_204", headers={"User-Agent": "Mozilla/5.0"})
+            auth = ""
+            if username and password:
+                auth = f"{urllib.parse.quote(str(username))}:{urllib.parse.quote(str(password))}@"
             
-            # 限制总超时时间 4 秒
-            with urllib.request.urlopen(req, timeout=4) as response:
-                end_time = time.time()
-                if response.status == 204 or response.status == 200:
-                    return int((end_time - start_time) * 1000)
-        except Exception as e:
+            scheme = "socks5h" if p_type == "socks" else "http"
+            proxy_url = f"{scheme}://{auth}{server}:{port}"
+
+            # 使用系统 curl 命令进行测速（与你的 Shell 脚本逻辑完全一致）
+            cmd = [
+                "curl", "-m", "5", "-s", "-o", "/dev/null",
+                "-w", "%{http_code}|%{time_total}",
+                "-x", proxy_url,
+                "https://www.gstatic.com/generate_204"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+            if result.returncode == 0 and result.stdout:
+                parts = result.stdout.strip().split("|")
+                if len(parts) == 2:
+                    http_code = parts[0]
+                    time_total = float(parts[1])
+                    if http_code in ["200", "204"]:
+                        return int(time_total * 1000)
+        except Exception:
             pass
-        finally:
-            # 恢复默认 socket，避免影响其他模块
-            socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
-            # 如果 socket.socket 被修改为原生，可以安全地将默认代理重置为空
-            try:
-                socks.set_default_proxy()
-            except:
-                pass
         return -1
 
     def do_sync_fanout_action(self):
@@ -924,3 +924,4 @@ if __name__ == "__main__":
     server = http.server.HTTPServer(("0.0.0.0", PORT), PanelHandler)
     print(f"Panel is running on port {PORT}. Password: {WEB_PASSWORD}")
     server.serve_forever()
+
