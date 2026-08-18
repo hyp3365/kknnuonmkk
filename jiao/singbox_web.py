@@ -8,7 +8,17 @@ import urllib.parse
 import random
 import time
 import threading
-import node_panel
+import importlib.util
+
+# 动态加载同目录下的 web-inbounds 和 web-outbounds 模块
+def load_module_from_path(module_name, file_path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+inbound_panel = load_module_from_path("web_inbounds", "/etc/sing-box/web-inbounds.py")
+outbound_panel = load_module_from_path("web_outbounds", "/etc/sing-box/web-outbounds.py")
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -24,18 +34,15 @@ def load_or_generate_config():
                     return int(port), str(pwd)
         except:
             pass
-    
     port = 9999
     plain_password = str(random.randint(1000, 9999))
-    
     cfg = {"port": port, "password": plain_password}
     try:
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(cfg, f, indent=2)
-    except Exception as e:
-        print(f"保存配置失败: {e}")
-        
+    except:
+        pass
     return port, plain_password
 
 PORT, WEB_PASSWORD = load_or_generate_config()
@@ -43,7 +50,20 @@ PORT, WEB_PASSWORD = load_or_generate_config()
 CONF_DIR = "/etc/sing-box/conf"
 ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
 OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
+INBOUND_FILE = os.path.join(CONF_DIR, "inbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
+
+def ensure_route_file():
+    if not os.path.exists(ROUTE_FILE):
+        os.makedirs(os.path.dirname(ROUTE_FILE), exist_ok=True)
+        default_route = {"route": {"rules": [{"outbound": "direct"}]}}
+        try:
+            with open(ROUTE_FILE, "w") as f:
+                json.dump(default_route, f, indent=2)
+        except:
+            pass
+
+ensure_route_file()
 
 def restart_singbox_async():
     def _restart():
@@ -69,11 +89,11 @@ LOGIN_PAGE = """
     <title>身份验证</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; }
-        .login-box { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center; width: 100%; max-width: 320px; }
-        h3 { color: #333; margin-top: 0; margin-bottom: 20px; }
-        input { padding: 12px; width: 100%; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 16px; text-align: center; }
-        button { padding: 12px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 15px; }
+        .login-box { background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); text-align: center; width: 100%; max-width: 300px; }
+        h3 { color: #333; margin-top: 0; margin-bottom: 15px; }
+        input { padding: 10px; width: 100%; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 12px; font-size: 15px; text-align: center; }
+        button { padding: 10px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold; width: 100%; }
         button:hover { background: #1557b0; }
     </style>
 </head>
@@ -90,9 +110,7 @@ LOGIN_PAGE = """
             document.cookie = "auth=" + p + "; path=/; max-age=2592000";
             window.location.href = '/?t=' + new Date().getTime();
         }
-        document.getElementById('pwd').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') login();
-        });
+        document.getElementById('pwd').addEventListener('keypress', function (e) { if (e.key === 'Enter') login(); });
     </script>
 </body>
 </html>
@@ -107,32 +125,32 @@ HTML_PAGE = """
     <title>Sing-box 分流与节点管理</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 0 auto; padding: 15px; background: #f4f6f9; color: #333; }
-        h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .status-dot { height: 10px; width: 10px; background-color: #137333; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 10px; background: #f4f6f9; color: #333; }
+        h2 { color: #1a73e8; margin: 5px 0 10px 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+        .status-dot { height: 8px; width: 8px; background-color: #137333; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .status-dot.offline { background-color: #d93025; }
         .status-text { font-size: 12px; font-weight: normal; color: #666; }
-        .card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card { background: #fff; padding: 10px 12px; margin-bottom: 10px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
         .table-container { width: 100%; overflow-x: auto; }
-        table { width: 100%; min-width: 600px; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; }
+        table { width: 100%; min-width: 550px; border-collapse: collapse; margin-top: 5px; }
+        th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 13px; vertical-align: top; }
         th { background: #fafafa; color: #555; }
-        select, input[type="text"] { width: 100%; max-width: 300px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; font-size: 14px; }
-        button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        select, input[type="text"] { width: 100%; max-width: 280px; padding: 6px 8px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 4px; font-size: 13px; }
+        button { padding: 6px 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
         button:hover:not(:disabled) { background: #1557b0; }
         button:disabled { cursor: not-allowed; opacity: 0.8; }
         .success { background: #137333; }
         .success:hover:not(:disabled) { background: #0b5121; }
         .danger { background: #d93025; }
         .danger:hover:not(:disabled) { background: #b31412; }
-        .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 12px; padding: 3px 8px; margin-top: 6px; border-radius: 4px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
+        .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 2px 6px; margin-top: 4px; border-radius: 3px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
         .edit-btn:hover { background: #d2e3fc; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; }
-        .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: #e8f0fe; color: #1a73e8; }
+        .form-group { margin-bottom: 8px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 3px; font-size: 13px; }
+        .type-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 11px; background: #e8f0fe; color: #1a73e8; }
         .type-badge.all { background: #fce8e6; color: #d93025; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
-        .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
+        .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 380px; }
     </style>
 </head>
 <body>
@@ -141,48 +159,49 @@ HTML_PAGE = """
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <div class="card" style="background: #f8f9fa; display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
-        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8;">分流</button>
-        <button id="btn-tab-nodes" onclick="switchTab('nodes')" style="background: #5f6368;">节点</button>
-        <button class="success" onclick="syncFanout(this)">🔄 同步 Fanout</button>
+    <div class="card" style="background: #f8f9fa; display: flex; gap: 6px; align-items: center; justify-content: flex-end; padding: 6px 10px;">
+        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 5px 10px; font-size: 12px;">分流</button>
+        <button id="btn-tab-inbound" onclick="switchTab('inbound')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">入站</button>
+        <button id="btn-tab-outbound" onclick="switchTab('outbound')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">出站</button>
+        <button class="success" onclick="syncFanout(this)" style="padding: 5px 10px; font-size: 12px;">🔄 同步 Fanout</button>
     </div>
 
-    <!-- 分流管理视图 -->
+    <!-- 分流视图 -->
     <div id="view-routing">
         <div class="card">
-            <h3>➕ 添加规则</h3>
+            <h3 style="margin: 0 0 8px 0; font-size: 15px;">➕ 添加规则</h3>
             <div class="form-group">
                 <label>规则类型与内容:</label>
                 <select id="new-rule-type" onchange="toggleRuleInput('new')">
                     <option value="domain_suffix">域名后缀</option>
                     <option value="rule_set">规则集</option>
                 </select>
-                <input type="text" id="new-domain-value" placeholder="输入域名 (留空则匹配所有流量)">
+                <input type="text" id="new-domain-value" placeholder="输入域名 (留空匹配所有流量)">
                 <select id="new-ruleset-select" style="display: none;"></select>
             </div>
             <div class="form-group">
                 <label>生效节点:</label>
-                <select id="new-rule-inbounds" multiple style="height: 70px;"></select>
-                <div style="font-size:12px; color:#666; margin-top:2px;">留空则默认对全部节点生效</div>
+                <select id="new-rule-inbounds" multiple style="height: 55px;"></select>
+                <div style="font-size:11px; color:#666; margin-top:1px;">留空默认对全部节点生效</div>
             </div>
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">确认添加规则</button>
             </div>
         </div>
 
         <div class="card">
-            <h3>⚡ 已有分流规则列表</h3>
+            <h3 style="margin: 0 0 8px 0; font-size: 15px;">⚡ 已有分流规则列表</h3>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 15%;">类型</th>
-                            <th style="width: 30%;">内容</th>
+                            <th style="width: 32%;">内容</th>
                             <th style="width: 15%;">入口</th>
                             <th style="width: 15%;">出站</th>
-                            <th style="width: 25%;">操作</th>
+                            <th style="width: 23%;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="rules-table">
@@ -193,14 +212,19 @@ HTML_PAGE = """
         </div>
     </div>
 
-    <!-- 节点管理视图 -->
-    <div id="view-nodes" style="display: none;">
-        PLACEHOLDER_NODES_HTML
+    <!-- 入站视图 -->
+    <div id="view-inbound" style="display: none;">
+        PLACEHOLDER_INBOUND_HTML
+    </div>
+
+    <!-- 出站视图 -->
+    <div id="view-outbound" style="display: none;">
+        PLACEHOLDER_OUTBOUND_HTML
     </div>
 
     <div id="modalOverlay" class="modal-overlay" onclick="closeEditModal()"></div>
     <div id="editModal" class="modal-content">
-        <h3 style="margin-top:0;">✏️ 修改规则内容</h3>
+        <h3 style="margin-top:0; font-size: 16px;">✏️ 修改规则内容</h3>
         <input type="hidden" id="edit-idx">
         <div class="form-group">
             <label>新规则类型与内容:</label>
@@ -208,12 +232,12 @@ HTML_PAGE = """
                 <option value="domain_suffix">域名后缀</option>
                 <option value="rule_set">规则集</option>
             </select>
-            <input type="text" id="edit-domain-value" placeholder="输入域名 (留空则匹配所有流量)" style="width: 100%; max-width: 100%; margin-top: 8px;">
-            <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 8px;"></select>
+            <input type="text" id="edit-domain-value" placeholder="输入域名" style="width: 100%; max-width: 100%; margin-top: 4px;">
+            <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 4px;"></select>
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
-            <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
+        <div style="display: flex; gap: 8px; margin-top: 15px;">
+            <button onclick="saveEdit()" style="flex: 1; padding: 6px;">保存修改</button>
+            <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333; padding: 6px;">取消</button>
         </div>
     </div>
 
@@ -222,18 +246,13 @@ let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: 
 let isReconnecting = false;
 
 function switchTab(tab) {
-    if (tab === 'routing') {
-        document.getElementById('view-routing').style.display = 'block';
-        document.getElementById('view-nodes').style.display = 'none';
-        document.getElementById('btn-tab-routing').style.background = '#1a73e8';
-        document.getElementById('btn-tab-nodes').style.background = '#5f6368';
-    } else {
-        document.getElementById('view-routing').style.display = 'none';
-        document.getElementById('view-nodes').style.display = 'block';
-        document.getElementById('btn-tab-routing').style.background = '#5f6368';
-        document.getElementById('btn-tab-nodes').style.background = '#1a73e8';
-        if (typeof loadNodes === 'function') loadNodes();
-    }
+    let tabs = ['routing', 'inbound', 'outbound'];
+    tabs.forEach(t => {
+        document.getElementById('view-' + t).style.display = (t === tab) ? 'block' : 'none';
+        document.getElementById('btn-tab-' + t).style.background = (t === tab) ? '#1a73e8' : '#5f6368';
+    });
+    if (tab === 'inbound' && typeof loadInbounds === 'function') loadInbounds();
+    if (tab === 'outbound' && typeof loadOutbounds === 'function') loadOutbounds();
 }
 
 function toggleRuleInput(prefix) {
@@ -264,7 +283,7 @@ function renderTable() {
                 opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
             }
             
-            let typeName = r.type === 'domain_suffix' ? '域名后缀' : (r.type === 'rule_set' ? '规则集' : '全部流量');
+            let typeName = r.type === 'domain_suffix' ? '域名后缀' : (r.type === 'rule_set' ? '规则集' : '全部');
             let badgeClass = r.type === 'match_all' ? 'type-badge all' : 'type-badge';
             let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
             
@@ -272,15 +291,15 @@ function renderTable() {
                 <td><span class="${badgeClass}">${typeName}</span></td>
                 <td>
                     <div style="word-break: break-all;"><b>${r.values}</b></div>
-                    <div class="edit-btn" onclick="openEditModal(${idx})">✏️ 修改内容</div>
+                    <div class="edit-btn" onclick="openEditModal(${idx})">✏️ 修改</div>
                 </td>
-                <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
+                <td><span style="font-size:11px; color:#555;">${inboundsText}</span></td>
                 <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
                 <td>
-                    <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 5px;">${opts}</select>
-                    <div style="display: flex; gap: 5px;">
-                        <button onclick="updateRule(${idx})" style="padding: 4px 8px;">切换</button>
-                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
+                    <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 2px;">${opts}</select>
+                    <div style="display: flex; gap: 4px;">
+                        <button onclick="updateRule(${idx})" style="padding: 2px 6px; font-size:11px;">切换</button>
+                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 2px 6px; font-size:11px;">删除</button>
                     </div>
                 </td>
             </tr>`;
@@ -306,10 +325,7 @@ function renderSelects() {
 async function loadData() {
     try {
         let res = await fetch('/api/status?' + new Date().getTime());
-        if (res.status === 401) {
-            window.location.reload();
-            return;
-        }
+        if (res.status === 401) { window.location.reload(); return; }
         globalData = await res.json();
         renderSelects();
         renderTable();
@@ -321,7 +337,6 @@ async function loadData() {
 function openEditModal(idx) {
     let rule = globalData.rules[idx];
     document.getElementById('edit-idx').value = idx;
-    
     let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
     globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
     document.getElementById('edit-ruleset-select').innerHTML = rsHtml;
@@ -336,7 +351,6 @@ function openEditModal(idx) {
         document.getElementById('edit-rule-type').value = 'domain_suffix';
         document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 - 所有流量)' ? rule.values : '';
     }
-    
     toggleRuleInput('edit');
     document.getElementById('modalOverlay').style.display = 'block';
     document.getElementById('editModal').style.display = 'block';
@@ -350,7 +364,6 @@ function closeEditModal() {
 function silentBackgroundCheck() {
     if (isReconnecting) return;
     isReconnecting = true;
-    
     let statusEl = document.getElementById('conn-status');
     statusEl.innerHTML = '<span class="status-dot offline"></span>后台重启中...';
     
@@ -360,10 +373,8 @@ function silentBackgroundCheck() {
             const timeoutId = setTimeout(() => controller.abort(), 1000);
             let checkRes = await fetch('/api/status?' + new Date().getTime(), { signal: controller.signal });
             clearTimeout(timeoutId);
-            
             if (checkRes.ok || checkRes.status === 401) {
-                let realData = await checkRes.json();
-                globalData = realData;
+                globalData = await checkRes.json();
                 renderTable();
                 statusEl.innerHTML = '<span class="status-dot"></span>在线';
                 isReconnecting = false;
@@ -376,7 +387,7 @@ function silentBackgroundCheck() {
 }
 
 async function handleBackgroundReq(reqPromise) {
-    try { await reqPromise; } catch (e) { }
+    try { await reqPromise; } catch (e) {}
     silentBackgroundCheck();
 }
 
@@ -409,7 +420,6 @@ function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
     globalData.rules[idx].outbound = val;
     renderTable();
-
     let req = fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
     handleBackgroundReq(req);
 }
@@ -418,7 +428,6 @@ function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
     globalData.rules.splice(idx, 1);
     renderTable();
-
     let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
     handleBackgroundReq(req);
 }
@@ -459,8 +468,9 @@ loadData();
 </html>
 """
 
-# 动态注入节点页面的 HTML 片段
-HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_NODES_HTML", node_panel.get_nodes_html())
+# 动态注入入站与出站页面的 HTML 片段
+HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
+HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
 
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     def check_auth(self):
@@ -472,8 +482,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         if cookie_header:
             cookies = http.cookies.SimpleCookie(cookie_header)
             if 'auth' in cookies:
-                input_pwd = cookies['auth'].value
-                if input_pwd == WEB_PASSWORD:
+                if cookies['auth'].value == WEB_PASSWORD:
                     FAILED_LOCK_UNTIL = 0
                     return True
                 else:
@@ -502,9 +511,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 self.send_no_cache_response(200, "text/html; charset=utf-8", LOGIN_PAGE.encode("utf-8"))
             return
 
-        # 委派节点相关的 API 请求给 node_panel
-        if path.startswith("/api/nodes_'") or path in ["/api/nodes_list", "/api/del_node"]:
-            res_dict = node_panel.handle_nodes_api(path, query)
+        # 委派入站/出站 API 请求
+        if path == "/api/inbounds_list":
+            res_dict = inbound_panel.handle_inbounds_api(path, query)
+            if res_dict is not None:
+                self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
+                return
+
+        if path == "/api/outbounds_list":
+            res_dict = outbound_panel.handle_outbounds_api(path, query)
             if res_dict is not None:
                 self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
                 return
@@ -523,37 +538,25 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
                                 data["outbounds"].append(tag)
 
-                if os.path.exists(CONF_DIR):
-                    for root, dirs, files in os.walk(CONF_DIR):
-                        for file in files:
-                            if file.endswith(".json"):
-                                f_path = os.path.join(root, file)
-                                try:
-                                    with open(f_path, "r") as f:
-                                        j_data = json.load(f)
-                                        ib_list = j_data.get("inbounds", [])
-                                        if isinstance(ib_list, list):
-                                            for ib in ib_list:
-                                                if isinstance(ib, dict) and "tag" in ib:
-                                                    tag = ib["tag"]
-                                                    if tag and tag not in data["inbounds"]:
-                                                        data["inbounds"].append(tag)
-                                except:
-                                    pass
+                if os.path.exists(INBOUND_FILE):
+                    with open(INBOUND_FILE, "r") as f:
+                        i_json = json.load(f)
+                        for ib in i_json.get("inbounds", []):
+                            tag = ib.get("tag")
+                            if tag and tag not in data["inbounds"]:
+                                data["inbounds"].append(tag)
 
                 if os.path.exists(ROUTE_FILE):
                     with open(ROUTE_FILE, "r") as f:
                         r_json = json.load(f)
                         route_cfg = r_json.get("route", {})
-                        rule_sets = route_cfg.get("rule_set", [])
-                        for rs in rule_sets:
+                        for rs in route_cfg.get("rule_set", []):
                             if isinstance(rs, dict) and "tag" in rs:
                                 data["available_rule_sets"].append(rs["tag"])
                             elif isinstance(rs, str):
                                 data["available_rule_sets"].append(rs)
 
-                        rules = route_cfg.get("rules", [])
-                        for r in rules:
+                        for r in route_cfg.get("rules", []):
                             if is_managed_rule(r):
                                 r_type = "match_all"
                                 vals = "(全匹配 - 所有流量)"
@@ -567,12 +570,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                     vals = ", ".join(val) if isinstance(val, list) else str(val)
                                 
                                 inbound_val = r.get("inbound", [])
-                                if isinstance(inbound_val, str):
-                                    inbounds = [inbound_val]
-                                elif isinstance(inbound_val, list):
-                                    inbounds = inbound_val
-                                else:
-                                    inbounds = []
+                                inbounds = [inbound_val] if isinstance(inbound_val, str) else (inbound_val if isinstance(inbound_val, list) else [])
 
                                 data["rules"].append({
                                     "type": r_type,
