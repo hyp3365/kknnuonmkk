@@ -496,38 +496,36 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in data["inbounds"]:
                                 data["inbounds"].append(tag)
 
-                possible_node_files = [
+                                possible_node_files = [
                     "vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
                     "tuic.json", "anytls.json", "vless-ws-cdn.json", 
-                    "vmess-ws-cdn.json", "trojan-ws-cdn.json", "h2-reality.json"
+                    "vmess-ws-cdn.json", "trojan-ws-cdn.json", "h2-reality.json", "endpoints.json"
                 ]
                 for node_filename in possible_node_files:
-    node_filepath = os.path.join(CONF_DIR, node_filename)
-    if os.path.exists(node_filepath):
-        try:
-            with open(node_filepath, "r") as nf:
-                node_data = json.load(nf)
-                
-            
-                if node_filename == "endpoints.json":
-                    if "endpoints" in node_data and isinstance(node_data["endpoints"], list):
-                        for ep in node_data["endpoints"]:
-                            if isinstance(ep, dict) and "tag" in ep:
-                                tag = ep["tag"]
-                                if tag and tag not in data["outbounds"]:
-                                    data["outbounds"].append(tag)
-                else:
-                    
-                    found_tag = None
-                    if "inbounds" in node_data and len(node_data["inbounds"]) > 0:
-                        found_tag = node_data["inbounds"][0].get("tag")
-                    elif "tag" in node_data:
-                        found_tag = node_data.get("tag")
-                    
-                    if found_tag and found_tag not in data["inbounds"]:
-                        data["inbounds"].append(found_tag)
-        except Exception:
-            pass
+                    node_filepath = os.path.join(CONF_DIR, node_filename)
+                    if os.path.exists(node_filepath):
+                        try:
+                            with open(node_filepath, "r") as nf:
+                                node_data = json.load(nf)
+                                
+                            if node_filename == "endpoints.json":
+                                if "endpoints" in node_data and isinstance(node_data["endpoints"], list):
+                                    for ep in node_data["endpoints"]:
+                                        if isinstance(ep, dict) and "tag" in ep:
+                                            tag = ep["tag"]
+                                            if tag and tag not in data["outbounds"]:
+                                                data["outbounds"].append(tag)
+                            else:
+                                found_tag = None
+                                if "inbounds" in node_data and len(node_data["inbounds"]) > 0:
+                                    found_tag = node_data["inbounds"][0].get("tag")
+                                elif "tag" in node_data:
+                                    found_tag = node_data.get("tag")
+                                
+                                if found_tag and found_tag not in data["inbounds"]:
+                                    data["inbounds"].append(found_tag)
+                        except Exception:
+                            pass
 
                 if os.path.exists(ROUTE_FILE):
                     with open(ROUTE_FILE, "r") as f:
