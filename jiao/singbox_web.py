@@ -108,7 +108,10 @@ HTML_PAGE = """
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 950px; margin: 0 auto; padding: 15px; background: #f4f6f9; color: #333; }
-        h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .status-dot { height: 10px; width: 10px; background-color: #137333; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .status-dot.offline { background-color: #d93025; }
+        .status-text { font-size: 12px; font-weight: normal; color: #666; }
         .card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
         .table-container { width: 100%; overflow-x: auto; }
         table { width: 100%; min-width: 600px; border-collapse: collapse; margin-top: 10px; }
@@ -130,10 +133,15 @@ HTML_PAGE = """
         .type-badge.all { background: #fce8e6; color: #d93025; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
         .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 400px; }
+        tr.updating { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
 <body>
-    <h2>🚀 分流与节点管理</h2>
+    <h2>
+        <span>🚀 分流与节点管理</span>
+        <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
+    </h2>
+    
     <div class="card" style="text-align: right; background: #f8f9fa;">
         <button class="success" onclick="syncFanout(this)">🔄 同步 Fanout 节点</button>
     </div>
@@ -157,7 +165,7 @@ HTML_PAGE = """
         <div class="form-group">
             <label>出站节点:</label>
             <select id="new-rule-outbound"></select>
-            <button onclick="addRule(this)" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
+            <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 300px; margin-top: 10px;">确认添加规则</button>
         </div>
     </div>
 
@@ -195,13 +203,14 @@ HTML_PAGE = """
             <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 8px;"></select>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button onclick="saveEdit(this)" style="flex: 1;">保存修改</button>
+            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
             <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
         </div>
     </div>
 
 <script>
 let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
+let isReconnecting = false;
 
 function toggleRuleInput(prefix) {
     let type = document.getElementById(prefix + '-rule-type').value;
@@ -214,6 +223,64 @@ function toggleRuleInput(prefix) {
     }
 }
 
+// 单独提取渲染表格的逻辑，以便随时“秒切”UI
+function renderTable() {
+    let ruleHtml = '';
+    if (globalData.rules.length === 0) {
+        ruleHtml = '<tr><td colspan="5" style="text-align:center; color:#888;">暂无规则</td></tr>';
+    } else {
+        globalData.rules.forEach((r, idx) => {
+            let opts = '';
+            let isOutboundInList = false;
+            globalData.outbounds.forEach(o => {
+                let selected = (o === r.outbound) ? 'selected' : '';
+                if (o === r.outbound) isOutboundInList = true;
+                opts += `<option value="${o}" ${selected}>${o}</option>`;
+            });
+            if (!isOutboundInList && r.outbound) {
+                opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
+            }
+            
+            let typeName = r.type === 'domain_suffix' ? '域名后缀' : (r.type === 'rule_set' ? '规则集' : '全部流量');
+            let badgeClass = r.type === 'match_all' ? 'type-badge all' : 'type-badge';
+            let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
+            
+            ruleHtml += `<tr id="row-${idx}">
+                <td><span class="${badgeClass}">${typeName}</span></td>
+                <td>
+                    <div style="word-break: break-all;"><b>${r.values}</b></div>
+                    <div class="edit-btn" onclick="openEditModal(${idx})">✏️ 修改内容</div>
+                </td>
+                <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
+                <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
+                <td>
+                    <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 5px;">${opts}</select>
+                    <div style="display: flex; gap: 5px;">
+                        <button onclick="updateRule(${idx})" style="padding: 4px 8px;">切换</button>
+                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 4px 8px;">删除</button>
+                    </div>
+                </td>
+            </tr>`;
+        });
+    }
+    document.getElementById('rules-table').innerHTML = ruleHtml;
+}
+
+function renderSelects() {
+    let outHtml = '';
+    globalData.outbounds.forEach(o => outHtml += `<option value="${o}">${o}</option>`);
+    document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
+
+    let inHtml = '';
+    globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
+    document.getElementById('new-rule-inbounds').innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
+
+    let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
+    globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
+    document.getElementById('new-ruleset-select').innerHTML = rsHtml;
+}
+
+// 首次加载真实数据
 async function loadData() {
     try {
         let res = await fetch('/api/status?' + new Date().getTime());
@@ -222,58 +289,8 @@ async function loadData() {
             return;
         }
         globalData = await res.json();
-        
-        let outHtml = '';
-        globalData.outbounds.forEach(o => outHtml += `<option value="${o}">${o}</option>`);
-        document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
-
-        let inHtml = '';
-        globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
-        document.getElementById('new-rule-inbounds').innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
-
-        let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
-        globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
-        document.getElementById('new-ruleset-select').innerHTML = rsHtml;
-
-        let ruleHtml = '';
-        if (globalData.rules.length === 0) {
-            ruleHtml = '<tr><td colspan="5" style="text-align:center; color:#888;">暂无规则</td></tr>';
-        } else {
-            globalData.rules.forEach((r, idx) => {
-                let opts = '';
-                let isOutboundInList = false;
-                globalData.outbounds.forEach(o => {
-                    let selected = (o === r.outbound) ? 'selected' : '';
-                    if (o === r.outbound) isOutboundInList = true;
-                    opts += `<option value="${o}" ${selected}>${o}</option>`;
-                });
-                if (!isOutboundInList && r.outbound) {
-                    opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
-                }
-                
-                let typeName = r.type === 'domain_suffix' ? '域名后缀' : (r.type === 'rule_set' ? '规则集' : '全部流量');
-                let badgeClass = r.type === 'match_all' ? 'type-badge all' : 'type-badge';
-                let inboundsText = (r.inbounds && r.inbounds.length > 0) ? r.inbounds.join('<br>') : '<span style="color:#888;">全部</span>';
-                
-                ruleHtml += `<tr>
-                    <td><span class="${badgeClass}">${typeName}</span></td>
-                    <td>
-                        <div style="word-break: break-all;"><b>${r.values}</b></div>
-                        <div class="edit-btn" onclick="openEditModal(${idx})">✏️ 修改内容</div>
-                    </td>
-                    <td><span style="font-size:12px; color:#555;">${inboundsText}</span></td>
-                    <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
-                    <td>
-                        <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 5px;">${opts}</select>
-                        <div style="display: flex; gap: 5px;">
-                            <button onclick="updateRule(${idx}, this)" style="padding: 4px 8px;">切换</button>
-                            <button class="danger" onclick="deleteRule(${idx}, this)" style="padding: 4px 8px;">删除</button>
-                        </div>
-                    </td>
-                </tr>`;
-            });
-        }
-        document.getElementById('rules-table').innerHTML = ruleHtml;
+        renderSelects();
+        renderTable();
     } catch (e) {
         console.error('获取数据失败');
     }
@@ -308,104 +325,131 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-async function handleReq(btn, reqPromise, onSuccess) {
-    let oldHtml = btn.innerHTML;
-    btn.innerHTML = "⏳ 处理中...";
-    btn.disabled = true;
+// 统一的后台探测逻辑：不阻塞前端渲染，只是在右上角显示状态
+function silentBackgroundCheck() {
+    if (isReconnecting) return;
+    isReconnecting = true;
     
-    let resObj = null;
-    try {
-        let res = await reqPromise;
-        resObj = await res.json();
-        // 如果后端明确返回了错误（例如参数不对等）
-        if (resObj.code !== 0) {
-            alert(resObj.msg);
-            btn.innerHTML = oldHtml;
-            btn.disabled = false;
-            return;
-        } else if (onSuccess) {
-            onSuccess(); // 成功则执行回调清理输入框等
-        }
-    } catch (e) {
-        // 捕获到异常：说明 sing-box 被重启，导致代理连接断开，静默吃掉错误
-    }
-
-    // 轮询检查功能，每隔 1 秒尝试发一次请求看后端是否活过来
-    const checkConnection = async () => {
+    let statusEl = document.getElementById('conn-status');
+    statusEl.innerHTML = '<span class="status-dot offline"></span>后台重启中...';
+    
+    const checkLoop = async () => {
         try {
             const controller = new AbortController();
-            // 设置 1 秒超时
             const timeoutId = setTimeout(() => controller.abort(), 1000);
             let checkRes = await fetch('/api/status?' + new Date().getTime(), { signal: controller.signal });
             clearTimeout(timeoutId);
             
-            // 如果能连通后端（返回 200 或要求重新登录的 401）
             if (checkRes.ok || checkRes.status === 401) {
-                btn.innerHTML = oldHtml;
-                btn.disabled = false;
-                loadData();
+                // 后台重启成功，拉取最新真实数据对齐一次
+                let realData = await checkRes.json();
+                globalData = realData;
+                renderTable(); // 确保一致性
+                statusEl.innerHTML = '<span class="status-dot"></span>在线';
+                isReconnecting = false;
                 return;
             }
         } catch (e) {
-            // 继续失败说明 sing-box 还没启动完，静默等下一次
+            // 继续重试
         }
-        // 如果没成功，1 秒后再探一次
-        setTimeout(checkConnection, 1000);
+        setTimeout(checkLoop, 1000);
     };
-
-    // 操作完成后，1 秒后开始探测
-    setTimeout(checkConnection, 1000);
+    
+    setTimeout(checkLoop, 500); // 半秒后开始探测
 }
 
-function syncFanout(btn) {
-    let req = fetch('/api/sync_fanout?' + new Date().getTime());
-    handleReq(btn, req);
+// 处理普通的按钮请求，并静默重连
+async function handleBackgroundReq(reqPromise) {
+    try {
+        await reqPromise; // 发出请求，不管返回值，因为一定会被断流
+    } catch (e) { }
+    silentBackgroundCheck();
 }
 
-function addRule(btn) {
+// -------- 核心逻辑：乐观更新（先改前端，再发后台） --------
+
+function addRule() {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
     let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
     let inboundsSelect = document.getElementById('new-rule-inbounds');
     let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
 
+    // 1. 乐观更新前端
+    let newRuleData = {
+        type: type === "domain_suffix" && !val ? "match_all" : type,
+        values: val || "(全匹配 - 所有流量)",
+        inbounds: selectedInbounds,
+        outbound: outbound
+    };
+    globalData.rules.unshift(newRuleData); // 插入最前面
+    renderTable(); // 立刻重绘
+    
+    document.getElementById('new-domain-value').value = ''; // 清空输入框
+
+    // 2. 发送请求给后端
     let req = fetch('/api/add_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
     });
-    
-    handleReq(btn, req, () => {
-        document.getElementById('new-domain-value').value = '';
-    });
+    handleBackgroundReq(req);
 }
 
-function updateRule(idx, btn) {
+function updateRule(idx) {
     let val = document.getElementById(`rule-sel-${idx}`).value;
+    
+    // 1. 乐观更新前端
+    globalData.rules[idx].outbound = val;
+    renderTable();
+
+    // 2. 发送请求给后端
     let req = fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
-    handleReq(btn, req);
+    handleBackgroundReq(req);
 }
 
-function deleteRule(idx, btn) {
+function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
+    
+    // 1. 乐观更新前端
+    globalData.rules.splice(idx, 1); // 瞬间删掉
+    renderTable();
+
+    // 2. 发送请求给后端
     let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
-    handleReq(btn, req);
+    handleBackgroundReq(req);
 }
 
-function saveEdit(btn) {
+function saveEdit() {
     let idx = document.getElementById('edit-idx').value;
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix' ? document.getElementById('edit-domain-value').value.trim() : document.getElementById('edit-ruleset-select').value;
 
+    // 1. 乐观更新前端
+    globalData.rules[idx].type = type === "domain_suffix" && !val ? "match_all" : type;
+    globalData.rules[idx].values = val || "(全匹配 - 所有流量)";
+    closeEditModal();
+    renderTable();
+
+    // 2. 发送请求给后端
     let req = fetch('/api/edit_rule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: parseInt(idx), type: type, value: val })
     });
-    
-    handleReq(btn, req, () => {
-        closeEditModal();
-    });
+    handleBackgroundReq(req);
+}
+
+function syncFanout(btn) {
+    let oldHtml = btn.innerHTML;
+    btn.innerHTML = "⏳ 同步中...";
+    btn.disabled = true;
+    let req = fetch('/api/sync_fanout?' + new Date().getTime())
+        .finally(() => {
+            btn.innerHTML = oldHtml;
+            btn.disabled = false;
+        });
+    handleBackgroundReq(req);
 }
 
 loadData();
