@@ -10,6 +10,7 @@ import time
 import threading
 import importlib.util
 
+# 安全加载外部模块（即使文件不存在或未开启，也不影响主控启动）
 def load_optional_module(module_name, file_path):
     if not os.path.exists(file_path):
         return None
@@ -164,11 +165,11 @@ HTML_PAGE = """
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <div class="card" style="background: #f8f9fa; display: flex; gap: 6px; align-items: center; justify-content: flex-end; padding: 6px 10px;">
-        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 5px 10px; font-size: 12px;">分流</button>
+    <div class="card" style="background: #f8f9fa; display: flex; gap: 6px; align-items: center; padding: 6px 10px;">
+        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 6px 8px; font-size: 12px; flex: 1;">分流</button>
         TAB_BTN_INBOUND
         TAB_BTN_OUTBOUND
-        <button class="success" onclick="syncFanout(this)" style="padding: 5px 10px; font-size: 12px;">🔄 同步 Fanout</button>
+        <button class="success" onclick="syncFanout(this)" style="padding: 6px 8px; font-size: 12px; flex: 1;">🔄 同步</button>
     </div>
 
     <!-- 分流视图 -->
@@ -192,7 +193,7 @@ HTML_PAGE = """
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">确认添加规则</button>
             </div>
         </div>
 
@@ -357,7 +358,7 @@ function openEditModal(idx) {
         document.getElementById('edit-ruleset-select').value = rule.values;
     } else {
         document.getElementById('edit-rule-type').value = 'domain_suffix';
-        document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 - 所有流量)' ? rule.values : '';
+        document.getElementById('edit-domain-value').value = rule.values !== '(全匹配 -所有流量)' ? rule.values : '';
     }
     toggleRuleInput('edit');
     document.getElementById('modalOverlay').style.display = 'block';
@@ -478,14 +479,14 @@ loadData();
 
 # 根据入站/出站模块是否存在，安全注入对应的标签页按钮和HTML内容
 if inbound_panel and hasattr(inbound_panel, "get_inbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">入站</button>')
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 6px 8px; font-size: 12px; flex: 1;">入站</button>')
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
 else:
     HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", "")
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">入站管理模块未启用或文件不存在 (/etc/sing-box/web-inbounds.py)</p></div>')
 
 if outbound_panel and hasattr(outbound_panel, "get_outbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">出站</button>')
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 6px 8px; font-size: 12px; flex: 1;">出站</button>')
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
 else:
     HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", "")
@@ -578,6 +579,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 data["available_rule_sets"].append(rs)
 
                         for r in route_cfg.get("rules", []):
+                            # 自动从现有规则中提取入站节点（如 hysteria2 等），确保选择列表完整
+                            inbound_val = r.get("inbound", [])
+                            inbounds = [inbound_val] if isinstance(inbound_val, str) else (inbound_val if isinstance(inbound_val, list) else [])
+                            for ib in inbounds:
+                                if ib and ib not in data["inbounds"]:
+                                    data["inbounds"].append(ib)
+
                             if is_managed_rule(r):
                                 r_type = "match_all"
                                 vals = "(全匹配 - 所有流量)"
@@ -589,9 +597,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                     r_type = "rule_set"
                                     val = r["rule_set"]
                                     vals = ", ".join(val) if isinstance(val, list) else str(val)
-                                
-                                inbound_val = r.get("inbound", [])
-                                inbounds = [inbound_val] if isinstance(inbound_val, str) else (inbound_val if isinstance(inbound_val, list) else [])
 
                                 data["rules"].append({
                                     "type": r_type,
