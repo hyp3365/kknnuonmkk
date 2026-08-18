@@ -131,32 +131,32 @@ HTML_PAGE = """
     <title>Sing-box 分流与节点管理</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 10px; background: #f4f6f9; color: #333; }
-        h2 { color: #1a73e8; margin: 5px 0 10px 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
+        h2 { color: #1a73e8; margin: 5px 0 12px 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
         .status-dot { height: 8px; width: 8px; background-color: #137333; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .status-dot.offline { background-color: #d93025; }
         .status-text { font-size: 12px; font-weight: normal; color: #666; }
-        .card { background: #fff; padding: 10px 12px; margin-bottom: 10px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+        .card { background: #fff; padding: 14px 16px; margin-bottom: 14px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
         .table-container { width: 100%; overflow-x: auto; }
-        table { width: 100%; min-width: 550px; border-collapse: collapse; margin-top: 5px; }
-        th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 13px; vertical-align: top; }
+        table { width: 100%; min-width: 550px; border-collapse: collapse; margin-top: 8px; }
+        th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 13px; vertical-align: top; }
         th { background: #fafafa; color: #555; }
-        select, input[type="text"] { width: 100%; max-width: 280px; padding: 6px 8px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 4px; font-size: 13px; }
-        button { padding: 6px 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        select, input[type="text"] { width: 100%; max-width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 8px; font-size: 14px; background: #fff; }
+        button { padding: 8px 14px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
         button:hover:not(:disabled) { background: #1557b0; }
         button:disabled { cursor: not-allowed; opacity: 0.8; }
         .success { background: #137333; }
         .success:hover:not(:disabled) { background: #0b5121; }
         .danger { background: #d93025; }
         .danger:hover:not(:disabled) { background: #b31412; }
-        .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 2px 6px; margin-top: 4px; border-radius: 3px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
+        .edit-btn { background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 3px 8px; margin-top: 6px; border-radius: 4px; border: 1px solid #d2e3fc; display: inline-block; cursor: pointer; font-weight: bold; }
         .edit-btn:hover { background: #d2e3fc; }
-        .form-group { margin-bottom: 8px; }
-        .form-group label { display: block; font-weight: bold; margin-bottom: 3px; font-size: 13px; }
-        .type-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 11px; background: #e8f0fe; color: #1a73e8; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 13px; color: #444; }
+        .type-badge { display: inline-block; padding: 3px 7px; border-radius: 4px; font-weight: 600; font-size: 11px; background: #e8f0fe; color: #1a73e8; }
         .type-badge.all { background: #fce8e6; color: #d93025; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99; }
-        .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100; width: 90%; max-width: 380px; }
+        .modal-content { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 100; width: 90%; max-width: 380px; }
     </style>
 </head>
 <body>
@@ -165,17 +165,17 @@ HTML_PAGE = """
         <span class="status-text" id="conn-status"><span class="status-dot"></span>在线</span>
     </h2>
     
-    <div class="card" style="background: #f8f9fa; display: flex; gap: 6px; align-items: center; padding: 6px 10px;">
-        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 6px 8px; font-size: 12px; flex: 1;">分流</button>
+    <div class="card" style="background: #f8f9fa; display: flex; gap: 8px; align-items: center; padding: 10px 14px;">
+        <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 8px 10px; font-size: 13px; flex: 1;">分流</button>
         TAB_BTN_INBOUND
         TAB_BTN_OUTBOUND
-        <button class="success" onclick="syncFanout(this)" style="padding: 6px 8px; font-size: 12px; flex: 1;">🔄 同步</button>
+        <button class="success" onclick="syncFanout(this)" style="padding: 8px 10px; font-size: 13px; flex: 1;">🔄 同步</button>
     </div>
 
     <!-- 分流视图 -->
     <div id="view-routing">
         <div class="card">
-            <h3 style="margin: 0 0 8px 0; font-size: 15px;">➕ 添加规则</h3>
+            <h3 style="margin: 0 0 10px 0; font-size: 15px;">➕ 添加规则</h3>
             <div class="form-group">
                 <label>规则类型与内容:</label>
                 <select id="new-rule-type" onchange="toggleRuleInput('new')">
@@ -187,18 +187,18 @@ HTML_PAGE = """
             </div>
             <div class="form-group">
                 <label>生效节点:</label>
-                <select id="new-rule-inbounds" multiple style="height: 55px;"></select>
-                <div style="font-size:11px; color:#666; margin-top:1px;">留空默认对全部节点生效</div>
+                <select id="new-rule-inbounds" multiple style="height: 75px;"></select>
+                <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对全部节点生效</div>
             </div>
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">确认添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">确认添加规则</button>
             </div>
         </div>
 
         <div class="card">
-            <h3 style="margin: 0 0 8px 0; font-size: 15px;">⚡ 已有分流规则列表</h3>
+            <h3 style="margin: 0 0 10px 0; font-size: 15px;">⚡ 已有分流规则列表</h3>
             <div class="table-container">
                 <table>
                     <thead>
@@ -234,16 +234,16 @@ HTML_PAGE = """
         <input type="hidden" id="edit-idx">
         <div class="form-group">
             <label>新规则类型与内容:</label>
-            <select id="edit-rule-type" onchange="toggleRuleInput('edit')" style="width: 100%; max-width: 100%;">
+            <select id="edit-rule-type" onchange="toggleRuleInput('edit')">
                 <option value="domain_suffix">域名后缀</option>
                 <option value="rule_set">规则集</option>
             </select>
-            <input type="text" id="edit-domain-value" placeholder="输入域名" style="width: 100%; max-width: 100%; margin-top: 4px;">
-            <select id="edit-ruleset-select" style="display: none; width: 100%; max-width: 100%; margin-top: 4px;"></select>
+            <input type="text" id="edit-domain-value" placeholder="输入域名" style="margin-top: 6px;">
+            <select id="edit-ruleset-select" style="display: none; margin-top: 6px;"></select>
         </div>
         <div style="display: flex; gap: 8px; margin-top: 15px;">
-            <button onclick="saveEdit()" style="flex: 1; padding: 6px;">保存修改</button>
-            <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333; padding: 6px;">取消</button>
+            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
+            <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
         </div>
     </div>
 
@@ -304,10 +304,10 @@ function renderTable() {
                 <td><span style="font-size:11px; color:#555;">${inboundsText}</span></td>
                 <td><span style="color: #1a73e8; font-weight:600;">${r.outbound}</span></td>
                 <td>
-                    <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 2px;">${opts}</select>
+                    <select id="rule-sel-${idx}" style="width: auto; margin-bottom: 4px;">${opts}</select>
                     <div style="display: flex; gap: 4px;">
-                        <button onclick="updateRule(${idx})" style="padding: 2px 6px; font-size:11px;">切换</button>
-                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 2px 6px; font-size:11px;">删除</button>
+                        <button onclick="updateRule(${idx})" style="padding: 3px 8px; font-size:11px;">切换</button>
+                        <button class="danger" onclick="deleteRule(${idx})" style="padding: 3px 8px; font-size:11px;">删除</button>
                     </div>
                 </td>
             </tr>`;
@@ -479,14 +479,14 @@ loadData();
 
 # 根据入站/出站模块是否存在，安全注入对应的标签页按钮和HTML内容
 if inbound_panel and hasattr(inbound_panel, "get_inbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 6px 8px; font-size: 12px; flex: 1;">入站</button>')
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 8px 10px; font-size: 13px; flex: 1;">入站</button>')
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
 else:
     HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", "")
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">入站管理模块未启用或文件不存在 (/etc/sing-box/web-inbounds.py)</p></div>')
 
 if outbound_panel and hasattr(outbound_panel, "get_outbounds_html"):
-    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 6px 8px; font-size: 12px; flex: 1;">出站</button>')
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 8px 10px; font-size: 13px; flex: 1;">出站</button>')
     HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
 else:
     HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", "")
@@ -560,6 +560,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
                                 data["outbounds"].append(tag)
 
+                # 1. 扫描 inbounds.json
                 if os.path.exists(INBOUND_FILE):
                     with open(INBOUND_FILE, "r") as f:
                         i_json = json.load(f)
@@ -567,6 +568,30 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             tag = ib.get("tag")
                             if tag and tag not in data["inbounds"]:
                                 data["inbounds"].append(tag)
+
+                # 2. 动态扫描 conf 目录下的所有独立节点配置文件（解决网页分流无法判断已有节点的问题）
+                possible_node_files = [
+                    "vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
+                    "tuic.json", "anytls.json", "vless-ws-cdn.json", 
+                    "vmess-ws-cdn.json", "trojan-ws-cdn.json"
+                ]
+                for node_filename in possible_node_files:
+                    node_filepath = os.path.join(CONF_DIR, node_filename)
+                    if os.path.exists(node_filepath):
+                        try:
+                            with open(node_filepath, "r") as nf:
+                                node_data = json.load(nf)
+                                # 尝试从文件中提取真实的 tag
+                                found_tag = None
+                                if "inbounds" in node_data and len(node_data["inbounds"]) > 0:
+                                    found_tag = node_data["inbounds"][0].get("tag")
+                                elif "tag" in node_data:
+                                    found_tag = node_data.get("tag")
+                                
+                                if found_tag and found_tag not in data["inbounds"]:
+                                    data["inbounds"].append(found_tag)
+                        except Exception:
+                            pass
 
                 if os.path.exists(ROUTE_FILE):
                     with open(ROUTE_FILE, "r") as f:
@@ -579,7 +604,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 data["available_rule_sets"].append(rs)
 
                         for r in route_cfg.get("rules", []):
-                            # 自动从现有规则中提取入站节点（如 hysteria2 等），确保选择列表完整
                             inbound_val = r.get("inbound", [])
                             inbounds = [inbound_val] if isinstance(inbound_val, str) else (inbound_val if isinstance(inbound_val, list) else [])
                             for ib in inbounds:
