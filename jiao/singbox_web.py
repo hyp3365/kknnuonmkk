@@ -531,6 +531,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_no_cache_response(200, "text/html; charset=utf-8", LOGIN_PAGE.encode("utf-8"))
             return
+        if inbound_panel and hasattr(inbound_panel, "handle_request"):
+            if inbound_panel.handle_request(self, self.path, "GET"):
+                return
+        if outbound_panel and hasattr(outbound_panel, "handle_request"):
+            if outbound_panel.handle_request(self, self.path, "GET"):
+                return
 
         # 委派入站 API 请求
         if path == "/api/inbounds_list" and inbound_panel and hasattr(inbound_panel, "handle_inbounds_api"):
@@ -688,9 +694,16 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         if not self.check_auth():
             self.send_no_cache_response(401, "application/json; charset=utf-8", b'{"code":1, "msg":"Unauthorized"}')
             return
-
+    
         parsed_path = urllib.parse.urlparse(self.path)
         path = parsed_path.path
+
+        if inbound_panel and hasattr(inbound_panel, "handle_request"):
+            if inbound_panel.handle_request(self, self.path, "POST"):
+                return
+        if outbound_panel and hasattr(outbound_panel, "handle_request"):
+            if outbound_panel.handle_request(self, self.path, "POST"):
+                return
 
         if path == "/api/add_rule":
             content_length = int(self.headers.get('Content-Length', 0))
