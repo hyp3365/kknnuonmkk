@@ -10,15 +10,20 @@ import time
 import threading
 import importlib.util
 
-# 动态加载同目录下的 web-inbounds 和 web-outbounds 模块
-def load_module_from_path(module_name, file_path):
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def load_optional_module(module_name, file_path):
+    if not os.path.exists(file_path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:
+        print(f"加载可选模块 {file_path} 失败: {e}")
+        return None
 
-inbound_panel = load_module_from_path("web_inbounds", "/etc/sing-box/web-inbounds.py")
-outbound_panel = load_module_from_path("web_outbounds", "/etc/sing-box/web-outbounds.py")
+inbound_panel = load_optional_module("web_inbounds", "/etc/sing-box/web-inbounds.py")
+outbound_panel = load_optional_module("web_outbounds", "/etc/sing-box/web-outbounds.py")
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
@@ -161,8 +166,8 @@ HTML_PAGE = """
     
     <div class="card" style="background: #f8f9fa; display: flex; gap: 6px; align-items: center; justify-content: flex-end; padding: 6px 10px;">
         <button id="btn-tab-routing" onclick="switchTab('routing')" style="background: #1a73e8; padding: 5px 10px; font-size: 12px;">分流</button>
-        <button id="btn-tab-inbound" onclick="switchTab('inbound')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">入站</button>
-        <button id="btn-tab-outbound" onclick="switchTab('outbound')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">出站</button>
+        TAB_BTN_INBOUND
+        TAB_BTN_OUTBOUND
         <button class="success" onclick="syncFanout(this)" style="padding: 5px 10px; font-size: 12px;">🔄 同步 Fanout</button>
     </div>
 
@@ -187,7 +192,7 @@ HTML_PAGE = """
             <div class="form-group">
                 <label>出站节点:</label>
                 <select id="new-rule-outbound"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">确认添加规则</button>
+                <button id="add-btn" onclick="addRule()" style="width: 100%; max-width: 280px; margin-top: 6px;">添加规则</button>
             </div>
         </div>
 
@@ -248,8 +253,10 @@ let isReconnecting = false;
 function switchTab(tab) {
     let tabs = ['routing', 'inbound', 'outbound'];
     tabs.forEach(t => {
-        document.getElementById('view-' + t).style.display = (t === tab) ? 'block' : 'none';
-        document.getElementById('btn-tab-' + t).style.background = (t === tab) ? '#1a73e8' : '#5f6368';
+        let el = document.getElementById('view-' + t);
+        if (el) el.style.display = (t === tab) ? 'block' : 'none';
+        let btn = document.getElementById('btn-tab-' + t);
+        if (btn) btn.style.background = (t === tab) ? '#1a73e8' : '#5f6368';
     });
     if (tab === 'inbound' && typeof loadInbounds === 'function') loadInbounds();
     if (tab === 'outbound' && typeof loadOutbounds === 'function') loadOutbounds();
@@ -315,7 +322,8 @@ function renderSelects() {
 
     let inHtml = '';
     globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
-    document.getElementById('new-rule-inbounds').innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
+    let inEl = document.getElementById('new-rule-inbounds');
+    if (inEl) inEl.innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
 
     let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
     globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
@@ -396,7 +404,7 @@ function addRule() {
     let outbound = document.getElementById('new-rule-outbound').value;
     let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
     let inboundsSelect = document.getElementById('new-rule-inbounds');
-    let selectedInbounds = Array.from(inboundsSelect.selectedOptions).map(opt => opt.value);
+    let selectedInbounds = inboundsSelect ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value) : [];
 
     let newRuleData = {
         type: type === "domain_suffix" && !val ? "match_all" : type,
@@ -468,9 +476,21 @@ loadData();
 </html>
 """
 
-# 动态注入入站与出站页面的 HTML 片段
-HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
-HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
+# 根据入站/出站模块是否存在，安全注入对应的标签页按钮和HTML内容
+if inbound_panel and hasattr(inbound_panel, "get_inbounds_html"):
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", '<button id="btn-tab-inbound" onclick="switchTab(\'inbound\')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">入站</button>')
+    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", inbound_panel.get_inbounds_html())
+else:
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_INBOUND", "")
+    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_INBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">入站管理模块未启用或文件不存在 (/etc/sing-box/web-inbounds.py)</p></div>')
+
+if outbound_panel and hasattr(outbound_panel, "get_outbounds_html"):
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", '<button id="btn-tab-outbound" onclick="switchTab(\'outbound\')" style="background: #5f6368; padding: 5px 10px; font-size: 12px;">出站</button>')
+    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", outbound_panel.get_outbounds_html())
+else:
+    HTML_PAGE = HTML_PAGE.replace("TAB_BTN_OUTBOUND", "")
+    HTML_PAGE = HTML_PAGE.replace("PLACEHOLDER_OUTBOUND_HTML", '<div class="card"><p style="text-align:center; color:#666;">出站管理模块未启用或文件不存在 (/etc/sing-box/web-outbounds.py)</p></div>')
+
 
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     def check_auth(self):
@@ -511,14 +531,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 self.send_no_cache_response(200, "text/html; charset=utf-8", LOGIN_PAGE.encode("utf-8"))
             return
 
-        # 委派入站/出站 API 请求
-        if path == "/api/inbounds_list":
+        # 委派入站 API 请求
+        if path == "/api/inbounds_list" and inbound_panel and hasattr(inbound_panel, "handle_inbounds_api"):
             res_dict = inbound_panel.handle_inbounds_api(path, query)
             if res_dict is not None:
                 self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
                 return
 
-        if path == "/api/outbounds_list":
+        # 委派出站 API 请求
+        if path == "/api/outbounds_list" and outbound_panel and hasattr(outbound_panel, "handle_outbounds_api"):
             res_dict = outbound_panel.handle_outbounds_api(path, query)
             if res_dict is not None:
                 self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(res_dict, ensure_ascii=False).encode("utf-8"))
