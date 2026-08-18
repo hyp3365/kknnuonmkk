@@ -417,20 +417,26 @@ function saveEdit() {
     handleBackgroundReq(req);
 }
 
+let isSyncing = false; // 专属于同步按钮的锁
+
 function syncFanout(btn) {
+    if (isSyncing) return;
+    isSyncing = true;
+    
     let oldHtml = btn.innerHTML;
     btn.innerHTML = "⏳ 同步中...";
     btn.disabled = true;
     
     let req = fetch('/api/sync_fanout?' + new Date().getTime());
+    handleBackgroundReq(req);
 
     setTimeout(() => {
         btn.innerHTML = oldHtml;
         btn.disabled = false;
+        isSyncing = false;
     }, 2500);
-    
-    handleBackgroundReq(req);
 }
+
 
 loadData();
 </script>
