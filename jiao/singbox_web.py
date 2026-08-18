@@ -499,22 +499,31 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 possible_node_files = [
                     "vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
                     "tuic.json", "anytls.json", "vless-ws-cdn.json", 
-                    "vmess-ws-cdn.json", "trojan-ws-cdn.json"
+                    "vmess-ws-cdn.json", "trojan-ws-cdn.json", "h2-reality.json"
                 ]
                 for node_filename in possible_node_files:
                     node_filepath = os.path.join(CONF_DIR, node_filename)
                     if os.path.exists(node_filepath):
                         try:
                             with open(node_filepath, "r") as nf:
-                                node_data = json.load(nf)
-                                found_tag = None
-                                if "inbounds" in node_data and len(node_data["inbounds"]) > 0:
-                                    found_tag = node_data["inbounds"][0].get("tag")
-                                elif "tag" in node_data:
-                                    found_tag = node_data.get("tag")
-                                
-                                if found_tag and found_tag not in data["inbounds"]:
-                                    data["inbounds"].append(found_tag)
+    node_data = json.load(nf)
+    found_tags = []
+    if "endpoints" in node_data and isinstance(node_data["endpoints"], list):
+        for ep in node_data["endpoints"]:
+            if isinstance(ep, dict) and "tag" in ep:
+                found_tags.append(ep["tag"])
+    elif "outbounds" in node_data and isinstance(node_data["outbounds"], list):
+        for ob in node_data["outbounds"]:
+            if isinstance(ob, dict) and "tag" in ob:
+                found_tags.append(ob["tag"])
+    elif "inbounds" in node_data and len(node_data["inbounds"]) > 0:
+        found_tags.append(node_data["inbounds"][0].get("tag"))
+    elif "tag" in node_data:
+        found_tags.append(node_data.get("tag"))
+    
+    for found_tag in found_tags:
+        if found_tag and found_tag not in data["inbounds"] and found_tag not in data["outbounds"]:
+            data["outbounds"].append(found_tag)
                         except Exception:
                             pass
 
