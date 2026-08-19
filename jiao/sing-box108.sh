@@ -635,34 +635,26 @@ EOF
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
 issue_cf_dns_cert() {
-    # 1. 先输入 Cloudflare 登录邮箱
-    reading "请输入 Cloudflare 登录邮箱: " cf_email
-    [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
+    # 1. 直接输入带有 cfk_ 前缀的 Key（不再需要输入邮箱）
+    reading "请输入 Cloudflare API 密钥 (cfk_...): " cf_token
+    [[ -z "$cf_token" ]] && red "密钥不能为空" && return 1      
     
-    # 2. 输入完整的 Global API Key
-    reading "请输入 Cloudflare Global API Key: " cf_key
-    [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1      
-    
-    export CF_Email=$(echo "$cf_email" | tr -d '[:space:]')
-    export CF_Key=$(echo "$cf_key" | tr -d '[:space:]')
-    export CF_EMAIL="$CF_Email"
-    export CF_KEY="$CF_Key"
+    export CF_Token=$(echo "$cf_token" | tr -d '[:space:]')
 
     skyblue "正在从 Cloudflare 自动拉取已托管的域名列表..."
     
-    # 3. 使用 Global API Key 鉴权获取域名列表
+    # 2. 使用 Bearer 认证方式调用 API 获取域名列表
     local response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50" \
-        -H "X-Auth-Email: $CF_Email" \
-        -H "X-Auth-Key: $CF_Key" \
+        -H "Authorization: Bearer $CF_Token" \
         -H "Content-Type: application/json")
         
     local success=$(echo "$response" | grep -o '"success":true')
     if [[ -z "$success" ]]; then
-        red "获取域名列表失败，请检查邮箱和完整的 Global API Key 是否正确！"
+        red "获取域名列表失败，请检查密钥是否正确，或该密钥权限是否包含 Zone -> Read！"
         return 1
     fi
 
-    # 4. 使用 Python 解析 JSON 获取域名与 ID
+    # 3. 使用 Python 解析 JSON 获取域名与 ID
     local domains_and_ids=$(echo "$response" | python3 - << 'EOF'
 import sys, json
 try:
@@ -679,7 +671,7 @@ EOF
         return 1
     fi
 
-    # 5. 展开菜单供用户选择
+    # 4. 展开菜单供用户选择
     local i=1
     declare -a domain_array
     declare -a zone_id_array
@@ -705,7 +697,7 @@ EOF
     green "已选择域名: $domain"
     green "自动获取 Zone ID: $zone_id"
 
-    # 6. 后续逻辑（获取IP、更新DNS、安装 acme.sh 并申请证书）
+    # 5. 后续逻辑（获取IP、更新DNS、安装 acme.sh 并申请证书）
     skyblue "正在获取本机真实 IP..."
     local public_ip=$(get_realip)
     if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
@@ -723,7 +715,7 @@ EOF
     manage_packages "install" "curl" "socat" "cron" "psmisc"     
     if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
         skyblue "正在安装 acme.sh..."
-        curl https://get.acme.sh | sh -s email="$CF_Email" >/dev/null 2>&1
+        curl https://get.acme.sh | sh >/dev/null 2>&1
     fi      
     "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1      
     
@@ -731,6 +723,7 @@ EOF
     mkdir -p "$save_path"  
     
     skyblue "正在通过 DNS API 为 ${domain} 申请证书..."
+    export CF_Token="$CF_Token"
     "$HOME/.acme.sh/acme.sh" --issue --dns dns_cf -d "$domain" --keylength ec-256 --force   
     
     if [ $? -eq 0 ]; then
@@ -745,11 +738,10 @@ EOF
         "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
         return 0
     else
-        red "申请失败，请检查 CF 邮箱/Key 是否正确，或 API 频率限制。"
+        red "申请失败，请检查密钥权限（需包含 Zone:Read 与 DNS:Edit）"
         return 1
     fi
 }
-
 
 
 
