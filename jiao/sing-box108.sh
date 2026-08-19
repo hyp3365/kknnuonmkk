@@ -41,7 +41,7 @@ declare -A used_ports
 get_available_port() {
     local port
     while true; do
-        port=$(shuf -i 10000-60000 -n 1)
+        port=$(shuf -i 10000-65535 -n 1)
         if [ -n "${used_ports[$port]}" ]; then
             continue
         fi
@@ -790,7 +790,7 @@ issue_cf_token_cert() {
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
-    local domain=""
+    domain=""
     cert_file=""
     key_file=""
     if [[ -z "$input_domain" ]]; then
@@ -2635,7 +2635,7 @@ EOF
 stop_nginx
 server_ip=$(get_realip)
 while true; do
-    read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port}): " custom_port
+    read -rp "请输入 hysteria2 端口 (100-65535, 默认 ${hy2_port}): " custom_port
     if [ -z "$custom_port" ]; then
         custom_port=$hy2_port
         break
@@ -2649,12 +2649,12 @@ while true; do
         hy2_port=$custom_port
         break
     else
-        red "输入错误！请输入有效的端口号 (1000-65535)。"
+        red "输入错误！请输入有效的端口号 (100-65535)。"
     fi
 done
 echo -e "\n请选择 TLS 证书类型:"
-echo -e " 1) \e[32m使用自签名证书 (免域名绑定)\e[0m"
-echo -e " 2) \e[32m使用真实域名证书 (推荐，调用证书管理菜单)\e[0m"
+echo -e " 1) \e[32m使用自签名证书\e[0m"
+echo -e " 2) \e[32m使用真实域名证书\e[0m"
 read -rp "请输入数字 [1-2] (默认 1): " cert_type
 [ -z "$cert_type" ] && cert_type=1
 
@@ -2723,44 +2723,48 @@ EOF
                 ;;
 	    3) 
                 generate_vars
-				stop_nginx
-                server_ip=$(get_realip)
-				while true; do
-              read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port} 推荐443端口): " custom_port
-              if [ -z "$custom_port" ]; then
-                  custom_port=$tuic_port
-                  break
-              fi
-              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-                     red "该端口已被占用，请重新输入！"
-                     continue
-                  fi      
-				  tuic_port=$custom_port
-                  break
-              else
-                  red "输入错误！请输入有效的端口号 (1000-65535)。"
-              fi
-              done
-                echo -e "\n请选择 TLS 证书类型:"
-				echo -e "1) \e[32m使用自签名证书\e[0m"
-                echo -e "2) \e[32m使用域名申请证书\e[0m"
-                read -rp "请输入数字 [1-2] (默认 1): " cert_type
-                [ -z "$cert_type" ] && cert_type=1
-                if [ "$cert_type" -eq 2 ]; then
-                    if check_and_issue_ssl; then
-                        cert_path="$cert_file"
-                        key_path="$key_file"
-                        url_param="sni=${domain}" 
-                    else
-                        red "证书申请或获取失败，脚本退出！"
-                        return 1
-                    fi
-                else
-                    cert_path="$work_dir/cert.pem"
-                    key_path="$work_dir/private.key"
-                    url_param="allow_insecure=1&sni=www.bing.com"
-                fi
+stop_nginx
+server_ip=$(get_realip)
+while true; do
+    read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$tuic_port
+        break
+    fi
+    
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        tuic_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (1000-65535)。"
+    fi
+done
+echo -e "\n请选择 TLS 证书类型:"
+echo -e " 1) \e[32m使用自签名证书\e[0m"
+echo -e " 2) \e[32m使用真实域名证书\e[0m"
+read -rp "请输入数字 [1-2] (默认 1): " cert_type
+[ -z "$cert_type" ] && cert_type=1
+
+if [ "$cert_type" -eq 2 ]; then
+    if check_and_issue_ssl; then
+        cert_path="$cert_file"
+        key_path="$key_file"
+        url_param="sni=${domain}" 
+        green "=> TUIC 已选择使用域名 [ ${domain} ] 的证书。"
+    else
+        red "=> 证书选择已取消或申请失败，脚本退出！"
+        return 1
+    fi
+else
+    cert_path="$work_dir/cert.pem"
+    key_path="$work_dir/private.key"
+    url_param="allow_insecure=1&sni=www.bing.com"
+    yellow "=> TUIC 已配置为使用自签名证书。"
+fi
                 yellow "正在配置 tuic..."
                 cat > /etc/sing-box/conf/tuic.json << EOF
 {
