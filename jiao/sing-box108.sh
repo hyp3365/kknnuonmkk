@@ -4330,6 +4330,60 @@ enable_bbr() {
     fi
 }
 
+manage_cf_token() {
+    local file="/etc/sing-box/cf.conf"
+    local token choice
+    mkdir -p /etc/sing-box
+    while true; do
+        clear
+        echo "--------------------------------------------------"
+        echo " Cloudflare API Token"
+        echo "--------------------------------------------------"
+        if [[ -f "$file" ]] && grep -q '^CF_TOKEN=' "$file"; then
+            green "当前状态：已配置"
+        else
+            yellow "当前状态：未配置"
+        fi
+        echo ""
+        echo " 1. 设置 / 修改 Token"
+        echo " 2. 删除 Token"
+        echo " 0. 返回"
+        echo ""
+        read -rp "请选择 [0-2]: " choice
+        case "$choice" in
+            1)
+                echo ""
+                read -rsp "请输入 Cloudflare API Token: " token
+                echo ""
+                if [[ -z "$token" ]]; then
+                    red "Token 不能为空"
+                    read -rp "按任意键继续..." _
+                    continue
+                fi
+                printf "CF_TOKEN='%s'\n" "$token" > "$file"
+                chmod 600 "$file"
+                CF_TOKEN="$token"
+                export CF_TOKEN
+                green "Token 保存成功"
+                green "文件：$file"
+                read -rp "按任意键继续..." _
+                ;;
+            2)
+                rm -f "$file"
+                unset CF_TOKEN
+                green "Cloudflare Token 已删除"
+                read -rp "按任意键继续..." _
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                yellow "无效选择"
+                sleep 1
+                ;;
+        esac
+    done
+}
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
@@ -6514,10 +6568,11 @@ menu() {
    red    "14. 本机信息"
    red    "15. WARP分流管理"
    red    "16. xray"
+   red    "17. CF token"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-15): " choice
+   reading "请输入选择(0-17): " choice
    echo ""
 }
 
@@ -6576,7 +6631,8 @@ while true; do
 		14) vps_s ;;
 		15)  warp_manage ;;
 		16)  bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/xray.sh) ;;
-        0) exit 0 ;;
+        17) manage_cf_token ;;
+		0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 16" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
