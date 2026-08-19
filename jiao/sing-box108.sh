@@ -635,10 +635,11 @@ EOF
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
 issue_cf_dns_cert() {
-    # 1. 先输入 Cloudflare 凭证
+    # 1. 先输入 Cloudflare 登录邮箱
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
     
+    # 2. 输入完整的 Global API Key
     reading "请输入 Cloudflare Global API Key: " cf_key
     [[ -z "$cf_key" ]] && red "API Key 不能为空" && return 1      
     
@@ -649,7 +650,7 @@ issue_cf_dns_cert() {
 
     skyblue "正在从 Cloudflare 自动拉取已托管的域名列表..."
     
-    # 2. 调用 Cloudflare API 获取域名列表
+    # 3. 使用 Global API Key 鉴权获取域名列表
     local response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50" \
         -H "X-Auth-Email: $CF_Email" \
         -H "X-Auth-Key: $CF_Key" \
@@ -657,11 +658,11 @@ issue_cf_dns_cert() {
         
     local success=$(echo "$response" | grep -o '"success":true')
     if [[ -z "$success" ]]; then
-        red "获取域名列表失败，请检查邮箱和 API Key 是否正确！"
+        red "获取域名列表失败，请检查邮箱和完整的 Global API Key 是否正确！"
         return 1
     fi
 
-    # 3. 使用 Python 解析 JSON（已修复语法错误）
+    # 4. 使用 Python 解析 JSON 获取域名与 ID
     local domains_and_ids=$(echo "$response" | python3 - << 'EOF'
 import sys, json
 try:
@@ -678,7 +679,7 @@ EOF
         return 1
     fi
 
-    # 4. 展开展开菜单供用户选择
+    # 5. 展开菜单供用户选择
     local i=1
     declare -a domain_array
     declare -a zone_id_array
@@ -704,7 +705,7 @@ EOF
     green "已选择域名: $domain"
     green "自动获取 Zone ID: $zone_id"
 
-    # 5. 后续逻辑（获取IP、更新DNS、安装 acme.sh 并申请证书）
+    # 6. 后续逻辑（获取IP、更新DNS、安装 acme.sh 并申请证书）
     skyblue "正在获取本机真实 IP..."
     local public_ip=$(get_realip)
     if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
@@ -748,6 +749,7 @@ EOF
         return 1
     fi
 }
+
 
 
 
