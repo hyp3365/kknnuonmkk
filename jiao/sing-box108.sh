@@ -888,26 +888,22 @@ green "Zone ID: $selected_zone_id"
 
 # --- 使用 Cloudflare API Token 申请证书 ---
 issue_cf_token_cert() {
-    # ==========================================================
-    # 1. 输入 Cloudflare API Token
-    # ==========================================================
     echo ""
     green "=== Cloudflare API Token 获取 ==="
     skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
     echo -e " 1. 登录 Cloudflare 官网，点击 \033[33m管理账户 -> API 令牌\033[0m"
     echo -e " 2. 点击右侧 \033[33m创建令牌\033[0m"
     echo -e " 3. 配置权限策略："
-	echo -e "    - 范围: 选择 \033[33m所有域名\033[0m"
+    echo -e "    - 范围: 选择 \033[33m所有域名\033[0m"
     echo -e "    -  \033[33mDNS & Zones (区域) - Zone (区域)\033[0m，权限设为 \033[32mRead (读取)\033[0m"
     echo -e "    -  \033[33mDNS & Zones (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
     echo -e "    -  \033[33mDNS & Zones (区域) - Zone Settings (区域设置)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
     echo -e "    -  \033[33mRules & Configuration (规则和配置) - Origin (源站)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
-	echo -e " 4. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
+    echo -e " 4. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
     skyblue "--------------------------------------------------"
     green "=== Cloudflare API Token ==="
     reading "请输入你的 Cloudflare API Token: " cf_token
     cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-
     [[ -z "$cf_token" ]] && {
         red "Token 不能为空！"
         return 1
@@ -953,7 +949,7 @@ issue_cf_token_cert() {
         return 1
     fi
     local i=1
-	local zone_name
+    local zone_name
     local zone_id
     declare -a domain_array
     declare -a zone_id_array
@@ -962,37 +958,35 @@ issue_cf_token_cert() {
     skyblue "请选择要配置的 Cloudflare 域名："
     echo "=========================================="
     while IFS='|' read -r zone_name zone_id; do
-    [[ -z "$zone_name" || -z "$zone_id" ]] && continue
-    echo "  $i) $zone_name"
-    domain_array[$i]="$zone_name"
-    zone_id_array[$i]="$zone_id"
-    ((i++))
-done <<< "$domains_and_ids"
-echo "=========================================="
-local total=$((i - 1))
-if [[ "$total" -lt 1 ]]; then
-    red "没有可用的 Cloudflare 域名。"
-    return 1
-fi
-local choice
-reading "请输入数字选择对应的域名 [1-$total]: " choice
-if [[ -z "$choice" ||
-      ! "$choice" =~ ^[0-9]+$ ||
-      "$choice" -lt 1 ||
-      "$choice" -gt "$total" ]]; then
-    red "无效的选择！"
-    return 1
-fi
-local zone_domain="${domain_array[$choice]}"
-local selected_zone_id="${zone_id_array[$choice]}"
-if [[ -z "$zone_domain" || -z "$selected_zone_id" ]]; then
-    red "获取所选 Cloudflare Zone 信息失败！"
-    return 1
-fi
-green "已选择域名: $zone_domain"
-green "Zone ID: $selected_zone_id"
+        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+        echo "  $i) $zone_name"
+        domain_array[$i]="$zone_name"
+        zone_id_array[$i]="$zone_id"
+        ((i++))
+    done <<< "$domains_and_ids"
+    echo "=========================================="
+    local total=$((i - 1))
+    if [[ "$total" -lt 1 ]]; then
+        red "没有可用的 Cloudflare 域名。"
+        return 1
+    fi
+    local choice
+    reading "请输入数字选择对应的域名 [1-$total]: " choice
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
+        red "无效的选择！"
+        return 1
+    fi
+    local zone_domain="${domain_array[$choice]}"
+    local selected_zone_id="${zone_id_array[$choice]}"
+    if [[ -z "$zone_domain" || -z "$selected_zone_id" ]]; then
+        red "获取所选 Cloudflare Zone 信息失败！"
+        return 1
+    fi
     green "已选择域名: $zone_domain"
-    green "Zone ID: $zone_id"
+    green "Zone ID: $selected_zone_id"
     echo
     echo "=========================================="
     skyblue "请选择证书域名模式："
@@ -1030,7 +1024,7 @@ green "Zone ID: $selected_zone_id"
     echo
     green "证书域名: $cert_domain"
     green "Cloudflare Zone: $zone_domain"
-    green "Zone ID: $zone_id"
+    green "Zone ID: $selected_zone_id"
     skyblue "正在获取本机真实 IP..."
     local public_ip
     public_ip=$(get_realip)
@@ -1041,7 +1035,7 @@ green "Zone ID: $selected_zone_id"
     green "本机 IP: $public_ip"
     skyblue "正在自动配置 Cloudflare DNS..."
     skyblue "${cert_domain} -> ${public_ip}"
-    if cf_upsert_dns "$zone_id" "$cert_domain" "$public_ip"; then
+    if cf_upsert_dns "$selected_zone_id" "$cert_domain" "$public_ip"; then
         green "DNS 解析已成功更新并开启代理"
     else
         red "DNS 解析更新失败，请检查 Token 的 DNS Edit 权限。"
@@ -1088,11 +1082,10 @@ green "Zone ID: $selected_zone_id"
     fi
     if [[ -f "${cert_dir}/fullchain.pem" &&
           -f "${cert_dir}/privkey.pem" ]]; then
-
         chmod 600 "${cert_dir}/privkey.pem"
-		domain="$cert_domain"
-        cert_file="${save_path}/fullchain.pem"
-        key_file="${save_path}/privkey.pem"
+        domain="$cert_domain"
+        cert_file="${cert_dir}/fullchain.pem"
+        key_file="${cert_dir}/privkey.pem"
         echo
         green "=========================================="
         green "证书申请成功！"
