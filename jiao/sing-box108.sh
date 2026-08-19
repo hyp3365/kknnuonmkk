@@ -313,52 +313,183 @@ cf_set_ssl() {
 }
 
 # ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
+# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
+
 cf_get_origin_rules() {
     local zone_id="$1"
     local response
-    response=$(cf_call GET "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-    echo "$response" | jq -r 'if .success then .result.rules // [] else [] end' 2>/dev/null || echo '[]'
+
+    response=$(cf_call GET \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
+
+    echo "$response" | jq -c '
+        if .success == true
+        then (.result.rules // [])
+        else []
+        end
+    ' 2>/dev/null
 }
+
 
 cf_put_origin_rules() {
-    local zone_id="$1" rules_json="$2"
-    local response
-    response=$(cf_call PUT "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
-        "$(jq -n --argjson r "$rules_json" '{rules:$r}')")
-    if echo "$response" | jq -e '.success' >/dev/null 2>&1; then
-        return 0
-    else
+    local zone_id="$1"
+    local rules_json="$2"
+
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$rules_json" ]] && return 1
+
+    # 检查 rules_json 是否为合法 JSON
+    if ! echo "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        red "Cloudflare Origin Rules JSON 格式错误"
         return 1
     fi
+
+    local payload
+    local response
+
+    payload=$(jq -n \
+        --argjson r "$rules_json" \
+        '{rules:$r}' 2>/dev/null)
+
+    if [[ -z "$payload" ]]; then
+        red "生成 Cloudflare Origin Rules 请求数据失败"
+        return 1
+    fi
+
+    response=$(cf_call PUT \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
+        "$payload")
+
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        return 0
+    fi
+
+    yellow "Cloudflare Origin Rules 下发失败"
+
+    # 输出 Cloudflare 返回的错误
+    echo "$response" | jq -r '
+        .errors[]?.message // empty
+    ' 2>/dev/null
+
+    return 1
 }
 
-set_domain_origin_port() {
-    local zone_id="$1" domain="$2" target_port="$3"
-    local pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-    [[ -z "$zone_id" || -z "$domain" || -z "$target_port" ]] && return 1
 
-    local existing kept new_managed merged
+set_domain_origin_port() {
+    local zone_id="$1"
+    local domain="$2"
+    local target_port="$3"
+
+    local pfx="${MANAGED_PREFIX:-Auto_Script:}"
+
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$domain" ]] && return 1
+
+    if [[ ! "$target_port" =~ ^[0-9]+$ ]]; then
+        red "无效的回源端口：$target_port"
+        return 1
+    fi
+
+    local existing
+    local kept
+    local new_managed
+    local merged
+
+    # --------------------------------------------------
+    # 获取现有 Origin Rules
+    # --------------------------------------------------
+
     existing=$(cf_get_origin_rules "$zone_id")
-    
-    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
-        .[] | select(
-            (.description | startswith($pfx) | not) or
-            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
-        )
-    ]')
-    
-    new_managed=$(jq -n --arg d "$domain" --argjson port "$target_port" --arg pfx "$pfx" '[
-        {
-            description: ($pfx + $d),
-            enabled: true,
-            expression: ("(http.host eq \"" + $d + "\")"),
-            action: "route",
-            action_parameters: { origin: { port: $port } }
-        }
-    ]')
-    
-    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-    cf_put_origin_rules "$zone_id" "$merged"
+
+    # 如果获取失败或不是 JSON 数组，则使用空数组
+    if ! echo "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        existing='[]'
+    fi
+
+    # --------------------------------------------------
+    # 删除本脚本以前创建的同域名规则
+    # 保留其他 Origin Rules
+    # --------------------------------------------------
+
+    kept=$(echo "$existing" | jq -c \
+        --arg d "$domain" \
+        --arg pfx "$pfx" '
+        [
+            .[]
+            | select(
+                (
+                    ((.description // "") | startswith($pfx))
+                    and
+                    (
+                        ((.expression // "")
+                        | ascii_downcase
+                        | contains(
+                            "http.host eq \"" +
+                            ($d | ascii_downcase) +
+                            "\""
+                        ))
+                    )
+                ) | not
+            )
+        ]
+    ' 2>/dev/null)
+
+    if [[ -z "$kept" ]]; then
+        red "生成保留规则失败"
+        return 1
+    fi
+
+    # --------------------------------------------------
+    # 创建新的 VLESS CDN Origin Rule
+    # --------------------------------------------------
+
+    new_managed=$(jq -n -c \
+        --arg d "$domain" \
+        --arg pfx "$pfx" \
+        --argjson port "$target_port" '
+        [
+            {
+                description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
+                enabled: true,
+                expression: ("(http.host eq \"" + $d + "\")"),
+                action: "route",
+                action_parameters: {
+                    origin: {
+                        port: $port
+                    }
+                }
+            }
+        ]
+    ' 2>/dev/null)
+
+    if [[ -z "$new_managed" ]]; then
+        red "生成新的 Cloudflare Origin Rule 失败"
+        return 1
+    fi
+
+    # --------------------------------------------------
+    # 合并规则
+    # --------------------------------------------------
+
+    merged=$(jq -n -c \
+        --argjson a "$kept" \
+        --argjson b "$new_managed" \
+        '$a + $b' 2>/dev/null)
+
+    if [[ -z "$merged" ]]; then
+        red "合并 Cloudflare Origin Rules 失败"
+        return 1
+    fi
+
+    # --------------------------------------------------
+    # 提交 Cloudflare
+    # --------------------------------------------------
+
+    if cf_put_origin_rules "$zone_id" "$merged"; then
+        return 0
+    fi
+
+    return 1
 }
 
 # 查看已申请证书
@@ -6549,7 +6680,7 @@ menu() {
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-100): " choice
+   reading "请输入选择(0-99): " choice
    echo ""
 }
 
