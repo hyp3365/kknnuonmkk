@@ -3004,7 +3004,10 @@ manage_nodes_menu() {
             "socks5.json|socks5|7"
             "http.json|HTTP|8"
 			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-			"vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"		
+			"vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
+			"xhttp-reality.json|xhttp-reality|11"
+			"xhttp-cdn.json|xhttp-cdn|12"
+			"xhttp-cdn-tls.json|xhttp-cdn-tls|13"
         )
 		
         clear
@@ -3751,21 +3754,46 @@ fi
     allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
 
     if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-        echo ""
-        read -rp "请输入 Cloudflare API Token（留空则使用 Global API Key）: " cf_token
-        cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+    echo ""
+    echo "请选择 Cloudflare 验证方式："
+    echo "1) Cloudflare API Token"
+    echo "2) Cloudflare Global API Key (邮箱 + Key)"
+    read -rp "请输入选择 [1-2]: " cf_type
 
-        if [[ -n "$cf_token" ]]; then
+    case "$cf_type" in
+        1)
+            read -rp "请输入你的 Cloudflare API Token: " cf_token
+            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+            [[ -z "$cf_token" ]] && {
+                red "Token 不能为空！"
+                return 1
+            }
             export CF_TOKEN="$cf_token"
             unset CF_EMAIL CF_KEY
-        else
+            ;;
+        2)
             read -rp "请输入 Cloudflare 登录邮箱: " cf_email
             read -rp "请输入 Cloudflare Global API Key: " cf_key
-            export CF_EMAIL=$(echo "$cf_email" | tr -d '[:space:]')
-            export CF_KEY=$(echo "$cf_key" | tr -d '[:space:]')
+            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
+            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
+            [[ -z "$cf_email" ]] && {
+                red "邮箱不能为空！"
+                return 1
+            }
+            [[ -z "$cf_key" ]] && {
+                red "API Key 不能为空！"
+                return 1
+            }
+            export CF_EMAIL="$cf_email"
+            export CF_KEY="$cf_key"
             unset CF_TOKEN
-        fi
-    fi
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+    esac
+fi
 
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
         skyblue "正在自动查找 Cloudflare Zone ID..."
