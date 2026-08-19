@@ -3497,17 +3497,16 @@ EOF
             green "==============================================="
             ;;
 		9)
-                check_and_issue_ssl || return 1
+    check_and_issue_ssl || return 1
     generate_vars
-    server_ip=$(get_realip)    
+    server_ip=$(get_realip)
     echo ""
     vless_wstls_cdn_port=$(get_available_port)
-	if [[ ! "$vless_wstls_cdn_port" =~ ^[0-9]+$ ]]; then
-    red "获取 VLESS WS TLS 端口失败：${vless_wstls_cdn_port:-<空>}"
-    return 1
+    if [[ ! "$vless_wstls_cdn_port" =~ ^[0-9]+$ ]]; then
+        red "获取 VLESS WS TLS 端口失败：${vless_wstls_cdn_port:-<空>}"
+        return 1
     fi
     ws_path="/sspaasksavxssaszass"
-    mkdir -p /etc/sing-box/conf
     cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
 {
   "inbounds": [
@@ -3516,7 +3515,11 @@ EOF
       "tag": "vless-wstls-cdn",
       "listen": "::",
       "listen_port": $vless_wstls_cdn_port,
-      "users": [ { "uuid": "$uuid" } ],
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
       "tls": {
         "enabled": true,
         "server_name": "${domain:-$server_ip}",
@@ -3533,10 +3536,14 @@ EOF
   ]
 }
 EOF
-    allow_port $vless_wstls_cdn_port/tcp > /dev/null 2>&1
+    if ! sing-box check -c /etc/sing-box/conf/vless-wstls-cdn.json >/dev/null 2>&1; then
+        red "VLESS WS TLS 配置检查失败："
+        sing-box check -c /etc/sing-box/conf/vless-wstls-cdn.json
+        return 1
+    fi
+    allow_port "$vless_wstls_cdn_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_vless_wstls_direct"
     VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}%3Fed%3D2560#${node_remark_direct}"
-
     if [ -f "${work_dir}/url.txt" ]; then
         sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
@@ -3544,45 +3551,52 @@ EOF
     echo "" >> "${work_dir}/url.txt"
     echo ""
     read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
+    unset VLESS_CDN_URL
     if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
-        if [ -n "$domain" ]; then
-            if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-                zone_id=$(cf_find_zone "$domain" 2>/dev/null)      
-                if [[ -n "$zone_id" ]]; then
-                    cf_upsert_dns "$zone_id" "$domain" "$server_ip" >/dev/null 2>&1
-                    cf_set_ssl "$zone_id" "full" >/dev/null 2>&1
-
-                    pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-                    zone_id=$(cf_find_zone "$domain")
-if [[ -n "$zone_id" ]]; then
-    cf_upsert_dns "$zone_id" "$domain" "$server_ip" >/dev/null 2>&1
-    cf_set_ssl "$zone_id" "full" >/dev/null 2>&1
-    if set_domain_origin_port "$zone_id" "$domain" "$vless_wstls_cdn_port"; then
-        green "Cloudflare CDN 回源规则配置成功"
-    else
-        yellow "警告：Cloudflare CDN 回源规则配置失败"
-    fi
-else
-    yellow "警告：未找到 ${domain} 对应的 Cloudflare Zone"
-fi
-                fi
-            else
-                yellow "提示: 未检测到 Cloudflare API 凭据，已跳过自动下发回源规则（如需CDN请自行在CF后台添加端口回源）。"
-            fi
-
-            node_remark_cdn="${isp}_vless_wstls_cdn"
-            VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
-
-            if [ -f "${work_dir}/url.txt" ]; then
-                sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
-            fi
-            echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
-            echo "" >> "${work_dir}/url.txt"
-        else
+        if [[ -z "$domain" ]]; then
             yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
+        elif [[ -z "${CF_TOKEN:-}" &&
+                ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+            yellow "未检测到 Cloudflare API 凭据。"
+            yellow "已跳过自动配置 CDN。"
+        else
+            zone_id=$(cf_find_zone "$domain")
+            if [[ -z "$zone_id" ]]; then
+                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
+                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
+            else
+                green "Cloudflare Zone 检测成功：$zone_id"
+                if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+                    green "Cloudflare DNS 配置成功：${domain} → ${server_ip}"
+                else
+                    yellow "警告：Cloudflare DNS 配置失败。"
+                fi
+                if cf_set_ssl "$zone_id" "full"; then
+                    green "Cloudflare SSL 模式已设置为 Full"
+                else
+                    yellow "警告：Cloudflare SSL 模式设置失败。"
+                fi
+                if set_domain_origin_port \
+                    "$zone_id" \
+                    "$domain" \
+                    "$vless_wstls_cdn_port"; then
+                    green "Cloudflare CDN 回源规则配置成功"
+                    green "Cloudflare → 源站端口：$vless_wstls_cdn_port"
+                else
+                    yellow "警告：Cloudflare CDN 回源规则配置失败。"
+                    yellow "请在 Cloudflare 后台检查 Rules → Origin Rules。"
+
+                fi
+                node_remark_cdn="${isp}_vless_wstls_cdn"
+                VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+                if [ -f "${work_dir}/url.txt" ]; then
+                    sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
+                fi
+                echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
+                echo "" >> "${work_dir}/url.txt"
+            fi
         fi
     fi
-
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
     restart_singbox
     green "--------------------------------------------------"
