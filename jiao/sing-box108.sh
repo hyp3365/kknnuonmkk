@@ -6116,6 +6116,7 @@ menu() {
    red    "13. 快捷指令"
    red    "14. 本机信息"
    red    "15. WARP分流管理"
+   red    "16. xray"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -6177,8 +6178,9 @@ while true; do
 		   ;;
 		14) vps_s ;;
 		15)  warp_manage ;;
+		16)  bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/xray.sh) ;;
         0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 14" ;;
+        *) red "无效的选项，请输入 0 到 16" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
