@@ -661,16 +661,17 @@ issue_cf_dns_cert() {
         return 1
     fi
 
-    # 3. 使用 python 解析 JSON 获取 域名与 Zone ID 对应关系
-    local domains_and_ids=$(python3 -c '
+    # 3. 使用 Python 解析 JSON（已修复语法错误）
+    local domains_and_ids=$(echo "$response" | python3 - << 'EOF'
 import sys, json
 try:
-    data = json.loads(sys.stdin.read())
+    data = json.load(sys.stdin)
     for zone in data.get("result", []):
-        print(f"{zone[\"name\"]}|{zone[\"id\"]}")
+        print(zone['name'] + "|" + zone['id'])
 except Exception as e:
     sys.exit(1)
-' <<< "$response")
+EOF
+)
 
     if [[ -z "$domains_and_ids" ]]; then
         red "没有在您的 Cloudflare 账号下找到托管的域名。"
@@ -747,6 +748,7 @@ except Exception as e:
         return 1
     fi
 }
+
 
 
 # --- 使用 Cloudflare API Token 申请证书 ---
