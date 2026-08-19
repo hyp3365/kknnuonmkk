@@ -2387,7 +2387,24 @@ manage_xray() {
         reading "\n请输入选择: " choice
         case "${choice}" in
             1)
+                check_xray
+                if [ $? -eq 0 ]; then
+                yellow "Xray 已经安装！"
+                else
                 install_xray
+                if [ $? -ne 0 ]; then
+                red "Xray 安装失败！"
+                break
+                fi
+                if [ -x "$(command -v systemctl)" ]; then
+                main_systemd_services
+                elif [ -x "$(command -v rc-update)" ]; then
+                alpine_openrc_services
+                else
+                red "Unsupported init system"
+                break
+                fi
+                fi
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             2)
