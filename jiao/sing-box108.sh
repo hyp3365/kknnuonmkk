@@ -2260,11 +2260,9 @@ if [ ${check_xray} -eq 1 ]; then
 elif [ ${check_xray} -eq 0 ]; then
     yellow "xray 正在运行\n"
     sleep 1
-    menu
 else
     yellow "xray 尚未安装!\n"
     sleep 1
-    menu
 fi
 }
 
@@ -2286,11 +2284,9 @@ if [ ${check_xray} -eq 0 ]; then
 elif [ ${check_xray} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
-    menu
 else
     yellow "xray 尚未安装！\n"
     sleep 1
-    menu
 fi
 }
 
@@ -2299,7 +2295,7 @@ restart_xray() {
 if [ ${check_xray} -eq 0 ]; then
    yellow "\n正在重启 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
-        rc-service ${server_name} restart
+        rc-service ${serverxray_name} restart
     else
         systemctl daemon-reload
         systemctl restart "${serverxray_name}"
@@ -2312,11 +2308,9 @@ if [ ${check_xray} -eq 0 ]; then
 elif [ ${check_xray} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
-    menu
 else
     yellow "xray 尚未安装！\n"
     sleep 1
-    menu
 fi
 }
 
@@ -2340,19 +2334,6 @@ uninstall_xray() {
            rm -rf "${xray_dir}" || true
            rm -rf /etc/systemd/system/xray.service 2>/dev/null	
 
-           # 使用指定逻辑移除节点信息
-           local target="_vless_xhttp_cdn"
-           if [ -f "/etc/sing-box/url.txt" ]; then
-               sed -i "/${target}/d" /etc/sing-box/url.txt
-               sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-               echo "" >> /etc/sing-box/url.txt
-           fi
-           if [ -s "/etc/sing-box/url.txt" ]; then
-               base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-           else
-               truncate -s 0 /etc/sing-box/sub.txt 2>/dev/null || rm -f /etc/sing-box/sub.txt
-           fi
-
            green "\nXray 卸载成功及节点已移除！\n"
            ;;
        *)
@@ -2362,13 +2343,11 @@ uninstall_xray() {
 }
   
 # xray 管理
-manage_xray() {
-    local xray_status=$(check_xray 2>/dev/null)
-    local xray_installed=$?
+manage_xray() { 
     while true; do
         clear
 		green "=== xray 管理 ===\n"
-        printf "${purple}xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
+        purple " Xray 状态: ${check_xray_status}\n"
         green "1. 安装xray服务"
         skyblue "-------------------"
         green "2. 卸载xray服务"
@@ -2421,8 +2400,7 @@ manage_xray() {
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             0)
-                menu
-                return
+                return 0
                 ;;
             *)
                 red "无效的选项！"
@@ -6936,8 +6914,8 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
-   purple "=== 老王sing-box四合一安装脚本 0.5===\n"
-   purple " Xray 状态: ${check_xray_status}\n"
+   purple "=== 老王sing-box四合一安装脚本 0.6===\n"
+   purple " -Xray 状态: ${check_xray_status}"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
