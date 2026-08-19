@@ -305,6 +305,15 @@ cf_upsert_dns() {
 }
 
 # ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
+
+# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ──
+cf_set_ssl() {
+    local zone_id="$1" ssl_mode="$2"
+    local payload
+    payload=$(jq -n --arg v "$ssl_mode" '{value:$v}')
+    cf_call PATCH "/zones/${zone_id}/settings/ssl" "$payload" >/dev/null
+}
+
 # ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
 cf_get_origin_rules() {
     local zone_id="$1"
