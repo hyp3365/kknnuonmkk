@@ -162,16 +162,17 @@ check_nginx() {
 
 # 检查 xray 是否已安装
 check_xray() {
-if [ -f "${xray_dir}/${serverxray_name}" ]; then
-    if [ -f /etc/alpine-release ]; then
-        rc-service xray status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
-    else 
-        [ "$(systemctl is-active xray)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
+    if [ -f "${xray_dir}/${serverxray_name}" ]; then
+        if [ -f /etc/alpine-release ]; then
+            rc-service "${serverxray_name}" status 2>/dev/null | grep -q "started"
+            return $?
+        else
+            [ "$(systemctl is-active "${serverxray_name}" 2>/dev/null)" = "active" ]
+            return $?
+        fi
+    else
+        return 2
     fi
-else
-    red "not installed"
-    return 2
-fi
 }
 
 # 根据系统类型安装、卸载依赖
@@ -2242,82 +2243,84 @@ restart_nginx() {
     manage_service "nginx" "restart"
 }
 
-# 启动 xray
+#启动 xray
 start_xray() {
-if [ ${check_xray} -eq 1 ]; then
-    yellow "\n正在启动 ${serverxray_name} 服务\n" 
-    if [ -f /etc/alpine-release ]; then
-        rc-service xray start
-    else
-        systemctl daemon-reload
-        systemctl start "${serverxray_name}"
-    fi
-   if [ $? -eq 0 ]; then
-       green "${serverxray_name} 服务已成功启动\n"
-   else
-       red "${serverxray_name} 服务启动失败\n"
-   fi
-elif [ ${check_xray} -eq 0 ]; then
-    yellow "xray 正在运行\n"
-    sleep 1
-    menu
-else
-    yellow "xray 尚未安装!\n"
-    sleep 1
-    menu
-fi
+    check_xray
+    case $? in
+        0)
+            yellow "xray 正在运行\n"
+            ;;
+        1)
+            yellow "\n正在启动 ${serverxray_name} 服务\n"
+            if [ -f /etc/alpine-release ]; then
+                rc-service "${serverxray_name}" start
+            else
+                systemctl daemon-reload
+                systemctl start "${serverxray_name}"
+            fi
+            if [ $? -eq 0 ]; then
+                green "${serverxray_name} 服务已成功启动\n"
+            else
+                red "${serverxray_name} 服务启动失败\n"
+            fi
+            ;;
+        2)
+            yellow "xray 尚未安装！\n"
+            ;;
+    esac
 }
 
 # 停止 xray
 stop_xray() {
-if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在停止 ${serverxray_name} 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service xray stop
-    else
-        systemctl stop "${serverxray_name}"
-    fi
-   if [ $? -eq 0 ]; then
-       green "${serverxray_name} 服务已成功停止\n"
-   else
-       red "${serverxray_name} 服务停止失败\n"
-   fi
-
-elif [ ${check_xray} -eq 1 ]; then
-    yellow "xray 未运行\n"
-    sleep 1
-    menu
-else
-    yellow "xray 尚未安装！\n"
-    sleep 1
-    menu
-fi
+    check_xray
+    case $? in
+        0)
+            yellow "\n正在停止 ${serverxray_name} 服务\n"
+            if [ -f /etc/alpine-release ]; then
+                rc-service "${serverxray_name}" stop
+            else
+                systemctl stop "${serverxray_name}"
+            fi
+            if [ $? -eq 0 ]; then
+                green "${serverxray_name} 服务已成功停止\n"
+            else
+                red "${serverxray_name} 服务停止失败\n"
+            fi
+            ;;
+        1)
+            yellow "xray 未运行\n"
+            ;;
+        2)
+            yellow "xray 尚未安装！\n"
+            ;;
+    esac
 }
 
 # 重启 xray
 restart_xray() {
-if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在重启 ${serverxray_name} 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service ${serverxray_name} restart
-    else
-        systemctl daemon-reload
-        systemctl restart "${serverxray_name}"
-    fi
-    if [ $? -eq 0 ]; then
-        green "${serverxray_name} 服务已成功重启\n"
-    else
-        red "${serverxray_name} 服务重启失败\n"
-    fi
-elif [ ${check_xray} -eq 1 ]; then
-    yellow "xray 未运行\n"
-    sleep 1
-    menu
-else
-    yellow "xray 尚未安装！\n"
-    sleep 1
-    menu
-fi
+    check_xray
+    case $? in
+        0)
+            yellow "\n正在重启 ${serverxray_name} 服务\n"
+            if [ -f /etc/alpine-release ]; then
+                rc-service "${serverxray_name}" restart
+            else
+                systemctl daemon-reload
+                systemctl restart "${serverxray_name}"
+            fi
+            if [ $? -eq 0 ]; then
+                green "${serverxray_name} 服务已成功重启\n"
+            else
+                red "${serverxray_name} 服务重启失败\n"
+            fi
+            ;;
+        1)
+            yellow "xray 未运行\n"
+            ;;
+        2)
+            yellow "xray 尚未安装！\n"
+            ;;
+    esac
 }
 
 # 卸载 xray
