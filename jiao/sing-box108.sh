@@ -3733,8 +3733,8 @@ fi
     fi
     green "--------------------------------------------------"
     ;;
-		10)
-        check_and_issue_ssl || return 1
+    10)
+    check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
     echo ""
@@ -3749,6 +3749,90 @@ fi
     allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
+
+    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        echo ""
+        read -rp "请输入 Cloudflare API Token（留空则使用 Global API Key）: " cf_token
+        cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+
+        if [[ -n "$cf_token" ]]; then
+            export CF_TOKEN="$cf_token"
+            unset CF_EMAIL CF_KEY
+        else
+            read -rp "请输入 Cloudflare 登录邮箱: " cf_email
+            read -rp "请输入 Cloudflare Global API Key: " cf_key
+            export CF_EMAIL=$(echo "$cf_email" | tr -d '[:space:]')
+            export CF_KEY=$(echo "$cf_key" | tr -d '[:space:]')
+            unset CF_TOKEN
+        fi
+    fi
+
+    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+        skyblue "正在自动查找 Cloudflare Zone ID..."
+        zone_id=$(cf_find_zone "$domain" 2>/dev/null)
+
+        if [[ -n "$zone_id" ]]; then
+            green "匹配成功 (Zone ID: $zone_id)"
+
+            skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
+            if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+                green "✓ DNS 解析已更新并开启 CDN 代理"
+            else
+                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
+            fi
+
+            cf_set_ssl "$zone_id" "flexible"
+            green "✓ SSL 模式已自动设置为: Flexible"
+
+            pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
+            existing=$(cf_get_origin_rules "$zone_id")
+
+            kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
+                .[] | select(
+                    (.description | startswith($pfx) | not) or
+                    (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
+                )
+            ]')
+
+            new_managed=$(jq -n \
+                --arg d "$domain" --arg pfx "$pfx" \
+                --argjson p1 "$vmess_ws_cdn_port" --arg path1 "$vmess_path" \
+                --argjson p2 "$vless_ws_cdn_port" --arg path2 "$vless_path" \
+                --argjson p3 "$trojan_ws_cdn_port" --arg path3 "$trojan_path" '[
+                {
+                    description: ($pfx + "VMESS_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p1 } }
+                },
+                {
+                    description: ($pfx + "VLESS_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p2 } }
+                },
+                {
+                    description: ($pfx + "TROJAN_" + $d),
+                    enabled: true,
+                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
+                    action: "route",
+                    action_parameters: { origin: { port: $p3 } }
+                }
+            ]')
+
+            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+
+            if cf_put_origin_rules "$zone_id" "$merged"; then
+                green "✓ 回源规则创建成功！"
+            else
+                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
+            fi
+        else
+            yellow "⚠ 未能匹配到 Zone ID，请确认域名已托管在该账号下且凭证正确。"
+        fi
+    fi
 
     mkdir -p /etc/sing-box/conf
 
