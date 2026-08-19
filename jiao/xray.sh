@@ -19,6 +19,8 @@ server_name="xray"
 work_dir="/etc/xray"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
+singbox_dir="/etc/sing-box"
+singbox_url="${singbox_dir}/url.txt"
 
 # 定义环境变量
 export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
@@ -179,15 +181,23 @@ get_info() {
 
   isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ipapi.co/json" | tr -d '\n' | awk -F\" '{c="";o="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="org")o=$(x+2)};if(c&&o)print c"-"o}' | sed 's/ /_/g' || echo "vps")
 
-  # 提取配置文件中的随机回源端口
+  # 提取配置文件中的真实 UUID 和 随机回源端口
+  local real_uuid=$(grep -m1 '"id"' ${config_dir} | awk -F'"' '{print $4}')
   local origin_port=$(grep -m1 '"port"' ${config_dir} | awk -F':' '{print $2}' | tr -d ' ,')
 
-  cat > ${work_dir}/url.txt <<EOF
-vless://${UUID}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${CDN_DOMAIN}&fp=chrome&type=xhttp&host=${CDN_DOMAIN}&path=%2Fxhttp#${isp}-CDN
-EOF
+  # 生成纯净分享链接
+  local vless_link="vless://${real_uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${CDN_DOMAIN}&fp=chrome&type=xhttp&host=${CDN_DOMAIN}&path=%2Fxhttp#${isp}-CDN"
 
+  # 写入到 xray 目录
+  echo "${vless_link}" > ${work_dir}/url.txt
+  
+  # 创建 sing-box 目录并写入纯节点链接 (不带颜色和提示)
+  [ ! -d "${singbox_dir}" ] && mkdir -p "${singbox_dir}"
+  echo "${vless_link}" > "${singbox_url}"
+
+  # 终端输出 (保留颜色和提示)
   echo -e "\n${green}================ 节点信息 =================${re}"
-  while IFS= read -r line; do echo -e "${purple}$line${re}"; done < ${work_dir}/url.txt
+  echo -e "${purple}${vless_link}${re}"
   echo -e "回源端口为: ${origin_port}${re}"
   echo -e "${yellow}===========================================${re}\n"
 }
@@ -298,6 +308,7 @@ uninstall_xray() {
            fi
           
            rm -rf "${work_dir}" || true
+           rm -rf "${singbox_url}" || true
            rm -rf /etc/systemd/system/xray.service 2>/dev/null	
 
            green "\nXray 卸载成功\n"
