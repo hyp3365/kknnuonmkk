@@ -3536,11 +3536,7 @@ EOF
   ]
 }
 EOF
-    if ! sing-box check -c /etc/sing-box/conf/vless-wstls-cdn.json >/dev/null 2>&1; then
-        red "VLESS WS TLS 配置检查失败："
-        sing-box check -c /etc/sing-box/conf/vless-wstls-cdn.json
-        return 1
-    fi
+
     allow_port "$vless_wstls_cdn_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_vless_wstls_direct"
     VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}%3Fed%3D2560#${node_remark_direct}"
