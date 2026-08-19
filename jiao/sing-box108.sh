@@ -635,12 +635,7 @@ EOF
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
 issue_cf_dns_cert() {
-    local domain="$1"
-    if [[ -z "$domain" ]]; then
-        reading "请输入域名 : " domain
-    fi
-    [[ -z "$domain" ]] && red "域名不能为空" && return 1    
-    
+    # 1. 先输入 Cloudflare 凭证
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     [[ -z "$cf_email" ]] && red "邮箱不能为空" && return 1    
     
@@ -652,19 +647,69 @@ issue_cf_dns_cert() {
     export CF_EMAIL="$CF_Email"
     export CF_KEY="$CF_Key"
 
+    skyblue "正在从 Cloudflare 自动拉取已托管的域名列表..."
+    
+    # 2. 调用 Cloudflare API 获取域名列表
+    local response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50" \
+        -H "X-Auth-Email: $CF_Email" \
+        -H "X-Auth-Key: $CF_Key" \
+        -H "Content-Type: application/json")
+        
+    local success=$(echo "$response" | grep -o '"success":true')
+    if [[ -z "$success" ]]; then
+        red "获取域名列表失败，请检查邮箱和 API Key 是否正确！"
+        return 1
+    fi
+
+    # 3. 使用 python 解析 JSON 获取 域名与 Zone ID 对应关系
+    local domains_and_ids=$(python3 -c '
+import sys, json
+try:
+    data = json.loads(sys.stdin.read())
+    for zone in data.get("result", []):
+        print(f"{zone[\"name\"]}|{zone[\"id\"]}")
+except Exception as e:
+    sys.exit(1)
+' <<< "$response")
+
+    if [[ -z "$domains_and_ids" ]]; then
+        red "没有在您的 Cloudflare 账号下找到托管的域名。"
+        return 1
+    fi
+
+    # 4. 展开展开菜单供用户选择
+    local i=1
+    declare -a domain_array
+    declare -a zone_id_array
+    
+    echo "=========================================="
+    skyblue "请选择要配置的域名："
+    while IFS='|' read -r d z; do
+        echo "  $i) $d"
+        domain_array[$i]="$d"
+        zone_id_array[$i]="$z"
+        ((i++))
+    done <<< "$domains_and_ids"
+    echo "=========================================="
+
+    local choice
+    reading "请输入数字选择对应的域名 [1-$((i-1))]: " choice
+    
+    [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -ge "$i" || "$choice" -lt 1 ]] && red "无效的选择！" && return 1
+
+    local domain="${domain_array[$choice]}"
+    local zone_id="${zone_id_array[$choice]}"
+    
+    green "已选择域名: $domain"
+    green "自动获取 Zone ID: $zone_id"
+
+    # 5. 后续逻辑（获取IP、更新DNS、安装 acme.sh 并申请证书）
     skyblue "正在获取本机真实 IP..."
     local public_ip=$(get_realip)
     if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
         red "获取本机 IP 失败！" && return 1
     fi
     green "本机 IP: $public_ip"
-
-    skyblue "正在自动查找 Cloudflare Zone ID..."
-    local zone_id=$(cf_find_zone "$domain")
-    if [[ -z "$zone_id" ]]; then
-        red "匹配 Zone ID 失败，请确认邮箱和 Key 正确，且域名托管在该账号下。" && return 1
-    fi
-    green "匹配成功 (Zone ID: $zone_id)"
 
     skyblue "正在修改 Cloudflare DNS 解析 ($domain -> $public_ip)..."
     if cf_upsert_dns "$zone_id" "$domain" "$public_ip"; then
@@ -702,6 +747,7 @@ issue_cf_dns_cert() {
         return 1
     fi
 }
+
 
 # --- 使用 Cloudflare API Token 申请证书 ---
 issue_cf_token_cert() {
