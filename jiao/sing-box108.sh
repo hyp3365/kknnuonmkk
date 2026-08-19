@@ -35,14 +35,6 @@ generate_vars() {
       isp="🌐" 
   fi     
 }
-load_cf_token() {
-    local file="/etc/sing-box/cf.conf"
-
-    if [[ -f "$file" ]]; then
-        # shellcheck disable=SC1090
-        source "$file"
-    fi
-}
 
 # 用于存放已分配端口的数组
 declare -A used_ports
@@ -3575,39 +3567,66 @@ EOF
     read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
     unset VLESS_CDN_URL
     if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
-        if [[ -z "$domain" ]]; then
-            yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
-        elif [[ -z "${CF_TOKEN:-}" &&
-                ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+    if [[ -z "$domain" ]]; then
+        yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
+    else
+        if [[ -z "${CF_TOKEN:-}" &&
+              ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+            echo ""
             yellow "未检测到 Cloudflare API 凭据。"
-            yellow "已跳过自动配置 CDN。"
-        else
+            echo ""
+            echo "请选择 Cloudflare API 认证方式："
+            echo "  1. API Token（推荐）"
+            echo "  2. Global API Key"
+            echo ""
+            read -rp "请选择 [1-2]: " cf_auth_type
+            case "$cf_auth_type" in
+                1)
+                    read -rsp "请输入 Cloudflare API Token: " CF_TOKEN
+                    echo ""
+                    if [[ -z "$CF_TOKEN" ]]; then
+                        yellow "API Token 不能为空，已跳过 CDN 配置。"
+                        CF_TOKEN=""
+                    fi
+                    ;;
+                2)
+                    read -rp "请输入 Cloudflare 账户邮箱: " CF_EMAIL
+                    read -rsp "请输入 Cloudflare Global API Key: " CF_KEY
+                    echo ""
+                    if [[ -z "$CF_EMAIL" || -z "$CF_KEY" ]]; then
+                        yellow "Cloudflare Email 或 Global API Key 不能为空。"
+                        CF_EMAIL=""
+                        CF_KEY=""
+                    fi
+                    ;;
+                *)
+                    yellow "无效选择，已跳过 CDN 配置。"
+                    ;;
+            esac
+        fi
+        if [[ -n "${CF_TOKEN:-}" ||
+              ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
             zone_id=$(cf_find_zone "$domain")
-            if [[ -z "$zone_id" ]]; then
-                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
-                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
-            else
+            if [[ -n "$zone_id" ]]; then
                 green "Cloudflare Zone 检测成功：$zone_id"
                 if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-                    green "Cloudflare DNS 配置成功：${domain} → ${server_ip}"
+                    green "Cloudflare DNS 配置成功"
                 else
-                    yellow "警告：Cloudflare DNS 配置失败。"
+                    yellow "警告：Cloudflare DNS 配置失败"
                 fi
                 if cf_set_ssl "$zone_id" "full"; then
                     green "Cloudflare SSL 模式已设置为 Full"
                 else
-                    yellow "警告：Cloudflare SSL 模式设置失败。"
+                    yellow "警告：Cloudflare SSL 模式设置失败"
                 fi
                 if set_domain_origin_port \
                     "$zone_id" \
                     "$domain" \
                     "$vless_wstls_cdn_port"; then
                     green "Cloudflare CDN 回源规则配置成功"
-                    green "Cloudflare → 源站端口：$vless_wstls_cdn_port"
+                    green "回源端口：$vless_wstls_cdn_port"
                 else
-                    yellow "警告：Cloudflare CDN 回源规则配置失败。"
-                    yellow "请在 Cloudflare 后台检查 Rules → Origin Rules。"
-
+                    yellow "警告：Cloudflare CDN 回源规则配置失败"
                 fi
                 node_remark_cdn="${isp}_vless_wstls_cdn"
                 VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
@@ -3616,9 +3635,15 @@ EOF
                 fi
                 echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
                 echo "" >> "${work_dir}/url.txt"
+            else
+                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
+                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
             fi
+        else
+            yellow "未获得有效的 Cloudflare API 凭据，已跳过 CDN 配置。"
         fi
     fi
+fi
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
     restart_singbox
     green "--------------------------------------------------"
@@ -4354,61 +4379,6 @@ enable_bbr() {
     else
         echo -e "${red}开启 BBR 失败，请检查系统配置。${plain}"
     fi
-}
-
-manage_cf_token() {
-    local file="/etc/sing-box/cf.conf"
-    local token choice
-    mkdir -p /etc/sing-box
-    while true; do
-        clear
-        echo "--------------------------------------------------"
-        echo " Cloudflare API Token"
-        echo "--------------------------------------------------"
-        if [[ -f "$file" ]] && grep -q '^CF_TOKEN=' "$file"; then
-            green "当前状态：已配置"
-        else
-            yellow "当前状态：未配置"
-        fi
-        echo ""
-        echo " 1. 设置 / 修改 Token"
-        echo " 2. 删除 Token"
-        echo " 0. 返回"
-        echo ""
-        read -rp "请选择 [0-2]: " choice
-        case "$choice" in
-            1)
-                echo ""
-                read -rsp "请输入 Cloudflare API Token: " token
-                echo ""
-                if [[ -z "$token" ]]; then
-                    red "Token 不能为空"
-                    read -rp "按任意键继续..." _
-                    continue
-                fi
-                printf "CF_TOKEN='%s'\n" "$token" > "$file"
-                chmod 600 "$file"
-                CF_TOKEN="$token"
-                export CF_TOKEN
-                green "Token 保存成功"
-                green "文件：$file"
-                read -rp "按任意键继续..." _
-                ;;
-            2)
-                rm -f "$file"
-                unset CF_TOKEN
-                green "Cloudflare Token 已删除"
-                read -rp "按任意键继续..." _
-                ;;
-            0)
-                return 0
-                ;;
-            *)
-                yellow "无效选择"
-                sleep 1
-                ;;
-        esac
-    done
 }
 
 # Iptables简单管理
@@ -6594,11 +6564,10 @@ menu() {
    red    "14. 本机信息"
    red    "15. WARP分流管理"
    red    "16. xray"
-   red    "17. CF token"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-17): " choice
+   reading "请输入选择(0-100): " choice
    echo ""
 }
 
@@ -6657,7 +6626,6 @@ while true; do
 		14) vps_s ;;
 		15)  warp_manage ;;
 		16)  bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/xray.sh) ;;
-        17) manage_cf_token ;;
 		0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 16" ;;
    esac
