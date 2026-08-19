@@ -1059,9 +1059,13 @@ check_and_issue_ssl() {
         local cert_domains=()
         local cert_paths=()
         shopt -s nullglob
+        local dir
         for dir in /root/cert/* /etc/nginx/cert/*; do
-            if [[ -d "$dir" && -f "$dir/fullchain.pem" && -f "$dir/privkey.pem" ]]; then
-                local d_name=$(basename "$dir")
+            if [[ -d "$dir" &&
+                  -f "$dir/fullchain.pem" &&
+                  -f "$dir/privkey.pem" ]]; then
+                local d_name
+                d_name=$(basename "$dir")
                 if [[ ! " ${cert_domains[*]} " =~ " ${d_name} " ]]; then
                     cert_domains+=("$d_name")
                     cert_paths+=("$dir")
@@ -1069,133 +1073,202 @@ check_and_issue_ssl() {
             fi
         done
         shopt -u nullglob
-
-        echo ""
+        echo
         skyblue "============== 本地已有证书列表 =============="
         if [[ ${#cert_domains[@]} -eq 0 ]]; then
-            echo -e "  (未检测到任何本地证书)"
+            echo "  (未检测到任何本地证书)"
         else
             local i=2
+            local idx
             for idx in "${!cert_domains[@]}"; do
-                echo -e " ${i}) ${cert_domains[$idx]}  (路径: ${cert_paths[$idx]})"
+                echo " ${i}) ${cert_domains[$idx]}  (路径: ${cert_paths[$idx]})"
                 ((i++))
             done
         fi
         skyblue "=============================================="
-        echo -e " 1) 申请新证书"
-        echo -e " 0) 退出"
-        echo ""
-        
-        reading "请选择操作 [0-1 或者已有证书序号]: " menu_choice
-        
-        if [[ "$menu_choice" == "0" ]]; then
-            red "已取消操作。"
-            return 1
-        elif [[ "$menu_choice" == "1" ]]; then
-            reading "请输入要申请证书的新域名: " input_domain
-            [[ -z "$input_domain" ]] && red "域名不能为空!" && return 1
-        elif [[ "$menu_choice" =~ ^[0-9]+$ ]] && [[ "$menu_choice" -ge 2 && "$menu_choice" -lt "$i" ]]; then
-            # 用户选择了一个已存在的证书
-            local sel_idx=$((menu_choice - 2))
-            domain="${cert_domains[$sel_idx]}"
-            cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
-            key_file="${cert_paths[$sel_idx]}/privkey.pem"
-            green "已选择并使用域名 ${domain} 的现有证书。"
+        echo " 1) 申请新证书"
+        echo " 0) 退出"
+        echo
+        local menu_choice
+        reading "请选择操作 [0-1 或已有证书序号]: " menu_choice
+        case "$menu_choice" in
+            0)
+                red "已取消操作。"
+                return 1
+                ;;
+            1)
+                # 新证书
+				;;
+            *)
+                if [[ "$menu_choice" =~ ^[0-9]+$ ]] &&
+                   [[ "$menu_choice" -ge 2 ]] &&
+                   [[ "$menu_choice" -lt "$i" ]]; then
+                    local sel_idx=$((menu_choice - 2))
+                    domain="${cert_domains[$sel_idx]}"
+                    cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
+                    key_file="${cert_paths[$sel_idx]}/privkey.pem"
+                    green "已选择并使用域名 ${domain} 的现有证书。"
+
+                    return 0
+                fi
+                red "无效的选择！"
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -n "$input_domain" ]]; then
+        domain="$input_domain"
+    else
+        # HTTP 模式需要用户提供域名；
+        # Cloudflare 模式则由对应函数自己选择最终域名。
+        domain=""
+    fi
+    if [[ -n "$domain" ]]; then
+        local existing_path=""
+        if [[ -f "/root/cert/${domain}/fullchain.pem" &&
+              -f "/root/cert/${domain}/privkey.pem" ]]; then
+            existing_path="/root/cert/${domain}"
+        elif [[ -f "/etc/nginx/cert/${domain}/fullchain.pem" &&
+                -f "/etc/nginx/cert/${domain}/privkey.pem" ]]; then
+            existing_path="/etc/nginx/cert/${domain}"
+        fi
+        if [[ -n "$existing_path" ]]; then
+            cert_file="${existing_path}/fullchain.pem"
+            key_file="${existing_path}/privkey.pem"
+            skyblue "检测到域名 ${domain} 的证书已存在，直接使用。"
             return 0
-        else
-            red "无效的选择!"
-            return 1
         fi
     fi
+    if [[ -n "$domain" && "$domain" == *.*.* ]]; then
 
-    domain="$input_domain"
-    
-    local existing_path=""
-    if [[ -f "/root/cert/${domain}/fullchain.pem" && -f "/root/cert/${domain}/privkey.pem" ]]; then
-        existing_path="/root/cert/${domain}"
-    elif [[ -f "/etc/nginx/cert/${domain}/fullchain.pem" && -f "/etc/nginx/cert/${domain}/privkey.pem" ]]; then
-        existing_path="/etc/nginx/cert/${domain}"
-    fi
+        local parent_domain
+        parent_domain="${domain#*.}"
 
-    if [[ -n "$existing_path" ]]; then
-        cert_file="${existing_path}/fullchain.pem"
-        key_file="${existing_path}/privkey.pem"
-        skyblue "检测到域名 ${domain} 的证书已存在，直接使用。"
-        return 0
-    fi
+        local wildcard_cert=""
+        local wildcard_key=""
 
-    if [[ "$domain" == *.*.* ]]; then
-        local parent_domain=$(echo "$domain" | cut -d'.' -f2-)
-        
-        local w_cert=""
-        local w_key=""
-        if [[ -f "/root/cert/*.${parent_domain}/fullchain.pem" ]]; then
-            w_cert="/root/cert/*.${parent_domain}/fullchain.pem"
-            w_key="/root/cert/*.${parent_domain}/privkey.pem"
-        elif [[ -f "/etc/nginx/cert/*.${parent_domain}/fullchain.pem" ]]; then
-            w_cert="/etc/nginx/cert/*.${parent_domain}/fullchain.pem"
-            w_key="/etc/nginx/cert/*.${parent_domain}/privkey.pem"
-        fi
+        # /root/cert/*.example.com
+        local wildcard_dirs=()
 
-        if [[ -n "$w_cert" && -f "$w_cert" && -f "$w_key" ]]; then
+        shopt -s nullglob
+
+        local wdir
+
+        for wdir in \
+            "/root/cert/*.${parent_domain}" \
+            "/etc/nginx/cert/*.${parent_domain}"; do
+
+            if [[ -f "$wdir/fullchain.pem" &&
+                  -f "$wdir/privkey.pem" ]]; then
+
+                wildcard_cert="$wdir/fullchain.pem"
+                wildcard_key="$wdir/privkey.pem"
+                break
+            fi
+        done
+        shopt -u nullglob
+        if [[ -n "$wildcard_cert" ]]; then
             yellow "检测到可用泛域名证书 (*.${parent_domain})。"
-            reading "是否直接使用该泛域名证书保护 ${domain}？(y/n): " use_wildcard
-            if [[ "$use_wildcard" == "y" || "$use_wildcard" == "Y" ]]; then
-                cert_file="$w_cert"
-                key_file="$w_key"
-                green "已选择使用泛域名证书 (*.${parent_domain})。"
+            local use_wildcard
+            reading \
+                "是否直接使用该泛域名证书保护 ${domain}？(y/n): " \
+                use_wildcard
+            if [[ "$use_wildcard" == "y" ||
+                  "$use_wildcard" == "Y" ]]; then
+                cert_file="$wildcard_cert"
+                key_file="$wildcard_key"
+                green "已选择使用泛域名证书。"
                 return 0
             fi
         fi
-        
-        local p_cert=""
-        local p_key=""
-        if [[ -f "/root/cert/${parent_domain}/fullchain.pem" ]]; then
-            p_cert="/root/cert/${parent_domain}/fullchain.pem"
-            p_key="/root/cert/${parent_domain}/privkey.pem"
-        elif [[ -f "/etc/nginx/cert/${parent_domain}/fullchain.pem" ]]; then
-            p_cert="/etc/nginx/cert/${parent_domain}/fullchain.pem"
-            p_key="/etc/nginx/cert/${parent_domain}/privkey.pem"
+        local parent_cert=""
+        local parent_key=""
+        if [[ -f "/root/cert/${parent_domain}/fullchain.pem" &&
+              -f "/root/cert/${parent_domain}/privkey.pem" ]]; then
+            parent_cert="/root/cert/${parent_domain}/fullchain.pem"
+            parent_key="/root/cert/${parent_domain}/privkey.pem"
+        elif [[ -f "/etc/nginx/cert/${parent_domain}/fullchain.pem" &&
+                -f "/etc/nginx/cert/${parent_domain}/privkey.pem" ]]; then
+            parent_cert="/etc/nginx/cert/${parent_domain}/fullchain.pem"
+            parent_key="/etc/nginx/cert/${parent_domain}/privkey.pem"
         fi
-
-        if [[ -n "$p_cert" && -f "$p_cert" && -f "$p_key" ]]; then
+        if [[ -n "$parent_cert" ]]; then
             yellow "当前域名无证书，但检测到父域名 ${parent_domain} 已有普通证书。"
-            reading "是否尝试使用父域名证书？(y/n): " use_parent
-            if [[ "$use_parent" == "y" || "$use_parent" == "Y" ]]; then
-                cert_file="$p_cert"
-                key_file="$p_key"
+            local use_parent
+            reading \
+                "是否尝试使用父域名证书？(y/n): " \
+                use_parent
+            if [[ "$use_parent" == "y" ||
+                  "$use_parent" == "Y" ]]; then
+                cert_file="$parent_cert"
+                key_file="$parent_key"
                 green "已选择使用 ${parent_domain} 的证书。"
                 return 0
             fi
         fi
     fi
-    
-    echo ""
-    echo -e "为域名 [${domain}] 申请证书，请选择申请方式:"
-    skyblue "注意: 方式1需要确保域名已解析到服务器，且云朵(CDN)是灰色状态，并放行了 80 端口。"
-    echo -e " 1) 通过 80 端口申请"
-    echo -e " 2) 通过 Cloudflare DNS API (Global Key 模式)"
-    echo -e " 3) 通过 Cloudflare API Token (推荐，更安全)"
+    echo
+    skyblue "=============================================="
+    echo "请选择证书申请方式："
+    echo
+    echo " 1) 80 端口申请"
+    echo " 2) Cloudflare DNS API (Global API Key)"
+    echo " 3) Cloudflare DNS API (API Token，推荐)"
+    skyblue "=============================================="
+    local ssl_choice
     reading "请输入选择 [1-3]: " ssl_choice
-
     case "$ssl_choice" in
-        1) run_ssl_task "$domain" ;;
-        2) issue_cf_dns_cert "$domain" ;;
-        3) issue_cf_token_cert "$domain" ;;
-        *) red "无效选择"; return 1 ;;
+        1)
+            if [[ -z "$domain" ]]; then
+                reading "请输入要申请证书的域名: " domain
+                domain=$(echo "$domain" | tr -d '[:space:]')
+                [[ -z "$domain" ]] && {
+                    red "域名不能为空！"
+                    return 1
+                }
+            fi
+            if ! run_ssl_task "$domain"; then
+                red "80 端口方式申请证书失败。"
+                return 1
+            fi
+            ;;
+        2)
+            if ! issue_cf_dns_cert; then
+                red "Cloudflare Global API Key 申请证书失败。"
+                return 1
+            fi
+            ;;
+        3)
+            if ! issue_cf_token_cert; then
+                red "Cloudflare API Token 申请证书失败。"
+                return 1
+            fi
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
     esac
-    
-    cert_file="/root/cert/${domain}/fullchain.pem"
-    key_file="/root/cert/${domain}/privkey.pem"
-    
-    if [[ $? -eq 0 && -f "$cert_file" && -f "$key_file" ]]; then
-        green "证书申请成功并已就绪！"
+    if [[ -n "$domain" &&
+          -f "$cert_file" &&
+          -f "$key_file" ]]; then
+        green "=============================================="
+        green "证书已经准备完成！"
+        green "域名: $domain"
+        green "证书: $cert_file"
+        green "私钥: $key_file"
+        green "=============================================="
         return 0
-    else
-        red "证书获取失败，请排查。"
-        return 1
     fi
-}
+    red "证书申请过程结束，但没有找到有效的证书文件。"
+    [[ -n "$domain" ]] &&
+        red "域名: $domain"
+    [[ -n "$cert_file" ]] &&
+        red "证书: $cert_file"
+    [[ -n "$key_file" ]] &&
+        red "私钥: $key_file"
+    return 1
+}   
 
 # 处理防火墙
 allow_port() {
