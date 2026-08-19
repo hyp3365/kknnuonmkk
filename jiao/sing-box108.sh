@@ -2244,20 +2244,20 @@ restart_nginx() {
 
 # 启动 xray
 start_xray() {
-if [ ${check_xray} -eq 1 ]; then
-    yellow "\n正在启动 ${server_name} 服务\n" 
+if [ ${xray_status} -eq 1 ]; then
+    yellow "\n正在启动 ${serverxray_name} 服务\n" 
     if [ -f /etc/alpine-release ]; then
         rc-service xray start
     else
         systemctl daemon-reload
-        systemctl start "${server_name}"
+        systemctl start "${serverxray_name}"
     fi
    if [ $? -eq 0 ]; then
-       green "${server_name} 服务已成功启动\n"
+       green "${serverxray_name} 服务已成功启动\n"
    else
-       red "${server_name} 服务启动失败\n"
+       red "${serverxray_name} 服务启动失败\n"
    fi
-elif [ ${check_xray} -eq 0 ]; then
+elif [ ${xray_status} -eq 0 ]; then
     yellow "xray 正在运行\n"
     sleep 1
     menu
@@ -2270,20 +2270,20 @@ fi
 
 # 停止 xray
 stop_xray() {
-if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在停止 ${server_name} 服务\n"
+if [ ${xray_status} -eq 0 ]; then
+   yellow "\n正在停止 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
         rc-service xray stop
     else
-        systemctl stop "${server_name}"
+        systemctl stop "${serverxray_name}"
     fi
    if [ $? -eq 0 ]; then
-       green "${server_name} 服务已成功停止\n"
+       green "${serverxray_name} 服务已成功停止\n"
    else
-       red "${server_name} 服务停止失败\n"
+       red "${serverxray_name} 服务停止失败\n"
    fi
 
-elif [ ${check_xray} -eq 1 ]; then
+elif [ ${xray_status} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
     menu
@@ -2296,20 +2296,20 @@ fi
 
 # 重启 xray
 restart_xray() {
-if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在重启 ${server_name} 服务\n"
+if [ ${xray_status} -eq 0 ]; then
+   yellow "\n正在重启 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
         rc-service ${server_name} restart
     else
         systemctl daemon-reload
-        systemctl restart "${server_name}"
+        systemctl restart "${serverxray_name}"
     fi
     if [ $? -eq 0 ]; then
-        green "${server_name} 服务已成功重启\n"
+        green "${serverxray_name} 服务已成功重启\n"
     else
-        red "${server_name} 服务重启失败\n"
+        red "${serverxray_name} 服务重启失败\n"
     fi
-elif [ ${check_xray} -eq 1 ]; then
+elif [ ${xray_status} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
     menu
@@ -6928,15 +6928,14 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
-   check_xray &>/dev/null; check_xray=$?
-   check_xray_status=$(check_xray) > /dev/null 2>&1
+   xray_status=$(check_xray 2>/dev/null)
    
    clear
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
-   purple "=== 老王sing-box四合一安装脚本 0.3===\n"
+   purple "=== 老王sing-box四合一安装脚本 0.4===\n"
    printf "${purple}---xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
