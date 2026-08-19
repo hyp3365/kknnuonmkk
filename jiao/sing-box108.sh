@@ -860,6 +860,9 @@ EOF
             --fullchain-file "${save_path}/fullchain.pem"
         then
             chmod 600 "${save_path}/privkey.pem"
+			domain="$cert_domain"
+            cert_file="${save_path}/fullchain.pem"
+            key_file="${save_path}/privkey.pem"
             echo
             green "=========================================="
             green "证书申请成功！"
@@ -1081,6 +1084,9 @@ issue_cf_token_cert() {
           -f "${cert_dir}/privkey.pem" ]]; then
 
         chmod 600 "${cert_dir}/privkey.pem"
+		domain="$cert_domain"
+        cert_file="${save_path}/fullchain.pem"
+        key_file="${save_path}/privkey.pem"
         echo
         green "=========================================="
         green "证书申请成功！"
