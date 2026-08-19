@@ -2100,6 +2100,85 @@ manage_service() {
     esac
 }
 
+#下载安装xray
+install_xray() {
+    ARCH_RAW=$(uname -m)
+    case "${ARCH_RAW}" in
+        'x86_64') ARCH='amd64'; ARCH_ARG='64' ;;
+        'x86'|'i686'|'i386') ARCH='386'; ARCH_ARG='32' ;;
+        'aarch64'|'arm64') ARCH='arm64'; ARCH_ARG='arm64-v8a' ;;
+        'armv7l') ARCH='armv7'; ARCH_ARG='arm32-v7a' ;;
+        's390x') ARCH='s390x'; ARCH_ARG='s390x' ;;
+        *) return 1 ;;
+    esac
+    mkdir -p "${xray_dir}" || return 1
+    chmod 755 "${xray_dir}"
+    curl -fSL -o "${xray_dir}/xray.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip" || return 1
+    [ -s "${xray_dir}/xray.zip" ] || return 1
+    unzip -o "${xray_dir}/xray.zip" -d "${xray_dir}/" >/dev/null 2>&1 || return 1
+    [ -f "${xray_dir}/xray" ] || return 1
+    chmod +x "${xray_dir}/xray"
+    rm -f "${xray_dir}/xray.zip" "${xray_dir}/geosite.dat" "${xray_dir}/geoip.dat" "${xray_dir}/README.md" "${xray_dir}/LICENSE"
+    rm -f "${configxray_dir}"
+    cat > "${configxray_dir}" << 'EOF'
+{
+  "log": {
+    "access": "/dev/null",
+    "error": "/dev/null",
+    "loglevel": "none"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+EOF
+    [ -s "${configxray_dir}" ] || return 1
+    "${xray_dir}/xray" run -test -config "${configxray_dir}" >/dev/null 2>&1 || return 1
+}
+main_systemd_services() {
+    cat > /etc/systemd/system/xray.service << EOF
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target nss-lookup.target
+Wants=network-online.target
+[Service]
+Type=simple
+NoNewPrivileges=yes
+ExecStart=${xray_dir}/xray run -c ${configxray_dir}
+Restart=on-failure
+RestartPreventExitStatus=23
+[Install]
+WantedBy=multi-user.target
+EOF
+    bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
+    systemctl daemon-reload
+    systemctl enable xray
+}
+alpine_openrc_services() {
+    cat > /etc/init.d/xray << EOF
+#!/sbin/openrc-run
+description="Xray service"
+command="${xray_dir}/xray"
+command_args="run -c ${configxray_dir}"
+command_background=true
+pidfile="/var/run/xray.pid"
+depend() {
+    need net
+    after firewall
+}
+EOF
+    chmod +x /etc/init.d/xray
+    rc-update add xray default
+}
+
 # 启动 sing-box
 start_singbox() {
     manage_service "sing-box" "start"
@@ -2240,19 +2319,25 @@ uninstall_xray() {
   
 # xray 管理
 manage_xray() {
-    green "1. 启动xray服务"
+    green "1. 安装xray服务"
     skyblue "-------------------"
-    green "2. 停止xray服务"
+    green "2. 卸载xray服务"
     skyblue "-------------------"
-    green "3. 重启xray服务"
+    green "3. 启动xray服务"
+    skyblue "-------------------"
+    green "4. 停止xray服务"
+    skyblue "-------------------"
+    green "5. 重启xray服务"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " choice
     case "${choice}" in
-        1) start_xray ;;  
-        2) stop_xray ;;
-        3) restart_xray ;;
+	    1) install_xray ;;
+	    2) uninstall_xray ;;
+        3) start_xray ;;  
+        4) stop_xray ;;
+        5) restart_xray ;;
         0) menu ;;
         *) red "无效的选项！" ;;
     esac
@@ -6763,10 +6848,10 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 0.3===\n"
+   printf "${purple}---xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
-   printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")"
-   printf "${purple}---xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
+   printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
    echo "==============="
