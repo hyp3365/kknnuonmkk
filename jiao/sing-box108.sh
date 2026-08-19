@@ -305,64 +305,191 @@ cf_upsert_dns() {
 }
 
 # ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
-
-# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ──
 cf_set_ssl() {
-    local zone_id="$1" ssl_mode="$2"
+    local zone_id="$1"
+    local ssl_mode="$2"
     local payload
-    payload=$(jq -n --arg v "$ssl_mode" '{value:$v}')
-    cf_call PATCH "/zones/${zone_id}/settings/ssl" "$payload" >/dev/null
+    local response
+
+    [[ -z "$zone_id" || -z "$ssl_mode" ]] && return 1
+
+    payload=$(jq -n \
+        --arg v "$ssl_mode" \
+        '{value:$v}')
+
+    response=$(cf_call PATCH \
+        "/zones/${zone_id}/settings/ssl" \
+        "$payload")
+
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        green "Cloudflare SSL 模式已设置为: $ssl_mode"
+        return 0
+    fi
+
+    yellow "Cloudflare SSL 模式设置失败"
+    echo "$response" | jq -r '.errors[]?.message // empty' 2>/dev/null
+
+    return 1
 }
 
-# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
+# ── Cloudflare Origin Rules 管理 ─────────────────────────
+
 cf_get_origin_rules() {
     local zone_id="$1"
     local response
-    response=$(cf_call GET "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-    echo "$response" | jq -r 'if .success then .result.rules // [] else [] end' 2>/dev/null || echo '[]'
-}
 
-cf_put_origin_rules() {
-    local zone_id="$1" rules_json="$2"
-    local response
-    response=$(cf_call PUT "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
-        "$(jq -n --argjson r "$rules_json" '{rules:$r}')")
-    if echo "$response" | jq -e '.success' >/dev/null 2>&1; then
-        return 0
+    response=$(cf_call GET \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
+
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        echo "$response" | jq -c '.result.rules // []'
     else
-        return 1
+        echo '[]'
     fi
 }
 
-set_domain_origin_port() {
-    local zone_id="$1" domain="$2" target_port="$3"
-    local pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-    [[ -z "$zone_id" || -z "$domain" || -z "$target_port" ]] && return 1
 
-    local existing kept new_managed merged
-    existing=$(cf_get_origin_rules "$zone_id")
-    
-    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
-        .[] | select(
-            (.description | startswith($pfx) | not) or
-            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
-        )
-    ]')
-    
-    new_managed=$(jq -n --arg d "$domain" --argjson port "$target_port" --arg pfx "$pfx" '[
-        {
-            description: ($pfx + $d),
-            enabled: true,
-            expression: ("(http.host eq \"" + $d + "\")"),
-            action: "route",
-            action_parameters: { origin: { port: $port } }
-        }
-    ]')
-    
-    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-    cf_put_origin_rules "$zone_id" "$merged"
+cf_put_origin_rules() {
+    local zone_id="$1"
+    local rules_json="$2"
+    local response
+
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$rules_json" ]] && return 1
+
+    # 必须是合法 JSON 数组
+    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        red "Origin Rules 数据不是合法 JSON"
+        return 1
+    fi
+
+    # 不再使用 --argjson
+    local payload
+    payload=$(printf '%s' "$rules_json" | jq -c '{rules: .}')
+
+    if [[ -z "$payload" ]]; then
+        red "生成 Origin Rules 请求数据失败"
+        return 1
+    fi
+
+    response=$(cf_call PUT \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
+        "$payload")
+
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        return 0
+    fi
+
+    yellow "Cloudflare Origin Rules 下发失败："
+
+    echo "$response" | jq -r '
+        .errors[]?
+        | if .message then .message else tostring end
+    ' 2>/dev/null
+
+    return 1
 }
 
+set_domain_origin_port() {
+    local zone_id="$1"
+    local domain="$2"
+    local target_port="$3"
+
+    local pfx="${MANAGED_PREFIX:-Auto_Script:}"
+    local existing
+    local kept
+    local new_managed
+    local merged
+
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$domain" ]] && return 1
+
+    if [[ ! "$target_port" =~ ^[0-9]+$ ]]; then
+        red "无效的回源端口：$target_port"
+        return 1
+    fi
+
+    # 获取现有 Origin Rules
+    existing=$(cf_get_origin_rules "$zone_id")
+
+    # 如果没有现有规则，直接使用空数组
+    if [[ -z "$existing" || "$existing" == "null" ]]; then
+        existing='[]'
+    fi
+
+    # 如果不是合法 JSON 数组，也使用空数组
+    if ! printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        existing='[]'
+    fi
+
+    # 删除本脚本之前创建的同域名规则
+    kept=$(printf '%s' "$existing" | jq -c \
+        --arg d "$domain" \
+        --arg pfx "$pfx" '
+        [
+            .[]
+            | select(
+                (
+                    (.description // "")
+                    | startswith($pfx)
+                ) == false
+                or
+                (
+                    (.expression // "")
+                    | ascii_downcase
+                    | contains(
+                        "http.host eq \"" +
+                        ($d | ascii_downcase) +
+                        "\""
+                    )
+                ) == false
+            )
+        ]
+    ' 2>/dev/null)
+
+    # jq 没有生成结果时，使用空数组
+    [[ -z "$kept" ]] && kept='[]'
+
+    # 创建新的 Origin Rule
+    new_managed=$(jq -n -c \
+        --arg d "$domain" \
+        --arg pfx "$pfx" \
+        --arg port "$target_port" '
+        [
+            {
+                description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
+                enabled: true,
+                expression: ("(http.host eq \"" + $d + "\")"),
+                action: "route",
+                action_parameters: {
+                    origin: {
+                        port: ($port | tonumber)
+                    }
+                }
+            }
+        ]
+    ' 2>/dev/null)
+
+    if [[ -z "$new_managed" ]]; then
+        red "生成新的 Cloudflare Origin Rule 失败"
+        return 1
+    fi
+
+    # 合并
+    merged=$(printf '%s\n%s\n' "$kept" "$new_managed" | jq -s -c '.[0] + .[1]' 2>/dev/null)
+
+    if [[ -z "$merged" ]]; then
+        red "合并 Cloudflare Origin Rules 失败"
+        return 1
+    fi
+
+    # 提交
+    if cf_put_origin_rules "$zone_id" "$merged"; then
+        return 0
+    fi
+
+    return 1
+}
 # 查看已申请证书
 view_certs() {
     clear
