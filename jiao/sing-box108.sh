@@ -3698,34 +3698,49 @@ EOF
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		    59) 
-			target="_vless_wstls_cdn"
-            target_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
-            if [ -f "$target_conf" ]; then
-			    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$vless_wstls_cdn_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_cdn_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+		 59) 
+            target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
+            target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
+            if [ -f "$target_cdn_conf" ] || [ -f "$target_direct_conf" ]; then
+                if [ -f "$target_cdn_conf" ]; then
+                    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_cdn_conf" | tr -cd '0-9')
+                    if [ -n "$vless_wstls_cdn_port" ]; then
+                        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_cdn_port" '$0~"dport "p {print $NF}'); do
+                            nft delete rule inet filter input handle $handle 2>/dev/null
+                        done
+                    fi
+                    rm -f "$target_cdn_conf"
                 fi
-                rm -f "$target_conf"
+                if [ -f "$target_direct_conf" ]; then
+                    vless_wstls_direct_port=$(grep '"listen_port"' "$target_direct_conf" | tr -cd '0-9')
+                    if [ -n "$vless_wstls_direct_port" ]; then
+                        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_direct_port" '$0~"dport "p {print $NF}'); do
+                            nft delete rule inet filter input handle $handle 2>/dev/null
+                        done
+                    fi
+                    rm -f "$target_direct_conf"
+                fi
+                nft list ruleset > /etc/nftables.conf 2>/dev/null
                 if [ -f "/etc/sing-box/url.txt" ]; then
-                     sed -i "/${target}/d" /etc/sing-box/url.txt
+                     sed -i "/_vless_wstls_cdn/d" /etc/sing-box/url.txt
+                     sed -i "/_vless_wstls_direct/d" /etc/sing-box/url.txt
+                     
                      sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					 echo "" >> /etc/sing-box/url.txt
+                     echo "" >> /etc/sing-box/url.txt
                 fi
+                
                 if [ -s "/etc/sing-box/url.txt" ]; then
                     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
                 else
                     truncate -s 0 /etc/sing-box/sub.txt
                 fi
-                restart_singbox                
-                green "==============================================="
+                
+                restart_singbox               
+                green "============================================"
                 green " 节点已移除!"
-                green "==============================================="
+                green "============================================"
             else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+                red "错误: 未找到 VLESS WS-TLS 相关的配置文件，删除取消。"
             fi
             ;;
 		    
