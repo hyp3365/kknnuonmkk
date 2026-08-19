@@ -547,27 +547,48 @@ cert_manager() {
 }
 # 80 端口申请模式
 run_ssl_task() {
-    local domain="$1"
-    [[ -z "$domain" ]] && reading "请输入域名: " domain
-    [[ -z "$domain" ]] && red "域名不能为空" && return 1
-    
+    local request_domain="$1"
+    [[ -z "$request_domain" ]] && reading "请输入域名: " request_domain
+    request_domain=$(echo "$request_domain" | tr -d '[:space:]')
+    [[ -z "$request_domain" ]] && {
+        red "域名不能为空"
+        return 1
+    }
+    domain=""
+    cert_file=""
+    key_file=""
     manage_packages "install" "curl" "socat" "cron" "psmisc"
     mkdir -p "$HOME/.acme.sh"
     cat << 'EOF' > "$HOME/.acme.sh/release_80.sh"
 #!/bin/bash
+
 if command -v ss >/dev/null 2>&1; then
-    pid=$(ss -tulpn 'sport = :80' | grep -o 'pid=[0-9]*' | cut -d'=' -f2 | head -n1)
-    occupant=$(ss -tulpn 'sport = :80' | grep -o 'users:(("[^"]*"' | cut -d'"' -f2 | head -n1)
+    pid=$(ss -tulpn 'sport = :80' 2>/dev/null |
+        grep -o 'pid=[0-9]*' |
+        cut -d'=' -f2 |
+        head -n1)
+
+    occupant=$(ss -tulpn 'sport = :80' 2>/dev/null |
+        grep -o 'users:(("[^"]*"' |
+        cut -d'"' -f2 |
+        head -n1)
+
     if [[ -n "$pid" || -n "$occupant" ]]; then
-        if [[ -n "$occupant" ]] && systemctl is-active --quiet "$occupant" 2>/dev/null; then
+
+        if [[ -n "$occupant" ]] &&
+           systemctl is-active --quiet "$occupant" 2>/dev/null; then
+
             systemctl stop "$occupant" >/dev/null 2>&1
             echo "$occupant" > "$HOME/.acme.sh/last_80_occupant.txt"
+
             sleep 1
         fi
+
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             kill -9 "$pid" >/dev/null 2>&1
             sleep 1
         fi
+
         if command -v fuser >/dev/null 2>&1; then
             fuser -k -9 80/tcp >/dev/null 2>&1
             sleep 1
@@ -575,8 +596,8 @@ if command -v ss >/dev/null 2>&1; then
     fi
 fi
 EOF
-    chmod +x "$HOME/.acme.sh/release_80.sh"
 
+    chmod +x "$HOME/.acme.sh/release_80.sh"
     cat << 'EOF' > "$HOME/.acme.sh/restore_80.sh"
 #!/bin/bash
 if [[ -f "$HOME/.acme.sh/last_80_occupant.txt" ]]; then
@@ -588,49 +609,78 @@ if [[ -f "$HOME/.acme.sh/last_80_occupant.txt" ]]; then
 fi
 EOF
     chmod +x "$HOME/.acme.sh/restore_80.sh"
-    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+    local acme_cmd="$HOME/.acme.sh/acme.sh"
+    if [[ ! -f "$acme_cmd" ]]; then
         skyblue "正在安装 acme.sh..."
-        curl -s https://get.acme.sh | sh -s email="cert_${RANDOM}@gmail.com"
-        if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+        curl -fsSL "https://get.acme.sh" |
+            sh -s email="cert_${RANDOM}@gmail.com" >/dev/null 2>&1
+        if [[ ! -f "$acme_cmd" ]]; then
             manage_packages "install" "git"
-            git clone https://gitee.com/neilpang/acme.sh.git "$HOME/acme_git_tmp" >/dev/null 2>&1
+            rm -rf "$HOME/acme_git_tmp"
+            git clone \
+                "https://github.com/acmesh-official/acme.sh.git" \
+                "$HOME/acme_git_tmp" >/dev/null 2>&1
             if [[ -d "$HOME/acme_git_tmp" ]]; then
-                cd "$HOME/acme_git_tmp" && ./acme.sh --install -m "cert_${RANDOM}@gmail.com" >/dev/null 2>&1
-                cd - >/dev/null && rm -rf "$HOME/acme_git_tmp"
+                (
+                    cd "$HOME/acme_git_tmp" &&
+                    ./acme.sh \
+                        --install \
+                        -m "cert_${RANDOM}@gmail.com"
+                ) >/dev/null 2>&1
+                rm -rf "$HOME/acme_git_tmp"
             fi
         fi
     fi
-
-    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
-        red "错误: acme.sh 安装失败！"
+    if [[ ! -f "$acme_cmd" ]]; then
+        red "错误：acme.sh 安装失败！"
         return 1
     fi
-
-    "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt >/dev/null 2>&1    
-    local save_path="/root/cert/${domain}"
-    mkdir -p "$save_path"    
-
-    skyblue "正在为 ${domain} 申请证书..."
-    "$HOME/.acme.sh/acme.sh" --issue -d "$domain" --standalone --httpport 80 --force \
+    "$acme_cmd" \
+        --set-default-ca \
+        --server letsencrypt >/dev/null 2>&1
+    local save_path="/root/cert/${request_domain}"
+    mkdir -p "$save_path"
+    skyblue "正在为 ${request_domain} 申请证书..."
+    if ! "$acme_cmd" \
+        --issue \
+        -d "$request_domain" \
+        --standalone \
+        --httpport 80 \
+        --force \
         --pre-hook "$HOME/.acme.sh/release_80.sh" \
         --post-hook "$HOME/.acme.sh/restore_80.sh"
-        
-    if [ $? -eq 0 ]; then
-        "$HOME/.acme.sh/acme.sh" --installcert -d "$domain" \
-            --key-file "${save_path}/privkey.pem" \
-            --fullchain-file "${save_path}/fullchain.pem"
-      
-        chmod 600 "${save_path}/privkey.pem"
-        cert_file="${save_path}/fullchain.pem"
-        key_file="${save_path}/privkey.pem"
-        green "申请成功！"
-        green "证书: ${cert_file}"
-        green "私钥: ${key_file}"      
-        "$HOME/.acme.sh/acme.sh" --upgrade --auto-upgrade >/dev/null 2>&1
-    else
-        red "申请失败，请手动排查 80 端口或域名解析状态！"
+    then
+        # 即使失败，也尝试恢复服务
+        "$HOME/.acme.sh/restore_80.sh" >/dev/null 2>&1
+        red "申请失败，请检查 80 端口或域名解析状态！"
         return 1
     fi
+    if ! "$acme_cmd" \
+        --installcert \
+        -d "$request_domain" \
+        --key-file "${save_path}/privkey.pem" \
+        --fullchain-file "${save_path}/fullchain.pem"
+    then
+        red "证书安装失败！"
+        return 1
+    fi
+    if [[ ! -f "${save_path}/fullchain.pem" ||
+          ! -f "${save_path}/privkey.pem" ]]; then
+        red "证书文件生成失败！"
+        return 1
+    fi
+    chmod 600 "${save_path}/privkey.pem"
+    domain="$request_domain"
+    cert_file="${save_path}/fullchain.pem"
+    key_file="${save_path}/privkey.pem"
+    green "申请成功！"
+    green "域名: ${domain}"
+    green "证书: ${cert_file}"
+    green "私钥: ${key_file}"
+    "$acme_cmd" \
+        --upgrade \
+        --auto-upgrade >/dev/null 2>&1
+    return 0
 }
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
