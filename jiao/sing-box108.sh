@@ -2244,7 +2244,7 @@ restart_nginx() {
 
 # 启动 xray
 start_xray() {
-if [ ${xray_status} -eq 1 ]; then
+if [ ${check_xray} -eq 1 ]; then
     yellow "\n正在启动 ${serverxray_name} 服务\n" 
     if [ -f /etc/alpine-release ]; then
         rc-service xray start
@@ -2257,7 +2257,7 @@ if [ ${xray_status} -eq 1 ]; then
    else
        red "${serverxray_name} 服务启动失败\n"
    fi
-elif [ ${xray_status} -eq 0 ]; then
+elif [ ${check_xray} -eq 0 ]; then
     yellow "xray 正在运行\n"
     sleep 1
     menu
@@ -2270,7 +2270,7 @@ fi
 
 # 停止 xray
 stop_xray() {
-if [ ${xray_status} -eq 0 ]; then
+if [ ${check_xray} -eq 0 ]; then
    yellow "\n正在停止 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
         rc-service xray stop
@@ -2283,7 +2283,7 @@ if [ ${xray_status} -eq 0 ]; then
        red "${serverxray_name} 服务停止失败\n"
    fi
 
-elif [ ${xray_status} -eq 1 ]; then
+elif [ ${check_xray} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
     menu
@@ -2296,7 +2296,7 @@ fi
 
 # 重启 xray
 restart_xray() {
-if [ ${xray_status} -eq 0 ]; then
+if [ ${check_xray} -eq 0 ]; then
    yellow "\n正在重启 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
         rc-service ${server_name} restart
@@ -2309,7 +2309,7 @@ if [ ${xray_status} -eq 0 ]; then
     else
         red "${serverxray_name} 服务重启失败\n"
     fi
-elif [ ${xray_status} -eq 1 ]; then
+elif [ ${check_xray} -eq 1 ]; then
     yellow "xray 未运行\n"
     sleep 1
     menu
@@ -6928,15 +6928,16 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
-   xray_status=$(check_xray 2>/dev/null)
+   check_xray &>/dev/null; check_xray=$?
+   check_xray_status=$(check_xray) > /dev/null 2>&1
    
    clear
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
-   purple "=== 老王sing-box四合一安装脚本 0.4===\n"
-   printf "${purple}---xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
+   purple "=== 老王sing-box四合一安装脚本 0.5===\n"
+   purple " Xray 状态: ${check_xray_status}\n"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
