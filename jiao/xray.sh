@@ -22,9 +22,9 @@ client_dir="${work_dir}/url.txt"
 singbox_dir="/etc/sing-box"
 singbox_url="${singbox_dir}/url.txt"
 
-# 定义环境变量
+# 定义环境变量（固定端口为 60005）
 export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
-export PORT=${PORT:-$(shuf -i 1000-60000 -n 1)}
+export PORT=60005
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'}   
 CDN_DOMAIN="cloudflare.com"
@@ -79,8 +79,8 @@ install_xray() {
     unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name}
     rm -rf "${work_dir}/${server_name}.zip" "${work_dir}/geosite.dat" "${work_dir}/geoip.dat" "${work_dir}/README.md" "${work_dir}/LICENSE" 
 
-    # 继续使用随机端口
-    CDN_XHTTP_PORT=$(($PORT + 2))
+    # 固定回源端口为 60005
+    CDN_XHTTP_PORT=60005
 
     iptables -F > /dev/null 2>&1 && iptables -P INPUT ACCEPT > /dev/null 2>&1 && iptables -P FORWARD ACCEPT > /dev/null 2>&1 && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
     command -v ip6tables &> /dev/null && ip6tables -F > /dev/null 2>&1 && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
@@ -181,7 +181,7 @@ get_info() {
 
   isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ipapi.co/json" | tr -d '\n' | awk -F\" '{c="";o="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="org")o=$(x+2)};if(c&&o)print c"-"o}' | sed 's/ /_/g' || echo "vps")
 
-  # 提取配置文件中的真实 UUID 和 随机回源端口
+  # 提取配置文件中的真实 UUID 和固定回源端口
   local real_uuid=$(grep -m1 '"id"' ${config_dir} | awk -F'"' '{print $4}')
   local origin_port=$(grep -m1 '"port"' ${config_dir} | awk -F':' '{print $2}' | tr -d ' ,')
 
