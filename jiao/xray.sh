@@ -77,44 +77,16 @@ install_xray() {
     unzip "${work_dir}/${server_name}.zip" -d "${work_dir}/" > /dev/null 2>&1 && chmod +x ${work_dir}/${server_name}
     rm -rf "${work_dir}/${server_name}.zip" "${work_dir}/geosite.dat" "${work_dir}/geoip.dat" "${work_dir}/README.md" "${work_dir}/LICENSE" 
 
-    XHTTP_PORT=$(($PORT + 1))
+    # 继续使用随机端口
     CDN_XHTTP_PORT=$(($PORT + 2))
 
     iptables -F > /dev/null 2>&1 && iptables -P INPUT ACCEPT > /dev/null 2>&1 && iptables -P FORWARD ACCEPT > /dev/null 2>&1 && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
     command -v ip6tables &> /dev/null && ip6tables -F > /dev/null 2>&1 && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
 
-    output=$(/etc/xray/xray x25519)
-    private_key=$(echo "${output}" | grep 'PrivateKey:' | awk '{print $2}')
-    public_key=$(echo "${output}" | grep 'Password (PublicKey):' | awk '{print $3}')
-
 cat > "${config_dir}" << EOF
 {
   "log": { "access": "/dev/null", "error": "/dev/null", "loglevel": "none" },
   "inbounds": [
-    {
-      "listen": "::",
-      "port": $XHTTP_PORT,
-      "protocol": "vless",
-      "settings": {
-        "clients": [{ "id": "$UUID" }],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "xhttp",
-        "security": "reality",
-        "realitySettings": {
-          "target": "www.nazhumi.com:443",
-          "xver": 0,
-          "serverNames": ["www.nazhumi.com"],
-          "privateKey": "$private_key",
-          "shortIds": [""]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
-      }
-    },
     {
       "listen": "0.0.0.0",
       "port": $CDN_XHTTP_PORT,
@@ -207,25 +179,25 @@ get_info() {
 
   isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ipapi.co/json" | tr -d '\n' | awk -F\" '{c="";o="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="org")o=$(x+2)};if(c&&o)print c"-"o}' | sed 's/ /_/g' || echo "vps")
 
-  cat > ${work_dir}/url.txt <<EOF
-vless://${UUID}@${IP}:${XHTTP_PORT}?encryption=none&security=reality&sni=www.nazhumi.com&fp=chrome&pbk=${public_key}&allowInsecure=1&type=xhttp&mode=auto#${isp}-直连
+  # 提取配置文件中的随机回源端口
+  local origin_port=$(grep -m1 '"port"' ${config_dir} | awk -F':' '{print $2}' | tr -d ' ,')
 
+  cat > ${work_dir}/url.txt <<EOF
 vless://${UUID}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${CDN_DOMAIN}&fp=chrome&type=xhttp&host=${CDN_DOMAIN}&path=%2Fxhttp#${isp}-CDN
 EOF
 
-  echo ""
-  while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
-  echo ""
+  echo -e "\n${green}================ 节点信息 =================${re}"
+  while IFS= read -r line; do echo -e "${purple}$line${re}"; done < ${work_dir}/url.txt
+  echo -e "回源端口为: ${origin_port}${re}"
+  echo -e "${yellow}===========================================${re}\n"
 }
 
 # 查看节点信息
 check_nodes() {
 if [ ${check_xray} -eq 0 ]; then
-    echo ""
-    while IFS= read -r line; do purple "$line"; done < ${work_dir}/url.txt
-    echo ""
+    get_info
 else 
-    yellow "Xray-2go 尚未安装或未运行,请先安装或启动Xray"
+    yellow "Xray 尚未安装或未运行,请先安装或启动Xray"
     sleep 1
     menu
 fi
