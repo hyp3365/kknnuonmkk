@@ -3502,6 +3502,10 @@ EOF
     server_ip=$(get_realip)    
     echo ""
     vless_wstls_cdn_port=$(get_available_port)
+	if [[ ! "$vless_wstls_cdn_port" =~ ^[0-9]+$ ]]; then
+    red "获取 VLESS WS TLS 端口失败：${vless_wstls_cdn_port:-<空>}"
+    return 1
+    fi
     ws_path="/sspaasksavxssaszass"
     mkdir -p /etc/sing-box/conf
     cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
@@ -3557,29 +3561,29 @@ EOF
                             (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
                         )
                     ]')
-                    
-                    new_managed=$(jq -n \
-                        --arg d "$domain" --arg pfx "$pfx" \
-                        --argjson p "$vless_wstls_cdn_port" \
+					new_managed=$(jq -n \
+                        --arg d "$domain" \
+                        --arg pfx "$pfx" \
+                        --arg p "$vless_wstls_cdn_port" \
                         --arg path "$ws_path" '[
                         {
                             description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
                             enabled: true,
                             expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path + "\")"),
                             action: "route",
-                            action_parameters: { origin: { port: $p } }
+							action_parameters: { origin: { port: ($p | tonumber) } }
                         }
                     ]')
                     
                     merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-                    cf_put_origin_rules "$zone_id" "$merged" >/dev/null 2>&1
+                    cf_put_origin_rules "$zone_id" "$merged"
                 fi
             else
                 yellow "提示: 未检测到 Cloudflare API 凭据，已跳过自动下发回源规则（如需CDN请自行在CF后台添加端口回源）。"
             fi
 
             node_remark_cdn="${isp}_vless_wstls_cdn"
-            VLESS_CDN_URL="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+            VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
 
             if [ -f "${work_dir}/url.txt" ]; then
                 sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
