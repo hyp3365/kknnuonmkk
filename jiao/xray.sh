@@ -344,14 +344,14 @@ manage_xray() {
     skyblue "-------------------"
     green "3. 重启xray服务"
     skyblue "-------------------"
-    purple "4. 返回主菜单"
+    purple "0. 返回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " choice
     case "${choice}" in
         1) start_xray ;;  
         2) stop_xray ;;
         3) restart_xray ;;
-        4) menu ;;
+        0) menu ;;
         *) red "无效的选项！" ;;
     esac
 }
