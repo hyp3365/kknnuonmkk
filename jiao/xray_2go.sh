@@ -23,7 +23,7 @@ client_dir="${work_dir}/url.txt"
 # 定义环境变量
 export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
 export PORT=${PORT:-$(shuf -i 1000-60000 -n 1)}
-export CFIP=${CFIP:-'cdns.doon.eu.org'} 
+export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'}   
 CDN_DOMAIN="cloudflare.com"
 
