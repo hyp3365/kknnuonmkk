@@ -218,6 +218,19 @@ EOF
   echo ""
 }
 
+# 查看节点信息
+check_nodes() {
+if [ ${check_xray} -eq 0 ]; then
+    echo ""
+    while IFS= read -r line; do purple "$line"; done < ${work_dir}/url.txt
+    echo ""
+else 
+    yellow "Xray-2go 尚未安装或未运行,请先安装或启动Xray"
+    sleep 1
+    menu
+fi
+}
+
 # 启动 xray
 start_xray() {
 if [ ${check_xray} -eq 1 ]; then
@@ -358,6 +371,7 @@ while true; do
    green "1. 安装 Xray"
    red "2. 卸载 Xray"
    green "3. 管理 Xray 服务"
+   green "4. 查看节点信息"  
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -385,6 +399,7 @@ while true; do
            ;;
         2) uninstall_xray ;;
         3) manage_xray ;;
+        4) check_nodes ;;
         0) exit 0 ;;
         *) red "无效的选项，请输入正确的数字" ;; 
    esac
