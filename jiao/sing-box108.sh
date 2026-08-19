@@ -6928,7 +6928,8 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
-   xray_status=$(check_xray 2>/dev/null)
+   check_xray &>/dev/null; check_xray=$?
+   check_xray_status=$(check_xray) > /dev/null 2>&1
    
    clear
    echo ""
