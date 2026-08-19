@@ -787,24 +787,95 @@ issue_cf_token_cert() {
     fi
 }
 
-
-# 综合证书检查与申请 调用check_and_issue_ssl || return 1
+# 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
-    [[ -z "$input_domain" ]] && reading "请输入域名: " input_domain
-    [[ -z "$input_domain" ]] && red "域名不能为空!" && return 1  
+    local domain=""
+    cert_file=""
+    key_file=""
+    if [[ -z "$input_domain" ]]; then
+        local cert_domains=()
+        local cert_paths=()
+        shopt -s nullglob
+        for dir in /root/cert/* /etc/nginx/cert/*; do
+            if [[ -d "$dir" && -f "$dir/fullchain.pem" && -f "$dir/privkey.pem" ]]; then
+                local d_name=$(basename "$dir")
+                if [[ ! " ${cert_domains[*]} " =~ " ${d_name} " ]]; then
+                    cert_domains+=("$d_name")
+                    cert_paths+=("$dir")
+                fi
+            fi
+        done
+        shopt -u nullglob
+
+        echo ""
+        skyblue "============== 本地已有证书列表 =============="
+        if [[ ${#cert_domains[@]} -eq 0 ]]; then
+            echo -e "  (未检测到任何本地证书)"
+        else
+            local i=2
+            for idx in "${!cert_domains[@]}"; do
+                echo -e " ${i}) ${cert_domains[$idx]}  (路径: ${cert_paths[$idx]})"
+                ((i++))
+            done
+        fi
+        skyblue "=============================================="
+        echo -e " 1) 申请新证书"
+        echo -e " 0) 退出"
+        echo ""
+        
+        reading "请选择操作 [0-1 或者已有证书序号]: " menu_choice
+        
+        if [[ "$menu_choice" == "0" ]]; then
+            red "已取消操作。"
+            return 1
+        elif [[ "$menu_choice" == "1" ]]; then
+            reading "请输入要申请证书的新域名: " input_domain
+            [[ -z "$input_domain" ]] && red "域名不能为空!" && return 1
+        elif [[ "$menu_choice" =~ ^[0-9]+$ ]] && [[ "$menu_choice" -ge 2 && "$menu_choice" -lt "$i" ]]; then
+            # 用户选择了一个已存在的证书
+            local sel_idx=$((menu_choice - 2))
+            domain="${cert_domains[$sel_idx]}"
+            cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
+            key_file="${cert_paths[$sel_idx]}/privkey.pem"
+            green "已选择并使用域名 ${domain} 的现有证书。"
+            return 0
+        else
+            red "无效的选择!"
+            return 1
+        fi
+    fi
+
     domain="$input_domain"
-    cert_file="/root/cert/${domain}/fullchain.pem"
-    key_file="/root/cert/${domain}/privkey.pem"
-    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+    
+    local existing_path=""
+    if [[ -f "/root/cert/${domain}/fullchain.pem" && -f "/root/cert/${domain}/privkey.pem" ]]; then
+        existing_path="/root/cert/${domain}"
+    elif [[ -f "/etc/nginx/cert/${domain}/fullchain.pem" && -f "/etc/nginx/cert/${domain}/privkey.pem" ]]; then
+        existing_path="/etc/nginx/cert/${domain}"
+    fi
+
+    if [[ -n "$existing_path" ]]; then
+        cert_file="${existing_path}/fullchain.pem"
+        key_file="${existing_path}/privkey.pem"
         skyblue "检测到域名 ${domain} 的证书已存在，直接使用。"
         return 0
     fi
+
     if [[ "$domain" == *.*.* ]]; then
         local parent_domain=$(echo "$domain" | cut -d'.' -f2-)
-        local w_cert="/root/cert/*.${parent_domain}/fullchain.pem"
-        local w_key="/root/cert/*.${parent_domain}/privkey.pem"
-        if [[ -f "$w_cert" && -f "$w_key" ]]; then
+        
+        local w_cert=""
+        local w_key=""
+        if [[ -f "/root/cert/*.${parent_domain}/fullchain.pem" ]]; then
+            w_cert="/root/cert/*.${parent_domain}/fullchain.pem"
+            w_key="/root/cert/*.${parent_domain}/privkey.pem"
+        elif [[ -f "/etc/nginx/cert/*.${parent_domain}/fullchain.pem" ]]; then
+            w_cert="/etc/nginx/cert/*.${parent_domain}/fullchain.pem"
+            w_key="/etc/nginx/cert/*.${parent_domain}/privkey.pem"
+        fi
+
+        if [[ -n "$w_cert" && -f "$w_cert" && -f "$w_key" ]]; then
             yellow "检测到可用泛域名证书 (*.${parent_domain})。"
             reading "是否直接使用该泛域名证书保护 ${domain}？(y/n): " use_wildcard
             if [[ "$use_wildcard" == "y" || "$use_wildcard" == "Y" ]]; then
@@ -814,10 +885,18 @@ check_and_issue_ssl() {
                 return 0
             fi
         fi
-        local p_cert="/root/cert/${parent_domain}/fullchain.pem"
-        local p_key="/root/cert/${parent_domain}/privkey.pem"
+        
+        local p_cert=""
+        local p_key=""
+        if [[ -f "/root/cert/${parent_domain}/fullchain.pem" ]]; then
+            p_cert="/root/cert/${parent_domain}/fullchain.pem"
+            p_key="/root/cert/${parent_domain}/privkey.pem"
+        elif [[ -f "/etc/nginx/cert/${parent_domain}/fullchain.pem" ]]; then
+            p_cert="/etc/nginx/cert/${parent_domain}/fullchain.pem"
+            p_key="/etc/nginx/cert/${parent_domain}/privkey.pem"
+        fi
 
-        if [[ -f "$p_cert" && -f "$p_key" ]]; then
+        if [[ -n "$p_cert" && -f "$p_cert" && -f "$p_key" ]]; then
             yellow "当前域名无证书，但检测到父域名 ${parent_domain} 已有普通证书。"
             reading "是否尝试使用父域名证书？(y/n): " use_parent
             if [[ "$use_parent" == "y" || "$use_parent" == "Y" ]]; then
@@ -830,11 +909,11 @@ check_and_issue_ssl() {
     fi
     
     echo ""
-    echo -e "未检测到可用证书，请选择申请方式:"
+    echo -e "为域名 [${domain}] 申请证书，请选择申请方式:"
     skyblue "注意: 方式1需要确保域名已解析到服务器，且云朵(CDN)是灰色状态，并放行了 80 端口。"
-    echo -e "1) 通过 80 端口申请"
-    echo -e "2) 通过 Cloudflare DNS API (Global Key 模式)"
-    echo -e "3) 通过 Cloudflare API Token (推荐，更安全)"
+    echo -e " 1) 通过 80 端口申请"
+    echo -e " 2) 通过 Cloudflare DNS API (Global Key 模式)"
+    echo -e " 3) 通过 Cloudflare API Token (推荐，更安全)"
     reading "请输入选择 [1-3]: " ssl_choice
 
     case "$ssl_choice" in
@@ -844,7 +923,10 @@ check_and_issue_ssl() {
         *) red "无效选择"; return 1 ;;
     esac
     
-    if [[ $? -eq 0 && -f "$cert_file" ]]; then
+    cert_file="/root/cert/${domain}/fullchain.pem"
+    key_file="/root/cert/${domain}/privkey.pem"
+    
+    if [[ $? -eq 0 && -f "$cert_file" && -f "$key_file" ]]; then
         green "证书申请成功并已就绪！"
         return 0
     else
@@ -2550,44 +2632,49 @@ EOF
             ;;
         2) 
                 generate_vars
-				stop_nginx
-                server_ip=$(get_realip)
-				while true; do
-              read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port}): " custom_port
-              if [ -z "$custom_port" ]; then
-                  custom_port=$hy2_port
-                  break
-              fi
-              if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-                  if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-                    red "该端口已被占用，请重新输入！"
-                    continue
-                  fi      
-				  hy2_port=$custom_port
-                  break
-              else
-                  red "输入错误！请输入有效的端口号 (1000-65535)。"
-              fi
-              done
-                echo -e "\n请选择 TLS 证书类型:"
-				echo -e "1) \e[32m使用自签名证书\e[0m"
-                echo -e "2) \e[32m使用域名申请证书\e[0m"
-                read -rp "请输入数字 [1-2] (默认 1): " cert_type
-                [ -z "$cert_type" ] && cert_type=1
-                if [ "$cert_type" -eq 2 ]; then
-                    if check_and_issue_ssl; then
-                        cert_path="$cert_file"
-                        key_path="$key_file"
-                        url_param="sni=${domain}" 
-                    else
-                        red "证书申请或获取失败，脚本退出！"
-                        return 1
-                    fi
-                else
-                    cert_path="$work_dir/cert.pem"
-                    key_path="$work_dir/private.key"
-                    url_param="insecure=1&sni=www.bing.com"
-                fi
+stop_nginx
+server_ip=$(get_realip)
+while true; do
+    read -rp "请输入 hysteria2 端口 (1000-65535, 默认 ${hy2_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$hy2_port
+        break
+    fi
+    
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        hy2_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (1000-65535)。"
+    fi
+done
+echo -e "\n请选择 TLS 证书类型:"
+echo -e " 1) \e[32m使用自签名证书 (免域名绑定)\e[0m"
+echo -e " 2) \e[32m使用真实域名证书 (推荐，调用证书管理菜单)\e[0m"
+read -rp "请输入数字 [1-2] (默认 1): " cert_type
+[ -z "$cert_type" ] && cert_type=1
+
+if [ "$cert_type" -eq 2 ]; then
+    if check_and_issue_ssl; then
+        cert_path="$cert_file"
+        key_path="$key_file"
+        url_param="sni=${domain}" 
+        green "=> Hysteria2 将使用域名 [ ${domain} ] 的证书配置。"
+    else
+        red "=> 证书选择已取消或申请失败，脚本退出！"
+        return 1
+    fi
+else
+    cert_path="$work_dir/cert.pem"
+    key_path="$work_dir/private.key"
+    url_param="insecure=1&sni=www.bing.com"
+    yellow "=> Hysteria2 已配置为使用自签名证书。"
+fi
+
 
                 yellow "正在配置 hysteria2..."
                 cat > /etc/sing-box/conf/hysteria2.json << EOF
