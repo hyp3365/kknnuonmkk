@@ -684,7 +684,7 @@ EOF
 }
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
- issue_cf_dns_cert() {
+issue_cf_dns_cert() {
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     cf_email=$(echo "$cf_email" | tr -d '[:space:]')
     [[ -z "$cf_email" ]] && {
@@ -703,14 +703,12 @@ EOF
     export CF_Email="$cf_email"
     export CF_Key="$cf_key"
     skyblue "正在从 Cloudflare 自动拉取已托管的域名列表..."
-
     local response
     response=$(curl -sS --connect-timeout 10 \
         -X GET "https://api.cloudflare.com/client/v4/zones?per_page=500" \
         -H "X-Auth-Email: $CF_EMAIL" \
         -H "X-Auth-Key: $CF_KEY" \
         -H "Content-Type: application/json")
-
     if [[ -z "$response" ]]; then
         red "Cloudflare API 没有返回任何数据！"
         return 1
@@ -720,9 +718,7 @@ EOF
     if [[ "$success" != "true" ]]; then
         red "获取 Cloudflare 域名列表失败！"
         local error_msg
-        error_msg=$(echo "$response" | jq -r '
-            .errors[]?.message // empty
-        ' 2>/dev/null)
+        error_msg=$(echo "$response" | jq -r '.errors[]?.message // empty' 2>/dev/null)
         if [[ -n "$error_msg" ]]; then
             red "Cloudflare: $error_msg"
         else
@@ -731,10 +727,7 @@ EOF
         return 1
     fi
     local domains_and_ids
-    domains_and_ids=$(echo "$response" | jq -r '
-        .result[]? |
-        "\(.name)|\(.id)"
-    ' 2>/dev/null)
+    domains_and_ids=$(echo "$response" | jq -r '.result[]? | "\(.name)|\(.id)"' 2>/dev/null)
     if [[ -z "$domains_and_ids" ]]; then
         red "没有在您的 Cloudflare 账号下找到托管的域名。"
         return 1
@@ -749,31 +742,36 @@ EOF
     skyblue "请选择要配置的 Cloudflare 域名："
     echo "=========================================="
     while IFS='|' read -r zone_name zone_id; do
-    [[ -z "$zone_name" || -z "$zone_id" ]] && continue
-    echo "  $i) $zone_name"
-    domain_array[$i]="$zone_name"
-    zone_id_array[$i]="$zone_id"
-    ((i++))
-done <<< "$domains_and_ids"
-echo "=========================================="
-local total=$((i - 1))
-if [[ "$total" -lt 1 ]]; then
-    red "没有可用的 Cloudflare 域名。"
-    return 1
-fi
-local choice
-reading "请输入数字选择对应的域名 [1-$total]: " choice
-if [[ -z "$choice" ||
-      ! "$choice" =~ ^[0-9]+$ ||
-      "$choice" -lt 1 ||
-      "$choice" -gt "$total" ]]; then
-    red "无效的选择！"
-    return 1
-fi
-local zone_domain="${domain_array[$choice]}"
-local selected_zone_id="${zone_id_array[$choice]}"
-green "已选择域名: $zone_domain"
-green "Zone ID: $selected_zone_id"
+        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+        echo "  $i) $zone_name"
+        domain_array[$i]="$zone_name"
+        zone_id_array[$i]="$zone_id"
+        ((i++))
+    done <<< "$domains_and_ids"
+    echo "=========================================="
+    local total=$((i - 1))
+    if [[ "$total" -lt 1 ]]; then
+        red "没有可用的 Cloudflare 域名。"
+        return 1
+    fi
+    local choice
+    reading "请输入数字选择对应的域名 [1-$total]: " choice
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
+        red "无效的选择！"
+        return 1
+    fi
+    local zone_domain="${domain_array[$choice]}"
+    local selected_zone_id="${zone_id_array[$choice]}"
+    if [[ -z "$zone_domain" || -z "$selected_zone_id" ]]; then
+        red "获取所选 Cloudflare Zone 信息失败！"
+        return 1
+    fi
+    zone_id="$selected_zone_id"
+    green "已选择域名: $zone_domain"
+    green "Zone ID: $zone_id"
     echo
     echo "=========================================="
     skyblue "请选择证书域名模式："
@@ -859,8 +857,13 @@ green "Zone ID: $selected_zone_id"
             --key-file "${save_path}/privkey.pem" \
             --fullchain-file "${save_path}/fullchain.pem"
         then
+            if [[ ! -f "${save_path}/fullchain.pem" ||
+                  ! -f "${save_path}/privkey.pem" ]]; then
+                red "证书申请成功，但证书文件生成失败！"
+                return 1
+            fi
             chmod 600 "${save_path}/privkey.pem"
-			domain="$cert_domain"
+            domain="$cert_domain"
             cert_file="${save_path}/fullchain.pem"
             key_file="${save_path}/privkey.pem"
             echo
