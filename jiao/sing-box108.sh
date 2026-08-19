@@ -310,37 +310,28 @@ cf_set_ssl() {
     local ssl_mode="$2"
     local payload
     local response
-
     [[ -z "$zone_id" || -z "$ssl_mode" ]] && return 1
-
     payload=$(jq -n \
         --arg v "$ssl_mode" \
         '{value:$v}')
-
     response=$(cf_call PATCH \
         "/zones/${zone_id}/settings/ssl" \
         "$payload")
-
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
         green "Cloudflare SSL 模式已设置为: $ssl_mode"
         return 0
     fi
-
     yellow "Cloudflare SSL 模式设置失败"
     echo "$response" | jq -r '.errors[]?.message // empty' 2>/dev/null
-
     return 1
 }
 
 # ── Cloudflare Origin Rules 管理 ─────────────────────────
-
 cf_get_origin_rules() {
     local zone_id="$1"
     local response
-
     response=$(cf_call GET \
         "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
         echo "$response" | jq -c '.result.rules // []'
     else
@@ -348,22 +339,16 @@ cf_get_origin_rules() {
     fi
 }
 
-
 cf_put_origin_rules() {
     local zone_id="$1"
     local rules_json="$2"
     local response
-
     [[ -z "$zone_id" ]] && return 1
     [[ -z "$rules_json" ]] && return 1
-
-    # 必须是合法 JSON 数组
     if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
         red "Origin Rules 数据不是合法 JSON"
         return 1
     fi
-
-    # 不再使用 --argjson
     local payload
     payload=$(printf '%s' "$rules_json" | jq -c '{rules: .}')
 
@@ -371,7 +356,6 @@ cf_put_origin_rules() {
         red "生成 Origin Rules 请求数据失败"
         return 1
     fi
-
     response=$(cf_call PUT \
         "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
         "$payload")
@@ -379,14 +363,11 @@ cf_put_origin_rules() {
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
         return 0
     fi
-
     yellow "Cloudflare Origin Rules 下发失败："
-
     echo "$response" | jq -r '
         .errors[]?
         | if .message then .message else tostring end
     ' 2>/dev/null
-
     return 1
 }
 
@@ -408,21 +389,13 @@ set_domain_origin_port() {
         red "无效的回源端口：$target_port"
         return 1
     fi
-
-    # 获取现有 Origin Rules
     existing=$(cf_get_origin_rules "$zone_id")
-
-    # 如果没有现有规则，直接使用空数组
     if [[ -z "$existing" || "$existing" == "null" ]]; then
         existing='[]'
     fi
-
-    # 如果不是合法 JSON 数组，也使用空数组
     if ! printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
         existing='[]'
     fi
-
-    # 删除本脚本之前创建的同域名规则
     kept=$(printf '%s' "$existing" | jq -c \
         --arg d "$domain" \
         --arg pfx "$pfx" '
@@ -446,11 +419,7 @@ set_domain_origin_port() {
             )
         ]
     ' 2>/dev/null)
-
-    # jq 没有生成结果时，使用空数组
     [[ -z "$kept" ]] && kept='[]'
-
-    # 创建新的 Origin Rule
     new_managed=$(jq -n -c \
         --arg d "$domain" \
         --arg pfx "$pfx" \
@@ -474,22 +443,17 @@ set_domain_origin_port() {
         red "生成新的 Cloudflare Origin Rule 失败"
         return 1
     fi
-
-    # 合并
     merged=$(printf '%s\n%s\n' "$kept" "$new_managed" | jq -s -c '.[0] + .[1]' 2>/dev/null)
-
     if [[ -z "$merged" ]]; then
         red "合并 Cloudflare Origin Rules 失败"
         return 1
     fi
-
-    # 提交
     if cf_put_origin_rules "$zone_id" "$merged"; then
         return 0
     fi
-
     return 1
 }
+
 # 查看已申请证书
 view_certs() {
     clear
@@ -3770,8 +3734,9 @@ fi
     green "--------------------------------------------------"
     ;;
 		10)
+        check_and_issue_ssl || return 1
     generate_vars
-    server_ip=$(get_realip)    
+    server_ip=$(get_realip)
     echo ""
     vmess_ws_cdn_port=$(get_available_port)
     vless_ws_cdn_port=$(get_available_port)
@@ -3781,108 +3746,9 @@ fi
     vless_path="/vless-ws"
     trojan_path="/trojan-ws"
 
-    read -p '请输入域名 : ' domain
-    [ -z "$domain" ] && red "域名不能为空!" && return 1
-
-    echo ""
-    echo "请选择 Cloudflare 验证方式："
-    echo "1) Cloudflare API Token (推荐)"
-    echo "2) Cloudflare Global API Key (邮箱 + Key)"
-    read -rp "请输入选择 [1-2]: " cf_type
-
-    if [[ "$cf_type" == "1" ]]; then
-        echo ""
-        skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
-        echo -e " 1. 登录 Cloudflare 官网，点击 \033[33m管理账户 -> API 令牌\033[0m"
-        echo -e " 2. 点击右侧 \033[33m创建令牌\033[0m"
-        echo -e " 3. 配置权限策略 ："
-        echo -e "    - 范围: 选择 \033[33m所有域名\033[0m"
-        echo -e "    -  \033[33mDNS & Zones (区域) - Zone (区域)\033[0m，权限设为 \033[32mRead (读取)\033[0m"
-        echo -e "    -  \033[33mDNS & Zones (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
-        echo -e "    -  \033[33mDNS & Zones (区域) - Zone Settings (区域设置)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
-        echo -e "    -  \033[33mRules & Configuration (规则和配置) - Origin (源站)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
-		echo -e " 4. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
-        skyblue "--------------------------------------------------"
-        
-        read -rp "请输入你的 Cloudflare API Token: " cf_token
-        export CF_TOKEN=$(echo "$cf_token" | tr -d '[:space:]')
-        unset CF_EMAIL CF_KEY
-    elif [[ "$cf_type" == "2" ]]; then
-        read -rp "请输入 Cloudflare 登录邮箱: " cf_email
-        read -rp "请输入 Cloudflare Global API Key: " cf_key
-        export CF_EMAIL=$(echo "$cf_email" | tr -d '[:space:]')
-        export CF_KEY=$(echo "$cf_key" | tr -d '[:space:]')
-        unset CF_TOKEN
-    else
-        red "无效选择，跳过 Cloudflare 自动化配置。"
-    fi
-
-    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-        skyblue "正在自动查找 Cloudflare Zone ID..."
-        zone_id=$(cf_find_zone "$domain" 2>/dev/null)      
-        if [[ -n "$zone_id" ]]; then
-            green "匹配成功 (Zone ID: $zone_id)"
-            
-            skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
-            if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-                green "✓ DNS 解析已更新并开启 CDN 代理"
-            else
-                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
-            fi
-            
-            cf_set_ssl "$zone_id" "flexible"
-            green "✓ SSL 模式已自动设置为: Flexible"
-            pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-            existing=$(cf_get_origin_rules "$zone_id")
-            kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
-                .[] | select(
-                    (.description | startswith($pfx) | not) or
-                    (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
-                )
-            ]')
-            
-            new_managed=$(jq -n \
-                --arg d "$domain" --arg pfx "$pfx" \
-                --argjson p1 "$vmess_ws_cdn_port" --arg path1 "$vmess_path" \
-                --argjson p2 "$vless_ws_cdn_port" --arg path2 "$vless_path" \
-                --argjson p3 "$trojan_ws_cdn_port" --arg path3 "$trojan_path" '[
-                {
-                    description: ($pfx + "VMESS_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p1 } }
-                },
-                {
-                    description: ($pfx + "VLESS_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p2 } }
-                },
-                {
-                    description: ($pfx + "TROJAN_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p3 } }
-                }
-            ]')
-            
-            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')     
-            if cf_put_origin_rules "$zone_id" "$merged"; then
-			   green "✓ 回源规则创建成功！"
-            else
-                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
-            fi
-        else
-            yellow "⚠ 未能匹配到 Zone ID，请确认域名已托管在该账号下且凭证正确。"
-        fi
-    fi
-
-    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1      
-    allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1      
-    allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1      
+    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
+    allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
+    allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
 
     mkdir -p /etc/sing-box/conf
 
