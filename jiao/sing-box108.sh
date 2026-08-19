@@ -740,7 +740,7 @@ EOF
         return 1
     fi
     local i=1
-    local domain
+    local zone_name
     local zone_id
     declare -a domain_array
     declare -a zone_id_array
@@ -748,32 +748,32 @@ EOF
     echo "=========================================="
     skyblue "请选择要配置的 Cloudflare 域名："
     echo "=========================================="
-    while IFS='|' read -r domain zone_id; do
-        [[ -z "$domain" || -z "$zone_id" ]] && continue
-        echo "  $i) $domain"
-        domain_array[$i]="$domain"
-        zone_id_array[$i]="$zone_id"
-        ((i++))
-    done <<< "$domains_and_ids"
-    echo "=========================================="
-    local total=$((i - 1))
-    if [[ "$total" -lt 1 ]]; then
-        red "没有可用的 Cloudflare 域名。"
-        return 1
-    fi
-    local choice
-    reading "请输入数字选择对应的域名 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效的选择！"
-        return 1
-    fi
-    local zone_domain="${domain_array[$choice]}"
-    zone_id="${zone_id_array[$choice]}"
-    green "已选择域名: $zone_domain"
-    green "Zone ID: $zone_id"
+    while IFS='|' read -r zone_name zone_id; do
+    [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+    echo "  $i) $zone_name"
+    domain_array[$i]="$zone_name"
+    zone_id_array[$i]="$zone_id"
+    ((i++))
+done <<< "$domains_and_ids"
+echo "=========================================="
+local total=$((i - 1))
+if [[ "$total" -lt 1 ]]; then
+    red "没有可用的 Cloudflare 域名。"
+    return 1
+fi
+local choice
+reading "请输入数字选择对应的域名 [1-$total]: " choice
+if [[ -z "$choice" ||
+      ! "$choice" =~ ^[0-9]+$ ||
+      "$choice" -lt 1 ||
+      "$choice" -gt "$total" ]]; then
+    red "无效的选择！"
+    return 1
+fi
+local zone_domain="${domain_array[$choice]}"
+local selected_zone_id="${zone_id_array[$choice]}"
+green "已选择域名: $zone_domain"
+green "Zone ID: $selected_zone_id"
     echo
     echo "=========================================="
     skyblue "请选择证书域名模式："
@@ -953,7 +953,7 @@ issue_cf_token_cert() {
         return 1
     fi
     local i=1
-    local domain
+	local zone_name
     local zone_id
     declare -a domain_array
     declare -a zone_id_array
@@ -961,30 +961,36 @@ issue_cf_token_cert() {
     echo "=========================================="
     skyblue "请选择要配置的 Cloudflare 域名："
     echo "=========================================="
-    while IFS='|' read -r domain zone_id; do
-        [[ -z "$domain" || -z "$zone_id" ]] && continue
-        echo "  $i) $domain"
-        domain_array[$i]="$domain"
-        zone_id_array[$i]="$zone_id"
-        ((i++))
-    done <<< "$domains_and_ids"
-    echo "=========================================="
-    local total=$((i - 1))
-    if [[ "$total" -lt 1 ]]; then
-        red "没有可用的 Cloudflare 域名。"
-        return 1
-    fi
-    local choice
-    reading "请输入数字选择对应的域名 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效的选择！"
-        return 1
-    fi
-    local zone_domain="${domain_array[$choice]}"
-    zone_id="${zone_id_array[$choice]}"
+    while IFS='|' read -r zone_name zone_id; do
+    [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+    echo "  $i) $zone_name"
+    domain_array[$i]="$zone_name"
+    zone_id_array[$i]="$zone_id"
+    ((i++))
+done <<< "$domains_and_ids"
+echo "=========================================="
+local total=$((i - 1))
+if [[ "$total" -lt 1 ]]; then
+    red "没有可用的 Cloudflare 域名。"
+    return 1
+fi
+local choice
+reading "请输入数字选择对应的域名 [1-$total]: " choice
+if [[ -z "$choice" ||
+      ! "$choice" =~ ^[0-9]+$ ||
+      "$choice" -lt 1 ||
+      "$choice" -gt "$total" ]]; then
+    red "无效的选择！"
+    return 1
+fi
+local zone_domain="${domain_array[$choice]}"
+local selected_zone_id="${zone_id_array[$choice]}"
+if [[ -z "$zone_domain" || -z "$selected_zone_id" ]]; then
+    red "获取所选 Cloudflare Zone 信息失败！"
+    return 1
+fi
+green "已选择域名: $zone_domain"
+green "Zone ID: $selected_zone_id"
     green "已选择域名: $zone_domain"
     green "Zone ID: $zone_id"
     echo
@@ -1288,18 +1294,8 @@ check_and_issue_ssl() {
                 return 1
             fi
             ;;
-        2)
-            if ! issue_cf_dns_cert; then
-                red "Cloudflare Global API Key 申请证书失败。"
-                return 1
-            fi
-            ;;
-        3)
-            if ! issue_cf_token_cert; then
-                red "Cloudflare API Token 申请证书失败。"
-                return 1
-            fi
-            ;;
+        2) issue_cf_dns_cert || return 1 ;;
+        3) issue_cf_token_cert || return 1 ;;
         *)
             red "无效选择！"
             return 1
