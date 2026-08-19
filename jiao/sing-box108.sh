@@ -2245,17 +2245,17 @@ restart_nginx() {
 # 启动 xray
 start_xray() {
 if [ ${check_xray} -eq 1 ]; then
-    yellow "\n正在启动 ${server_name} 服务\n" 
+    yellow "\n正在启动 ${serverxray_name} 服务\n" 
     if [ -f /etc/alpine-release ]; then
         rc-service xray start
     else
         systemctl daemon-reload
-        systemctl start "${server_name}"
+        systemctl start "${serverxray_name}"
     fi
    if [ $? -eq 0 ]; then
-       green "${server_name} 服务已成功启动\n"
+       green "${serverxray_name} 服务已成功启动\n"
    else
-       red "${server_name} 服务启动失败\n"
+       red "${serverxray_name} 服务启动失败\n"
    fi
 elif [ ${check_xray} -eq 0 ]; then
     yellow "xray 正在运行\n"
@@ -2363,28 +2363,52 @@ uninstall_xray() {
   
 # xray 管理
 manage_xray() {
-    green "1. 安装xray服务"
-    skyblue "-------------------"
-    green "2. 卸载xray服务"
-    skyblue "-------------------"
-    green "3. 启动xray服务"
-    skyblue "-------------------"
-    green "4. 停止xray服务"
-    skyblue "-------------------"
-    green "5. 重启xray服务"
-    skyblue "-------------------"
-    purple "0. 返回主菜单"
-    skyblue "------------"
-    reading "\n请输入选择: " choice
-    case "${choice}" in
-	    1) install_xray ;;
-	    2) uninstall_xray ;;
-        3) start_xray ;;  
-        4) stop_xray ;;
-        5) restart_xray ;;
-        0) menu ;;
-        *) red "无效的选项！" ;;
-    esac
+    while true; do
+        clear
+        green "1. 安装xray服务"
+        skyblue "-------------------"
+        green "2. 卸载xray服务"
+        skyblue "-------------------"
+        green "3. 启动xray服务"
+        skyblue "-------------------"
+        green "4. 停止xray服务"
+        skyblue "-------------------"
+        green "5. 重启xray服务"
+        skyblue "-------------------"
+        purple "0. 返回主菜单"
+        skyblue "------------"
+        reading "\n请输入选择: " choice
+        case "${choice}" in
+            1)
+                install_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                uninstall_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                start_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            4)
+                stop_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            5)
+                restart_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0)
+                menu
+                return
+                ;;
+            *)
+                red "无效的选项！"
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+        esac
+    done
 }
 
 
