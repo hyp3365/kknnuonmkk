@@ -35,6 +35,14 @@ generate_vars() {
       isp="🌐" 
   fi     
 }
+load_cf_token() {
+    local file="/etc/sing-box/cf.conf"
+
+    if [[ -f "$file" ]]; then
+        # shellcheck disable=SC1090
+        source "$file"
+    fi
+}
 
 # 用于存放已分配端口的数组
 declare -A used_ports
