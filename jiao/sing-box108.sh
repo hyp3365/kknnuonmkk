@@ -2102,30 +2102,36 @@ manage_service() {
 
 #下载安装xray
 install_xray() {
+    clear
+    purple "正在安装 Xray 中，请稍等..."
+
     ARCH_RAW=$(uname -m)
     case "${ARCH_RAW}" in
         'x86_64') ARCH='amd64'; ARCH_ARG='64' ;;
-        'x86'|'i686'|'i386') ARCH='386'; ARCH_ARG='32' ;;
-        'aarch64'|'arm64') ARCH='arm64'; ARCH_ARG='arm64-v8a' ;;
+        'x86' | 'i686' | 'i386') ARCH='386'; ARCH_ARG='32' ;;
+        'aarch64' | 'arm64') ARCH='arm64'; ARCH_ARG='arm64-v8a' ;;
         'armv7l') ARCH='armv7'; ARCH_ARG='arm32-v7a' ;;
-        's390x') ARCH='s390x'; ARCH_ARG='s390x' ;;
-        *) return 1 ;;
+        's390x') ARCH='s390x' ;;
+        *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
-    mkdir -p "${xray_dir}" || return 1
-    chmod 755 "${xray_dir}"
-    curl -fSL -o "${xray_dir}/xray.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip" || return 1
-    [ -s "${xray_dir}/xray.zip" ] || return 1
-    unzip -o "${xray_dir}/xray.zip" -d "${xray_dir}/" >/dev/null 2>&1 || return 1
-    [ -f "${xray_dir}/xray" ] || return 1
-    chmod +x "${xray_dir}/xray"
-    rm -f "${xray_dir}/xray.zip" "${xray_dir}/geosite.dat" "${xray_dir}/geoip.dat" "${xray_dir}/README.md" "${xray_dir}/LICENSE"
-    rm -f "${configxray_dir}"
-    cat > "${configxray_dir}" << 'EOF'
+
+    [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}" && chmod 777 "${xray_dir}"
+    curl -sLo "${xray_dir}/${serverxray_name}.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
+    unzip "${xray_dir}/${serverxray_name}.zip" -d "${xray_dir}/" > /dev/null 2>&1 && chmod +x ${xray_dir}/${serverxray_name}
+    rm -rf "${xray_dir}/${serverxray_name}.zip" "${xray_dir}/geosite.dat" "${xray_dir}/geoip.dat" "${xray_dir}/README.md" "${xray_dir}/LICENSE"
+
+    iptables -F > /dev/null 2>&1 && iptables -P INPUT ACCEPT > /dev/null 2>&1 && iptables -P FORWARD ACCEPT > /dev/null 2>&1 && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
+    command -v ip6tables &> /dev/null && ip6tables -F > /dev/null 2>&1 && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
+
+    cat > "${configxray_dir}" << EOF
 {
   "log": {
     "access": "/dev/null",
     "error": "/dev/null",
     "loglevel": "none"
+  },
+  "dns": {
+    "servers": ["https+local://8.8.8.8/dns-query"]
   },
   "outbounds": [
     {
@@ -2139,9 +2145,9 @@ install_xray() {
   ]
 }
 EOF
-    [ -s "${configxray_dir}" ] || return 1
-    "${xray_dir}/xray" run -test -config "${configxray_dir}" >/dev/null 2>&1 || return 1
 }
+
+# debian/ubuntu/centos 守护进程
 main_systemd_services() {
     cat > /etc/systemd/system/xray.service << EOF
 [Unit]
@@ -2149,32 +2155,44 @@ Description=Xray Service
 Documentation=https://github.com/XTLS/Xray-core
 After=network.target nss-lookup.target
 Wants=network-online.target
+
 [Service]
 Type=simple
 NoNewPrivileges=yes
-ExecStart=${xray_dir}/xray run -c ${configxray_dir}
+ExecStart=$xray_dir/xray -c $configxray_dir
 Restart=on-failure
 RestartPreventExitStatus=23
+
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    if [ -f /etc/centos-release ]; then
+        yum install -y chrony
+        systemctl start chronyd
+        systemctl enable chronyd
+        chronyc -a makestep
+        yum update -y ca-certificates
+        bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
+    fi
     bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
     systemctl daemon-reload
     systemctl enable xray
+    systemctl is-active --quiet xray || systemctl start xray
 }
+
+# 适配 alpine 守护进程
 alpine_openrc_services() {
-    cat > /etc/init.d/xray << EOF
+    cat > /etc/init.d/xray << 'EOF'
 #!/sbin/openrc-run
+
 description="Xray service"
-command="${xray_dir}/xray"
-command_args="run -c ${configxray_dir}"
+command="/etc/xray/xray"
+command_args="-c /etc/xray/config.json"
 command_background=true
 pidfile="/var/run/xray.pid"
-depend() {
-    need net
-    after firewall
-}
 EOF
+
     chmod +x /etc/init.d/xray
     rc-update add xray default
 }
