@@ -2130,8 +2130,16 @@ PostUp = ip -6 rule add from $LAN6_CIDR lookup main
 PostDown = ip -6 rule delete from $LAN6_CIDR lookup main
 " ;;
   esac
-  RULES+="PostUp = ip -4 rule add from 172.17.0.0/24 lookup main
-PostDown = ip -4 rule delete from 172.17.0.0/24 lookup main
+  RULES+="PostUp = ip -4 rule add from 172.17.0.0/16 lookup main
+PostDown = ip -4 rule delete from 172.17.0.0/16 lookup main
+PostUp = ip -4 rule add from 172.18.0.0/15 lookup main
+PostDown = ip -4 rule delete from 172.18.0.0/15 lookup main
+PostUp = ip -4 rule add from 172.20.0.0/14 lookup main
+PostDown = ip -4 rule delete from 172.20.0.0/14 lookup main
+PostUp = ip -4 rule add from 172.24.0.0/13 lookup main
+PostDown = ip -4 rule delete from 172.24.0.0/13 lookup main
+PostUp = ip -4 rule add from 192.168.0.0/16 lookup main
+PostDown = ip -4 rule delete from 192.168.0.0/16 lookup main
 
 "
 
