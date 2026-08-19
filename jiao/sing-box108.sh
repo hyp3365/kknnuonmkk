@@ -3553,30 +3553,18 @@ EOF
                     cf_set_ssl "$zone_id" "full" >/dev/null 2>&1
 
                     pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-                    existing=$(cf_get_origin_rules "$zone_id")
-                    
-                    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
-                        .[] | select(
-                            (.description | startswith($pfx) | not) or
-                            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
-                        )
-                    ]')
-					new_managed=$(jq -n \
-                        --arg d "$domain" \
-                        --arg pfx "$pfx" \
-                        --arg p "$vless_wstls_cdn_port" \
-                        --arg path "$ws_path" '[
-                        {
-                            description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
-                            enabled: true,
-                            expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path + "\")"),
-                            action: "route",
-							action_parameters: { origin: { port: ($p | tonumber) } }
-                        }
-                    ]')
-                    
-                    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-                    cf_put_origin_rules "$zone_id" "$merged"
+                    zone_id=$(cf_find_zone "$domain")
+if [[ -n "$zone_id" ]]; then
+    cf_upsert_dns "$zone_id" "$domain" "$server_ip" >/dev/null 2>&1
+    cf_set_ssl "$zone_id" "full" >/dev/null 2>&1
+    if set_domain_origin_port "$zone_id" "$domain" "$vless_wstls_cdn_port"; then
+        green "Cloudflare CDN 回源规则配置成功"
+    else
+        yellow "警告：Cloudflare CDN 回源规则配置失败"
+    fi
+else
+    yellow "警告：未找到 ${domain} 对应的 Cloudflare Zone"
+fi
                 fi
             else
                 yellow "提示: 未检测到 Cloudflare API 凭据，已跳过自动下发回源规则（如需CDN请自行在CF后台添加端口回源）。"
