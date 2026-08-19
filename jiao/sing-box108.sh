@@ -2242,6 +2242,32 @@ restart_nginx() {
     manage_service "nginx" "restart"
 }
 
+# 启动 xray
+start_xray() {
+if [ ${check_xray} -eq 1 ]; then
+    yellow "\n正在启动 ${server_name} 服务\n" 
+    if [ -f /etc/alpine-release ]; then
+        rc-service xray start
+    else
+        systemctl daemon-reload
+        systemctl start "${server_name}"
+    fi
+   if [ $? -eq 0 ]; then
+       green "${server_name} 服务已成功启动\n"
+   else
+       red "${server_name} 服务启动失败\n"
+   fi
+elif [ ${check_xray} -eq 0 ]; then
+    yellow "xray 正在运行\n"
+    sleep 1
+    menu
+else
+    yellow "xray 尚未安装!\n"
+    sleep 1
+    menu
+fi
+}
+
 # 停止 xray
 stop_xray() {
 if [ ${check_xray} -eq 0 ]; then
