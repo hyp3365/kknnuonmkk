@@ -162,17 +162,16 @@ check_nginx() {
 
 # 检查 xray 是否已安装
 check_xray() {
-    if [ -f "${xray_dir}/${serverxray_name}" ]; then
-        if [ -f /etc/alpine-release ]; then
-            rc-service "${serverxray_name}" status 2>/dev/null | grep -q "started"
-            return $?
-        else
-            [ "$(systemctl is-active "${serverxray_name}" 2>/dev/null)" = "active" ]
-            return $?
-        fi
-    else
-        return 2
+if [ -f "${xray_dir}/${serverxray_name}" ]; then
+    if [ -f /etc/alpine-release ]; then
+        rc-service xray status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
+    else 
+        [ "$(systemctl is-active xray)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
     fi
+else
+    red "not installed"
+    return 2
+fi
 }
 
 # 根据系统类型安装、卸载依赖
