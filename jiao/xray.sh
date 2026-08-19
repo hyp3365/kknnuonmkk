@@ -181,19 +181,28 @@ get_info() {
 
   isp=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ipapi.co/json" | tr -d '\n' | awk -F\" '{c="";o="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="org")o=$(x+2)};if(c&&o)print c"-"o}' | sed 's/ /_/g' || echo "vps")
 
-  # 提取配置文件中的真实 UUID 和固定回源端口
-  local real_uuid=$(grep -m1 '"id"' ${config_dir} | awk -F'"' '{print $4}')
+  # 修复提取 UUID（以前是 $4 错误提取了 "id"，现在修正为 $6 提取真正的 UUID）
+  local real_uuid=$(grep -m1 '"id"' ${config_dir} | awk -F'"' '{print $6}')
   local origin_port=$(grep -m1 '"port"' ${config_dir} | awk -F':' '{print $2}' | tr -d ' ,')
+  local node_remark="${isp}-CDN"
 
-  # 生成纯净分享链接
-  local vless_link="vless://${real_uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${CDN_DOMAIN}&fp=chrome&type=xhttp&host=${CDN_DOMAIN}&path=%2Fxhttp#${isp}-CDN"
+  # 生成纯净分享链接，去除了 sni 参数
+  local vless_link="vless://${real_uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&fp=chrome&type=xhttp&host=${CDN_DOMAIN}&path=%2Fxhttp#${node_remark}"
 
   # 写入到 xray 目录
   echo "${vless_link}" > ${work_dir}/url.txt
   
-  # 创建 sing-box 目录并写入纯节点链接 (不带颜色和提示)
+  # 创建 sing-box 目录
   [ ! -d "${singbox_dir}" ] && mkdir -p "${singbox_dir}"
-  echo "${vless_link}" > "${singbox_url}"
+
+  # 追加写入纯节点链接并更新 base64 订阅
+  if [ -f "${singbox_url}" ]; then
+      # 兼容不同系统 sed：尝试删除含有当前节点备注的行及下一行，若不支持 +1d 则只删除匹配行
+      sed -i "/#${node_remark}$/,+1d" "${singbox_url}" 2>/dev/null || sed -i "/#${node_remark}$/d" "${singbox_url}"
+  fi      
+  echo "${vless_link}" >> "${singbox_url}"
+  echo "" >> "${singbox_url}"
+  base64 -w0 "${singbox_url}" > "${singbox_dir}/sub.txt" 2>/dev/null
 
   # 终端输出 (保留颜色和提示)
   echo -e "\n${green}================ 节点信息 =================${re}"
