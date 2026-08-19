@@ -255,15 +255,33 @@ ip_address() {
 
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
 cf_call() {
-    local method="$1" endpoint="$2" data="${3:-}"
-    local args=(-s -f -X "$method" -H "Content-Type: application/json")
+    local method="$1"
+    local endpoint="$2"
+    local data="${3:-}"
+    local cf_config="/etc/sing-box/cf.conf"
+    if [[ -z "${CF_TOKEN:-}" && -f "$cf_config" ]]; then
+        source "$cf_config"
+    fi
+    local args=(
+        -s
+        -f
+        -X "$method"
+        -H "Content-Type: application/json"
+    )
     if [[ -n "${CF_TOKEN:-}" ]]; then
         args+=(-H "Authorization: Bearer $CF_TOKEN")
+    elif [[ -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ]]; then
+        args+=(
+            -H "X-Auth-Email: $CF_EMAIL"
+            -H "X-Auth-Key: $CF_KEY"
+        )
     else
-        args+=(-H "X-Auth-Email: $CF_EMAIL" -H "X-Auth-Key: $CF_KEY")
-    fi    
+        return 1
+    fi
     [[ -n "$data" ]] && args+=(-d "$data")
-    curl "${args[@]}" "https://api.cloudflare.com/client/v4${endpoint}"
+
+    curl "${args[@]}" \
+        "https://api.cloudflare.com/client/v4${endpoint}"
 }
 
 # ── 辅助函数：获取 Zone ID  ──────
