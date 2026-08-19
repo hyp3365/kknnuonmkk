@@ -304,16 +304,8 @@ cf_upsert_dns() {
     fi
 }
 
-# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ──
-cf_set_ssl() {
-    local zone_id="$1" ssl_mode="$2"
-    local payload
-    payload=$(jq -n --arg v "$ssl_mode" '{value:$v}')
-    cf_call PATCH "/zones/${zone_id}/settings/ssl" "$payload" >/dev/null
-}
-
-# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
-# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
+# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
+# ── Cloudflare Origin Rules 管理 ─────────────────────────
 
 cf_get_origin_rules() {
     local zone_id="$1"
@@ -322,37 +314,34 @@ cf_get_origin_rules() {
     response=$(cf_call GET \
         "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
 
-    echo "$response" | jq -c '
-        if .success == true
-        then (.result.rules // [])
-        else []
-        end
-    ' 2>/dev/null
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        echo "$response" | jq -c '.result.rules // []'
+    else
+        echo '[]'
+    fi
 }
 
 
 cf_put_origin_rules() {
     local zone_id="$1"
     local rules_json="$2"
+    local response
 
     [[ -z "$zone_id" ]] && return 1
     [[ -z "$rules_json" ]] && return 1
 
-    # 检查 rules_json 是否为合法 JSON
-    if ! echo "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        red "Cloudflare Origin Rules JSON 格式错误"
+    # 必须是合法 JSON 数组
+    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        red "Origin Rules 数据不是合法 JSON"
         return 1
     fi
 
+    # 不再使用 --argjson
     local payload
-    local response
-
-    payload=$(jq -n \
-        --argjson r "$rules_json" \
-        '{rules:$r}' 2>/dev/null)
+    payload=$(printf '%s' "$rules_json" | jq -c '{rules: .}')
 
     if [[ -z "$payload" ]]; then
-        red "生成 Cloudflare Origin Rules 请求数据失败"
+        red "生成 Origin Rules 请求数据失败"
         return 1
     fi
 
@@ -364,11 +353,11 @@ cf_put_origin_rules() {
         return 0
     fi
 
-    yellow "Cloudflare Origin Rules 下发失败"
+    yellow "Cloudflare Origin Rules 下发失败："
 
-    # 输出 Cloudflare 返回的错误
     echo "$response" | jq -r '
-        .errors[]?.message // empty
+        .errors[]?
+        | if .message then .message else tostring end
     ' 2>/dev/null
 
     return 1
@@ -395,23 +384,16 @@ set_domain_origin_port() {
     local new_managed
     local merged
 
-    # --------------------------------------------------
-    # 获取现有 Origin Rules
-    # --------------------------------------------------
-
+    # 获取现有规则
     existing=$(cf_get_origin_rules "$zone_id")
 
-    # 如果获取失败或不是 JSON 数组，则使用空数组
-    if ! echo "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    # 确保一定是合法数组
+    if ! printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
         existing='[]'
     fi
 
-    # --------------------------------------------------
     # 删除本脚本以前创建的同域名规则
-    # 保留其他 Origin Rules
-    # --------------------------------------------------
-
-    kept=$(echo "$existing" | jq -c \
+    kept=$(printf '%s' "$existing" | jq -c \
         --arg d "$domain" \
         --arg pfx "$pfx" '
         [
@@ -432,21 +414,18 @@ set_domain_origin_port() {
                 ) | not
             )
         ]
-    ' 2>/dev/null)
+    ')
 
     if [[ -z "$kept" ]]; then
-        red "生成保留规则失败"
+        red "生成旧规则列表失败"
         return 1
     fi
 
-    # --------------------------------------------------
-    # 创建新的 VLESS CDN Origin Rule
-    # --------------------------------------------------
-
+    # 创建新的规则
     new_managed=$(jq -n -c \
         --arg d "$domain" \
         --arg pfx "$pfx" \
-        --argjson port "$target_port" '
+        --arg port "$target_port" '
         [
             {
                 description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
@@ -455,36 +434,43 @@ set_domain_origin_port() {
                 action: "route",
                 action_parameters: {
                     origin: {
-                        port: $port
+                        port: ($port | tonumber)
                     }
                 }
             }
         ]
-    ' 2>/dev/null)
+    ')
 
     if [[ -z "$new_managed" ]]; then
-        red "生成新的 Cloudflare Origin Rule 失败"
+        red "生成新回源规则失败"
         return 1
     fi
 
     # --------------------------------------------------
-    # 合并规则
+    # 关键：
+    # 不再使用 --argjson a / --argjson b
+    # 直接通过管道让 jq 读取两个 JSON
     # --------------------------------------------------
 
-    merged=$(jq -n -c \
-        --argjson a "$kept" \
-        --argjson b "$new_managed" \
-        '$a + $b' 2>/dev/null)
+    merged=$(
+        jq -n -c \
+            --slurpfile a <(printf '%s\n' "$kept") \
+            --slurpfile b <(printf '%s\n' "$new_managed") \
+            '$a[0] + $b[0]'
+    )
 
     if [[ -z "$merged" ]]; then
-        red "合并 Cloudflare Origin Rules 失败"
+        red "合并回源规则失败"
         return 1
     fi
 
-    # --------------------------------------------------
-    # 提交 Cloudflare
-    # --------------------------------------------------
+    # 检查最终 JSON
+    if ! printf '%s' "$merged" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        red "最终 Origin Rules JSON 无效"
+        return 1
+    fi
 
+    # 提交
     if cf_put_origin_rules "$zone_id" "$merged"; then
         return 0
     fi
@@ -6680,7 +6666,7 @@ menu() {
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
-   reading "请输入选择(0-99): " choice
+   reading "请输入选择(0-98): " choice
    echo ""
 }
 
