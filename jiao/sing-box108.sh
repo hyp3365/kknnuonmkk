@@ -635,42 +635,23 @@ EOF
 
 # Cloudflare DNS API 模式申请证书 (Global API Key)
  issue_cf_dns_cert() {
-    # ==========================================================
-    # 1. 输入 Cloudflare 登录邮箱
-    # ==========================================================
     reading "请输入 Cloudflare 登录邮箱: " cf_email
     cf_email=$(echo "$cf_email" | tr -d '[:space:]')
-
     [[ -z "$cf_email" ]] && {
         red "邮箱不能为空"
         return 1
     }
-
-    # ==========================================================
-    # 2. 输入 Cloudflare Global API Key
-    # ==========================================================
     reading "请输入 Cloudflare Global API Key: " cf_key
     cf_key=$(echo "$cf_key" | tr -d '[:space:]')
-
     [[ -z "$cf_key" ]] && {
         red "API Key 不能为空"
         return 1
     }
-
-    # 保存给你现有的 cf_call() 使用
     export CF_EMAIL="$cf_email"
     export CF_KEY="$cf_key"
-
-    # 如果之前设置过 Token，避免 cf_call() 优先使用旧 Token
     unset CF_TOKEN
-
-    # acme.sh 的 Cloudflare DNS 插件使用
     export CF_Email="$cf_email"
     export CF_Key="$cf_key"
-
-    # ==========================================================
-    # 3. 自动拉取 Cloudflare 已托管域名
-    # ==========================================================
     skyblue "正在从 Cloudflare 自动拉取已托管的域名列表..."
 
     local response
@@ -684,87 +665,54 @@ EOF
         red "Cloudflare API 没有返回任何数据！"
         return 1
     fi
-
-    # ==========================================================
-    # 4. 检查 Cloudflare API 是否成功
-    # ==========================================================
     local success
     success=$(echo "$response" | jq -r '.success // false' 2>/dev/null)
-
     if [[ "$success" != "true" ]]; then
         red "获取 Cloudflare 域名列表失败！"
-
         local error_msg
         error_msg=$(echo "$response" | jq -r '
             .errors[]?.message // empty
         ' 2>/dev/null)
-
         if [[ -n "$error_msg" ]]; then
             red "Cloudflare: $error_msg"
         else
             red "请检查邮箱和 Global API Key 是否正确。"
         fi
-
         return 1
     fi
-
-    # ==========================================================
-    # 5. 提取 域名 + Zone ID
-    # ==========================================================
     local domains_and_ids
-
     domains_and_ids=$(echo "$response" | jq -r '
         .result[]? |
         "\(.name)|\(.id)"
     ' 2>/dev/null)
-
     if [[ -z "$domains_and_ids" ]]; then
         red "没有在您的 Cloudflare 账号下找到托管的域名。"
         return 1
     fi
-
-    # ==========================================================
-    # 6. 展开域名菜单
-    # ==========================================================
     local i=1
     local domain
     local zone_id
-
     declare -a domain_array
     declare -a zone_id_array
-
     echo
     echo "=========================================="
     skyblue "请选择要配置的 Cloudflare 域名："
     echo "=========================================="
-
     while IFS='|' read -r domain zone_id; do
         [[ -z "$domain" || -z "$zone_id" ]] && continue
-
         echo "  $i) $domain"
-
         domain_array[$i]="$domain"
         zone_id_array[$i]="$zone_id"
-
         ((i++))
     done <<< "$domains_and_ids"
-
     echo "=========================================="
-
     local total=$((i - 1))
-
     if [[ "$total" -lt 1 ]]; then
         red "没有可用的 Cloudflare 域名。"
         return 1
     fi
-
-    # ==========================================================
-    # 7. 选择域名
-    # ==========================================================
     local choice
-
     reading "请输入数字选择对应的域名 [1-$total]: " choice
-
     if [[ -z "$choice" ||
           ! "$choice" =~ ^[0-9]+$ ||
           "$choice" -lt 1 ||
@@ -772,136 +720,81 @@ EOF
         red "无效的选择！"
         return 1
     fi
-
     local zone_domain="${domain_array[$choice]}"
     zone_id="${zone_id_array[$choice]}"
-
     green "已选择域名: $zone_domain"
     green "Zone ID: $zone_id"
-
-    # ==========================================================
-    # 8. 选择直接使用域名 / 添加前缀
-    # ==========================================================
     echo
     echo "=========================================="
     skyblue "请选择证书域名模式："
     echo "  1) 直接使用 $zone_domain"
     echo "  2) 在 $zone_domain 前添加前缀"
     echo "=========================================="
-
     local mode
     reading "请输入数字 [1-2]: " mode
-
     local cert_domain
-
     case "$mode" in
         1)
             cert_domain="$zone_domain"
             ;;
-
         2)
             local prefix
-
             reading "请输入前缀，例如 node: " prefix
             prefix=$(echo "$prefix" | tr -d '[:space:]')
-
             [[ -z "$prefix" ]] && {
                 red "前缀不能为空！"
                 return 1
             }
-
-            # 去掉用户可能输入的末尾点号
             prefix="${prefix%.}"
-
-            # 只允许单级前缀
             if [[ ! "$prefix" =~ ^[a-zA-Z0-9-]+$ ]]; then
                 red "前缀格式无效！"
                 red "只允许字母、数字和 -"
                 return 1
             fi
-
             cert_domain="${prefix}.${zone_domain}"
             ;;
-
         *)
             red "无效的选择！"
             return 1
             ;;
     esac
-
     echo
-    green "最终证书域名: $cert_domain"
+    green "证书域名: $cert_domain"
     green "Cloudflare Zone: $zone_domain"
     green "Zone ID: $zone_id"
-
-    # ==========================================================
-    # 9. 获取本机真实 IP
-    # ==========================================================
     skyblue "正在获取本机真实 IP..."
-
     local public_ip
     public_ip=$(get_realip)
-
     if [[ -z "$public_ip" || "$public_ip" == "[]" ]]; then
         red "获取本机 IP 失败！"
         return 1
     fi
-
     green "本机 IP: $public_ip"
-
-    # ==========================================================
-    # 10. 使用你已有的 DNS 函数自动解析
-    # ==========================================================
     skyblue "正在修改 Cloudflare DNS..."
     skyblue "${cert_domain} -> ${public_ip}"
-
     if cf_upsert_dns "$zone_id" "$cert_domain" "$public_ip"; then
         green "DNS 解析已成功更新并开启代理"
     else
         red "DNS 解析更新失败，请检查 API 权限。"
         return 1
     fi
-
-    # ==========================================================
-    # 11. 安装依赖
-    # ==========================================================
     manage_packages "install" "curl" "socat" "cron" "psmisc"
-
-    # ==========================================================
-    # 12. 安装 acme.sh
-    # ==========================================================
     if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
         skyblue "正在安装 acme.sh..."
-
         curl -fsSL "https://get.acme.sh" |
             sh -s email="$CF_Email" >/dev/null 2>&1
-
         if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
             red "acme.sh 安装失败！"
             return 1
         fi
     fi
-
-    # ==========================================================
-    # 13. 设置 Let's Encrypt
-    # ==========================================================
     "$HOME/.acme.sh/acme.sh" \
         --set-default-ca \
         --server letsencrypt >/dev/null 2>&1
-
-    # ==========================================================
-    # 14. 创建证书保存目录
-    # ==========================================================
     local save_path="/root/cert/${cert_domain}"
-
     mkdir -p "$save_path"
-
-    # ==========================================================
-    # 15. 使用 Cloudflare DNS API 申请证书
-    # ==========================================================
     skyblue "正在通过 Cloudflare DNS API 申请证书..."
     skyblue "证书域名: $cert_domain"
-
     if "$HOME/.acme.sh/acme.sh" \
         --issue \
         --dns dns_cf \
@@ -909,10 +802,6 @@ EOF
         --keylength ec-256 \
         --force
     then
-
-        # ======================================================
-        # 16. 安装证书到指定目录
-        # ======================================================
         if "$HOME/.acme.sh/acme.sh" \
             --installcert \
             -d "$cert_domain" \
@@ -920,9 +809,7 @@ EOF
             --key-file "${save_path}/privkey.pem" \
             --fullchain-file "${save_path}/fullchain.pem"
         then
-
             chmod 600 "${save_path}/privkey.pem"
-
             echo
             green "=========================================="
             green "证书申请成功！"
@@ -931,19 +818,14 @@ EOF
             green "证书: ${save_path}/fullchain.pem"
             green "私钥: ${save_path}/privkey.pem"
             green "=========================================="
-
-            # 自动升级
             "$HOME/.acme.sh/acme.sh" \
                 --upgrade \
                 --auto-upgrade >/dev/null 2>&1
-
             return 0
-
         else
             red "证书申请成功，但证书安装失败！"
             return 1
         fi
-
     else
         red "证书申请失败！"
         red "请检查 Cloudflare API 权限、DNS 状态或 acme.sh 日志。"
