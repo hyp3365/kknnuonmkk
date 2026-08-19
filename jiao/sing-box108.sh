@@ -2363,8 +2363,12 @@ uninstall_xray() {
   
 # xray 管理
 manage_xray() {
+    local xray_status=$(check_xray 2>/dev/null)
+    local xray_installed=$?
     while true; do
         clear
+		green "=== xray 管理 ===\n"
+        printf "${purple}xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
         green "1. 安装xray服务"
         skyblue "-------------------"
         green "2. 卸载xray服务"
@@ -2410,7 +2414,6 @@ manage_xray() {
         esac
     done
 }
-
 
 # 卸载 sing-box
 uninstall_singbox() {
