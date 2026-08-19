@@ -162,7 +162,7 @@ check_nginx() {
 
 # 检查 xray 是否已安装
 check_xray() {
-if [ -f "${work_dir}/${serverxray_name}" ]; then
+if [ -f "${xray_dir}/${serverxray_name}" ]; then
     if [ -f /etc/alpine-release ]; then
         rc-service xray status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
     else 
