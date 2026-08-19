@@ -305,177 +305,53 @@ cf_upsert_dns() {
 }
 
 # ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
-# ── Cloudflare Origin Rules 管理 ─────────────────────────
-
+# ── Cloudflare Origin Rules 管理 (回源端口转发) ────────
 cf_get_origin_rules() {
     local zone_id="$1"
     local response
-
-    response=$(cf_call GET \
-        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-
-    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-        echo "$response" | jq -c '.result.rules // []'
-    else
-        echo '[]'
-    fi
+    response=$(cf_call GET "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
+    echo "$response" | jq -r 'if .success then .result.rules // [] else [] end' 2>/dev/null || echo '[]'
 }
-
 
 cf_put_origin_rules() {
-    local zone_id="$1"
-    local rules_json="$2"
+    local zone_id="$1" rules_json="$2"
     local response
-
-    [[ -z "$zone_id" ]] && return 1
-    [[ -z "$rules_json" ]] && return 1
-
-    # 必须是合法 JSON 数组
-    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        red "Origin Rules 数据不是合法 JSON"
-        return 1
-    fi
-
-    # 不再使用 --argjson
-    local payload
-    payload=$(printf '%s' "$rules_json" | jq -c '{rules: .}')
-
-    if [[ -z "$payload" ]]; then
-        red "生成 Origin Rules 请求数据失败"
-        return 1
-    fi
-
-    response=$(cf_call PUT \
-        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
-        "$payload")
-
-    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+    response=$(cf_call PUT "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
+        "$(jq -n --argjson r "$rules_json" '{rules:$r}')")
+    if echo "$response" | jq -e '.success' >/dev/null 2>&1; then
         return 0
+    else
+        return 1
     fi
-
-    yellow "Cloudflare Origin Rules 下发失败："
-
-    echo "$response" | jq -r '
-        .errors[]?
-        | if .message then .message else tostring end
-    ' 2>/dev/null
-
-    return 1
 }
 
-
 set_domain_origin_port() {
-    local zone_id="$1"
-    local domain="$2"
-    local target_port="$3"
+    local zone_id="$1" domain="$2" target_port="$3"
+    local pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
+    [[ -z "$zone_id" || -z "$domain" || -z "$target_port" ]] && return 1
 
-    local pfx="${MANAGED_PREFIX:-Auto_Script:}"
-
-    [[ -z "$zone_id" ]] && return 1
-    [[ -z "$domain" ]] && return 1
-
-    if [[ ! "$target_port" =~ ^[0-9]+$ ]]; then
-        red "无效的回源端口：$target_port"
-        return 1
-    fi
-
-    local existing
-    local kept
-    local new_managed
-    local merged
-
-    # 获取现有规则
+    local existing kept new_managed merged
     existing=$(cf_get_origin_rules "$zone_id")
-
-    # 确保一定是合法数组
-    if ! printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        existing='[]'
-    fi
-
-    # 删除本脚本以前创建的同域名规则
-    kept=$(printf '%s' "$existing" | jq -c \
-        --arg d "$domain" \
-        --arg pfx "$pfx" '
-        [
-            .[]
-            | select(
-                (
-                    ((.description // "") | startswith($pfx))
-                    and
-                    (
-                        ((.expression // "")
-                        | ascii_downcase
-                        | contains(
-                            "http.host eq \"" +
-                            ($d | ascii_downcase) +
-                            "\""
-                        ))
-                    )
-                ) | not
-            )
-        ]
-    ')
-
-    if [[ -z "$kept" ]]; then
-        red "生成旧规则列表失败"
-        return 1
-    fi
-
-    # 创建新的规则
-    new_managed=$(jq -n -c \
-        --arg d "$domain" \
-        --arg pfx "$pfx" \
-        --arg port "$target_port" '
-        [
-            {
-                description: ($pfx + "VLESS_WSTLS_CDN_" + $d),
-                enabled: true,
-                expression: ("(http.host eq \"" + $d + "\")"),
-                action: "route",
-                action_parameters: {
-                    origin: {
-                        port: ($port | tonumber)
-                    }
-                }
-            }
-        ]
-    ')
-
-    if [[ -z "$new_managed" ]]; then
-        red "生成新回源规则失败"
-        return 1
-    fi
-
-    # --------------------------------------------------
-    # 关键：
-    # 不再使用 --argjson a / --argjson b
-    # 直接通过管道让 jq 读取两个 JSON
-    # --------------------------------------------------
-
-    merged=$(
-        jq -n -c \
-            --slurpfile a <(printf '%s\n' "$kept") \
-            --slurpfile b <(printf '%s\n' "$new_managed") \
-            '$a[0] + $b[0]'
-    )
-
-    if [[ -z "$merged" ]]; then
-        red "合并回源规则失败"
-        return 1
-    fi
-
-    # 检查最终 JSON
-    if ! printf '%s' "$merged" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        red "最终 Origin Rules JSON 无效"
-        return 1
-    fi
-
-    # 提交
-    if cf_put_origin_rules "$zone_id" "$merged"; then
-        return 0
-    fi
-
-    return 1
+    
+    kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
+        .[] | select(
+            (.description | startswith($pfx) | not) or
+            (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
+        )
+    ]')
+    
+    new_managed=$(jq -n --arg d "$domain" --argjson port "$target_port" --arg pfx "$pfx" '[
+        {
+            description: ($pfx + $d),
+            enabled: true,
+            expression: ("(http.host eq \"" + $d + "\")"),
+            action: "route",
+            action_parameters: { origin: { port: $port } }
+        }
+    ]')
+    
+    merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+    cf_put_origin_rules "$zone_id" "$merged"
 }
 
 # 查看已申请证书
