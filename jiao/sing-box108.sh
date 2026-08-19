@@ -84,7 +84,10 @@ check_and_install_nftables() {
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
+xray_dir="/etc/xray"
 conf_dir="${work_dir}/conf"
+configxray_dir="${xray_dir}/config.json"
+serverxray_name="xray"
 config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
@@ -155,6 +158,20 @@ check_argo() {
 check_nginx() {
     command_exists nginx || { red "not installed"; return 2; }
     check_service "nginx" "$(command -v nginx)"
+}
+
+# 检查 xray 是否已安装
+check_xray() {
+if [ -f "${work_dir}/${serverxray_name}" ]; then
+    if [ -f /etc/alpine-release ]; then
+        rc-service xray status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
+    else 
+        [ "$(systemctl is-active xray)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
+    fi
+else
+    red "not installed"
+    return 2
+fi
 }
 
 # 根据系统类型安装、卸载依赖
@@ -2127,6 +2144,120 @@ stop_nginx() {
 restart_nginx() {
     manage_service "nginx" "restart"
 }
+
+# 停止 xray
+stop_xray() {
+if [ ${check_xray} -eq 0 ]; then
+   yellow "\n正在停止 ${serverxray_name} 服务\n"
+    if [ -f /etc/alpine-release ]; then
+        rc-service xray stop
+    else
+        systemctl stop "${serverxray_name}"
+    fi
+   if [ $? -eq 0 ]; then
+       green "${serverxray_name} 服务已成功停止\n"
+   else
+       red "${serverxray_name} 服务停止失败\n"
+   fi
+
+elif [ ${check_xray} -eq 1 ]; then
+    yellow "xray 未运行\n"
+    sleep 1
+    menu
+else
+    yellow "xray 尚未安装！\n"
+    sleep 1
+    menu
+fi
+}
+
+# 重启 xray
+restart_xray() {
+if [ ${check_xray} -eq 0 ]; then
+   yellow "\n正在重启 ${serverxray_name} 服务\n"
+    if [ -f /etc/alpine-release ]; then
+        rc-service ${serverxray_name} restart
+    else
+        systemctl daemon-reload
+        systemctl restart "${serverxray_name}"
+    fi
+    if [ $? -eq 0 ]; then
+        green "${serverxray_name} 服务已成功重启\n"
+    else
+        red "${serverxray_name} 服务重启失败\n"
+    fi
+elif [ ${check_xray} -eq 1 ]; then
+    yellow "xray 未运行\n"
+    sleep 1
+    menu
+else
+    yellow "xray 尚未安装！\n"
+    sleep 1
+    menu
+fi
+}
+
+# 卸载 xray
+uninstall_xray() {
+   reading "确定要卸载 xray 吗? (y/n): " choice
+   case "${choice}" in
+       y|Y)
+           yellow "正在卸载 xray"
+           if [ -f /etc/alpine-release ]; then
+                rc-service xray stop
+                rm /etc/init.d/xray
+                rc-update del xray default
+           else
+                systemctl stop "${serverxray_name}"
+                systemctl disable "${serverxray_name}"
+                systemctl daemon-reload || true
+           fi
+          
+           # 删除核心与配置目录
+           rm -rf "${xray_dir}" || true
+           rm -rf /etc/systemd/system/xray.service 2>/dev/null	
+
+           # 使用指定逻辑移除节点信息
+           local target="_vless_xhttp_cdn"
+           if [ -f "/etc/sing-box/url.txt" ]; then
+               sed -i "/${target}/d" /etc/sing-box/url.txt
+               sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+               echo "" >> /etc/sing-box/url.txt
+           fi
+           if [ -s "/etc/sing-box/url.txt" ]; then
+               base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+           else
+               truncate -s 0 /etc/sing-box/sub.txt 2>/dev/null || rm -f /etc/sing-box/sub.txt
+           fi
+
+           green "\nXray 卸载成功及节点已移除！\n"
+           ;;
+       *)
+           purple "已取消卸载操作\n"
+           ;;
+   esac
+}
+  
+# xray 管理
+manage_xray() {
+    green "1. 启动xray服务"
+    skyblue "-------------------"
+    green "2. 停止xray服务"
+    skyblue "-------------------"
+    green "3. 重启xray服务"
+    skyblue "-------------------"
+    purple "0. 返回主菜单"
+    skyblue "------------"
+    reading "\n请输入选择: " choice
+    case "${choice}" in
+        1) start_xray ;;  
+        2) stop_xray ;;
+        3) restart_xray ;;
+        0) menu ;;
+        *) red "无效的选项！" ;;
+    esac
+}
+
 
 # 卸载 sing-box
 uninstall_singbox() {
@@ -6624,6 +6755,7 @@ menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
    argo_status=$(check_argo 2>/dev/null)
+   xray_status=$(check_xray 2>/dev/null)
    
    clear
    echo ""
@@ -6634,6 +6766,7 @@ menu() {
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")"
+   printf "${purple}---xray 状态: %s${re}\n\n" "$(to_chinese "$xray_status")"
    green "1. 安装sing-box"
    red "2. 卸载sing-box"
    echo "==============="
@@ -6652,7 +6785,7 @@ menu() {
    red    "13. 快捷指令"
    red    "14. 本机信息"
    red    "15. WARP分流管理"
-   red    "16. xray"
+   red    "16. xray管理"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -6714,7 +6847,7 @@ while true; do
 		   ;;
 		14) vps_s ;;
 		15)  warp_manage ;;
-		16)  bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/xray.sh) ;;
+		16)  manage_xray ;;
 		0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 16" ;;
    esac
