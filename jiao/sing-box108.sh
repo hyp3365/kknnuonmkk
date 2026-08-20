@@ -481,21 +481,36 @@ set_domain_origin_port() {
     fi
     return 1
 }
+# ── Tunnel 运行时间 ──
+cf_format_runtime() {
+    local start="$1"
+    local start_ts now_ts diff days hours mins
+    start_ts=$(date -d "$start" +%s 2>/dev/null)
+    [[ -z "$start_ts" || "$start_ts" == "0" ]] && { echo "-"; return; }
+    now_ts=$(date +%s)
+    diff=$((now_ts - start_ts))
+    [[ "$diff" -lt 0 ]] && diff=0
+    days=$((diff / 86400))
+    hours=$(((diff % 86400) / 3600))
+    mins=$(((diff % 3600) / 60))
+    if [[ "$days" -gt 0 ]]; then
+        echo "${days}天${hours}小时${mins}分钟"
+    elif [[ "$hours" -gt 0 ]]; then
+        echo "${hours}小时${mins}分钟"
+    else
+        echo "${mins}分钟"
+    fi
+}
+
 # ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
     local tunnels count choice tunnel_id tunnel_name tunnel_status
-    local created_at conns_active_at connections
+    local connections config_data hostnames connection_count active_time
     local i=1 total
-    local tunnel_ids
     declare -a tunnel_ids
 
     tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
-
-    if [[ -z "$tunnels" ]]; then
-        red "获取 Cloudflare Tunnel 失败！"
-        return 1
-    fi
-
+    [[ -z "$tunnels" ]] && { red "获取 Cloudflare Tunnel 失败！"; return 1; }
     if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Cloudflare Tunnel 失败！"
         echo "$tunnels" | jq -r '.errors[]?.message // empty'
@@ -503,7 +518,6 @@ cf_list_tunnels() {
     fi
 
     count=$(echo "$tunnels" | jq '.result | length')
-
     if [[ "$count" -eq 0 ]]; then
         yellow "暂无 Cloudflare Tunnel。"
         reading "按回车返回..." _
@@ -515,158 +529,69 @@ cf_list_tunnels() {
         echo -e "${skyblue}==========================================${re}"
         echo -e "${skyblue}        Cloudflare Tunnel${re}"
         echo -e "${skyblue}==========================================${re}"
-
         i=1
         unset tunnel_ids
         declare -a tunnel_ids
 
         while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
             [[ -z "$tunnel_id" ]] && continue
-
             tunnel_ids[$i]="$tunnel_id"
 
             case "$tunnel_status" in
-                healthy)
-                    tunnel_status="🟢 正常"
-                    ;;
-                degraded)
-                    tunnel_status="🟡 异常"
-                    ;;
-                down)
-                    tunnel_status="🔴 离线"
-                    ;;
-                inactive)
-                    tunnel_status="⚪ 未运行"
-                    ;;
-                *)
-                    tunnel_status="⚪ 未知"
-                    ;;
+                healthy)  tunnel_status="🟢 正常" ;;
+                degraded) tunnel_status="🟡 异常" ;;
+                down)     tunnel_status="🔴 离线" ;;
+                inactive) tunnel_status="⚪ 未运行" ;;
+                *)        tunnel_status="⚪ 未知" ;;
             esac
 
             echo -e "${green}${i})${re} ${tunnel_name}"
             echo "   状态: $tunnel_status"
 
-            # 获取 Tunnel 配置中的域名
-            local config_data hostnames
-            config_data=$(cf_call GET \
-                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-                2>/dev/null)
+            config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
+            hostnames=$(echo "$config_data" | jq -r '.result.config.ingress[]?.hostname // empty' | paste -sd ',' -)
+            [[ -n "$hostnames" ]] && echo "   域名: $hostnames" || echo "   域名: -"
 
-            hostnames=$(echo "$config_data" |
-                jq -r '.result.config.ingress[]?.hostname // empty' |
-                paste -sd ',' -)
-
-            if [[ -n "$hostnames" ]]; then
-                echo "   域名: $hostnames"
-            else
-                echo "   域名: -"
-            fi
-
-            # 获取 Tunnel 连接信息
-            connections=$(cf_call GET \
-                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" \
-                2>/dev/null)
-
+            connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
             if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
-                local connection_count
-                connection_count=$(echo "$connections" |
-                    jq '[.result[]?.conns[]?] | length')
-
+                connection_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
                 if [[ "$connection_count" -gt 0 ]]; then
                     echo "   服务器IP:"
-                    echo "$connections" |
-                        jq -r '.result[]?.conns[]? | .origin_ip // empty' |
-                        sort -u |
-                        sed 's/^/      /'
-
-                    local active_time
-                    active_time=$(echo "$connections" |
-                        jq -r '.result[]?.conns[]? | .opened_at // empty' |
-                        sort | head -n1)
-
-                    if [[ -n "$active_time" ]]; then
-                        echo "   运行时间: $(cf_format_runtime "$active_time")"
-                    else
-                        echo "   运行时间: -"
-                    fi
+                    echo "$connections" | jq -r '.result[]?.conns[]? | .origin_ip // empty' | sort -u | sed 's/^/      /'
+                    active_time=$(echo "$connections" | jq -r '.result[]?.conns[]? | .opened_at // empty' | sort | head -n1)
+                    [[ -n "$active_time" ]] && echo "   连接时间: $(date -d "$active_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$active_time")"
                 else
                     echo "   服务器IP: -"
-                    echo "   运行时间: -"
                 fi
             else
                 echo "   服务器IP: -"
-                echo "   运行时间: -"
             fi
 
             echo "------------------------------------------"
             ((i++))
-        done < <(
-            echo "$tunnels" |
-            jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"'
-        )
+        done < <(echo "$tunnels" | jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"')
 
         total=$((i - 1))
-
         echo -e "${red}0)${re} 返回"
         echo -e "${skyblue}==========================================${re}"
         reading "请输入选择 [0-$total]: " choice
 
-        if [[ "$choice" == "0" ]]; then
-            return 0
-        fi
+        [[ "$choice" == "0" ]] && return 0
 
-        if [[ -z "$choice" ||
-              ! "$choice" =~ ^[0-9]+$ ||
-              "$choice" -lt 1 ||
-              "$choice" -gt "$total" ]]; then
+        if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
             red "无效选择！"
             sleep 1
             continue
         fi
 
         tunnel_id="${tunnel_ids[$choice]}"
-
-        if [[ -z "$tunnel_id" ]]; then
-            red "Tunnel ID 获取失败！"
-            sleep 1
-            continue
-        fi
+        [[ -z "$tunnel_id" ]] && { red "Tunnel ID 获取失败！"; sleep 1; continue; }
 
         cf_tunnel_detail "$tunnel_id"
-        tunnels=$(cf_call GET \
-            "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" \
-            2>/dev/null)
+
+        tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
+        [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]] && return 1
     done
-}
-
-# ── Tunnel 运行时间 ──
-cf_format_runtime() {
-    local start="$1"
-    local start_ts now_ts diff days hours mins
-
-    start_ts=$(date -d "$start" +%s 2>/dev/null)
-
-    if [[ -z "$start_ts" || "$start_ts" == "0" ]]; then
-        echo "-"
-        return
-    fi
-
-    now_ts=$(date +%s)
-    diff=$((now_ts - start_ts))
-
-    [[ "$diff" -lt 0 ]] && diff=0
-
-    days=$((diff / 86400))
-    hours=$(((diff % 86400) / 3600))
-    mins=$(((diff % 3600) / 60))
-
-    if [[ "$days" -gt 0 ]]; then
-        echo "${days}天${hours}小时${mins}分钟"
-    elif [[ "$hours" -gt 0 ]]; then
-        echo "${hours}小时${mins}分钟"
-    else
-        echo "${mins}分钟"
-    fi
 }
 
 # ── Tunnel 详细信息 / 删除 ──
@@ -674,14 +599,10 @@ cf_tunnel_detail() {
     local tunnel_id="$1"
     local tunnel_data tunnel_name tunnel_status created_at
     local connections config_data hostnames choice
-    local delete_response
-    local dns_name dns_zone_id dns_record
-    local i=1
+    local delete_response dns_name dns_zone_id dns_record dns_id
+    local conn_count
 
-    tunnel_data=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
-        2>/dev/null)
-
+    tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
     if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Tunnel 信息失败！"
         sleep 1
@@ -693,33 +614,17 @@ cf_tunnel_detail() {
     created_at=$(echo "$tunnel_data" | jq -r '.result.created_at // empty')
 
     case "$tunnel_status" in
-        healthy)
-            tunnel_status="🟢 正常"
-            ;;
-        degraded)
-            tunnel_status="🟡 异常"
-            ;;
-        down)
-            tunnel_status="🔴 离线"
-            ;;
-        inactive)
-            tunnel_status="⚪ 未运行"
-            ;;
-        *)
-            tunnel_status="⚪ 未知"
-            ;;
+        healthy)   tunnel_status="🟢 正常" ;;
+        degraded)  tunnel_status="🟡 异常" ;;
+        down)      tunnel_status="🔴 离线" ;;
+        inactive)  tunnel_status="⚪ 未运行" ;;
+        *)         tunnel_status="⚪ 未知" ;;
     esac
 
-    config_data=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-        2>/dev/null)
+    config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
+    hostnames=$(echo "$config_data" | jq -r '.result.config.ingress[]?.hostname // empty')
 
-    hostnames=$(echo "$config_data" |
-        jq -r '.result.config.ingress[]?.hostname // empty')
-
-    connections=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" \
-        2>/dev/null)
+    connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
 
     clear
     echo -e "${skyblue}==========================================${re}"
@@ -737,23 +642,12 @@ cf_tunnel_detail() {
     fi
 
     echo "服务器:"
-
     if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
-        local conn_count
-        conn_count=$(echo "$connections" |
-            jq '[.result[]?.conns[]?] | length')
-
+        conn_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
         if [[ "$conn_count" -gt 0 ]]; then
-            echo "$connections" |
-                jq -r '.result[]?.conns[]? |
-                    [
-                        (.origin_ip // "-"),
-                        (.opened_at // "-"),
-                        (.client_version // "-")
-                    ] | @tsv' |
+            echo "$connections" | jq -r '.result[]?.conns[]? | [(.origin_ip // "-"),(.opened_at // "-"),(.client_version // "-")] | @tsv' |
             while IFS=$'\t' read -r origin_ip opened_at client_version; do
                 echo "  IP: $origin_ip"
-
                 if [[ "$opened_at" != "-" ]]; then
                     echo "  连接时间: $(date -d "$opened_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$opened_at")"
                     echo "  运行时间: $(cf_format_runtime "$opened_at")"
@@ -761,9 +655,7 @@ cf_tunnel_detail() {
                     echo "  连接时间: -"
                     echo "  运行时间: -"
                 fi
-
                 echo "  版本: $client_version"
-                echo
             done
         else
             echo "  -"
@@ -772,80 +664,47 @@ cf_tunnel_detail() {
         echo "  -"
     fi
 
-    if [[ -n "$created_at" ]]; then
-        echo "创建时间: $(date -d "$created_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$created_at")"
-    else
+    [[ -n "$created_at" ]] && \
+        echo "创建时间: $(date -d "$created_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$created_at")" || \
         echo "创建时间: -"
-    fi
 
     echo -e "${skyblue}==========================================${re}"
     echo -e "${yellow}1)${re} 删除此 Tunnel"
     echo -e "${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
-
     reading "请输入选择 [0-1]: " choice
 
     case "$choice" in
         1)
-            echo
-            yellow "正在删除 Tunnel..."
-
-            delete_response=$(cf_call DELETE \
-                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
-                2>/dev/null)
-
+            delete_response=$(cf_call DELETE "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
             if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
                 green "Cloudflare Tunnel 删除成功！"
 
-                # 删除对应域名 DNS
                 if [[ -n "$hostnames" ]]; then
                     while read -r dns_name; do
                         [[ -z "$dns_name" ]] && continue
 
-                        dns_zone_id=$(cf_call GET \
-                            "/zones?name=${dns_name#*.}&per_page=1" |
-                            jq -r '.result[0].id // empty')
-
+                        dns_zone_id=$(cf_call GET "/zones?name=${dns_name#*.}&per_page=1" 2>/dev/null | jq -r '.result[0].id // empty')
                         [[ -z "$dns_zone_id" ]] && continue
 
-                        dns_record=$(cf_call GET \
-                            "/zones/${dns_zone_id}/dns_records?name=${dns_name}&type=CNAME&per_page=100" \
-                            2>/dev/null)
+                        dns_record=$(cf_call GET "/zones/${dns_zone_id}/dns_records?name=${dns_name}&type=CNAME&per_page=100" 2>/dev/null)
 
-                        echo "$dns_record" |
-                            jq -r '.result[]?.id // empty' |
+                        echo "$dns_record" | jq -r '.result[]?.id // empty' |
                         while read -r dns_id; do
                             [[ -z "$dns_id" ]] && continue
-
-                            cf_call DELETE \
-                                "/zones/${dns_zone_id}/dns_records/${dns_id}" \
-                                >/dev/null 2>&1
-
+                            cf_call DELETE "/zones/${dns_zone_id}/dns_records/${dns_id}" >/dev/null 2>&1
                             green "DNS 已删除: $dns_name"
                         done
                     done <<< "$hostnames"
                 fi
             else
                 red "Cloudflare Tunnel 删除失败！"
-                echo "$delete_response" | jq -r '
-                    .errors[]? |
-                    if (.code // "") != "" then
-                        "错误码: \(.code)\n错误信息: \(.message)"
-                    else
-                        .message // empty
-                    end
-                '
+                echo "$delete_response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
             fi
-
             reading "按回车返回..." _
             ;;
-        0)
-            return 0
-            ;;
-        *)
-            red "无效选择！"
-            sleep 1
-            ;;
+        0) return 0 ;;
+        *) red "无效选择！"; sleep 1 ;;
     esac
 }
 # ── 选择 Cloudflare 验证方式 ──
