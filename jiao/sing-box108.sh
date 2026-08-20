@@ -2334,7 +2334,7 @@ manage_xray() {
 	update_xray_status
         clear
 		green "=== xray 管理 ===\n"
-        printf "${purple} Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")\n"
+        printf "${purple} Xray 状态: %s${re}\n\n" "$(to_chinese "$check_xray_status")"
         green "1. 安装xray服务"
         skyblue "-------------------"
         green "2. 卸载xray服务"
