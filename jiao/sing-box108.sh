@@ -4329,8 +4329,7 @@ EOF
       "settings": {
         "clients": [
           {
-            "id": "$uuid",
-            "flow": "xtls-rprx-vision"
+            "id": "$uuid"
           }
         ],
         "decryption": "none"
@@ -4362,7 +4361,7 @@ EOF
 
     allow_port $xray_xhttp_reality/tcp > /dev/null 2>&1
     node_remark="${isp}_xray_vless_xhttp_reality"
-    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
+    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
     if [ -f "/etc/sing-box/url.txt" ]; then
         sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
     fi
