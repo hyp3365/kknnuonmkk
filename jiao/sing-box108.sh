@@ -6193,42 +6193,10 @@ manage_argo() {
          ;; 
         4)
     clear
-    if ! cf_create_tunnel; then
-        return 1
-    fi
-    argo_domain="$CF_TUNNEL_DOMAIN"
-    ArgoDomain="$argo_domain"
-    argo_auth="$CF_TUNNEL_TOKEN"
-    if [[ -z "$argo_domain" || -z "$argo_auth" ]]; then
-        red "获取 Cloudflare Tunnel 信息失败！"
-        return 1
-    fi
-    if [[ $argo_auth =~ TunnelSecret ]]; then
-        echo $argo_auth > ${work_dir}/tunnel.json
-        cat > ${work_dir}/tunnel.yml << EOF
-tunnel: $(cut -d\" -f12 <<< "$argo_auth")
-credentials-file: ${work_dir}/tunnel.json
-protocol: http2
-ingress:
-  - hostname: $ArgoDomain
-    service: http://localhost:8001
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-EOF
-        if command_exists rc-service 2>/dev/null; then
-            sed -i '/^command_args=/c\command_args="-c '\''/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\''"' /etc/init.d/argo
-        else
-            sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"' /etc/systemd/system/argo.service
-        fi
-        restart_argo
-        sleep 1
-        change_argo_domain
-        systemctl stop argo-watchdog &>/dev/null
-        systemctl disable argo-watchdog &>/dev/null
-        systemctl daemon-reload &>/dev/null
-    elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
-        real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')
+    cf_create_tunnel || return 1
+    real_token="$argo_auth"
+    ArgoDomain="$ArgoDomain"
+    if [[ $real_token =~ [A-Za-z0-9=]{120,250} ]]; then
         if command_exists rc-service 2>/dev/null; then
             sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
         else
@@ -6241,8 +6209,8 @@ EOF
         systemctl disable argo-watchdog &>/dev/null
         systemctl daemon-reload &>/dev/null
     else
-        yellow "你输入的argo域名或token不匹配，请重新输入"
-        manage_argo
+        red "Tunnel Token 获取失败！"
+        return 1
     fi
     ;;
         5)
