@@ -2320,11 +2320,12 @@ uninstall_xray() {
 
 update_xray_status() {
     check_xray >/dev/null 2>&1
-    check_xray=$?
-    case "${check_xray}" in
-        0) check_xray_status="运行中" ;;
-        1) check_xray_status="未运行" ;;
-        2) check_xray_status="未安装" ;;
+    xray_status=$?
+    case "${xray_status}" in
+        0) check_xray_status="running" ;;
+        1) check_xray_status="not running" ;;
+        2) check_xray_status="not installed" ;;
+        *) check_xray_status="unknown" ;;
     esac
 }
   
@@ -2334,7 +2335,7 @@ manage_xray() {
 	update_xray_status
         clear
 		green "=== xray 管理 ===\n"
-        purple " Xray 状态: ${check_xray_status}\n"
+        printf "${purple} Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
         green "1. 安装xray服务"
         skyblue "-------------------"
         green "2. 卸载xray服务"
@@ -6894,8 +6895,8 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
-   purple "=== 老王sing-box四合一安装脚本 0.7===\n"
-   purple " --Xray 状态: ${check_xray_status}"
+   purple "=== 老王sing-box四合一安装脚本 0.8===\n"
+   printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
