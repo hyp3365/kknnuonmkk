@@ -546,43 +546,15 @@ cf_delete_tunnel() {
 }
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
-    local tunnel_name tunnel_data tunnel_id tunnel_token zones choice
-	CF_ACCOUNT_ID="${CF_ACCOUNT_ID:-be97309f0cd2b113f357e6554b8c126b}"
-    reading "请输入 Tunnel 名称: " tunnel_name
-    tunnel_name=$(echo "$tunnel_name" | tr -d '[:space:]')
-    [[ -z "$tunnel_name" ]] && {
-        red "Tunnel 名称不能为空！"
-        return 1
-    }
-    tunnel_data=$(jq -n --arg name "$tunnel_name" '{name:$name,config_src:"cloudflare"}')
-    local create_response
-    create_response=$(cf_call POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" "$tunnel_data")
-cf_ret=$?
-
-echo "----- DEBUG -----"
-echo "CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-<空>}"
-echo "tunnel_data: $tunnel_data"
-echo "cf_call exit: $cf_ret"
-echo "response: $create_response"
-echo "-----------------"
-
-if [[ "$cf_ret" -ne 0 ]]; then
-    red "Cloudflare API 请求失败！"
-    return 1
-fi
-
-if [[ -z "$create_response" ]]; then
-    red "Cloudflare API 没有返回任何内容！"
-    return 1
-fi
-
-if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
-    red "Cloudflare Tunnel 创建失败！"
-    echo "$create_response" | jq .
-    return 1
-fi
-
-tunnel_id=$(echo "$create_response" | jq -r '.result.id')
+    local zones choice i total
+    local zone_name zone_id account_id
+    local zone_domain selected_zone_id
+    local prefix hostname
+    local tunnel_name tunnel_data
+    local create_response tunnel_id
+    local tunnel_token_response tunnel_token
+    local ingress_data config_response
+    local cname_target dns_response dns_id dns_payload
     zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
@@ -591,47 +563,120 @@ tunnel_id=$(echo "$create_response" | jq -r '.result.id')
     echo "=========================================="
     skyblue "请选择 Tunnel 使用的 Cloudflare 域名："
     echo "=========================================="
-    local i=1
-    local zone_name
-    local zone_id
-    local account_id
+    i=1
     declare -a zone_names
     declare -a zone_ids
     declare -a account_ids
     while IFS='|' read -r zone_name zone_id account_id; do
         [[ -z "$zone_name" || -z "$zone_id" || -z "$account_id" ]] && continue
+
         echo "  $i) $zone_name"
+
         zone_names[$i]="$zone_name"
         zone_ids[$i]="$zone_id"
         account_ids[$i]="$account_id"
+
         ((i++))
     done <<< "$zones"
-    echo "=========================================="
-    local total=$((i - 1))
-    [[ "$total" -lt 1 ]] && {
+
+    total=$((i - 1))
+
+    if [[ "$total" -lt 1 ]]; then
         red "没有可用的 Cloudflare 域名！"
         return 1
-    }
+    fi
+
+    echo "=========================================="
+
     reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
         red "无效选择！"
         return 1
     fi
-    local zone_domain="${zone_names[$choice]}"
-    local selected_zone_id="${zone_ids[$choice]}"
+
+    zone_domain="${zone_names[$choice]}"
+    selected_zone_id="${zone_ids[$choice]}"
     CF_ACCOUNT_ID="${account_ids[$choice]}"
-    local hostname
-    reading "请输入 Tunnel 域名: " hostname
-    hostname=$(echo "$hostname" | tr -d '[:space:]')
-    [[ -z "$hostname" ]] && {
-        red "Tunnel 域名不能为空！"
-        return 1
-    }
-    if [[ "$hostname" != "$zone_domain" && "$hostname" != *".$zone_domain" ]]; then
-        red "Tunnel 域名必须属于 $zone_domain"
+
+    if [[ -z "$CF_ACCOUNT_ID" ]]; then
+        red "无法获取该域名所属的 Cloudflare Account ID！"
         return 1
     fi
-    local ingress_data
+
+    export CF_ACCOUNT_ID
+
+    # 输入域名前缀，直接回车使用根域名
+    reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
+    prefix=$(echo "$prefix" | tr -d '[:space:]')
+    prefix="${prefix#.}"
+    prefix="${prefix%.}"
+
+    if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        red "域名前缀格式无效！"
+        return 1
+    fi
+
+    if [[ -n "$prefix" ]]; then
+        hostname="${prefix}.${zone_domain}"
+    else
+        hostname="$zone_domain"
+    fi
+
+    # 自动生成 Tunnel 名称
+    tunnel_name="sing-box-$(date +%Y%m%d%H%M%S)"
+
+    tunnel_data=$(jq -n \
+        --arg name "$tunnel_name" \
+        '{
+            name:$name,
+            config_src:"cloudflare"
+        }')
+
+    # 创建 Tunnel
+    create_response=$(cf_call POST \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
+        "$tunnel_data")
+
+    if [[ -z "$create_response" ]]; then
+        red "Cloudflare Tunnel 创建失败！"
+        return 1
+    fi
+
+    if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
+        red "Cloudflare Tunnel 创建失败！"
+        echo "$create_response" | jq -r '.errors[]?.message // empty'
+        return 1
+    fi
+
+    tunnel_id=$(echo "$create_response" | jq -r '.result.id // empty')
+
+    if [[ -z "$tunnel_id" ]]; then
+        red "Tunnel ID 获取失败！"
+        return 1
+    fi
+
+    # 获取 Tunnel Token
+    tunnel_token_response=$(cf_call GET \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/token")
+
+    if [[ -z "$tunnel_token_response" ]]; then
+        red "Tunnel Token 获取失败！"
+        return 1
+    fi
+
+    tunnel_token=$(echo "$tunnel_token_response" | jq -r '.result // empty')
+
+    if [[ -z "$tunnel_token" || "$tunnel_token" == "null" ]]; then
+        red "Tunnel Token 获取失败！"
+        echo "$tunnel_token_response" | jq -r '.errors[]?.message // empty'
+        return 1
+    fi
+
+    # 配置 Tunnel 回源
     ingress_data=$(jq -n \
         --arg hostname "$hostname" \
         '{
@@ -640,45 +685,72 @@ tunnel_id=$(echo "$create_response" | jq -r '.result.id')
                     {
                         hostname:$hostname,
                         service:"http://localhost:8001",
-                        originRequest:{noTLSVerify:true}
+                        originRequest:{
+                            noTLSVerify:true
+                        }
                     },
-                    {service:"http_status:404"}
+                    {
+                        service:"http_status:404"
+                    }
                 ]
             }
         }')
-    local config_response
-    config_response=$(cf_call PUT "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" "$ingress_data" 2>/dev/null)
+
+    config_response=$(cf_call PUT \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+        "$ingress_data")
+
     if [[ "$(echo "$config_response" | jq -r '.success // false')" != "true" ]]; then
         red "Tunnel 配置失败！"
         echo "$config_response" | jq -r '.errors[]?.message // empty'
         return 1
     fi
-    local cname_target="${tunnel_id}.cfargotunnel.com"
-    local dns_response
-    dns_response=$(cf_call GET "/zones/${selected_zone_id}/dns_records?type=CNAME&name=${hostname}" 2>/dev/null)
-    local dns_id
+
+    # 自动创建 DNS CNAME
+    cname_target="${tunnel_id}.cfargotunnel.com"
+
+    dns_response=$(cf_call GET \
+        "/zones/${selected_zone_id}/dns_records?type=CNAME&name=${hostname}")
+
     dns_id=$(echo "$dns_response" | jq -r '.result[0].id // empty')
-    local dns_payload
+
     dns_payload=$(jq -n \
         --arg name "$hostname" \
         --arg content "$cname_target" \
-        '{type:"CNAME",name:$name,content:$content,proxied:true,ttl:1}')
+        '{
+            type:"CNAME",
+            name:$name,
+            content:$content,
+            proxied:true,
+            ttl:1
+        }')
+
     if [[ -n "$dns_id" ]]; then
-        cf_call PUT "/zones/${selected_zone_id}/dns_records/${dns_id}" "$dns_payload" >/dev/null 2>&1
+        cf_call PUT \
+            "/zones/${selected_zone_id}/dns_records/${dns_id}" \
+            "$dns_payload" >/dev/null
     else
-        if ! cf_call POST "/zones/${selected_zone_id}/dns_records" "$dns_payload" >/dev/null 2>&1; then
+        dns_response=$(cf_call POST \
+            "/zones/${selected_zone_id}/dns_records" \
+            "$dns_payload")
+
+        if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
             red "Tunnel DNS 记录创建失败！"
+            echo "$dns_response" | jq -r '.errors[]?.message // empty'
             return 1
         fi
     fi
+
+    # 交给后面的 Argo 启动流程
     ArgoDomain="$hostname"
     argo_auth="$tunnel_token"
+
     export ArgoDomain
     export argo_auth
+    export CF_ACCOUNT_ID
+
     green "Cloudflare Tunnel 创建成功！"
-    green "Tunnel 名称: $tunnel_name"
-    green "Tunnel ID: $tunnel_id"
-    green "域名: $hostname"
+    green "Tunnel 域名: $ArgoDomain"
 }
 # ── 选择 Cloudflare 验证方式 ──
 cf_select_auth() {
@@ -6218,17 +6290,19 @@ manage_argo() {
                 cf_delete_tunnel
                 ;;
             3)
-                cf_create_tunnel || return 1
+                if ! cf_create_tunnel; then
+                    continue
+                fi
+                if [[ -z "${tunnel_token:-}" || -z "${tunnel_hostname:-}" ]]; then
+                    red "Tunnel Token 或域名获取失败！"
+                    continue
+                fi
                 real_token="$tunnel_token"
                 ArgoDomain="$tunnel_hostname"
-                if [[ -z "$real_token" || -z "$ArgoDomain" ]]; then
-                    red "Tunnel Token 或域名获取失败！"
-                    return 1
-                fi
                 if command_exists rc-service 2>/dev/null; then
                     sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
                 else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
+                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '"$real_token"' 2>&1"' /etc/systemd/system/argo.service
                 fi
                 restart_argo
                 sleep 1
@@ -6236,6 +6310,10 @@ manage_argo() {
                 systemctl stop argo-watchdog &>/dev/null
                 systemctl disable argo-watchdog &>/dev/null
                 systemctl daemon-reload &>/dev/null
+                green "=========================================="
+                green "Cloudflare Tunnel 创建并启动成功！"
+                green "Tunnel 域名: $ArgoDomain"
+                green "=========================================="
                 break
                 ;;
             0)
