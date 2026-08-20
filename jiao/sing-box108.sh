@@ -2341,10 +2341,22 @@ uninstall_xray() {
            ;;
    esac
 }
+
+update_xray_status() {
+    check_xray >/dev/null 2>&1
+    check_xray=$?
+    case "${check_xray}" in
+        0) check_xray_status="运行中" ;;
+        1) check_xray_status="未运行" ;;
+        2) check_xray_status="未安装" ;;
+        *) check_xray_status="未知" ;;
+    esac
+}
   
 # xray 管理
 manage_xray() { 
     while true; do
+	update_xray_status
         clear
 		green "=== xray 管理 ===\n"
         purple " Xray 状态: ${check_xray_status}\n"
@@ -6915,7 +6927,7 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 0.6===\n"
-   purple " -Xray 状态: ${check_xray_status}"
+   purple " --Xray 状态: ${check_xray_status}"
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
