@@ -103,6 +103,7 @@ xtls_reality=$(get_available_port)
 h2_reality=$(get_available_port)
 hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
+xray_xhttp_reality=$(get_available_port)
 vless_wstls_cdn_port=$(get_available_port)
 vless_ws_cdn_port=$(get_available_port)
 vmess_ws_cdn_port=$(get_available_port)
@@ -4264,6 +4265,86 @@ EOF
     echo "$trojan_url"
     green "--------------------------------------------------"
     ;;
+  11)
+    generate_vars
+    server_ip=$(get_realip)
+    echo ""
+    while true; do
+        read -rp "请输入 Xray VLESS XHTTP Reality 端口 (100-65535, 默认 ${xray_xhttp_reality}): " custom_port
+
+        if [ -z "$custom_port" ]; then
+            custom_port=$xray_xhttp_reality
+            break
+        fi
+        if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
+            if ss -tuln | grep -qE ":$custom_port\b"; then
+                red "该端口已被占用，请重新输入！"
+                continue
+            fi
+            xray_xhttp_reality=$custom_port
+            break
+        else
+            red "输入错误！请输入有效的端口号 (100-65535)。"
+        fi
+    done
+    yellow "正在配置  ..."
+    mkdir -p /etc/xray/conf
+    cat > /etc/xray/conf/xhttp-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "listen": "::",
+      "port": $xray_xhttp_reality,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.iij.ad.jp:443",
+          "xver": 0,
+          "serverNames": [
+            "www.iij.ad.jp"
+          ],
+          "privateKey": "$private_key",
+          "shortIds": [
+            "$short_id"
+          ]
+        },
+        "xhttpSettings": {
+          "path": "/xhttp",
+          "mode": "auto"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+    allow_port $xray_xhttp_reality/tcp > /dev/null 2>&1
+    node_remark="${isp}_xray_vless_xhttp_reality"
+    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
+    if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+    fi
+    echo "$url" >> "/etc/sing-box/url.txt"
+    echo "" >> "/etc/sing-box/url.txt"
+    base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+    restart_xray
+    green "==============================================="
+    green " Xray VLESS XHTTP Reality 节点已添加!"
+    green " 节点链接: $url"
+    green "==============================================="
+    ;;
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
@@ -4639,6 +4720,36 @@ EOF
             red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
         fi
         ;;
+		61)
+    target="_xray_vless_xhttp_reality"
+    target_conf="/etc/xray/conf/xhttp-reality.json"
+    if [ -f "$target_conf" ]; then
+        xray_xhttp_reality=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
+        if [ -n "$xray_xhttp_reality" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$xray_xhttp_reality" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
+        fi
+        rm -f "$target_conf"
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            sed -i "/${target}/d" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_xray
+        green "==============================================="
+        green " Xray VLESS XHTTP Reality 节点已移除!"
+        green "==============================================="
+    else
+        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    fi
+    ;;
             0) break ;;
             *) red "无效选项"; sleep 1; continue ;;
         esac       
