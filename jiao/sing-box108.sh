@@ -889,6 +889,7 @@ issue_cf_dns_cert() {
     skyblue "请选择证书域名模式："
     echo "  1) 直接使用 $zone_domain"
     echo "  2) 在 $zone_domain 前添加前缀"
+	echo "  3) 申请泛域名证书"
     echo "=========================================="
     local mode
     reading "请输入数字 [1-2]: " mode
@@ -913,6 +914,33 @@ issue_cf_dns_cert() {
             fi
             cert_domain="${prefix}.${zone_domain}"
             ;;
+		3)
+    local wildcard_prefix
+    reading "请输入泛域名，例如 * 或 *.ab: " wildcard_prefix
+    wildcard_prefix=$(echo "$wildcard_prefix" | tr -d '[:space:]')
+    [[ -z "$wildcard_prefix" ]] && {
+        red "泛域名不能为空！"
+        return 1
+    }
+    if [[ "$wildcard_prefix" == "*" ]]; then
+        cert_domain="*.${zone_domain}"
+    elif [[ "$wildcard_prefix" == \*.* ]]; then
+        wildcard_prefix="${wildcard_prefix#*.}"
+        if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+            red "泛域名格式无效！"
+            red "只允许字母、数字、. 和 -"
+            return 1
+        fi
+        cert_domain="*.${wildcard_prefix}.${zone_domain}"
+    else
+        if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+            red "泛域名格式无效！"
+            red "只允许字母、数字、. 和 -"
+            return 1
+        fi
+        cert_domain="*.${wildcard_prefix}.${zone_domain}"
+    fi
+    ;;
         *)
             red "无效的选择！"
             return 1
@@ -1107,6 +1135,7 @@ issue_cf_token_cert() {
     skyblue "请选择证书域名模式："
     echo "  1) 直接使用 $zone_domain"
     echo "  2) 在 $zone_domain 前添加前缀"
+	echo "  3) 申请泛域名证书"
     echo "=========================================="
     local mode
     reading "请输入数字 [1-2]: " mode
@@ -1131,6 +1160,33 @@ issue_cf_token_cert() {
             fi
             cert_domain="${prefix}.${zone_domain}"
             ;;
+		3)
+    local wildcard_prefix
+    reading "请输入泛域名，例如 * 或 *.ab: " wildcard_prefix
+    wildcard_prefix=$(echo "$wildcard_prefix" | tr -d '[:space:]')
+    [[ -z "$wildcard_prefix" ]] && {
+        red "泛域名不能为空！"
+        return 1
+    }
+    if [[ "$wildcard_prefix" == "*" ]]; then
+        cert_domain="*.${zone_domain}"
+    elif [[ "$wildcard_prefix" == \*.* ]]; then
+        wildcard_prefix="${wildcard_prefix#*.}"
+        if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+            red "泛域名格式无效！"
+            red "只允许字母、数字、. 和 -"
+            return 1
+        fi
+        cert_domain="*.${wildcard_prefix}.${zone_domain}"
+    else
+        if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+            red "泛域名格式无效！"
+            red "只允许字母、数字、. 和 -"
+            return 1
+        fi
+        cert_domain="*.${wildcard_prefix}.${zone_domain}"
+    fi
+    ;;
         *)
             red "无效的选择！"
             return 1
