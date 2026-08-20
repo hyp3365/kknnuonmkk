@@ -546,7 +546,7 @@ cf_delete_tunnel() {
 }
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
-    local tunnel_name tunnel_data tunnel_id tunnel_token zones zone_count choice
+    local tunnel_name tunnel_data tunnel_id tunnel_token zones choice
     reading "请输入 Tunnel 名称: " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr -d '[:space:]')
     [[ -z "$tunnel_name" ]] && {
@@ -567,7 +567,7 @@ cf_create_tunnel() {
         red "获取 Tunnel Token 失败！"
         return 1
     fi
-    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)"')
+    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
         return 1
@@ -578,17 +578,24 @@ cf_create_tunnel() {
     local i=1
     local zone_name
     local zone_id
+    local account_id
     declare -a zone_names
     declare -a zone_ids
-    while IFS='|' read -r zone_name zone_id; do
-        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+    declare -a account_ids
+    while IFS='|' read -r zone_name zone_id account_id; do
+        [[ -z "$zone_name" || -z "$zone_id" || -z "$account_id" ]] && continue
         echo "  $i) $zone_name"
         zone_names[$i]="$zone_name"
         zone_ids[$i]="$zone_id"
+        account_ids[$i]="$account_id"
         ((i++))
     done <<< "$zones"
     echo "=========================================="
     local total=$((i - 1))
+    [[ "$total" -lt 1 ]] && {
+        red "没有可用的 Cloudflare 域名！"
+        return 1
+    }
     reading "请输入选择 [1-$total]: " choice
     if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
         red "无效选择！"
@@ -596,10 +603,18 @@ cf_create_tunnel() {
     fi
     local zone_domain="${zone_names[$choice]}"
     local selected_zone_id="${zone_ids[$choice]}"
+    CF_ACCOUNT_ID="${account_ids[$choice]}"
     local hostname
-    reading "请输入 Tunnel 域名（留空使用 ${zone_domain}）: " hostname
+    reading "请输入 Tunnel 域名: " hostname
     hostname=$(echo "$hostname" | tr -d '[:space:]')
-    [[ -z "$hostname" ]] && hostname="$zone_domain"
+    [[ -z "$hostname" ]] && {
+        red "Tunnel 域名不能为空！"
+        return 1
+    }
+    if [[ "$hostname" != "$zone_domain" && "$hostname" != *".$zone_domain" ]]; then
+        red "Tunnel 域名必须属于 $zone_domain"
+        return 1
+    fi
     local ingress_data
     ingress_data=$(jq -n \
         --arg hostname "$hostname" \
@@ -615,29 +630,35 @@ cf_create_tunnel() {
                 ]
             }
         }')
-    if [[ "$(cf_call PUT "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" "$ingress_data" 2>/dev/null | jq -r '.success // false')" != "true" ]]; then
+    local config_response
+    config_response=$(cf_call PUT "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" "$ingress_data" 2>/dev/null)
+    if [[ "$(echo "$config_response" | jq -r '.success // false')" != "true" ]]; then
         red "Tunnel 配置失败！"
+        echo "$config_response" | jq -r '.errors[]?.message // empty'
         return 1
     fi
-    local tunnel_dir="/etc/sing-box"
-    mkdir -p "$tunnel_dir"
-    cat > "${tunnel_dir}/tunnel.yml" << EOF
-tunnel: $tunnel_id
-protocol: http2
-ingress:
-  - hostname: $hostname
-    service: http://localhost:8001
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-EOF
-    cat > "${tunnel_dir}/tunnel.json" << EOF
-{
-  "tunnel": "$tunnel_id",
-  "token": "$tunnel_token"
-}
-EOF
-    chmod 600 "${tunnel_dir}/tunnel.json"
+    local cname_target="${tunnel_id}.cfargotunnel.com"
+    local dns_response
+    dns_response=$(cf_call GET "/zones/${selected_zone_id}/dns_records?type=CNAME&name=${hostname}" 2>/dev/null)
+    local dns_id
+    dns_id=$(echo "$dns_response" | jq -r '.result[0].id // empty')
+    local dns_payload
+    dns_payload=$(jq -n \
+        --arg name "$hostname" \
+        --arg content "$cname_target" \
+        '{type:"CNAME",name:$name,content:$content,proxied:true,ttl:1}')
+    if [[ -n "$dns_id" ]]; then
+        cf_call PUT "/zones/${selected_zone_id}/dns_records/${dns_id}" "$dns_payload" >/dev/null 2>&1
+    else
+        if ! cf_call POST "/zones/${selected_zone_id}/dns_records" "$dns_payload" >/dev/null 2>&1; then
+            red "Tunnel DNS 记录创建失败！"
+            return 1
+        fi
+    fi
+    ArgoDomain="$hostname"
+    argo_auth="$tunnel_token"
+    export ArgoDomain
+    export argo_auth
     green "Cloudflare Tunnel 创建成功！"
     green "Tunnel 名称: $tunnel_name"
     green "Tunnel ID: $tunnel_id"
@@ -6171,9 +6192,59 @@ manage_argo() {
             fi
          ;; 
         4)
-          clear
-          cf_tunnel_manager
-          ;;
+    clear
+    if ! cf_create_tunnel; then
+        return 1
+    fi
+    argo_domain="$CF_TUNNEL_DOMAIN"
+    ArgoDomain="$argo_domain"
+    argo_auth="$CF_TUNNEL_TOKEN"
+    if [[ -z "$argo_domain" || -z "$argo_auth" ]]; then
+        red "获取 Cloudflare Tunnel 信息失败！"
+        return 1
+    fi
+    if [[ $argo_auth =~ TunnelSecret ]]; then
+        echo $argo_auth > ${work_dir}/tunnel.json
+        cat > ${work_dir}/tunnel.yml << EOF
+tunnel: $(cut -d\" -f12 <<< "$argo_auth")
+credentials-file: ${work_dir}/tunnel.json
+protocol: http2
+ingress:
+  - hostname: $ArgoDomain
+    service: http://localhost:8001
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+EOF
+        if command_exists rc-service 2>/dev/null; then
+            sed -i '/^command_args=/c\command_args="-c '\''/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\''"' /etc/init.d/argo
+        else
+            sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"' /etc/systemd/system/argo.service
+        fi
+        restart_argo
+        sleep 1
+        change_argo_domain
+        systemctl stop argo-watchdog &>/dev/null
+        systemctl disable argo-watchdog &>/dev/null
+        systemctl daemon-reload &>/dev/null
+    elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
+        real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')
+        if command_exists rc-service 2>/dev/null; then
+            sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
+        else
+            sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
+        fi
+        restart_argo
+        sleep 1
+        change_argo_domain
+        systemctl stop argo-watchdog &>/dev/null
+        systemctl disable argo-watchdog &>/dev/null
+        systemctl daemon-reload &>/dev/null
+    else
+        yellow "你输入的argo域名或token不匹配，请重新输入"
+        manage_argo
+    fi
+    ;;
         5)
             clear
             if command_exists rc-service 2>/dev/null; then
