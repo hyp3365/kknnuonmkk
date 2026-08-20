@@ -473,6 +473,238 @@ set_domain_origin_port() {
     return 1
 }
 
+# ── 查看 Cloudflare Tunnel ──
+cf_list_tunnels() {
+    local tunnels
+    tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
+    if [[ -z "$tunnels" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
+        return 1
+    fi
+    if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
+        echo "$tunnels" | jq -r '.errors[]?.message // empty'
+        return 1
+    fi
+    local count
+    count=$(echo "$tunnels" | jq '.result | length')
+    if [[ "$count" -eq 0 ]]; then
+        yellow "暂无 Cloudflare Tunnel。"
+        return 0
+    fi
+    echo "=========================================="
+    skyblue "Cloudflare Tunnel 列表"
+    echo "=========================================="
+    echo "$tunnels" | jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"' |
+    while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
+        echo "名称: $tunnel_name"
+        echo "ID: $tunnel_id"
+        echo "状态: $tunnel_status"
+        echo "------------------------------------------"
+    done
+}
+# ── 删除 Cloudflare Tunnel ──
+cf_delete_tunnel() {
+    local tunnels count choice
+    tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
+    if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
+        return 1
+    fi
+    count=$(echo "$tunnels" | jq '.result | length')
+    if [[ "$count" -eq 0 ]]; then
+        yellow "暂无 Cloudflare Tunnel。"
+        return 0
+    fi
+    echo "=========================================="
+    skyblue "请选择要删除的 Cloudflare Tunnel："
+    echo "=========================================="
+    local i=1
+    local tunnel_id
+    local tunnel_name
+    declare -a tunnel_ids
+    while IFS='|' read -r tunnel_id tunnel_name; do
+        [[ -z "$tunnel_id" || -z "$tunnel_name" ]] && continue
+        echo "  $i) $tunnel_name"
+        tunnel_ids[$i]="$tunnel_id"
+        ((i++))
+    done < <(echo "$tunnels" | jq -r '.result[] | "\(.id)|\(.name)"')
+    echo "=========================================="
+    local total=$((i - 1))
+    reading "请输入选择 [1-$total]: " choice
+    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+        red "无效选择！"
+        return 1
+    fi
+    tunnel_id="${tunnel_ids[$choice]}"
+    if [[ "$(cf_call DELETE "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null | jq -r '.success // false')" == "true" ]]; then
+        green "Cloudflare Tunnel 删除成功！"
+    else
+        red "Cloudflare Tunnel 删除失败！"
+        return 1
+    fi
+}
+# ── 创建 Cloudflare Tunnel ──
+cf_create_tunnel() {
+    local tunnel_name tunnel_data tunnel_id tunnel_token zones zone_count choice
+    reading "请输入 Tunnel 名称: " tunnel_name
+    tunnel_name=$(echo "$tunnel_name" | tr -d '[:space:]')
+    [[ -z "$tunnel_name" ]] && {
+        red "Tunnel 名称不能为空！"
+        return 1
+    }
+    tunnel_data=$(jq -n --arg name "$tunnel_name" '{name:$name,config_src:"cloudflare"}')
+    local create_response
+    create_response=$(cf_call POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" "$tunnel_data" 2>/dev/null)
+    if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
+        red "Cloudflare Tunnel 创建失败！"
+        echo "$create_response" | jq -r '.errors[]?.message // empty'
+        return 1
+    fi
+    tunnel_id=$(echo "$create_response" | jq -r '.result.id')
+    tunnel_token=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/token" 2>/dev/null | jq -r '.result // empty')
+    if [[ -z "$tunnel_token" || "$tunnel_token" == "null" ]]; then
+        red "获取 Tunnel Token 失败！"
+        return 1
+    fi
+    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)"')
+    if [[ -z "$zones" ]]; then
+        red "没有找到 Cloudflare 托管域名！"
+        return 1
+    fi
+    echo "=========================================="
+    skyblue "请选择 Tunnel 使用的 Cloudflare 域名："
+    echo "=========================================="
+    local i=1
+    local zone_name
+    local zone_id
+    declare -a zone_names
+    declare -a zone_ids
+    while IFS='|' read -r zone_name zone_id; do
+        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+        echo "  $i) $zone_name"
+        zone_names[$i]="$zone_name"
+        zone_ids[$i]="$zone_id"
+        ((i++))
+    done <<< "$zones"
+    echo "=========================================="
+    local total=$((i - 1))
+    reading "请输入选择 [1-$total]: " choice
+    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+        red "无效选择！"
+        return 1
+    fi
+    local zone_domain="${zone_names[$choice]}"
+    local selected_zone_id="${zone_ids[$choice]}"
+    local hostname
+    reading "请输入 Tunnel 域名（留空使用 ${zone_domain}）: " hostname
+    hostname=$(echo "$hostname" | tr -d '[:space:]')
+    [[ -z "$hostname" ]] && hostname="$zone_domain"
+    local ingress_data
+    ingress_data=$(jq -n \
+        --arg hostname "$hostname" \
+        '{
+            config:{
+                ingress:[
+                    {
+                        hostname:$hostname,
+                        service:"http://localhost:8001",
+                        originRequest:{noTLSVerify:true}
+                    },
+                    {service:"http_status:404"}
+                ]
+            }
+        }')
+    if [[ "$(cf_call PUT "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" "$ingress_data" 2>/dev/null | jq -r '.success // false')" != "true" ]]; then
+        red "Tunnel 配置失败！"
+        return 1
+    fi
+    local tunnel_dir="/etc/sing-box"
+    mkdir -p "$tunnel_dir"
+    cat > "${tunnel_dir}/tunnel.yml" << EOF
+tunnel: $tunnel_id
+protocol: http2
+ingress:
+  - hostname: $hostname
+    service: http://localhost:8001
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+EOF
+    cat > "${tunnel_dir}/tunnel.json" << EOF
+{
+  "tunnel": "$tunnel_id",
+  "token": "$tunnel_token"
+}
+EOF
+    chmod 600 "${tunnel_dir}/tunnel.json"
+    green "Cloudflare Tunnel 创建成功！"
+    green "Tunnel 名称: $tunnel_name"
+    green "Tunnel ID: $tunnel_id"
+    green "域名: $hostname"
+}
+# ── Cloudflare Tunnel 管理 ──
+cf_tunnel_manager() {
+    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        echo "请选择 Cloudflare 验证方式："
+        echo "1) API Token"
+        echo "2) Global API Key"
+        local cf_type
+        reading "请输入选择 [1-2]: " cf_type
+        case "$cf_type" in
+            1)
+                reading "请输入 Cloudflare API Token: " cf_token
+                cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+                [[ -z "$cf_token" ]] && return 1
+                export CF_TOKEN="$cf_token"
+                unset CF_EMAIL CF_KEY
+                ;;
+            2)
+                reading "请输入 Cloudflare 登录邮箱: " cf_email
+                reading "请输入 Cloudflare Global API Key: " cf_key
+                cf_email=$(echo "$cf_email" | tr -d '[:space:]')
+                cf_key=$(echo "$cf_key" | tr -d '[:space:]')
+                [[ -z "$cf_email" || -z "$cf_key" ]] && return 1
+                export CF_EMAIL="$cf_email"
+                export CF_KEY="$cf_key"
+                unset CF_TOKEN
+                ;;
+            *)
+                red "无效选择！"
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -z "${CF_ACCOUNT_ID:-}" ]]; then
+        local account_response
+        account_response=$(cf_call GET "/accounts?per_page=100" 2>/dev/null)
+        CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
+        [[ -z "$CF_ACCOUNT_ID" ]] && {
+            red "获取 Cloudflare Account ID 失败！"
+            return 1
+        }
+    fi
+    while true; do
+        echo "=========================================="
+        echo "        Cloudflare Tunnel 管理"
+        echo "=========================================="
+        echo "  1) 查看 Tunnel"
+        echo "  2) 新建 Tunnel"
+        echo "  3) 删除 Tunnel"
+        echo "  0) 返回"
+        echo "=========================================="
+        local choice
+        reading "请输入选择 [0-3]: " choice
+        case "$choice" in
+            1) cf_list_tunnels ;;
+            2) cf_create_tunnel ;;
+            3) cf_delete_tunnel ;;
+            0) return 0 ;;
+            *) red "无效选择！" ;;
+        esac
+    done
+}
+
 # 查看已申请证书
 view_certs() {
     clear
@@ -5939,56 +6171,9 @@ manage_argo() {
             fi
          ;; 
         4)
-            clear
-            yellow "\n固定隧道可为json或token，固定隧道端口为8001，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
-            reading "\n请输入你的argo域名: " argo_domain
-            ArgoDomain=$argo_domain
-            reading "\n请输入你的argo密钥(token或json): " argo_auth
-            if [[ $argo_auth =~ TunnelSecret ]]; then
-                echo $argo_auth > ${work_dir}/tunnel.json
-                cat > ${work_dir}/tunnel.yml << EOF
-tunnel: $(cut -d\" -f12 <<< "$argo_auth")
-credentials-file: ${work_dir}/tunnel.json
-protocol: http2
-                                           
-ingress:
-  - hostname: $ArgoDomain
-    service: http://localhost:8001
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-EOF
-
-                if command_exists rc-service 2>/dev/null; then
-                    sed -i '/^command_args=/c\command_args="-c '\''/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\''"' /etc/init.d/argo
-                else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"' /etc/systemd/system/argo.service
-                fi
-                restart_argo
-                sleep 1 
-                change_argo_domain
-				systemctl stop argo-watchdog &>/dev/null
-                systemctl disable argo-watchdog &>/dev/null
-                systemctl daemon-reload &>/dev/null 
-				
-			elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
-                real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')        
-                if command_exists rc-service 2>/dev/null; then
-                    sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
-                else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
-                fi
-                restart_argo
-                sleep 1 
-                change_argo_domain
-                systemctl stop argo-watchdog &>/dev/null
-                systemctl disable argo-watchdog &>/dev/null
-                systemctl daemon-reload &>/dev/null  
-            else
-                yellow "你输入的argo域名或token不匹配，请重新输入"
-                manage_argo            
-            fi
-            ;; 
+          clear
+          cf_tunnel_manager
+          ;;
         5)
             clear
             if command_exists rc-service 2>/dev/null; then
