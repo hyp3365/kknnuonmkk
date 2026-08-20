@@ -481,27 +481,6 @@ set_domain_origin_port() {
     fi
     return 1
 }
-# ── Tunnel 运行时间 ──
-cf_format_runtime() {
-    local start="$1"
-    local start_ts now_ts diff days hours mins
-    start_ts=$(date -d "$start" +%s 2>/dev/null)
-    [[ -z "$start_ts" || "$start_ts" == "0" ]] && { echo "-"; return; }
-    now_ts=$(date +%s)
-    diff=$((now_ts - start_ts))
-    [[ "$diff" -lt 0 ]] && diff=0
-    days=$((diff / 86400))
-    hours=$(((diff % 86400) / 3600))
-    mins=$(((diff % 3600) / 60))
-    if [[ "$days" -gt 0 ]]; then
-        echo "${days}天${hours}小时${mins}分钟"
-    elif [[ "$hours" -gt 0 ]]; then
-        echo "${hours}小时${mins}分钟"
-    else
-        echo "${mins}分钟"
-    fi
-}
-
 # ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
     local tunnels count choice tunnel_id tunnel_name tunnel_status
