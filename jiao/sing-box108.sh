@@ -553,7 +553,9 @@ cf_list_tunnels() {
             [[ -n "$hostnames" ]] && echo "   域名: $hostnames" || echo "   域名: -"
 
             connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
-            if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+            echo "$connections" | jq
+read -p "按回车继续..."
+			if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
                 connection_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
                 if [[ "$connection_count" -gt 0 ]]; then
                     echo "   服务器IP:"
@@ -626,53 +628,26 @@ cf_tunnel_detail() {
 
     connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
 
-    clear
-    echo -e "${skyblue}==========================================${re}"
-    echo -e "${skyblue}        Tunnel 详细信息${re}"
-    echo -e "${skyblue}==========================================${re}"
-    echo "名称: $tunnel_name"
-    echo "ID: $tunnel_id"
-    echo "状态: $tunnel_status"
+   clear
+echo -e "${skyblue}==========================================${re}"
+echo -e "${skyblue}        Tunnel 详细信息${re}"
+echo -e "${skyblue}==========================================${re}"
+echo "隧道名称: $tunnel_name"
+echo "域名: ${hostnames:-"-"}"
+echo "状态: $tunnel_status"
 
-    if [[ -n "$hostnames" ]]; then
-        echo "域名:"
-        echo "$hostnames" | sed 's/^/  /'
-    else
-        echo "域名: -"
-    fi
-
-    echo "服务器:"
-    if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
-        conn_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
-        if [[ "$conn_count" -gt 0 ]]; then
-            echo "$connections" | jq -r '.result[]?.conns[]? | [(.origin_ip // "-"),(.opened_at // "-"),(.client_version // "-")] | @tsv' |
-            while IFS=$'\t' read -r origin_ip opened_at client_version; do
-                echo "  IP: $origin_ip"
-                if [[ "$opened_at" != "-" ]]; then
-                    echo "  连接时间: $(date -d "$opened_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$opened_at")"
-                    echo "  运行时间: $(cf_format_runtime "$opened_at")"
-                else
-                    echo "  连接时间: -"
-                    echo "  运行时间: -"
-                fi
-                echo "  版本: $client_version"
-            done
-        else
-            echo "  -"
-        fi
-    else
-        echo "  -"
-    fi
-
-    [[ -n "$created_at" ]] && \
-        echo "创建时间: $(date -d "$created_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$created_at")" || \
-        echo "创建时间: -"
-
-    echo -e "${skyblue}==========================================${re}"
-    echo -e "${yellow}1)${re} 删除此 Tunnel"
-    echo -e "${red}0)${re} 返回"
-    echo -e "${skyblue}==========================================${re}"
-    reading "请输入选择 [0-1]: " choice
+if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+    origin_ip=$(echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u | head -n1)
+    echo "服务器IP: ${origin_ip:-"-"}"
+else
+    echo "服务器IP: -"
+fi
+echo "运行时间: -"
+echo -e "${skyblue}==========================================${re}"
+echo -e "${yellow}1)${re} 删除此 Tunnel"
+echo -e "${red}0)${re} 返回"
+echo -e "${skyblue}==========================================${re}"
+reading "请输入选择 [0-1]: " choice
 
     case "$choice" in
         1)
