@@ -506,9 +506,18 @@ cf_list_tunnels() {
 # ── 删除 Cloudflare Tunnel ──
 cf_delete_tunnel() {
     local tunnels count choice
+    local tunnel_id tunnel_name
+    local i=1
+    local total
+    local delete_response
     tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
+    if [[ -z "$tunnels" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
+        return 1
+    fi
     if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Cloudflare Tunnel 失败！"
+        echo "$tunnels" | jq -r '.errors[]?.message // empty'
         return 1
     fi
     count=$(echo "$tunnels" | jq '.result | length')
@@ -519,30 +528,56 @@ cf_delete_tunnel() {
     echo "=========================================="
     skyblue "请选择要删除的 Cloudflare Tunnel："
     echo "=========================================="
-    local i=1
-    local tunnel_id
-    local tunnel_name
     declare -a tunnel_ids
     while IFS='|' read -r tunnel_id tunnel_name; do
         [[ -z "$tunnel_id" || -z "$tunnel_name" ]] && continue
         echo "  $i) $tunnel_name"
         tunnel_ids[$i]="$tunnel_id"
         ((i++))
-    done < <(echo "$tunnels" | jq -r '.result[] | "\(.id)|\(.name)"')
+    done < <(
+        echo "$tunnels" |
+        jq -r '.result[] | "\(.id)|\(.name)"'
+    )
     echo "=========================================="
-    local total=$((i - 1))
+    total=$((i - 1))
     reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
         red "无效选择！"
         return 1
     fi
     tunnel_id="${tunnel_ids[$choice]}"
-    if [[ "$(cf_call DELETE "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null | jq -r '.success // false')" == "true" ]]; then
-        green "Cloudflare Tunnel 删除成功！"
-    else
-        red "Cloudflare Tunnel 删除失败！"
+    if [[ -z "$tunnel_id" ]]; then
+        red "获取 Tunnel ID 失败！"
         return 1
     fi
+    echo
+    skyblue "正在删除 Tunnel..."
+    echo "Tunnel ID: $tunnel_id"
+    delete_response=$(cf_call DELETE \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
+        2>/dev/null)
+    if [[ -z "$delete_response" ]]; then
+        red "Cloudflare Tunnel 删除失败！"
+        red "Cloudflare API 没有返回任何数据。"
+        return 1
+    fi
+    if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
+        green "Cloudflare Tunnel 删除成功！"
+        return 0
+    fi
+    red "Cloudflare Tunnel 删除失败！"
+    echo "$delete_response" | jq -r '
+        .errors[]? |
+        if (.code // "") != "" then
+            "错误码: \(.code)\n错误信息: \(.message)"
+        else
+            .message // empty
+        end
+    '
+    return 1
 }
 # ── 选择 Cloudflare 验证方式 ──
 cf_select_auth() {
