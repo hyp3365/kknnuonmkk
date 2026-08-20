@@ -4166,14 +4166,12 @@ fi
 
     echo ""
     echo "请选择 Cloudflare 验证方式："
-	echo "1) 使用服务器已保存的 Token"
-    echo "2) Cloudflare API Token"
-    echo "3) Cloudflare Global API Key (邮箱 + Key)"
+    echo "1) Cloudflare API Token"
+    echo "2) Cloudflare Global API Key (邮箱 + Key)"
     read -rp "请输入选择 [1-2]: " cf_type
 
     case "$cf_type" in
-	    1) select_cf_saved_token || return 1 ;;
-        2)
+        1)
             read -rp "请输入你的 Cloudflare API Token: " cf_token
             cf_token=$(echo "$cf_token" | tr -d '[:space:]')
             [[ -z "$cf_token" ]] && {
@@ -4183,7 +4181,7 @@ fi
             export CF_TOKEN="$cf_token"
             unset CF_EMAIL CF_KEY
             ;;
-        3)
+        2)
             read -rp "请输入 Cloudflare 登录邮箱: " cf_email
             read -rp "请输入 Cloudflare Global API Key: " cf_key
             cf_email=$(echo "$cf_email" | tr -d '[:space:]')
@@ -5877,170 +5875,6 @@ EOF
     echo
 }
 
-# Cloudflare Token 管理
-manage_cf_tokens() {
-    local token_file="/etc/cloudflare/tokens"
-    mkdir -p "/etc/cloudflare"
-    touch "$token_file"
-    chmod 700 "/etc/cloudflare"
-    chmod 600 "$token_file"
-    while true; do
-        echo "=========================================="
-        echo "          Cloudflare Token 管理"
-        echo "=========================================="
-        echo "  1) 添加 Token"
-        echo "  2) 查看 Token"
-        echo "  3) 删除 Token"
-        echo "  0) 返回"
-        echo "=========================================="
-        local choice
-        reading "请输入选择 [0-3]: " choice
-        case "$choice" in
-            1)
-                local remark
-                local token
-                reading "请输入 Token 备注: " remark
-                remark=$(echo "$remark" | tr -d '\r\n')
-                [[ -z "$remark" ]] && {
-                    red "备注不能为空！"
-                    continue
-                }
-                reading "请输入 Cloudflare API Token: " token
-                token=$(echo "$token" | tr -d '[:space:]')
-                [[ -z "$token" ]] && {
-                    red "Token 不能为空！"
-                    continue
-                }
-                if grep -Fq "|${token}" "$token_file" 2>/dev/null; then
-                    red "该 Token 已经存在！"
-                    continue
-                fi
-                printf '%s|%s\n' "$remark" "$token" >> "$token_file"
-                chmod 600 "$token_file"
-                green "Token 添加成功！"
-                ;;
-            2)
-                if [[ ! -s "$token_file" ]]; then
-                    yellow "暂无保存的 Token。"
-                    continue
-                fi
-                echo "=========================================="
-                skyblue "已保存的 Cloudflare Token："
-                echo "=========================================="
-                local i=1
-                local remark
-                local token
-                while IFS='|' read -r remark token; do
-                    [[ -z "$remark" || -z "$token" ]] && continue
-                    echo "  $i) $remark"
-                    echo "     Token: $token"
-                    ((i++))
-                done < "$token_file"
-                echo "=========================================="
-                ;;
-            3)
-                if [[ ! -s "$token_file" ]]; then
-                    yellow "暂无保存的 Token。"
-                    continue
-                fi
-                echo "=========================================="
-                skyblue "请选择要删除的 Token："
-                echo "=========================================="
-                local i=1
-                local remark
-                local token
-                declare -a token_remarks
-                declare -a token_values
-                while IFS='|' read -r remark token; do
-                    [[ -z "$remark" || -z "$token" ]] && continue
-                    echo "  $i) $remark"
-                    token_remarks[$i]="$remark"
-                    token_values[$i]="$token"
-                    ((i++))
-                done < "$token_file"
-                echo "=========================================="
-                local total=$((i - 1))
-                if [[ "$total" -lt 1 ]]; then
-                    yellow "暂无保存的 Token。"
-                    continue
-                fi
-                local delete_choice
-                reading "请输入要删除的序号 [1-$total]: " delete_choice
-                if [[ -z "$delete_choice" ||
-                      ! "$delete_choice" =~ ^[0-9]+$ ||
-                      "$delete_choice" -lt 1 ||
-                      "$delete_choice" -gt "$total" ]]; then
-                    red "无效的选择！"
-                    continue
-                fi
-                local delete_token="${token_values[$delete_choice]}"
-                if grep -Fv "|${delete_token}" "$token_file" > "${token_file}.tmp"; then
-                    mv "${token_file}.tmp" "$token_file"
-                    chmod 600 "$token_file"
-                    green "Token 删除成功！"
-                else
-                    rm -f "${token_file}.tmp"
-                    red "Token 删除失败！"
-                fi
-                ;;
-            0)
-                return 0
-                ;;
-            *)
-                red "无效选择！"
-                ;;
-        esac
-    done
-}
-
-# 选择服务器已保存的 Cloudflare API Token
-select_cf_saved_token() {
-    local token_file="/etc/cloudflare/tokens"
-    if [[ ! -s "$token_file" ]]; then
-        red "服务器上没有保存的 Token！"
-        return 1
-    fi
-    echo "=========================================="
-    skyblue "请选择已保存的 Cloudflare Token："
-    echo "=========================================="
-    local token_i=1
-    local token_remark
-    local token_value
-    declare -a saved_token_remarks
-    declare -a saved_token_values
-    while IFS='|' read -r token_remark token_value; do
-        [[ -z "$token_remark" || -z "$token_value" ]] && continue
-        echo "  $token_i) $token_remark"
-        saved_token_remarks[$token_i]="$token_remark"
-        saved_token_values[$token_i]="$token_value"
-        ((token_i++))
-    done < "$token_file"
-    echo "=========================================="
-    local token_total=$((token_i - 1))
-    if [[ "$token_total" -lt 1 ]]; then
-        red "服务器上没有可用的 Token！"
-        return 1
-    fi
-    local token_choice
-    reading "请输入选择 [1-$token_total]: " token_choice
-    if [[ -z "$token_choice" ||
-          ! "$token_choice" =~ ^[0-9]+$ ||
-          "$token_choice" -lt 1 ||
-          "$token_choice" -gt "$token_total" ]]; then
-        red "无效选择！"
-        return 1
-    fi
-    cf_token="${saved_token_values[$token_choice]}"
-    cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-    [[ -z "$cf_token" ]] && {
-        red "Token 不能为空！"
-        return 1
-    }
-    export CF_TOKEN="$cf_token"
-    unset CF_EMAIL CF_KEY
-    return 0
-}
-
 # singbox 管理
 manage_singbox() {
     # 检查sing-box状态
@@ -7338,7 +7172,6 @@ menu() {
    red    "14. 本机信息"
    red    "15. WARP分流管理"
    red    "16. xray管理"
-   red    "17. token"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -7401,7 +7234,6 @@ while true; do
 		14) vps_s ;;
 		15)  warp_manage ;;
 		16)  manage_xray ;;
-		17)  manage_cf_tokens ;;
 		0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 16" ;;
    esac
