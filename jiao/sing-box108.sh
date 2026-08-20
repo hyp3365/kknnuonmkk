@@ -2314,6 +2314,30 @@ else
 fi
 }
 
+# 重启 xray
+restart_xray() {
+if [ ${check_xray} -eq 0 ]; then
+   yellow "\n正在重启 ${serverxray_name} 服务\n"
+    if [ -f /etc/alpine-release ]; then
+        rc-service ${serverxray_name} restart
+    else
+        systemctl daemon-reload
+        systemctl restart "${serverxray_name}"
+    fi
+    if [ $? -eq 0 ]; then
+        green "${serverxray_name} 服务已成功重启\n"
+    else
+        red "${serverxray_name} 服务重启失败\n"
+    fi
+elif [ ${check_xray} -eq 1 ]; then
+    yellow "xray 未运行\n"
+    sleep 1
+else
+    yellow "xray 尚未安装！\n"
+    sleep 1
+fi
+}
+
 # 卸载 xray
 uninstall_xray() {
    reading "确定要卸载 xray 吗? (y/n): " choice
@@ -2367,6 +2391,8 @@ manage_xray() {
         skyblue "-------------------"
         green "4. 停止xray服务"
         skyblue "-------------------"
+		green "5. 重启xray服务"
+        skyblue "-------------------"
         purple "0. 返回主菜单"
         skyblue "------------"
         reading "\n请输入选择: " choice
@@ -2402,6 +2428,10 @@ manage_xray() {
                 ;;
             4)
                 stop_xray
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+			5)
+                restart_xray
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             0)
@@ -4339,7 +4369,7 @@ EOF
     echo "$url" >> "/etc/sing-box/url.txt"
     echo "" >> "/etc/sing-box/url.txt"
     base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-	start_xray
+	restart_xray
     green "==============================================="
     green " Xray VLESS XHTTP Reality 节点已添加!"
     green " 节点链接: $url"
