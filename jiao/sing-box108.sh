@@ -2290,30 +2290,6 @@ else
 fi
 }
 
-# 重启 xray
-restart_xray() {
-if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在重启 ${serverxray_name} 服务\n"
-    if [ -f /etc/alpine-release ]; then
-        rc-service ${serverxray_name} restart
-    else
-        systemctl daemon-reload
-        systemctl restart "${serverxray_name}"
-    fi
-    if [ $? -eq 0 ]; then
-        green "${serverxray_name} 服务已成功重启\n"
-    else
-        red "${serverxray_name} 服务重启失败\n"
-    fi
-elif [ ${check_xray} -eq 1 ]; then
-    yellow "xray 未运行\n"
-    sleep 1
-else
-    yellow "xray 尚未安装！\n"
-    sleep 1
-fi
-}
-
 # 卸载 xray
 uninstall_xray() {
    reading "确定要卸载 xray 吗? (y/n): " choice
@@ -2349,7 +2325,6 @@ update_xray_status() {
         0) check_xray_status="运行中" ;;
         1) check_xray_status="未运行" ;;
         2) check_xray_status="未安装" ;;
-        *) check_xray_status="未知" ;;
     esac
 }
   
@@ -2367,8 +2342,6 @@ manage_xray() {
         green "3. 启动xray服务"
         skyblue "-------------------"
         green "4. 停止xray服务"
-        skyblue "-------------------"
-        green "5. 重启xray服务"
         skyblue "-------------------"
         purple "0. 返回主菜单"
         skyblue "------------"
@@ -2405,10 +2378,6 @@ manage_xray() {
                 ;;
             4)
                 stop_xray
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            5)
-                restart_xray
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             0)
@@ -6962,6 +6931,7 @@ trap 'red "已取消操作"; exit' INT
 
 # 主循环
 while true; do
+update_xray_status
    menu
    case "${choice}" in
         1)  
