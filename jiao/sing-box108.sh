@@ -22,18 +22,24 @@ skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
 
 generate_vars() {
-  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
-      isp=$(printf $(echo "$cc" | awk '{
-          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-          i1 = index(chars, substr($0, 1, 1))
-          i2 = index(chars, substr($0, 2, 1))
-          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
-      }'))
-  else
-      isp="🌐" 
-  fi     
+    local cc=""
+    cc=$(curl -4 -sS --max-time 5 "https://api.ip.sb/geoip" 2>/dev/null |
+        jq -r '.country_code // empty' 2>/dev/null)
+    if ! echo "$cc" | grep -qE '^[A-Za-z]{2}$'; then
+        cc=$(curl -4 -sS --max-time 5 "https://ipapi.co/json/" 2>/dev/null |
+            jq -r '.country_code // empty' 2>/dev/null)
+    fi
+    cc=$(printf '%s' "$cc" | tr '[:lower:]' '[:upper:]')
+    if echo "$cc" | grep -qE '^[A-Z]{2}$'; then
+        isp=$(printf '%s' "$cc" | awk '{
+            chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            i1 = index(chars, substr($0, 1, 1))
+            i2 = index(chars, substr($0, 2, 1))
+            printf "\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2
+        }' | xargs printf)
+    else
+        isp="🌐"
+    fi
 }
 
 # 用于存放已分配端口的数组
