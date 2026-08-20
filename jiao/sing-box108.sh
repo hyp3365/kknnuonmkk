@@ -2320,12 +2320,11 @@ uninstall_xray() {
 
 update_xray_status() {
     check_xray >/dev/null 2>&1
-    xray_status=$?
-    case "${xray_status}" in
+    check_xray=$?
+    case "${check_xray}" in
         0) check_xray_status="running" ;;
         1) check_xray_status="not running" ;;
         2) check_xray_status="not installed" ;;
-        *) check_xray_status="unknown" ;;
     esac
 }
   
