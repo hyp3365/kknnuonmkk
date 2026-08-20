@@ -358,20 +358,31 @@ async function addRule() {
     });
 }
 
-function updateRule(idx) {
-    let val = document.getElementById(`rule-sel-${idx}`).value;
-    globalData.rules[idx].outbound = val;
-    renderTable();
-    let req = fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&` + new Date().getTime());
-    handleBackgroundReq(req);
+async function updateRule(idx) {
+    const btn = event.currentTarget;
+    const val = document.getElementById(`rule-sel-${idx}`).value;
+
+    await runButtonAction(btn, async () => {
+        return fetch(
+            `/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`
+        );
+    }, async () => {
+        globalData.rules[idx].outbound = val;
+        renderTable();
+    });
 }
 
-function deleteRule(idx) {
+async function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
-    globalData.rules.splice(idx, 1);
-    renderTable();
-    let req = fetch(`/api/del_rule?index=${idx}&` + new Date().getTime());
-    handleBackgroundReq(req);
+    const btn = event.currentTarget;
+    await runButtonAction(btn, async () => {
+        return fetch(
+            `/api/del_rule?index=${idx}&t=${Date.now()}`
+        );
+    }, async () => {
+        globalData.rules.splice(idx, 1);
+        renderTable();
+    });
 }
 
 function saveEdit() {
