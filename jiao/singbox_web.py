@@ -327,29 +327,35 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-function addRule() {
+async function addRule() {
+    const btn = document.getElementById('add-btn');
+
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
-    let val = type === 'domain_suffix' ? document.getElementById('new-domain-value').value.trim() : document.getElementById('new-ruleset-select').value;
+    let val = type === 'domain_suffix'
+        ? document.getElementById('new-domain-value').value.trim()
+        : document.getElementById('new-ruleset-select').value;
+
     let inboundsSelect = document.getElementById('new-rule-inbounds');
-    let selectedInbounds = inboundsSelect ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value) : [];
+    let selectedInbounds = inboundsSelect
+        ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value)
+        : [];
 
-    let newRuleData = {
-        type: type === "domain_suffix" && !val ? "match_all" : type,
-        values: val || "(全匹配 - 所有流量)",
-        inbounds: selectedInbounds,
-        outbound: outbound
-    };
-    globalData.rules.unshift(newRuleData);
-    renderTable();
-    document.getElementById('new-domain-value').value = '';
-
-    let req = fetch('/api/add_rule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
+    await runButtonAction(btn, async () => {
+        return fetch('/api/add_rule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: type,
+                value: val,
+                inbounds: selectedInbounds,
+                outbound: outbound
+            })
+        });
+    }, async () => {
+        await loadData();
+        document.getElementById('new-domain-value').value = '';
     });
-    handleBackgroundReq(req);
 }
 
 function updateRule(idx) {
