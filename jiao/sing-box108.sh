@@ -274,17 +274,26 @@ ip_address() {
 
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
 cf_call() {
-    local method="$1" endpoint="$2" data="${3:-}"
-    local args=(-s -f -X "$method" -H "Content-Type: application/json")
+    local method="$1"
+    local endpoint="$2"
+    local data="${3:-}"
+    local args=(
+        -sS
+        -X "$method"
+        -H "Content-Type: application/json"
+    )
     if [[ -n "${CF_TOKEN:-}" ]]; then
         args+=(-H "Authorization: Bearer $CF_TOKEN")
     else
-        args+=(-H "X-Auth-Email: $CF_EMAIL" -H "X-Auth-Key: $CF_KEY")
+        args+=(
+            -H "X-Auth-Email: $CF_EMAIL"
+            -H "X-Auth-Key: $CF_KEY"
+        )
     fi
     [[ -n "$data" ]] && args+=(-d "$data")
-    curl "${args[@]}" "https://api.cloudflare.com/client/v4${endpoint}"
+    curl "${args[@]}" \
+        "https://api.cloudflare.com/client/v4${endpoint}"
 }
-
 # ── 辅助函数：获取 Zone ID  ──────
 cf_find_zone() {
     local domain="$1" zones best_name="" best_id=""
