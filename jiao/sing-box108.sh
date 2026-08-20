@@ -481,334 +481,372 @@ set_domain_origin_port() {
     fi
     return 1
 }
-# ── 查看 Cloudflare Tunnel ─
+# ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
-    local tunnels
-    local count
-    local tunnel_id tunnel_name tunnel_status
-    local status_cn
-    local dns_domain
-    local tunnel_target
-    local zones zone_id zone_name
-    local dns_response
-    tunnels=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" \
-        2>/dev/null)
-    if [[ -z "$tunnels" ]]; then
-        red "获取 Cloudflare Tunnel 失败！"
-        return 1
-    fi
-    if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
-        red "获取 Cloudflare Tunnel 失败！"
-        echo "$tunnels" | jq -r '.errors[]?.message // empty'
-        return 1
-    fi
-    count=$(echo "$tunnels" | jq '.result | length')
-    if [[ "$count" -eq 0 ]]; then
-        yellow "暂无 Cloudflare Tunnel。"
-        return 0
-    fi
-    zones=$(cf_call GET \
-        "/zones?account.id=${CF_ACCOUNT_ID}&per_page=500" \
-        2>/dev/null)
-    echo "=========================================="
-    skyblue "Cloudflare Tunnel 列表"
-    echo "=========================================="
-    while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
-        case "$tunnel_status" in
-            healthy)
-                status_cn="🟢 正常"
-                ;;
-            inactive)
-                status_cn="⚪ 未连接"
-                ;;
-            down)
-                status_cn="🔴 已断开"
-                ;;
-            degraded)
-                status_cn="🟡 异常"
-                ;;
-            *)
-                status_cn="🟡 未知 ($tunnel_status)"
-                ;;
-        esac
-        dns_domain=""
-        tunnel_target="${tunnel_id}.cfargotunnel.com"
-        if [[ "$(echo "$zones" | jq -r '.success // false')" == "true" ]]; then
-
-            while IFS='|' read -r zone_id zone_name; do
-                [[ -z "$zone_id" ]] && continue
-
-                dns_response=$(cf_call GET \
-                    "/zones/${zone_id}/dns_records?type=CNAME&content=${tunnel_target}&per_page=100" \
-                    2>/dev/null)
-
-                if [[ "$(echo "$dns_response" | jq -r '.success // false')" == "true" ]]; then
-                    dns_domain=$(echo "$dns_response" | \
-                        jq -r '.result[]? | select(.content == "'"$tunnel_target"'") | .name' | head -n1)
-
-                    if [[ -n "$dns_domain" ]]; then
-                        break
-                    fi
-                fi
-
-            done < <(
-                echo "$zones" |
-                jq -r '.result[]? | "\(.id)|\(.name)"'
-            )
-        fi
-        echo "名称: $tunnel_name"
-        echo "ID: $tunnel_id"
-        echo "状态: $status_cn"
-        if [[ -n "$dns_domain" ]]; then
-            echo "域名: $dns_domain"
-        else
-            echo "域名: 未找到对应 DNS"
-        fi
-        echo "------------------------------------------"
-    done < <(
-        echo "$tunnels" |
-        jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"'
-    )
-}
-# ── 删除 Cloudflare Tunnel ──
-cf_delete_tunnel() {
-    local tunnels count choice
-    local tunnel_id tunnel_name tunnel_status
-    local status_cn
-    local i=1
-    local total
-    local zones
-    local zone_id zone_name
-    local dns_response
-    local dns_id dns_name dns_content
-    local tunnel_target
-    local delete_response
-    local dns_delete_response
-    tunnels=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" \
-        2>/dev/null)
-    if [[ -z "$tunnels" ]]; then
-        red "获取 Cloudflare Tunnel 失败！"
-        return 1
-    fi
-    if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
-        red "获取 Cloudflare Tunnel 失败！"
-        echo "$tunnels" | jq -r '.errors[]?.message // empty'
-        return 1
-    fi
-    count=$(echo "$tunnels" | jq '.result | length')
-    if [[ "$count" -eq 0 ]]; then
-        yellow "暂无 Cloudflare Tunnel。"
-        return 0
-    fi
-    zones=$(cf_call GET \
-        "/zones?account.id=${CF_ACCOUNT_ID}&per_page=500" \
-        2>/dev/null)
-    echo "=========================================="
-    skyblue "请选择要删除的 Cloudflare Tunnel："
-    echo "=========================================="
+    local tunnels count choice tunnel_id tunnel_name tunnel_status
+    local created_at conns_active_at connections
+    local i=1 total
+    local tunnel_ids
     declare -a tunnel_ids
-    declare -a tunnel_names
-    declare -a tunnel_statuses
-    declare -a tunnel_domains
-    while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
-        [[ -z "$tunnel_id" || -z "$tunnel_name" ]] && continue
-        case "$tunnel_status" in
-            healthy)
-                status_cn="🟢 正常"
-                ;;
-            inactive)
-                status_cn="⚪ 未连接"
-                ;;
-            down)
-                status_cn="🔴 已断开"
-                ;;
-            degraded)
-                status_cn="🟡 异常"
-                ;;
-            *)
-                status_cn="🟡 未知 ($tunnel_status)"
-                ;;
-        esac
-        tunnel_target="${tunnel_id}.cfargotunnel.com"
-        dns_name=""
-        if [[ "$(echo "$zones" | jq -r '.success // false')" == "true" ]]; then
 
-            while IFS='|' read -r zone_id zone_name; do
-                [[ -z "$zone_id" ]] && continue
+    tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
 
-                dns_response=$(cf_call GET \
-                    "/zones/${zone_id}/dns_records?type=CNAME&content=${tunnel_target}&per_page=100" \
-                    2>/dev/null)
-                if [[ "$(echo "$dns_response" | jq -r '.success // false')" == "true" ]]; then
-
-                    dns_name=$(echo "$dns_response" |
-                        jq -r '.result[]? |
-                        select(.content == "'"$tunnel_target"'") |
-                        .name' | head -n1)
-
-                    if [[ -n "$dns_name" ]]; then
-                        break
-                    fi
-                fi
-            done < <(
-                echo "$zones" |
-                jq -r '.result[]? | "\(.id)|\(.name)"'
-            )
-        fi
-        echo
-        echo "  $i) $tunnel_name"
-        echo "     ID: $tunnel_id"
-        echo "     状态: $status_cn"
-
-        if [[ -n "$dns_name" ]]; then
-            echo "     域名: $dns_name"
-        else
-            echo "     域名: 未找到对应 DNS"
-        fi
-        tunnel_ids[$i]="$tunnel_id"
-        tunnel_names[$i]="$tunnel_name"
-        tunnel_statuses[$i]="$tunnel_status"
-        tunnel_domains[$i]="$dns_name"
-        ((i++))
-    done < <(
-        echo "$tunnels" |
-        jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"'
-    )
-    echo "=========================================="
-    total=$((i - 1))
-    reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效选择！"
+    if [[ -z "$tunnels" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
         return 1
     fi
-    tunnel_id="${tunnel_ids[$choice]}"
-    tunnel_name="${tunnel_names[$choice]}"
-    tunnel_status="${tunnel_statuses[$choice]}"
-    dns_name="${tunnel_domains[$choice]}"
-    if [[ -z "$tunnel_id" ]]; then
-        red "获取 Tunnel ID 失败！"
+
+    if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Cloudflare Tunnel 失败！"
+        echo "$tunnels" | jq -r '.errors[]?.message // empty'
         return 1
     fi
-    echo
-    echo "=========================================="
-    skyblue "即将删除 Cloudflare Tunnel"
-    echo "=========================================="
-    echo "名称: $tunnel_name"
-    echo "ID: $tunnel_id"
-    case "$tunnel_status" in
-        healthy)
-            echo "状态: 🟢 正常"
-            ;;
-        inactive)
-            echo "状态: ⚪ 未连接"
-            ;;
-        down)
-            echo "状态: 🔴 已断开"
-            ;;
-        degraded)
-            echo "状态: 🟡 异常"
-            ;;
-        *)
-            echo "状态: 🟡 未知 ($tunnel_status)"
-            ;;
-    esac
-    if [[ -n "$dns_name" ]]; then
-        echo "对应域名: $dns_name"
-    else
-        echo "对应域名: 未找到"
-    fi
-    echo "=========================================="
-    if [[ -n "$dns_name" ]]; then
-        yellow "删除 Tunnel 后将同时删除对应 DNS CNAME 解析。"
-    fi
-    reading "确认删除？[y/N]: " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        yellow "已取消删除。"
+
+    count=$(echo "$tunnels" | jq '.result | length')
+
+    if [[ "$count" -eq 0 ]]; then
+        yellow "暂无 Cloudflare Tunnel。"
+        reading "按回车返回..." _
         return 0
     fi
-    echo
-    skyblue "正在删除 Cloudflare Tunnel..."
-    echo "Tunnel ID: $tunnel_id"
-    delete_response=$(cf_call DELETE \
+
+    while true; do
+        clear
+        echo -e "${skyblue}==========================================${re}"
+        echo -e "${skyblue}        Cloudflare Tunnel${re}"
+        echo -e "${skyblue}==========================================${re}"
+
+        i=1
+        unset tunnel_ids
+        declare -a tunnel_ids
+
+        while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
+            [[ -z "$tunnel_id" ]] && continue
+
+            tunnel_ids[$i]="$tunnel_id"
+
+            case "$tunnel_status" in
+                healthy)
+                    tunnel_status="🟢 正常"
+                    ;;
+                degraded)
+                    tunnel_status="🟡 异常"
+                    ;;
+                down)
+                    tunnel_status="🔴 离线"
+                    ;;
+                inactive)
+                    tunnel_status="⚪ 未运行"
+                    ;;
+                *)
+                    tunnel_status="⚪ 未知"
+                    ;;
+            esac
+
+            echo -e "${green}${i})${re} ${tunnel_name}"
+            echo "   状态: $tunnel_status"
+
+            # 获取 Tunnel 配置中的域名
+            local config_data hostnames
+            config_data=$(cf_call GET \
+                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+                2>/dev/null)
+
+            hostnames=$(echo "$config_data" |
+                jq -r '.result.config.ingress[]?.hostname // empty' |
+                paste -sd ',' -)
+
+            if [[ -n "$hostnames" ]]; then
+                echo "   域名: $hostnames"
+            else
+                echo "   域名: -"
+            fi
+
+            # 获取 Tunnel 连接信息
+            connections=$(cf_call GET \
+                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" \
+                2>/dev/null)
+
+            if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+                local connection_count
+                connection_count=$(echo "$connections" |
+                    jq '[.result[]?.conns[]?] | length')
+
+                if [[ "$connection_count" -gt 0 ]]; then
+                    echo "   服务器IP:"
+                    echo "$connections" |
+                        jq -r '.result[]?.conns[]? | .origin_ip // empty' |
+                        sort -u |
+                        sed 's/^/      /'
+
+                    local active_time
+                    active_time=$(echo "$connections" |
+                        jq -r '.result[]?.conns[]? | .opened_at // empty' |
+                        sort | head -n1)
+
+                    if [[ -n "$active_time" ]]; then
+                        echo "   运行时间: $(cf_format_runtime "$active_time")"
+                    else
+                        echo "   运行时间: -"
+                    fi
+                else
+                    echo "   服务器IP: -"
+                    echo "   运行时间: -"
+                fi
+            else
+                echo "   服务器IP: -"
+                echo "   运行时间: -"
+            fi
+
+            echo "------------------------------------------"
+            ((i++))
+        done < <(
+            echo "$tunnels" |
+            jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"'
+        )
+
+        total=$((i - 1))
+
+        echo -e "${red}0)${re} 返回"
+        echo -e "${skyblue}==========================================${re}"
+        reading "请输入选择 [0-$total]: " choice
+
+        if [[ "$choice" == "0" ]]; then
+            return 0
+        fi
+
+        if [[ -z "$choice" ||
+              ! "$choice" =~ ^[0-9]+$ ||
+              "$choice" -lt 1 ||
+              "$choice" -gt "$total" ]]; then
+            red "无效选择！"
+            sleep 1
+            continue
+        fi
+
+        tunnel_id="${tunnel_ids[$choice]}"
+
+        if [[ -z "$tunnel_id" ]]; then
+            red "Tunnel ID 获取失败！"
+            sleep 1
+            continue
+        fi
+
+        cf_tunnel_detail "$tunnel_id"
+        tunnels=$(cf_call GET \
+            "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" \
+            2>/dev/null)
+    done
+}
+
+# ── Tunnel 运行时间 ──
+cf_format_runtime() {
+    local start="$1"
+    local start_ts now_ts diff days hours mins
+
+    start_ts=$(date -d "$start" +%s 2>/dev/null)
+
+    if [[ -z "$start_ts" || "$start_ts" == "0" ]]; then
+        echo "-"
+        return
+    fi
+
+    now_ts=$(date +%s)
+    diff=$((now_ts - start_ts))
+
+    [[ "$diff" -lt 0 ]] && diff=0
+
+    days=$((diff / 86400))
+    hours=$(((diff % 86400) / 3600))
+    mins=$(((diff % 3600) / 60))
+
+    if [[ "$days" -gt 0 ]]; then
+        echo "${days}天${hours}小时${mins}分钟"
+    elif [[ "$hours" -gt 0 ]]; then
+        echo "${hours}小时${mins}分钟"
+    else
+        echo "${mins}分钟"
+    fi
+}
+
+# ── Tunnel 详细信息 / 删除 ──
+cf_tunnel_detail() {
+    local tunnel_id="$1"
+    local tunnel_data tunnel_name tunnel_status created_at
+    local connections config_data hostnames choice
+    local delete_response
+    local dns_name dns_zone_id dns_record
+    local i=1
+
+    tunnel_data=$(cf_call GET \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
         2>/dev/null)
-    if [[ -z "$delete_response" ]]; then
-        green "Cloudflare Tunnel 删除成功！"
-    elif [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
-        green "Cloudflare Tunnel 删除成功！"
-    else
-        red "Cloudflare Tunnel 删除失败！"
-        echo "$delete_response" | jq -r '
-            .errors[]? |
-            if (.code // "") != "" then
-                "错误码: \(.code)\n错误信息: \(.message)"
-            else
-                .message // empty
-            end
-        '
-        return 1
-    fi
-    if [[ -n "$dns_name" ]]; then
-        green "正在删除对应 DNS 解析..."
-        tunnel_target="${tunnel_id}.cfargotunnel.com"
-        dns_found=false
-        if [[ "$(echo "$zones" | jq -r '.success // false')" == "true" ]]; then
-            while IFS='|' read -r zone_id zone_name; do
-                [[ -z "$zone_id" ]] && continue
-                dns_response=$(cf_call GET \
-                    "/zones/${zone_id}/dns_records?type=CNAME&content=${tunnel_target}&per_page=100" \
-                    2>/dev/null)
-                if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
-                    continue
-                fi
-                while IFS='|' read -r dns_id dns_name dns_content; do
-                    [[ -z "$dns_id" ]] && continue
-                    if [[ "$dns_content" != "$tunnel_target" ]]; then
-                        continue
-                    fi
-                    dns_found=true
-                    dns_delete_response=$(cf_call DELETE \
-                        "/zones/${zone_id}/dns_records/${dns_id}" \
-                        2>/dev/null)
 
-                    if [[ -z "$dns_delete_response" ||
-                          "$(echo "$dns_delete_response" | jq -r '.success // false')" == "true" ]]; then
-                        green "DNS 删除成功: $dns_name"
-                    else
-                        yellow "DNS 删除失败: $dns_name"
-                        echo "$dns_delete_response" | jq -r '
-                            .errors[]? |
-                            if (.code // "") != "" then
-                                "错误码: \(.code)\n错误信息: \(.message)"
-                            else
-                                .message // empty
-                            end
-                        '
-                    fi
-                done < <(
-                    echo "$dns_response" |
-                    jq -r '.result[]? | "\(.id)|\(.name)|\(.content)"'
-                )
-            done < <(
-                echo "$zones" |
-                jq -r '.result[]? | "\(.id)|\(.name)"'
-            )
-        fi
-        if [[ "$dns_found" == false ]]; then
-            yellow "未找到对应的 DNS CNAME 解析。"
+    if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Tunnel 信息失败！"
+        sleep 1
+        return
+    fi
+
+    tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
+    tunnel_status=$(echo "$tunnel_data" | jq -r '.result.status // "unknown"')
+    created_at=$(echo "$tunnel_data" | jq -r '.result.created_at // empty')
+
+    case "$tunnel_status" in
+        healthy)
+            tunnel_status="🟢 正常"
+            ;;
+        degraded)
+            tunnel_status="🟡 异常"
+            ;;
+        down)
+            tunnel_status="🔴 离线"
+            ;;
+        inactive)
+            tunnel_status="⚪ 未运行"
+            ;;
+        *)
+            tunnel_status="⚪ 未知"
+            ;;
+    esac
+
+    config_data=$(cf_call GET \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+        2>/dev/null)
+
+    hostnames=$(echo "$config_data" |
+        jq -r '.result.config.ingress[]?.hostname // empty')
+
+    connections=$(cf_call GET \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" \
+        2>/dev/null)
+
+    clear
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "${skyblue}        Tunnel 详细信息${re}"
+    echo -e "${skyblue}==========================================${re}"
+    echo "名称: $tunnel_name"
+    echo "ID: $tunnel_id"
+    echo "状态: $tunnel_status"
+
+    if [[ -n "$hostnames" ]]; then
+        echo "域名:"
+        echo "$hostnames" | sed 's/^/  /'
+    else
+        echo "域名: -"
+    fi
+
+    echo "服务器:"
+
+    if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+        local conn_count
+        conn_count=$(echo "$connections" |
+            jq '[.result[]?.conns[]?] | length')
+
+        if [[ "$conn_count" -gt 0 ]]; then
+            echo "$connections" |
+                jq -r '.result[]?.conns[]? |
+                    [
+                        (.origin_ip // "-"),
+                        (.opened_at // "-"),
+                        (.client_version // "-")
+                    ] | @tsv' |
+            while IFS=$'\t' read -r origin_ip opened_at client_version; do
+                echo "  IP: $origin_ip"
+
+                if [[ "$opened_at" != "-" ]]; then
+                    echo "  连接时间: $(date -d "$opened_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$opened_at")"
+                    echo "  运行时间: $(cf_format_runtime "$opened_at")"
+                else
+                    echo "  连接时间: -"
+                    echo "  运行时间: -"
+                fi
+
+                echo "  版本: $client_version"
+                echo
+            done
+        else
+            echo "  -"
         fi
     else
-        yellow "没有找到该 Tunnel 对应的 DNS 解析，跳过 DNS 删除。"
+        echo "  -"
     fi
-    green "=========================================="
-    green "Cloudflare Tunnel 删除完成！"
-    green "=========================================="
-    return 0
+
+    if [[ -n "$created_at" ]]; then
+        echo "创建时间: $(date -d "$created_at" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$created_at")"
+    else
+        echo "创建时间: -"
+    fi
+
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "${yellow}1)${re} 删除此 Tunnel"
+    echo -e "${red}0)${re} 返回"
+    echo -e "${skyblue}==========================================${re}"
+
+    reading "请输入选择 [0-1]: " choice
+
+    case "$choice" in
+        1)
+            echo
+            yellow "正在删除 Tunnel..."
+
+            delete_response=$(cf_call DELETE \
+                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
+                2>/dev/null)
+
+            if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
+                green "Cloudflare Tunnel 删除成功！"
+
+                # 删除对应域名 DNS
+                if [[ -n "$hostnames" ]]; then
+                    while read -r dns_name; do
+                        [[ -z "$dns_name" ]] && continue
+
+                        dns_zone_id=$(cf_call GET \
+                            "/zones?name=${dns_name#*.}&per_page=1" |
+                            jq -r '.result[0].id // empty')
+
+                        [[ -z "$dns_zone_id" ]] && continue
+
+                        dns_record=$(cf_call GET \
+                            "/zones/${dns_zone_id}/dns_records?name=${dns_name}&type=CNAME&per_page=100" \
+                            2>/dev/null)
+
+                        echo "$dns_record" |
+                            jq -r '.result[]?.id // empty' |
+                        while read -r dns_id; do
+                            [[ -z "$dns_id" ]] && continue
+
+                            cf_call DELETE \
+                                "/zones/${dns_zone_id}/dns_records/${dns_id}" \
+                                >/dev/null 2>&1
+
+                            green "DNS 已删除: $dns_name"
+                        done
+                    done <<< "$hostnames"
+                fi
+            else
+                red "Cloudflare Tunnel 删除失败！"
+                echo "$delete_response" | jq -r '
+                    .errors[]? |
+                    if (.code // "") != "" then
+                        "错误码: \(.code)\n错误信息: \(.message)"
+                    else
+                        .message // empty
+                    end
+                '
+            fi
+
+            reading "按回车返回..." _
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            red "无效选择！"
+            sleep 1
+            ;;
+    esac
 }
 # ── 选择 Cloudflare 验证方式 ──
 cf_select_auth() {
@@ -6603,8 +6641,7 @@ while true; do
     echo -e "${skyblue}        Cloudflare Tunnel 管理${re}"
     echo -e "${skyblue}==========================================${re}"
     echo -e "  ${green}1)${re} 查看隧道"
-    echo -e "  ${yellow}2)${re} 删除隧道"
-    echo -e "  ${purple}3)${re} 新建隧道"
+    echo -e "  ${purple}2)${re} 新建隧道"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
@@ -6622,17 +6659,6 @@ while true; do
             clear
             ;;
         2)
-            clear
-            if ! cf_get_account_id; then
-                red "获取 Cloudflare Account ID 失败！"
-            else
-                cf_delete_tunnel
-            fi
-            echo
-            reading "按回车返回..." _
-            clear
-            ;;
-        3)
             clear
             if ! cf_create_tunnel; then
                 red "Cloudflare Tunnel 创建失败！"
