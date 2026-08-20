@@ -6264,7 +6264,7 @@ manage_argo() {
                 grep -q 'ExecStart=.*--url http://localhost' /etc/systemd/system/argo.service && get_quick_tunnel && change_argo_domain || { green "\n当前使用固定隧道,无需获取临时域名"; sleep 2; menu; }
             fi
          ;; 
-                4)
+         4)
             clear
             cf_select_auth || return 1
             while true; do
@@ -6295,10 +6295,12 @@ manage_argo() {
                         fi
                         real_token="$argo_auth"
                         if command_exists rc-service 2>/dev/null; then
-                            sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
-                        else
-                            sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '"$real_token"' 2>&1"' /etc/systemd/system/argo.service
-                        fi
+    sed -i "/^command_args=/d" /etc/init.d/argo
+    sed -i "/^command_args=/!{/^command_args=/b};" /etc/init.d/argo
+else
+    sed -i '/^ExecStart=/d' /etc/systemd/system/argo.service
+    sed -i "/^\[Service\]/a ExecStart=/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1\"" /etc/systemd/system/argo.service
+fi
                         restart_argo
                         sleep 1
                         change_argo_domain
