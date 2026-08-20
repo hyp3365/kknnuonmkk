@@ -556,6 +556,19 @@ cf_create_tunnel() {
     tunnel_data=$(jq -n --arg name "$tunnel_name" '{name:$name,config_src:"cloudflare"}')
     local create_response
     create_response=$(cf_call POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" "$tunnel_data")
+cf_ret=$?
+
+echo "----- DEBUG -----"
+echo "CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-<空>}"
+echo "tunnel_data: $tunnel_data"
+echo "cf_call exit: $cf_ret"
+echo "response: $create_response"
+echo "-----------------"
+
+if [[ "$cf_ret" -ne 0 ]]; then
+    red "Cloudflare API 请求失败！"
+    return 1
+fi
 
 if [[ -z "$create_response" ]]; then
     red "Cloudflare API 没有返回任何内容！"
@@ -569,12 +582,6 @@ if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; the
 fi
 
 tunnel_id=$(echo "$create_response" | jq -r '.result.id')
-
-if [[ -z "$tunnel_id" || "$tunnel_id" == "null" ]]; then
-    red "Tunnel ID 获取失败！"
-    echo "$create_response" | jq .
-    return 1
-fi
     zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
