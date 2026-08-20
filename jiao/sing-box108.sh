@@ -2338,32 +2338,68 @@ else
 fi
 }
 
-# 卸载 xray
+# 卸载 Xray
 uninstall_xray() {
-   reading "确定要卸载 xray 吗? (y/n): " choice
-   case "${choice}" in
-       y|Y)
-           yellow "正在卸载 xray"
-           if [ -f /etc/alpine-release ]; then
-                rc-service xray stop
-                rm /etc/init.d/xray
-                rc-update del xray default
-           else
-                systemctl stop "${serverxray_name}"
-                systemctl disable "${serverxray_name}"
-                systemctl daemon-reload || true
-           fi
-          
-           # 删除核心与配置目录
-           rm -rf "${xray_dir}" || true
-           rm -rf /etc/systemd/system/xray.service 2>/dev/null	
+    reading "确定要卸载 Xray 吗? (y/n): " choice
+    case "${choice}" in
+        y|Y)
+            yellow "正在卸载 Xray..."
+            if [ -f /etc/alpine-release ]; then
+                rc-service xray stop 2>/dev/null
+                rc-update del xray default 2>/dev/null
+                rm -f /etc/init.d/xray
+            else
+                systemctl stop "${serverxray_name}" 2>/dev/null
+                systemctl disable "${serverxray_name}" 2>/dev/null
+                systemctl daemon-reload 2>/dev/null || true
+            fi
+            for target_conf in \
+                "${xray_conf_dir}/xhttp-reality.json" \
+                "${xray_conf_dir}/xhttp-cdn.json" \
+                "${xray_conf_dir}/xhttp-cdn-tls.json"
+            do
+                if [ -f "$target_conf" ]; then
+                    node_port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$target_conf" |
+                        head -1 |
+                        grep -o '[0-9]*$')
 
-           green "\nXray 卸载成功及节点已移除！\n"
-           ;;
-       *)
-           purple "已取消卸载操作\n"
-           ;;
-   esac
+                    if [ -n "$node_port" ]; then
+                        for handle in $(nft -a list chain inet filter input 2>/dev/null |
+                            awk -v p="$node_port" '$0 ~ "dport "p {print $NF}')
+                        do
+                            nft delete rule inet filter input handle "$handle" 2>/dev/null
+                        done
+                    fi
+                fi
+            done
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                sed -i \
+                    -e '/_xray_vless_xhttp_reality$/d' \
+                    -e '/_xray_vless_cdn$/d' \
+                    -e '/_xray_vless_xhttp_cdn_tsl$/d' \
+                    "/etc/sing-box/url.txt"
+                sed -i '/^$/N;/\n$/D' "/etc/sing-box/url.txt"
+
+                echo "" >> "/etc/sing-box/url.txt"
+            fi
+            if [ -s "/etc/sing-box/url.txt" ]; then
+                base64 -w0 "/etc/sing-box/url.txt" \
+                    > "/etc/sing-box/sub.txt" 2>/dev/null
+            else
+                truncate -s 0 "/etc/sing-box/sub.txt"
+            fi
+            rm -rf "${xray_dir}" 2>/dev/null || true
+            rm -f /etc/systemd/system/xray.service 2>/dev/null
+            systemctl daemon-reload 2>/dev/null || true
+            green "==============================================="
+            green " Xray 已卸载，所有 Xray 节点已移除!"
+            green "==============================================="
+            ;;
+        *)
+            purple "已取消卸载操作"
+            ;;
+    esac
 }
 
 update_xray_status() {
