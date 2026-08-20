@@ -544,24 +544,70 @@ cf_delete_tunnel() {
         return 1
     fi
 }
-# ── 创建 Cloudflare Tunnel ──
-cf_create_tunnel() {
-    local zones choice i total
+# ── 选择 Cloudflare 验证方式 ──
+cf_select_auth() {
+    local choice
+    local token_file="/etc/cloudflare/tokens"
+    echo "请选择 Cloudflare 验证方式："
+    echo "1) 使用服务器已保存的 Token"
+    echo "2) 输入新的 Cloudflare API Token"
+    echo "3) Cloudflare Global API Key (邮箱 + Key)"
+    reading "请输入选择 [1-3]: " choice
+    case "$choice" in
+        1)
+            if ! cf_select_saved_token; then
+                return 1
+            fi
+            ;;
+        2)
+            local cf_token
+            reading "请输入 Cloudflare API Token: " cf_token
+            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+            [[ -z "$cf_token" ]] && {
+                red "Token 不能为空！"
+                return 1
+            }
+            export CF_TOKEN="$cf_token"
+            unset CF_EMAIL CF_KEY
+            ;;
+        3)
+            local cf_email cf_key
+            reading "请输入 Cloudflare 登录邮箱: " cf_email
+            reading "请输入 Cloudflare Global API Key: " cf_key
+            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
+            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
+            [[ -z "$cf_email" ]] && {
+                red "邮箱不能为空！"
+                return 1
+            }
+            [[ -z "$cf_key" ]] && {
+                red "API Key 不能为空！"
+                return 1
+            }
+            export CF_EMAIL="$cf_email"
+            export CF_KEY="$cf_key"
+            unset CF_TOKEN
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+    esac
+}        
+# ── 选择 Cloudflare 域名并获取 Account ID ──
+cf_select_account() {
+    local zones
     local zone_name zone_id account_id
-    local zone_domain selected_zone_id
-    local prefix hostname
-    local tunnel_name tunnel_data
-    local create_response tunnel_id
-    local tunnel_token_response tunnel_token
-    local ingress_data config_response
-    local cname_target dns_response dns_id dns_payload
+    local choice i total
+    zone_domain=""
+    selected_zone_id=""
     zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
         return 1
     fi
     echo "=========================================="
-    skyblue "请选择 Tunnel 使用的 Cloudflare 域名："
+    skyblue "请选择 Cloudflare 域名："
     echo "=========================================="
     i=1
     declare -a zone_names
@@ -569,27 +615,19 @@ cf_create_tunnel() {
     declare -a account_ids
     while IFS='|' read -r zone_name zone_id account_id; do
         [[ -z "$zone_name" || -z "$zone_id" || -z "$account_id" ]] && continue
-
         echo "  $i) $zone_name"
-
         zone_names[$i]="$zone_name"
         zone_ids[$i]="$zone_id"
         account_ids[$i]="$account_id"
-
         ((i++))
     done <<< "$zones"
-
     total=$((i - 1))
-
     if [[ "$total" -lt 1 ]]; then
         red "没有可用的 Cloudflare 域名！"
         return 1
     fi
-
     echo "=========================================="
-
     reading "请输入选择 [1-$total]: " choice
-
     if [[ -z "$choice" ||
           ! "$choice" =~ ^[0-9]+$ ||
           "$choice" -lt 1 ||
@@ -597,11 +635,33 @@ cf_create_tunnel() {
         red "无效选择！"
         return 1
     fi
-
     zone_domain="${zone_names[$choice]}"
     selected_zone_id="${zone_ids[$choice]}"
     CF_ACCOUNT_ID="${account_ids[$choice]}"
-
+    if [[ -z "$zone_domain" || -z "$selected_zone_id" ]]; then
+        red "获取 Cloudflare 域名信息失败！"
+        return 1
+    fi
+    if [[ -z "$CF_ACCOUNT_ID" ]]; then
+        red "获取 Cloudflare Account ID 失败！"
+        return 1
+    fi
+    export zone_domain
+    export selected_zone_id
+    export CF_ACCOUNT_ID
+    return 0
+}
+# ── 创建 Cloudflare Tunnel ──
+cf_create_tunnel() {
+    local prefix hostname
+    local tunnel_name tunnel_data
+    local create_response tunnel_id
+    local tunnel_token_response tunnel_token
+    local ingress_data config_response
+    local cname_target dns_response dns_id dns_payload
+    if ! cf_select_account; then
+    return 1
+    fi
     if [[ -z "$CF_ACCOUNT_ID" ]]; then
         red "无法获取该域名所属的 Cloudflare Account ID！"
         return 1
@@ -748,56 +808,7 @@ cf_create_tunnel() {
     green "Cloudflare Tunnel 创建成功！"
     green "Tunnel 域名: $ArgoDomain"
 }
-# ── 选择 Cloudflare 验证方式 ──
-cf_select_auth() {
-    local choice
-    local token_file="/etc/cloudflare/tokens"
-    echo "请选择 Cloudflare 验证方式："
-    echo "1) 使用服务器已保存的 Token"
-    echo "2) 输入新的 Cloudflare API Token"
-    echo "3) Cloudflare Global API Key (邮箱 + Key)"
-    reading "请输入选择 [1-3]: " choice
-    case "$choice" in
-        1)
-            if ! cf_select_saved_token; then
-                return 1
-            fi
-            ;;
-        2)
-            local cf_token
-            reading "请输入 Cloudflare API Token: " cf_token
-            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-            [[ -z "$cf_token" ]] && {
-                red "Token 不能为空！"
-                return 1
-            }
-            export CF_TOKEN="$cf_token"
-            unset CF_EMAIL CF_KEY
-            ;;
-        3)
-            local cf_email cf_key
-            reading "请输入 Cloudflare 登录邮箱: " cf_email
-            reading "请输入 Cloudflare Global API Key: " cf_key
-            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
-            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
-            [[ -z "$cf_email" ]] && {
-                red "邮箱不能为空！"
-                return 1
-            }
-            [[ -z "$cf_key" ]] && {
-                red "API Key 不能为空！"
-                return 1
-            }
-            export CF_EMAIL="$cf_email"
-            export CF_KEY="$cf_key"
-            unset CF_TOKEN
-            ;;
-        *)
-            red "无效选择！"
-            return 1
-            ;;
-    esac
-}        
+
 
 # 查看已申请证书
 view_certs() {
@@ -6280,11 +6291,17 @@ manage_argo() {
                 reading "请输入选择 [0-3]: " cf_tunnel_choice
                 case "$cf_tunnel_choice" in
                     1)
+                        if ! cf_select_account; then
+                        continue
+                        fi
                         cf_list_tunnels
                         ;;
                     2)
-                        cf_delete_tunnel
-                        ;;
+    if ! cf_select_account; then
+        continue
+    fi
+    cf_delete_tunnel
+    ;;
                     3)
                         if ! cf_create_tunnel; then
                             continue
