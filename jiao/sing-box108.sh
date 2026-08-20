@@ -84,10 +84,11 @@ check_and_install_nftables() {
 # 定义常量
 server_name="sing-box"
 work_dir="/etc/sing-box"
-xray_dir="/etc/xray"
 conf_dir="${work_dir}/conf"
-configxray_dir="${xray_dir}/config.json"
+xray_dir="/etc/xray"
+xray_conf_dir="${xray_dir}/conf"
 serverxray_name="xray"
+configxray_dir="${xray_conf_dir}/config.json"
 config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
@@ -2115,13 +2116,33 @@ install_xray() {
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
 
+    # 创建 Xray 目录及配置目录
     [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}" && chmod 777 "${xray_dir}"
-    curl -sLo "${xray_dir}/${serverxray_name}.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
-    unzip "${xray_dir}/${serverxray_name}.zip" -d "${xray_dir}/" > /dev/null 2>&1 && chmod +x ${xray_dir}/${serverxray_name}
-    rm -rf "${xray_dir}/${serverxray_name}.zip" "${xray_dir}/geosite.dat" "${xray_dir}/geoip.dat" "${xray_dir}/README.md" "${xray_dir}/LICENSE"
+    [ ! -d "${xray_conf_dir}" ] && mkdir -p "${xray_conf_dir}" && chmod 777 "${xray_conf_dir}"
 
-    iptables -F > /dev/null 2>&1 && iptables -P INPUT ACCEPT > /dev/null 2>&1 && iptables -P FORWARD ACCEPT > /dev/null 2>&1 && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
-    command -v ip6tables &> /dev/null && ip6tables -F > /dev/null 2>&1 && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
+    curl -sLo "${xray_dir}/${serverxray_name}.zip" \
+        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
+
+    unzip "${xray_dir}/${serverxray_name}.zip" -d "${xray_dir}/" > /dev/null 2>&1 \
+        && chmod +x "${xray_dir}/${serverxray_name}"
+
+    rm -rf \
+        "${xray_dir}/${serverxray_name}.zip" \
+        "${xray_dir}/geosite.dat" \
+        "${xray_dir}/geoip.dat" \
+        "${xray_dir}/README.md" \
+        "${xray_dir}/LICENSE"
+
+    iptables -F > /dev/null 2>&1 \
+        && iptables -P INPUT ACCEPT > /dev/null 2>&1 \
+        && iptables -P FORWARD ACCEPT > /dev/null 2>&1 \
+        && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
+
+    command -v ip6tables &> /dev/null \
+        && ip6tables -F > /dev/null 2>&1 \
+        && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
+        && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
+        && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
 
     cat > "${configxray_dir}" << EOF
 {
@@ -2159,7 +2180,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 NoNewPrivileges=yes
-ExecStart=$xray_dir/xray -c $configxray_dir
+ExecStart=$xray_dir/xray run -confdir $xray_conf_dir
 Restart=on-failure
 RestartPreventExitStatus=23
 
@@ -2175,7 +2196,9 @@ EOF
         yum update -y ca-certificates
         bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
     fi
+
     bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
+
     systemctl daemon-reload
     systemctl enable xray
     systemctl is-active --quiet xray || systemctl start xray
@@ -2183,12 +2206,12 @@ EOF
 
 # 适配 alpine 守护进程
 alpine_openrc_services() {
-    cat > /etc/init.d/xray << 'EOF'
+    cat > /etc/init.d/xray << EOF
 #!/sbin/openrc-run
 
 description="Xray service"
 command="/etc/xray/xray"
-command_args="-c /etc/xray/config.json"
+command_args="run -confdir /etc/xray/conf"
 command_background=true
 pidfile="/var/run/xray.pid"
 EOF
@@ -3255,23 +3278,25 @@ manage_nodes_menu() {
 		short_id=$(openssl rand -hex 6)
     fi
     while true; do
-        local CONF_DIR="/etc/sing-box/conf"
-        local width=45
-        local node_list=(
-		    "xtls-reality.json|xtls-Reality|1"
-			"hysteria2.json|hysteria2|2"
-			"tuic.json|tuic|3"
-            "h2-reality.json|http-Reality|4"
-            "grpc-reality.json|gRPC-Reality|5"
-            "anytls.json|anytls|6"
-            "socks5.json|socks5|7"
-            "http.json|HTTP|8"
-			"vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-			"vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
-			"xhttp-reality.json|xhttp-reality|11"
-			"xhttp-cdn.json|xhttp-cdn|12"
-			"xhttp-cdn-tls.json|xhttp-cdn-tls|13"
-        )
+       local CONF_DIR="/etc/sing-box/conf"
+       local XRAY_CONF_DIR="/etc/xray/conf"
+       local width=45
+
+  local node_list=(
+    "$CONF_DIR/xtls-reality.json|xtls-Reality|1"
+    "$CONF_DIR/hysteria2.json|hysteria2|2"
+    "$CONF_DIR/tuic.json|tuic|3"
+    "$CONF_DIR/h2-reality.json|http-Reality|4"
+    "$CONF_DIR/grpc-reality.json|gRPC-Reality|5"
+    "$CONF_DIR/anytls.json|anytls|6"
+    "$CONF_DIR/socks5.json|socks5|7"
+    "$CONF_DIR/http.json|HTTP|8"
+    "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|9"
+    "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
+    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|11"
+    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|12"
+    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|13"
+)
 		
         clear
         yellow "============================================="
@@ -3284,7 +3309,7 @@ manage_nodes_menu() {
             local name=$(echo $item | cut -d'|' -f2)
             local id=$(echo $item | cut -d'|' -f3)
             
-            if [ ! -f "$CONF_DIR/$file" ]; then
+            if [ ! -f "$file" ]; then
                 local left_text=" ${id}. ${name}节点"
                 local right_text="(未添加) -> 输入 ${id} 开始配置"
                 printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(red "$right_text")"
@@ -3302,7 +3327,7 @@ manage_nodes_menu() {
             local id=$(echo $item | cut -d'|' -f3)
             local del_id=$((id + 50))
             
-            if [ -f "$CONF_DIR/$file" ]; then
+            if [ -f "$file" ]; then
                 local left_text=" ${del_id}. ${name}节点"
                 local right_text="(已添加) -> 输入 ${del_id} 删除节点"
                 printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(green "$right_text")"
