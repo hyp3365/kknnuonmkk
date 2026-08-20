@@ -4172,46 +4172,7 @@ fi
     read -rp "请输入选择 [1-2]: " cf_type
 
     case "$cf_type" in
-	    1)
-        if [[ ! -d "/etc/cloudflare/tokens" ]] ||
-           [[ -z "$(find /etc/cloudflare/tokens -type f -name '*.token' 2>/dev/null | head -n1)" ]]; then
-            red "服务器上没有保存的 Token！"
-            return 1
-        fi
-        local token_files=()
-        while IFS= read -r token_file; do
-            [[ -n "$token_file" ]] && token_files+=("$token_file")
-        done < <(find /etc/cloudflare/tokens -type f -name '*.token' 2>/dev/null | sort)
-        echo "=========================================="
-        skyblue "请选择已保存的 Cloudflare Token："
-        echo "=========================================="
-        local token_i=1
-        local token_file
-        for token_file in "${token_files[@]}"; do
-            local token_name
-            token_name=$(basename "$token_file" .token)
-            echo "  $token_i) $token_name"
-            ((token_i++))
-        done
-        echo "=========================================="
-        local token_choice
-        read -rp "请输入选择 [1-$((token_i - 1))]: " token_choice
-        if [[ -z "$token_choice" ||
-              ! "$token_choice" =~ ^[0-9]+$ ||
-              "$token_choice" -lt 1 ||
-              "$token_choice" -ge "$token_i" ]]; then
-            red "无效选择！"
-            return 1
-        fi
-        cf_token=$(cat "${token_files[$((token_choice - 1))]}")
-        cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-        [[ -z "$cf_token" ]] && {
-            red "Token 不能为空！"
-            return 1
-        }
-        export CF_TOKEN="$cf_token"
-        unset CF_EMAIL CF_KEY
-        ;;
+	    1) select_cf_saved_token || return 1 ;;
         2)
             read -rp "请输入你的 Cloudflare API Token: " cf_token
             cf_token=$(echo "$cf_token" | tr -d '[:space:]')
@@ -6030,6 +5991,54 @@ manage_cf_tokens() {
                 ;;
         esac
     done
+}
+
+# 选择服务器已保存的 Cloudflare API Token
+select_cf_saved_token() {
+    local token_file="/etc/cloudflare/tokens"
+    if [[ ! -s "$token_file" ]]; then
+        red "服务器上没有保存的 Token！"
+        return 1
+    fi
+    echo "=========================================="
+    skyblue "请选择已保存的 Cloudflare Token："
+    echo "=========================================="
+    local token_i=1
+    local token_remark
+    local token_value
+    declare -a saved_token_remarks
+    declare -a saved_token_values
+    while IFS='|' read -r token_remark token_value; do
+        [[ -z "$token_remark" || -z "$token_value" ]] && continue
+        echo "  $token_i) $token_remark"
+        saved_token_remarks[$token_i]="$token_remark"
+        saved_token_values[$token_i]="$token_value"
+        ((token_i++))
+    done < "$token_file"
+    echo "=========================================="
+    local token_total=$((token_i - 1))
+    if [[ "$token_total" -lt 1 ]]; then
+        red "服务器上没有可用的 Token！"
+        return 1
+    fi
+    local token_choice
+    reading "请输入选择 [1-$token_total]: " token_choice
+    if [[ -z "$token_choice" ||
+          ! "$token_choice" =~ ^[0-9]+$ ||
+          "$token_choice" -lt 1 ||
+          "$token_choice" -gt "$token_total" ]]; then
+        red "无效选择！"
+        return 1
+    fi
+    cf_token="${saved_token_values[$token_choice]}"
+    cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+    [[ -z "$cf_token" ]] && {
+        red "Token 不能为空！"
+        return 1
+    }
+    export CF_TOKEN="$cf_token"
+    unset CF_EMAIL CF_KEY
+    return 0
 }
 
 # singbox 管理
