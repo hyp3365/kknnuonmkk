@@ -664,6 +664,56 @@ cf_create_tunnel() {
     green "Tunnel ID: $tunnel_id"
     green "域名: $hostname"
 }
+# ── 选择 Cloudflare 验证方式 ──
+cf_select_auth() {
+    local choice
+    local token_file="/etc/cloudflare/tokens"
+    echo "请选择 Cloudflare 验证方式："
+    echo "1) 使用服务器已保存的 Token"
+    echo "2) 输入新的 Cloudflare API Token"
+    echo "3) Cloudflare Global API Key (邮箱 + Key)"
+    reading "请输入选择 [1-3]: " choice
+    case "$choice" in
+        1)
+            if ! cf_select_saved_token; then
+                return 1
+            fi
+            ;;
+        2)
+            local cf_token
+            reading "请输入 Cloudflare API Token: " cf_token
+            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+            [[ -z "$cf_token" ]] && {
+                red "Token 不能为空！"
+                return 1
+            }
+            export CF_TOKEN="$cf_token"
+            unset CF_EMAIL CF_KEY
+            ;;
+        3)
+            local cf_email cf_key
+            reading "请输入 Cloudflare 登录邮箱: " cf_email
+            reading "请输入 Cloudflare Global API Key: " cf_key
+            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
+            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
+            [[ -z "$cf_email" ]] && {
+                red "邮箱不能为空！"
+                return 1
+            }
+            [[ -z "$cf_key" ]] && {
+                red "API Key 不能为空！"
+                return 1
+            }
+            export CF_EMAIL="$cf_email"
+            export CF_KEY="$cf_key"
+            unset CF_TOKEN
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+    esac
+}
 # ── Cloudflare Tunnel 管理 ──
 cf_tunnel_manager() {
     if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
