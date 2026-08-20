@@ -670,7 +670,8 @@ cf_select_auth() {
     skyblue "请选择 Cloudflare 验证方式："
     red "1) Cloudflare API Token"
     red "2) Cloudflare Global API Key (邮箱 + Key)"
-    reading "请输入选择 [1-3]: " choice
+    reading "请输入选择 [1-2]（默认 1）: " choice
+    [[ -z "$choice" ]] && choice=1
     case "$choice" in
         1)
             local cf_token
