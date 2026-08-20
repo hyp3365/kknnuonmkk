@@ -211,7 +211,7 @@ HTML_PAGE = """
             <select id="edit-ruleset-select" style="display: none; margin-top: 6px;"></select>
         </div>
         <div style="display: flex; gap: 8px; margin-top: 15px;">
-            <button onclick="saveEdit()" style="flex: 1;">保存修改</button>
+            <button id="save-edit-btn" onclick="saveEdit()" style="flex: 1;">保存修改</button>
             <button onclick="closeEditModal()" style="flex: 1; background: #f1f3f4; color: #333;">取消</button>
         </div>
     </div>
@@ -385,22 +385,27 @@ async function deleteRule(idx) {
     });
 }
 
-function saveEdit() {
+async function saveEdit() {
+    const btn = document.getElementById('save-edit-btn');
     let idx = document.getElementById('edit-idx').value;
     let type = document.getElementById('edit-rule-type').value;
-    let val = type === 'domain_suffix' ? document.getElementById('edit-domain-value').value.trim() : document.getElementById('edit-ruleset-select').value;
-
-    globalData.rules[idx].type = type === "domain_suffix" && !val ? "match_all" : type;
-    globalData.rules[idx].values = val || "(全匹配 - 所有流量)";
-    closeEditModal();
-    renderTable();
-
-    let req = fetch('/api/edit_rule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: parseInt(idx), type: type, value: val })
+    let val = type === 'domain_suffix'
+        ? document.getElementById('edit-domain-value').value.trim()
+        : document.getElementById('edit-ruleset-select').value;
+    await runButtonAction(btn, async () => {
+        return fetch('/api/edit_rule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                index: parseInt(idx),
+                type: type,
+                value: val
+            })
+        });
+    }, async () => {
+        closeEditModal();
+        await loadData();
     });
-    handleBackgroundReq(req);
 }
 
 let isSyncing = false; 
@@ -437,22 +442,20 @@ async function runButtonAction(btn, action, successCallback = null) {
     }
 }
 
-function syncFanout(btn) {
+async function syncFanout(btn) {
     if (isSyncing) return;
     isSyncing = true;
-    
-    let oldHtml = btn.innerHTML;
-    btn.innerHTML = "⏳ 同步中...";
-    btn.disabled = true;
-    
-    let req = fetch('/api/sync_fanout?' + new Date().getTime());
-    handleBackgroundReq(req);
-
-    setTimeout(() => {
-        btn.innerHTML = oldHtml;
-        btn.disabled = false;
+    try {
+        await runButtonAction(btn, async () => {
+            return fetch('/api/sync_fanout?' + Date.now(), {
+                cache: 'no-store'
+            });
+        }, async () => {
+            await loadData();
+        });
+    } finally {
         isSyncing = false;
-    }, 2500);
+    }
 }
 
 loadData();
