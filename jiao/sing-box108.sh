@@ -814,18 +814,12 @@ cf_delete_tunnel() {
 cf_select_auth() {
     local choice
     local token_file="/etc/cloudflare/tokens"
-    echo "请选择 Cloudflare 验证方式："
-    echo "1) 使用服务器已保存的 Token"
-    echo "2) 输入新的 Cloudflare API Token"
-    echo "3) Cloudflare Global API Key (邮箱 + Key)"
+    skyblue "请选择 Cloudflare 验证方式："
+    red "1) Cloudflare API Token"
+    red "2) Cloudflare Global API Key (邮箱 + Key)"
     reading "请输入选择 [1-3]: " choice
     case "$choice" in
         1)
-            if ! cf_select_saved_token; then
-                return 1
-            fi
-            ;;
-        2)
             local cf_token
             reading "请输入 Cloudflare API Token: " cf_token
             cf_token=$(echo "$cf_token" | tr -d '[:space:]')
@@ -836,7 +830,7 @@ cf_select_auth() {
             export CF_TOKEN="$cf_token"
             unset CF_EMAIL CF_KEY
             ;;
-        3)
+        2)
             local cf_email cf_key
             reading "请输入 Cloudflare 登录邮箱: " cf_email
             reading "请输入 Cloudflare Global API Key: " cf_key
@@ -6578,11 +6572,13 @@ manage_argo() {
     skyblue "------------"
     green "3. 重启Argo服务"
     skyblue "------------"
-    green "4. 添加Argo固定隧道"
+    green "4. 管理CF隧道"
     skyblue "----------------"
-    green "5. 切换回Argo临时隧道"
+	green "5. 添加固定隧道"
+    skyblue "----------------"
+    green "6. 切换回Argo临时隧道"
     skyblue "------------------"
-    green "6. 重新获取Argo临时域名"
+    green "7. 重新获取Argo临时域名"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "-----------"
@@ -6597,72 +6593,155 @@ manage_argo() {
                 grep -q 'ExecStart=.*--url http://localhost' /etc/systemd/system/argo.service && get_quick_tunnel && change_argo_domain || { green "\n当前使用固定隧道,无需获取临时域名"; sleep 2; menu; }
             fi
          ;; 
-         4)
-            clear
-            cf_select_auth || return 1
-            while true; do
-                echo "=========================================="
-                echo "        Cloudflare Tunnel 管理"
-                echo "=========================================="
-                echo "  1) 查看隧道"
-                echo "  2) 删除隧道"
-                echo "  3) 新建隧道"
-                echo "  0) 返回"
-                echo "=========================================="
-                local cf_tunnel_choice
-                reading "请输入选择 [0-3]: " cf_tunnel_choice
-                case "$cf_tunnel_choice" in
-                    1)
-    if ! cf_get_account_id; then
-        continue
-    fi
-    cf_list_tunnels
-    ;;
-2)
-    if ! cf_get_account_id; then
-        continue
-    fi
-    cf_delete_tunnel
-    ;;
-                    3)
-                        if ! cf_create_tunnel; then
-                            continue
-                        fi
-                        if [[ -z "${argo_auth:-}" || -z "${ArgoDomain:-}" ]]; then
-                            red "Tunnel Token 或域名获取失败！"
-                            continue
-                        fi
-                        real_token="$argo_auth"
-                        if command_exists rc-service 2>/dev/null; then
-    sed -i "/^command_args=/d" /etc/init.d/argo
-    sed -i "/^command_args=/!{/^command_args=/b};" /etc/init.d/argo
-else
-    sed -i '/^ExecStart=/d' /etc/systemd/system/argo.service
-    sed -i "/^\[Service\]/a ExecStart=/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1\"" /etc/systemd/system/argo.service
+        4)
+clear
+if ! cf_select_auth; then
+    return 1
 fi
-                        restart_argo
-                        sleep 1
-                        change_argo_domain
-                        systemctl stop argo-watchdog &>/dev/null
-                        systemctl disable argo-watchdog &>/dev/null
-                        systemctl daemon-reload &>/dev/null
-                        green "=========================================="
-                        green "Cloudflare Tunnel 创建并启动成功！"
-                        green "Tunnel 域名: $ArgoDomain"
-                        green "=========================================="
-                        break
-                        ;;
-                    0)
-                        return 0
-                        ;;
-
-                    *)
-                        red "无效选择！"
-                        ;;
-                esac
-            done
+while true; do
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "${skyblue}        Cloudflare Tunnel 管理${re}"
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "  ${green}1)${re} 查看隧道"
+    echo -e "  ${yellow}2)${re} 删除隧道"
+    echo -e "  ${purple}3)${re} 新建隧道"
+    echo -e "  ${red}0)${re} 返回"
+    echo -e "${skyblue}==========================================${re}"
+    local cf_tunnel_choice
+    reading "请输入选择 [0-3]: " cf_tunnel_choice
+    case "$cf_tunnel_choice" in
+        1)
+            clear
+            if ! cf_get_account_id; then
+                red "获取 Cloudflare Account ID 失败！"
+            else
+                cf_list_tunnels
+            fi
+            echo
+            reading "按回车返回..." _
+            clear
             ;;
+        2)
+            clear
+            if ! cf_get_account_id; then
+                red "获取 Cloudflare Account ID 失败！"
+            else
+                cf_delete_tunnel
+            fi
+            echo
+            reading "按回车返回..." _
+            clear
+            ;;
+        3)
+            clear
+            if ! cf_create_tunnel; then
+                red "Cloudflare Tunnel 创建失败！"
+                echo
+                reading "按回车返回..." _
+                clear
+                continue
+            fi
+            if [[ -z "${argo_auth:-}" || -z "${ArgoDomain:-}" ]]; then
+                red "Tunnel Token 或域名获取失败！"
+                echo
+                reading "按回车返回..." _
+                clear
+                continue
+            fi
+            real_token="$argo_auth"
+            if command_exists rc-service 2>/dev/null; then
+                if [[ -f /etc/init.d/argo ]]; then
+                    sed -i '/^[[:space:]]*command_args=/d' /etc/init.d/argo
+                    sed -i "/^[[:space:]]*command=/i command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
+                else
+                    red "/etc/init.d/argo 不存在！"
+                    continue
+                fi
+            else
+                if [[ -f /etc/systemd/system/argo.service ]]; then
+                    sed -i '/^[[:space:]]*ExecStart=/d' /etc/systemd/system/argo.service
+                    sed -i "/^\[Service\]/a ExecStart=/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1\"" /etc/systemd/system/argo.service
+                    systemctl daemon-reload &>/dev/null
+                else
+                    red "/etc/systemd/system/argo.service 不存在！"
+                    continue
+                fi
+            fi
+            restart_argo
+            sleep 1
+            change_argo_domain
+            systemctl stop argo-watchdog &>/dev/null
+            systemctl disable argo-watchdog &>/dev/null
+            systemctl daemon-reload &>/dev/null
+            green "Cloudflare Tunnel 创建并启动成功！"
+            green "Tunnel 域名: $ArgoDomain"
+            echo
+            reading "按回车返回..." _
+            clear
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            red "无效选择！"
+            sleep 1
+            clear
+            ;;
+    esac
+done
+;;
         5)
+            clear
+            yellow "\n固定隧道可为json或token，固定隧道端口为8001，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
+            reading "\n请输入你的argo域名: " argo_domain
+            ArgoDomain=$argo_domain
+            reading "\n请输入你的argo密钥(token或json): " argo_auth
+            if [[ $argo_auth =~ TunnelSecret ]]; then
+                echo $argo_auth > ${work_dir}/tunnel.json
+                cat > ${work_dir}/tunnel.yml << EOF
+tunnel: $(cut -d\" -f12 <<< "$argo_auth")
+credentials-file: ${work_dir}/tunnel.json
+protocol: http2
+                                           
+ingress:
+  - hostname: $ArgoDomain
+    service: http://localhost:8001
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+EOF
+
+                if command_exists rc-service 2>/dev/null; then
+                    sed -i '/^command_args=/c\command_args="-c '\''/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\''"' /etc/init.d/argo
+                else
+                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"' /etc/systemd/system/argo.service
+                fi
+                restart_argo
+                sleep 1 
+                change_argo_domain
+				systemctl stop argo-watchdog &>/dev/null
+                systemctl disable argo-watchdog &>/dev/null
+                systemctl daemon-reload &>/dev/null 
+				
+			elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
+                real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')        
+                if command_exists rc-service 2>/dev/null; then
+                    sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
+                else
+                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
+                fi
+                restart_argo
+                sleep 1 
+                change_argo_domain
+                systemctl stop argo-watchdog &>/dev/null
+                systemctl disable argo-watchdog &>/dev/null
+                systemctl daemon-reload &>/dev/null  
+            else
+                yellow "你输入的argo域名或token不匹配，请重新输入"
+                manage_argo            
+            fi
+            ;; 
+        6)
             clear
             if command_exists rc-service 2>/dev/null; then
                 alpine_openrc_services
@@ -6676,7 +6755,7 @@ fi
             change_argo_domain 
             ;; 
 
-        6)  
+        7)  
             if command_exists rc-service 2>/dev/null; then
                 if grep -Fq -- '--url http://localhost' "/etc/init.d/argo"; then
                     get_quick_tunnel
