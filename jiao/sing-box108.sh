@@ -667,6 +667,15 @@ cf_tunnel_detail() {
 cf_select_auth() {
     local choice
     local token_file="/etc/cloudflare/tokens"
+	echo -e " 1. 登录 Cloudflare 官网，点击 \033[33m管理账户 -> API 令牌\033[0m"
+    echo -e " 2. 点击右侧 \033[33m创建令牌\033[0m"
+    echo -e " 3. 配置权限策略："
+    echo -e "    - 范围: 选择 \033[33m所有域名\033[0m"
+    echo -e "    -  \033[33mDNS & Zones (区域) - Zone (区域)\033[0m，权限设为 \033[32mRead (读取)\033[0m"
+    echo -e "    -  \033[33mDNS & Zones (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e "    -  \033[33mDNS & Zones (区域) - Zone Settings (区域设置)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e "    -  \033[33mRules & Configuration (规则和配置) - Origin (源站)\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e " 4. 点击【继续以进行预览】-> 【创建令牌】并复制生成的字符串"
     skyblue "请选择 Cloudflare 验证方式："
     red "1) Cloudflare API Token"
     red "2) Cloudflare Global API Key (邮箱 + Key)"
