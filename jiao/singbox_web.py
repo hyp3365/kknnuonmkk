@@ -327,36 +327,6 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-function silentBackgroundCheck() {
-    if (isReconnecting) return;
-    isReconnecting = true;
-    let statusEl = document.getElementById('conn-status');
-    statusEl.innerHTML = '<span class="status-dot offline"></span>后台重启中...';
-    
-    const checkLoop = async () => {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1000);
-            let checkRes = await fetch('/api/status?' + new Date().getTime(), { signal: controller.signal });
-            clearTimeout(timeoutId);
-            if (checkRes.ok || checkRes.status === 401) {
-                globalData = await checkRes.json();
-                renderTable();
-                statusEl.innerHTML = '<span class="status-dot"></span>在线';
-                isReconnecting = false;
-                return;
-            }
-        } catch (e) {}
-        setTimeout(checkLoop, 1000);
-    };
-    setTimeout(checkLoop, 500);
-}
-
-async function handleBackgroundReq(reqPromise) {
-    try { await reqPromise; } catch (e) {}
-    silentBackgroundCheck();
-}
-
 function addRule() {
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
@@ -417,6 +387,38 @@ function saveEdit() {
 }
 
 let isSyncing = false; 
+
+async function runButtonAction(btn, action, successCallback = null) {
+    if (btn.disabled) return;
+    const oldHtml = btn.innerHTML;
+    const startTime = Date.now();
+    btn.disabled = true;
+    btn.innerHTML = "⏳ 处理中...";
+    try {
+        const res = await action();
+        if (res.status === 401) {
+            window.location.reload();
+            return;
+        }
+        const data = await res.json();
+        if (data.code !== 0) {
+            alert(data.msg || "操作失败");
+            return;
+        }
+        if (successCallback) {
+            await successCallback(data);
+        }
+    } catch (e) {
+        console.error("操作失败:", e);
+        alert("请求失败，请稍后重试");
+    } finally {
+        const elapsed = Date.now() - startTime;
+        const remain = Math.max(0, 2000 - elapsed);
+        await new Promise(resolve => setTimeout(resolve, remain));
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+    }
+}
 
 function syncFanout(btn) {
     if (isSyncing) return;
