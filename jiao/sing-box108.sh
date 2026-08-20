@@ -555,18 +555,25 @@ cf_create_tunnel() {
     }
     tunnel_data=$(jq -n --arg name "$tunnel_name" '{name:$name,config_src:"cloudflare"}')
     local create_response
-    create_response=$(cf_call POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" "$tunnel_data"
-    if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
+    create_response=$(cf_call POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" "$tunnel_data")
+
+if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
     red "Cloudflare Tunnel 创建失败！"
     echo "$create_response" | jq -r '.errors[]?.message // empty'
     return 1
 fi
-    tunnel_id=$(echo "$create_response" | jq -r '.result.id')
-    tunnel_token=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/token" 2>/dev/null | jq -r '.result // empty')
-    if [[ -z "$tunnel_token" || "$tunnel_token" == "null" ]]; then
-        red "获取 Tunnel Token 失败！"
-        return 1
-    fi
+
+tunnel_id=$(echo "$create_response" | jq -r '.result.id')
+
+tunnel_token_response=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/token")
+
+tunnel_token=$(echo "$tunnel_token_response" | jq -r '.result // empty')
+
+if [[ -z "$tunnel_token" || "$tunnel_token" == "null" ]]; then
+    red "获取 Tunnel Token 失败！"
+    echo "$tunnel_token_response" | jq -r '.errors[]?.message // empty'
+    return 1
+fi
     zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
