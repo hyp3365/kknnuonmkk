@@ -484,7 +484,7 @@ set_domain_origin_port() {
 # ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
     local tunnels count choice tunnel_id tunnel_name tunnel_status
-    local connections config_data hostnames connection_count active_time
+    local connections config_data hostnames connection_count
     local i=1 total
     declare -a tunnel_ids
 
@@ -508,6 +508,7 @@ cf_list_tunnels() {
         echo -e "${skyblue}==========================================${re}"
         echo -e "${skyblue}        Cloudflare Tunnel${re}"
         echo -e "${skyblue}==========================================${re}"
+
         i=1
         unset tunnel_ids
         declare -a tunnel_ids
@@ -517,11 +518,11 @@ cf_list_tunnels() {
             tunnel_ids[$i]="$tunnel_id"
 
             case "$tunnel_status" in
-                healthy)  tunnel_status="🟢 正常" ;;
-                degraded) tunnel_status="🟡 异常" ;;
-                down)     tunnel_status="🔴 离线" ;;
-                inactive) tunnel_status="⚪ 未运行" ;;
-                *)        tunnel_status="⚪ 未知" ;;
+                healthy)   tunnel_status="🟢 正常" ;;
+                degraded)  tunnel_status="🟡 异常" ;;
+                down)      tunnel_status="🔴 离线" ;;
+                inactive)  tunnel_status="⚪ 未运行" ;;
+                *)         tunnel_status="⚪ 未知" ;;
             esac
 
             echo -e "${green}${i})${re} ${tunnel_name}"
@@ -532,15 +533,12 @@ cf_list_tunnels() {
             [[ -n "$hostnames" ]] && echo "   域名: $hostnames" || echo "   域名: -"
 
             connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
-            echo "$connections" | jq
-read -p "按回车继续..."
-			if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+
+            if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
                 connection_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
                 if [[ "$connection_count" -gt 0 ]]; then
                     echo "   服务器IP:"
-                    echo "$connections" | jq -r '.result[]?.conns[]? | .origin_ip // empty' | sort -u | sed 's/^/      /'
-                    active_time=$(echo "$connections" | jq -r '.result[]?.conns[]? | .opened_at // empty' | sort | head -n1)
-                    [[ -n "$active_time" ]] && echo "   连接时间: $(date -d "$active_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$active_time")"
+                    echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u | sed 's/^/      /'
                 else
                     echo "   服务器IP: -"
                 fi
@@ -578,10 +576,10 @@ read -p "按回车继续..."
 # ── Tunnel 详细信息 / 删除 ──
 cf_tunnel_detail() {
     local tunnel_id="$1"
-    local tunnel_data tunnel_name tunnel_status created_at
+    local tunnel_data tunnel_name tunnel_status
     local connections config_data hostnames choice
     local delete_response dns_name dns_zone_id dns_record dns_id
-    local conn_count
+    local origin_ip
 
     tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
     if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
@@ -592,7 +590,6 @@ cf_tunnel_detail() {
 
     tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
     tunnel_status=$(echo "$tunnel_data" | jq -r '.result.status // "unknown"')
-    created_at=$(echo "$tunnel_data" | jq -r '.result.created_at // empty')
 
     case "$tunnel_status" in
         healthy)   tunnel_status="🟢 正常" ;;
@@ -603,34 +600,33 @@ cf_tunnel_detail() {
     esac
 
     config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
-    hostnames=$(echo "$config_data" | jq -r '.result.config.ingress[]?.hostname // empty')
+    hostnames=$(echo "$config_data" | jq -r '.result.config.ingress[]?.hostname // empty' | paste -sd ',' -)
 
     connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
+    clear
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "${skyblue}        Tunnel 详细信息${re}"
+    echo -e "${skyblue}==========================================${re}"
+    echo "隧道名称: $tunnel_name"
+    echo "域名: ${hostnames:-"-"}"
+    echo "状态: $tunnel_status"
 
-   clear
-echo -e "${skyblue}==========================================${re}"
-echo -e "${skyblue}        Tunnel 详细信息${re}"
-echo -e "${skyblue}==========================================${re}"
-echo "隧道名称: $tunnel_name"
-echo "域名: ${hostnames:-"-"}"
-echo "状态: $tunnel_status"
-
-if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
-    origin_ip=$(echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u | head -n1)
-    echo "服务器IP: ${origin_ip:-"-"}"
-else
-    echo "服务器IP: -"
-fi
-echo "运行时间: -"
-echo -e "${skyblue}==========================================${re}"
-echo -e "${yellow}1)${re} 删除此 Tunnel"
-echo -e "${red}0)${re} 返回"
-echo -e "${skyblue}==========================================${re}"
-reading "请输入选择 [0-1]: " choice
+    if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
+        origin_ip=$(echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u | head -n1)
+        echo "服务器IP: ${origin_ip:-"-"}"
+    else
+        echo "服务器IP: -"
+    fi
+    echo -e "${skyblue}==========================================${re}"
+    echo -e "${yellow}1)${re} 删除此 Tunnel"
+    echo -e "${red}0)${re} 返回"
+    echo -e "${skyblue}==========================================${re}"
+    reading "请输入选择 [0-1]: " choice
 
     case "$choice" in
         1)
             delete_response=$(cf_call DELETE "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
+
             if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
                 green "Cloudflare Tunnel 删除成功！"
 
@@ -655,10 +651,16 @@ reading "请输入选择 [0-1]: " choice
                 red "Cloudflare Tunnel 删除失败！"
                 echo "$delete_response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
             fi
+
             reading "按回车返回..." _
             ;;
-        0) return 0 ;;
-        *) red "无效选择！"; sleep 1 ;;
+        0)
+            return 0
+            ;;
+        *)
+            red "无效选择！"
+            sleep 1
+            ;;
     esac
 }
 # ── 选择 Cloudflare 验证方式 ──
