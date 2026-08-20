@@ -2552,7 +2552,7 @@ EOF
 }
 
 # debian/ubuntu/centos 守护进程
-main_systemd_services() {
+xray_main_systemd_services() {
     cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service
@@ -2588,7 +2588,7 @@ EOF
 }
 
 # 适配 alpine 守护进程
-alpine_openrc_services() {
+xray_alpine_openrc_services() {
     cat > /etc/init.d/xray << EOF
 #!/sbin/openrc-run
 
@@ -2826,9 +2826,9 @@ manage_xray() {
                 break
                 fi
                 if [ -x "$(command -v systemctl)" ]; then
-                main_systemd_services
+                xray_main_systemd_services
                 elif [ -x "$(command -v rc-update)" ]; then
-                alpine_openrc_services
+                xray_alpine_openrc_services
                 else
                 red "Unsupported init system"
                 break
