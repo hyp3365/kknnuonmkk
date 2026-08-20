@@ -410,36 +410,19 @@ async function saveEdit() {
 
 let isSyncing = false; 
 
-async function runButtonAction(btn, action, successCallback = null) {
+async function runButtonAction(btn, action) {
     if (btn.disabled) return;
     const oldHtml = btn.innerHTML;
-    const startTime = Date.now();
     btn.disabled = true;
     btn.innerHTML = "⏳ 处理中...";
     try {
-        const res = await action();
-        if (res.status === 401) {
-            window.location.reload();
-            return;
-        }
-        const data = await res.json();
-        if (data.code !== 0) {
-            alert(data.msg || "操作失败");
-            return;
-        }
-        if (successCallback) {
-            await successCallback(data);
-        }
+        await action();
     } catch (e) {
-        console.error("操作失败:", e);
-        alert("请求失败，请稍后重试");
-    } finally {
-        const elapsed = Date.now() - startTime;
-        const remain = Math.max(0, 2000 - elapsed);
-        await new Promise(resolve => setTimeout(resolve, remain));
-        btn.innerHTML = oldHtml;
-        btn.disabled = false;
     }
+    await new Promise(resolve => setTimeout(resolve, 2900));
+    btn.disabled = false;
+    btn.innerHTML = oldHtml;
+    window.location.reload();
 }
 
 async function syncFanout(btn) {
