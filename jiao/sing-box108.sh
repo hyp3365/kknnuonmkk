@@ -547,6 +547,7 @@ cf_delete_tunnel() {
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
     local tunnel_name tunnel_data tunnel_id tunnel_token zones choice
+	CF_ACCOUNT_ID="${CF_ACCOUNT_ID:-be97309f0cd2b113f357e6554b8c126b}"
     reading "请输入 Tunnel 名称: " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr -d '[:space:]')
     [[ -z "$tunnel_name" ]] && {
