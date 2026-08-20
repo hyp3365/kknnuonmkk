@@ -751,6 +751,10 @@ cf_create_tunnel() {
 
     green "Cloudflare Tunnel 创建成功！"
     green "Tunnel 域名: $ArgoDomain"
+
+	green "Cloudflare Tunnel 创建成功！"
+green "Tunnel 域名: $ArgoDomain"
+green "Tunnel Token: ${argo_auth:+已获取}"
 }
 # ── 选择 Cloudflare 验证方式 ──
 cf_select_auth() {
