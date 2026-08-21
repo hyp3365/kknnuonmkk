@@ -521,6 +521,65 @@ set_domain_origin_port() {
     fi
     return 1
 }
+# ── 删除 Cloudflare CDN 回源规则 ──
+cf_remove_cdn_rules() {
+    local domain="$1"
+    [[ -z "$domain" ]] && {
+        red "未获取到域名"
+        return 1
+    }
+    if [[ -z "${CF_TOKEN:-}" &&
+          ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        echo
+        skyblue "删除 ${domain} 的 Cloudflare 回源规则"
+        green "1) Cloudflare API Token"
+        green "2) Cloudflare Global API Key (邮箱 + Key)"
+        local cf_type
+        reading "请输入选择 [1-2]（默认 1）: " cf_type
+        [[ -z "$cf_type" ]] && cf_type=1
+        case "$cf_type" in
+        1)
+            cf_auth_token || return 1
+            ;;
+        2)
+            cf_auth_global || return 1
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+        esac
+    fi
+    local zone_id
+    zone_id=$(cf_find_zone "$domain" 2>/dev/null)
+    if [[ -z "$zone_id" ]]; then
+        red "未找到 ${domain} 对应 Cloudflare Zone"
+        return 1
+    fi
+    local rules
+    local kept
+    rules=$(cf_get_origin_rules "$zone_id")
+    [[ -z "$rules" || "$rules" == "null" ]] && {
+        green "没有 Cloudflare 回源规则"
+        return 0
+    }
+    kept=$(echo "$rules" | jq -c \
+    --arg d "$domain" '
+    [
+        .[]
+        | select(
+            (.description // "")
+            | contains("_" + $d)
+            | not
+        )
+    ]')
+    if cf_put_origin_rules "$zone_id" "$kept"; then
+        green "${domain} 的 Cloudflare 回源规则已删除"
+        return 0
+    fi
+    yellow "Cloudflare 回源规则删除失败"
+    return 1
+}
 # ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
     local tunnels count choice tunnel_id tunnel_name tunnel_status
@@ -5035,13 +5094,27 @@ EOF
 		 60) 
         targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
         configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
-        
+    
         exist_flag=0
         for conf in "${configs[@]}"; do
             [ -f "$conf" ] && exist_flag=1 && break
-        done
-
-        if [ "$exist_flag" -eq 1 ]; then
+            done
+            if [ "$exist_flag" -eq 1 ]; then
+            cdn_domain=""
+            if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+            if [[ "$line" == trojan://* &&
+              "$line" == *"_trojan_ws_cdn"* ]]; then
+            cdn_domain=$(echo "$line" | sed -n 's#trojan://[^@]*@\([^:]*\):.*#\1#p')
+            break
+            fi
+    done < "/etc/sing-box/url.txt"
+fi
+if [[ -n "$cdn_domain" ]]; then
+    green "检测到 CDN 域名: $cdn_domain"
+else
+    yellow "未检测到 CDN 域名"
+fi
             for conf in "${configs[@]}"; do
                 if [ -f "$conf" ]; then
                     port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
@@ -5098,6 +5171,35 @@ EOF
             green "==============================================="
             green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
             green "==============================================="
+			echo ""
+read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
+if [[ "$del_cf" =~ ^[Yy]$ ]]; then
+    if [[ -z "$cdn_domain" ]]; then
+        yellow "未获取到 CDN 域名，跳过删除回源规则"
+    else
+        zone_id=$(cf_find_zone "$cdn_domain")
+        if [[ -n "$zone_id" ]]; then
+            rules=$(cf_get_origin_rules "$zone_id")
+            kept=$(echo "$rules" | jq -c \
+            --arg d "$cdn_domain" '
+            [
+                .[]
+                | select(
+                    (.description // "")
+                    | contains($d)
+                    | not
+                )
+            ]')
+            if cf_put_origin_rules "$zone_id" "$kept"; then
+                green "Cloudflare 回源规则删除成功"
+            else
+                yellow "Cloudflare 回源规则删除失败"
+            fi
+        else
+            yellow "未找到 ${cdn_domain} 对应 Zone"
+        fi
+    fi
+fi
         else
             red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
         fi
