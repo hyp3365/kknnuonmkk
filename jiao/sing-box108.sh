@@ -4562,14 +4562,12 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${domain}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${domain}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
-
+    vless_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
     trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${domain}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
+    trojan_url="trojan://${uuid}@${CFIP}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
 	if [ -f "/etc/sing-box/url.txt" ]; then
         sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
         sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
