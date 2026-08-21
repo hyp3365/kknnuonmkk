@@ -1375,13 +1375,27 @@ EOF
     return 0
 }
 
-# Cloudflare申请证书 
+# Cloudflare申请证书
 issue_cf_dns_cert() {
-    if [[ -z "$CF_TOKEN" && 
-          ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
-        red "未检测到有效的 Cloudflare 认证信息！"
-        return 1
-    fi
+    case "$CF_AUTH_TYPE" in
+        token)
+            if [[ -z "$CF_TOKEN" ]]; then
+                red "Cloudflare API Token 不存在！"
+                return 1
+            fi
+            ;;
+        global)
+            if [[ -z "$CF_EMAIL" || -z "$CF_KEY" ]]; then
+                red "Cloudflare Global API Key 信息不完整！"
+                return 1
+            fi
+            ;;
+        *)
+            red "未检测到有效的 Cloudflare 认证方式！"
+            return 1
+            ;;
+    esac
+    # 自动拉取 Zone
     cf_select_zone || return 1
     echo
     echo "=========================================="
@@ -1408,10 +1422,9 @@ issue_cf_dns_cert() {
             prefix="${prefix%.}"
             if [[ ! "$prefix" =~ ^[a-zA-Z0-9-]+$ ]]; then
                 red "前缀格式无效！"
-                red "只允许字母、数字和 -"
                 return 1
             fi
-           cert_domain="${prefix}.${zone_domain}"
+            cert_domain="${prefix}.${zone_domain}"
             ;;
         3)
             local wildcard_prefix
@@ -1436,6 +1449,7 @@ issue_cf_dns_cert() {
                     return 1
                 fi
                 cert_domain="*.${wildcard_prefix}.${zone_domain}"
+
             fi
             ;;
         *)
@@ -1448,41 +1462,42 @@ issue_cf_dns_cert() {
     green "Cloudflare Zone: $zone_domain"
     green "Zone ID: $zone_id"
     manage_packages "install" "curl" "socat" "cron" "psmisc"
-    # 安装 acme.sh
-    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
-    skyblue "正在安装 acme.sh..."
-    rm -rf "$HOME/.acme.sh"
-    curl -fsSL https://get.acme.sh \
-        -o /tmp/acme_install.sh
-    chmod +x /tmp/acme_install.sh
-    bash /tmp/acme_install.sh \
-        email="${CF_EMAIL:-admin@example.com}"
-    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
-        red "acme.sh 安装失败！"
-        return 1
+    local acme_cmd="$HOME/.acme.sh/acme.sh"
+    if [[ ! -f "$acme_cmd" ]]; then
+        skyblue "正在安装 acme.sh..."
+        rm -rf "$HOME/.acme.sh"
+        curl -fsSL https://get.acme.sh \
+            -o /tmp/acme_install.sh
+        chmod +x /tmp/acme_install.sh
+        bash /tmp/acme_install.sh
+        if [[ ! -f "$acme_cmd" ]]; then
+            red "acme.sh 安装失败！"
+            return 1
+        fi
     fi
-    fi
-    "$HOME/.acme.sh/acme.sh" \
-        --set-default-ca \
-        --server letsencrypt >/dev/null 2>&1
-    if [[ -n "$CF_TOKEN" ]]; then
+    if [[ "$CF_AUTH_TYPE" == "token" ]]; then
         export CF_Token="$CF_TOKEN"
-    else
+     skyblue "当前使用 Cloudflare API Token"
+    elif [[ "$CF_AUTH_TYPE" == "global" ]]; then
         export CF_Email="$CF_EMAIL"
         export CF_Key="$CF_KEY"
+        skyblue "当前使用 Cloudflare Global API Key"
     fi
+    "$acme_cmd" \
+        --set-default-ca \
+        --server letsencrypt >/dev/null 2>&1
     local save_path="/root/cert/${cert_domain}"
     mkdir -p "$save_path"
     skyblue "正在申请证书..."
     skyblue "证书域名: $cert_domain"
-    if "$HOME/.acme.sh/acme.sh" \
+    if "$acme_cmd" \
         --issue \
         --dns dns_cf \
         -d "$cert_domain" \
         --keylength ec-256 \
         --force
     then
-        if "$HOME/.acme.sh/acme.sh" \
+        if "$acme_cmd" \
             --installcert \
             -d "$cert_domain" \
             --ecc \
@@ -1498,7 +1513,6 @@ issue_cf_dns_cert() {
             domain="$cert_domain"
             cert_file="${save_path}/fullchain.pem"
             key_file="${save_path}/privkey.pem"
-            echo
             green "=========================================="
             green "证书申请成功！"
             green "=========================================="
@@ -1506,7 +1520,7 @@ issue_cf_dns_cert() {
             green "证书: ${save_path}/fullchain.pem"
             green "私钥: ${save_path}/privkey.pem"
             green "=========================================="
-            "$HOME/.acme.sh/acme.sh" \
+            "$acme_cmd" \
                 --upgrade \
                 --auto-upgrade >/dev/null 2>&1
             return 0
@@ -1520,7 +1534,6 @@ issue_cf_dns_cert() {
         return 1
     fi
 }
-
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
