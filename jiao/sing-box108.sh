@@ -551,7 +551,11 @@ cf_remove_cdn_rules() {
         esac
     fi
     local zone_id
-    zone_id=$(cf_find_zone "$domain" 2>/dev/null)
+    echo "DEBUG: 删除域名 [$domain]"
+
+zone_id=$(cf_find_zone "$domain")
+
+echo "DEBUG: 获取到 Zone ID [$zone_id]"
     if [[ -z "$zone_id" ]]; then
         red "未找到 ${domain} 对应 Cloudflare Zone"
         return 1
