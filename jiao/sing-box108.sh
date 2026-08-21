@@ -5105,16 +5105,16 @@ EOF
             while IFS= read -r line; do
             if [[ "$line" == trojan://* &&
               "$line" == *"_trojan_ws_cdn"* ]]; then
-            cdn_domain=$(echo "$line" | sed -n 's#trojan://[^@]*@\([^:]*\):.*#\1#p')
+            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
             break
             fi
-    done < "/etc/sing-box/url.txt"
-fi
-if [[ -n "$cdn_domain" ]]; then
-    green "检测到 CDN 域名: $cdn_domain"
-else
-    yellow "未检测到 CDN 域名"
-fi
+            done < "/etc/sing-box/url.txt"
+            fi
+            if [[ -n "$cdn_domain" ]]; then
+            green "检测到 CDN 域名: $cdn_domain"
+            else
+            yellow "未检测到 CDN 域名"
+            fi
             for conf in "${configs[@]}"; do
                 if [ -f "$conf" ]; then
                     port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
