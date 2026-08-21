@@ -4418,6 +4418,20 @@ fi
         ;;
     esac
     cf_select_zone || return 1
+	reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
+prefix=$(echo "$prefix" | tr -d '[:space:]')
+prefix="${prefix#.}"
+prefix="${prefix%.}"
+if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    red "域名前缀格式无效！"
+    return 1
+fi
+if [[ -n "$prefix" ]]; then
+    domain="${prefix}.${zone_domain}"
+else
+    domain="$zone_domain"
+fi
+green "当前 CDN 域名: $domain"
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
         if [[ -n "$selected_zone_id" ]]; then
           green "匹配成功 (Zone ID: $selected_zone_id)"
@@ -4548,16 +4562,15 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${domain}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
 
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
+    vless_url="vless://${uuid}@${domain}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
 
     trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${CFIP}:${CFPORT}?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
-
-    if [ -f "/etc/sing-box/url.txt" ]; then
+    trojan_url="trojan://${uuid}@${domain}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
+	if [ -f "/etc/sing-box/url.txt" ]; then
         sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
         sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
         sed -i "/${trojan_remark}/d" /etc/sing-box/url.txt
