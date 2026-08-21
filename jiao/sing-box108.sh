@@ -708,6 +708,88 @@ cf_select_auth() {
             ;;
     esac
 }        
+# ── 拉取并选择 Cloudflare 域名 ──
+cf_select_zone() {
+    skyblue "正在从 Cloudflare 拉取已托管的域名列表..."
+    local response
+    if [[ -n "$CF_TOKEN" ]]; then
+        response=$(curl -sS --connect-timeout 10 \
+            -X GET "https://api.cloudflare.com/client/v4/zones?per_page=500" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json")
+    elif [[ -n "$CF_EMAIL" && -n "$CF_KEY" ]]; then
+        response=$(curl -sS --connect-timeout 10 \
+            -X GET "https://api.cloudflare.com/client/v4/zones?per_page=500" \
+            -H "X-Auth-Email: $CF_EMAIL" \
+            -H "X-Auth-Key: $CF_KEY" \
+            -H "Content-Type: application/json")
+    else
+        red "没有检测到 Cloudflare 认证信息！"
+        return 1
+    fi
+    if [[ -z "$response" ]]; then
+        red "Cloudflare API 没有返回任何数据！"
+        return 1
+    fi
+    local success
+    success=$(echo "$response" | jq -r '.success // false' 2>/dev/null)
+    if [[ "$success" != "true" ]]; then
+        red "获取 Cloudflare 域名列表失败！"
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.errors[]?.message // empty' 2>/dev/null)
+        [[ -n "$error_msg" ]] && \
+            red "Cloudflare: $error_msg" || \
+            red "请检查 Cloudflare 认证信息和权限。"
+        return 1
+    fi
+    local domains_and_ids
+    domains_and_ids=$(echo "$response" | jq -r '.result[]? | "\(.name)|\(.id)"')
+    if [[ -z "$domains_and_ids" ]]; then
+        red "没有找到 Cloudflare 托管域名。"
+        return 1
+    fi
+    declare -a domain_array
+    declare -a zone_id_array
+    local i=1
+    local zone_name
+    local zone_id
+    echo
+    echo "=========================================="
+    skyblue "请选择域名："
+    echo "=========================================="
+    while IFS='|' read -r zone_name zone_id; do
+        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+        echo "  $i) $zone_name"
+        domain_array[$i]="$zone_name"
+        zone_id_array[$i]="$zone_id"
+        ((i++))
+    done <<< "$domains_and_ids"
+    echo "=========================================="
+    local total=$((i - 1))
+    [[ "$total" -lt 1 ]] && {
+        red "没有可用域名"
+        return 1
+    }
+    local choice
+    reading "请输入数字选择 [1-$total]: " choice
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
+
+        red "无效选择！"
+        return 1
+    fi
+    zone_domain="${domain_array[$choice]}"
+    zone_id="${zone_id_array[$choice]}"
+    if [[ -z "$zone_domain" || -z "$zone_id" ]]; then
+        red "获取 Zone 信息失败！"
+        return 1
+    fi
+    green "已选择域名: $zone_domain"
+    green "Zone ID: $zone_id"
+    return 0
+}
 # ── 获取 Cloudflare Account ID ──
 cf_get_account_id() {
     local zones
