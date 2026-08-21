@@ -5063,6 +5063,15 @@ EOF
             target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
             if [ -f "$target_cdn_conf" ] || [ -f "$target_direct_conf" ]; then
+			cdn_domain=""
+            if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+            if [[ "$line" == vless://*"_vless_wstls_cdn"* ]]; then
+            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+            break
+            fi
+            done < /etc/sing-box/url.txt
+            fi
                 if [ -f "$target_cdn_conf" ]; then
                     vless_wstls_cdn_port=$(grep '"listen_port"' "$target_cdn_conf" | tr -cd '0-9')
                     if [ -n "$vless_wstls_cdn_port" ]; then
@@ -5100,6 +5109,9 @@ EOF
                 green "============================================"
                 green " 节点已移除!"
                 green "============================================"
+				if [[ -n "$cdn_domain" ]]; then
+                cf_remove_cdn_rules "$cdn_domain"
+                fi
             else
                 red "错误: 未找到 VLESS WS-TLS 相关的配置文件，删除取消。"
             fi
