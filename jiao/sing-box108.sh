@@ -5104,20 +5104,18 @@ EOF
             [ -f "$conf" ] && exist_flag=1 && break
             done
             if [ "$exist_flag" -eq 1 ]; then
-            cdn_domain=""
+			cdn_domain=""
             if [ -f "/etc/sing-box/url.txt" ]; then
             while IFS= read -r line; do
-            if [[ "$line" == trojan://* &&
-              "$line" == *"_trojan_ws_cdn"* ]]; then
+            if [[ "$line" == trojan://*"_trojan_ws_cdn"* ]]; then
             cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
             break
             fi
-            done < "/etc/sing-box/url.txt"
+            done < /etc/sing-box/url.txt
             fi
             if [[ -n "$cdn_domain" ]]; then
             green "检测到 CDN 域名: $cdn_domain"
-            else
-            yellow "未检测到 CDN 域名"
+            fi
             fi
             for conf in "${configs[@]}"; do
                 if [ -f "$conf" ]; then
@@ -5176,34 +5174,14 @@ EOF
             green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
             green "==============================================="
 			echo ""
-read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
-if [[ "$del_cf" =~ ^[Yy]$ ]]; then
-    if [[ -z "$cdn_domain" ]]; then
-        yellow "未获取到 CDN 域名，跳过删除回源规则"
-    else
-        zone_id=$(cf_find_zone "$cdn_domain")
-        if [[ -n "$zone_id" ]]; then
-            rules=$(cf_get_origin_rules "$zone_id")
-            kept=$(echo "$rules" | jq -c \
-            --arg d "$cdn_domain" '
-            [
-                .[]
-                | select(
-                    (.description // "")
-                    | contains($d)
-                    | not
-                )
-            ]')
-            if cf_put_origin_rules "$zone_id" "$kept"; then
-                green "Cloudflare 回源规则删除成功"
+            read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
+            if [[ "$del_cf" =~ ^[Yy]$ ]]; then
+            if [[ -n "$cdn_domain" ]]; then
+            cf_remove_cdn_rules "$cdn_domain"
             else
-                yellow "Cloudflare 回源规则删除失败"
+            yellow "未获取到 CDN 域名，跳过删除回源规则"
             fi
-        else
-            yellow "未找到 ${cdn_domain} 对应 Zone"
-        fi
-    fi
-fi
+			fi
         else
             red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
         fi
