@@ -407,48 +407,46 @@ cf_put_origin_rules() {
 cf_put_origin_rules() {
     local zone_id="$1"
     local rules_json="$2"
-    local add_count="${3:-0}"
     [[ -z "$zone_id" ]] && return 1
     [[ -z "$rules_json" ]] && return 1
-    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    if ! printf '%s' "$rules_json" | jq -e 'type=="array"' >/dev/null 2>&1; then
         red "Origin Rules 数据不是合法 JSON"
         return 1
     fi
+    local max_rules=10
     local count
-    count=$(echo "$rules_json" | jq length)
-    # Cloudflare Origin Rules 限制处理
-    if [[ "$add_count" -gt 0 &&
-          $((count + add_count)) -gt 10 ]]; then
-        local remove_count
-        remove_count=$((count + add_count - 10))
-        yellow "Origin Rules 数量超限，删除旧规则 ${remove_count} 条..."
-        rules_json=$(echo "$rules_json" | jq \
-            --argjson n "$remove_count" '
-            . as $rules
-            |
+    local remove_count
+    count=$(printf '%s' "$rules_json" | jq length)
+    if [[ "$count" -gt "$max_rules" ]]; then
+        remove_count=$((count - max_rules))
+        yellow "Origin Rules 超过限制，需要清理 ${remove_count} 条旧规则..."
+        rules_json=$(printf '%s' "$rules_json" | jq \
+            --argjson num "$remove_count" '
             [
-                $rules[]
+                .[]
                 | select(
                     (.description // "")
                     | startswith("Auto_Script:")
                 )
-            ] as $managed
+            ] as $old
+
             |
-            [
-                $rules[]
-                | select(
-                    (.description // "")
-                    | startswith("Auto_Script:")
-                    | not
-                )
-            ]
-            +
-            ($managed[$n:])
-            ')
+            (
+                [
+                    .[]
+                    | select(
+                        (.description // "")
+                        | startswith("Auto_Script:")
+                        | not
+                    )
+                ]
+                +
+                ($old[$num:])
+            )
+        ')
     fi
     local payload
     payload=$(printf '%s' "$rules_json" | jq -c '{rules:.}')
-
     if [[ -z "$payload" ]]; then
         red "生成 Origin Rules 请求数据失败"
         return 1
