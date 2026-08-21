@@ -4418,32 +4418,24 @@ fi
     esac
     cf_select_zone || return 1
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-        skyblue "正在自动查找 Cloudflare Zone ID..."
-        zone_id=$(cf_find_zone "$domain" 2>/dev/null)
-
         if [[ -n "$zone_id" ]]; then
             green "匹配成功 (Zone ID: $zone_id)"
-
             skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
             if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
                 green "✓ DNS 解析已更新并开启 CDN 代理"
             else
                 yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
             fi
-
             cf_set_ssl "$zone_id" "flexible"
             green "✓ SSL 模式已自动设置为: Flexible"
-
             pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
             existing=$(cf_get_origin_rules "$zone_id")
-
             kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
                 .[] | select(
                     (.description | startswith($pfx) | not) or
                     (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
                 )
             ]')
-
             new_managed=$(jq -n \
                 --arg d "$domain" --arg pfx "$pfx" \
                 --argjson p1 "$vmess_ws_cdn_port" --arg path1 "$vmess_path" \
