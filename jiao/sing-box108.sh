@@ -528,6 +528,11 @@ cf_remove_cdn_rules() {
         red "未获取到域名"
         return 1
     }
+    read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
+    if [[ ! "$del_cf" =~ ^[Yy]$ ]]; then
+        yellow "已跳过删除 Cloudflare 回源规则"
+        return 0
+    fi
     if [[ -z "${CF_TOKEN:-}" &&
           ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
         echo
@@ -551,17 +556,15 @@ cf_remove_cdn_rules() {
         esac
     fi
     local zone_id
+    local rules
+    local kept
     echo "DEBUG: 删除域名 [$domain]"
-
-zone_id=$(cf_find_zone "$domain")
-
-echo "DEBUG: 获取到 Zone ID [$zone_id]"
+    zone_id=$(cf_find_zone "$domain" 2>/dev/null)
+    echo "DEBUG: 获取到 Zone ID [$zone_id]"
     if [[ -z "$zone_id" ]]; then
         red "未找到 ${domain} 对应 Cloudflare Zone"
         return 1
     fi
-    local rules
-    local kept
     rules=$(cf_get_origin_rules "$zone_id")
     [[ -z "$rules" || "$rules" == "null" ]] && {
         green "没有 Cloudflare 回源规则"
@@ -572,8 +575,15 @@ echo "DEBUG: 获取到 Zone ID [$zone_id]"
     [
         .[]
         | select(
-            (.description // "")
-            | contains("_" + $d)
+            (
+                (.description // "")
+                | startswith("Auto_Script:")
+            )
+            and
+            (
+                (.description // "")
+                | contains($d)
+            )
             | not
         )
     ]')
@@ -5174,14 +5184,7 @@ EOF
             green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
             green "==============================================="
 			echo ""
-            read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
-            if [[ "$del_cf" =~ ^[Yy]$ ]]; then
-            if [[ -n "$cdn_domain" ]]; then
             cf_remove_cdn_rules "$cdn_domain"
-            else
-            yellow "未获取到 CDN 域名，跳过删除回源规则"
-            fi
-			fi
         else
             red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
         fi
