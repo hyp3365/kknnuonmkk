@@ -767,13 +767,15 @@ cf_get_account_id() {
     export CF_ACCOUNT_ID
     return 0
 }
-# ── 选择 Cloudflare 域名 ──
-cf_select_account() {
+# ── 选择 Cloudflare 域名并设置前缀 ──
+cf_select_domain() {
     local zones
     local zone_name zone_id account_id
-    local choice i total
+    local choice prefix
+    local i total
     zone_domain=""
     selected_zone_id=""
+    CF_ACCOUNT_ID=""
     zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
         jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
     if [[ -z "$zones" ]]; then
@@ -781,23 +783,25 @@ cf_select_account() {
         return 1
     fi
     echo "=========================================="
-    skyblue "请选择 Tunnel 使用的 Cloudflare 域名："
+    skyblue "请选择 Cloudflare 域名："
     echo "=========================================="
-    i=1
     declare -a zone_names
     declare -a zone_ids
     declare -a account_ids
+    i=1
     while IFS='|' read -r zone_name zone_id account_id; do
-        [[ -z "$zone_name" || -z "$zone_id" || -z "$account_id" ]] && continue
+        [[ -z "$zone_name" ||
+           -z "$zone_id" ||
+           -z "$account_id" ]] && continue
         echo "  $i) $zone_name"
         zone_names[$i]="$zone_name"
         zone_ids[$i]="$zone_id"
         account_ids[$i]="$account_id"
         ((i++))
     done <<< "$zones"
-    total=$((i - 1))
+    total=$((i-1))
     if [[ "$total" -lt 1 ]]; then
-        red "没有可用的 Cloudflare 域名！"
+        red "没有可用 Cloudflare 域名！"
         return 1
     fi
     echo "=========================================="
@@ -812,13 +816,31 @@ cf_select_account() {
     zone_domain="${zone_names[$choice]}"
     selected_zone_id="${zone_ids[$choice]}"
     CF_ACCOUNT_ID="${account_ids[$choice]}"
-    if [[ -z "$zone_domain" || -z "$selected_zone_id" || -z "$CF_ACCOUNT_ID" ]]; then
-        red "获取 Cloudflare 域名或 Account ID 失败！"
-        return 1
+    echo
+    green "已选择域名: $zone_domain"
+    echo
+    skyblue "请输入域名前缀（直接回车使用根域名）"
+    skyblue "例如 node → node.${zone_domain}"
+    reading "前缀: " prefix
+    prefix=$(echo "$prefix" | tr -d '[:space:]')
+    if [[ -n "$prefix" ]]; then
+        prefix="${prefix%.}"
+        if [[ ! "$prefix" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            red "前缀格式错误！"
+            red "只允许字母、数字和 -"
+            return 1
+        fi
+        zone_domain="${prefix}.${zone_domain}"
     fi
     export zone_domain
     export selected_zone_id
     export CF_ACCOUNT_ID
+    echo
+    green "=========================================="
+    green "域名: $zone_domain"
+    green "Zone ID: $selected_zone_id"
+    green "Account ID: $CF_ACCOUNT_ID"
+    green "=========================================="
     return 0
 }
 # ── 创建 Cloudflare Tunnel ──
