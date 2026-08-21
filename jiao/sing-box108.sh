@@ -840,13 +840,6 @@ else
     hostname="$zone_domain"
 fi
 export hostname
-        ((i++))
-    done <<< "$zones"
-    total=$((i - 1))
-    if [[ "$total" -lt 1 ]]; then
-        red "没有可用的 Cloudflare 域名！"
-        return 1
-    fi
     echo "=========================================="
     reading "请输入选择 [1-$total]: " choice
     if [[ -z "$choice" ||
