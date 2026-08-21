@@ -838,19 +838,6 @@ if [[ -n "$prefix" ]]; then
 else
     hostname="$zone_domain"
 fi
-export hostname
-    echo "=========================================="
-    reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效选择！"
-        return 1
-    fi
-    zone_domain="${zone_names[$choice]}"
-    selected_zone_id="${zone_ids[$choice]}"
-    CF_ACCOUNT_ID="${account_ids[$choice]}"
     if [[ -z "$zone_domain" || -z "$selected_zone_id" || -z "$CF_ACCOUNT_ID" ]]; then
         red "获取 Cloudflare 域名或 Account ID 失败！"
         return 1
@@ -858,6 +845,7 @@ export hostname
     export zone_domain
     export selected_zone_id
     export CF_ACCOUNT_ID
+	export hostname
     return 0
 }
 # ── 创建 Cloudflare Tunnel ──
