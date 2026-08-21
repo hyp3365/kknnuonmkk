@@ -6182,10 +6182,11 @@ manage_argo() {
         4)
 clear
 skyblue "请选择 Cloudflare 验证方式："
-echo " 1) Cloudflare API Token"
-echo " 2) Cloudflare Global API Key"
+echo -e " ${green}1)${re} Cloudflare API Token"
+echo -e " ${green}2)${re} Cloudflare Global API Key"
 local auth_choice
-reading "请输入选择 [1-2]: " auth_choice
+reading "请输入选择 [1-2]（默认 1）: " auth_choice
+[[ -z "$auth_choice" ]] && auth_choice=1
 case "$auth_choice" in
     1)
         cf_auth_token || return 1
