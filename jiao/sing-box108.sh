@@ -296,10 +296,17 @@ cf_call() {
 }
 # ── 辅助函数：获取 Zone ID  ──────
 cf_find_zone() {
-    local domain="$1" zones best_name="" best_id=""
-    zones=$(cf_call GET "/zones?per_page=500" | jq -r '.result[] | "\(.name) \(.id)"')
+    local domain="$1"
+    local zones best_name="" best_id=""    
+    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
+        jq -r '.result[]? | "\(.name) \(.id)"' 2>/dev/null)
+    if [[ -z "$zones" ]]; then
+        return 1
+    fi
     while IFS=' ' read -r zone_name zone_id; do
-        if [[ "$domain" == "$zone_name" || "$domain" == *".$zone_name" ]]; then
+        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
+        if [[ "$domain" == "$zone_name" ||
+              "$domain" == *".$zone_name" ]]; then
             if [[ ${#zone_name} -gt ${#best_name} ]]; then
                 best_name="$zone_name"
                 best_id="$zone_id"
@@ -309,7 +316,6 @@ cf_find_zone() {
     [[ -n "$best_id" ]] || return 1
     echo "$best_id"
 }
-
 # ── 自动添加或【修改/覆盖】 DNS 记录 ──────────
 cf_upsert_dns() {
     local zone_id="$1" domain="$2" raw_ip="$3"
