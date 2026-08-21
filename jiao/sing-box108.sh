@@ -779,6 +779,8 @@ cf_select_zone() {
     fi
     green "已选择域名: $zone_domain"
     green "Zone ID: $zone_id"
+	selected_zone_id="$zone_id"
+    export selected_zone_id
     return 0
 }
 # ── 获取 Cloudflare Account ID ──
@@ -840,60 +842,6 @@ cf_get_account_id() {
     export CF_ACCOUNT_ID
     return 0
 }
-# ── 选择 Cloudflare 域名 ──
-cf_select_account() {
-    local zones
-    local zone_name zone_id account_id
-    local choice i total
-    zone_domain=""
-    selected_zone_id=""
-    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
-        jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
-    if [[ -z "$zones" ]]; then
-        red "没有找到 Cloudflare 托管域名！"
-        return 1
-    fi
-    echo "=========================================="
-    skyblue "请选择 Tunnel 使用的 Cloudflare 域名："
-    echo "=========================================="
-    i=1
-    declare -a zone_names
-    declare -a zone_ids
-    declare -a account_ids
-    while IFS='|' read -r zone_name zone_id account_id; do
-        [[ -z "$zone_name" || -z "$zone_id" || -z "$account_id" ]] && continue
-        echo "  $i) $zone_name"
-        zone_names[$i]="$zone_name"
-        zone_ids[$i]="$zone_id"
-        account_ids[$i]="$account_id"
-        ((i++))
-    done <<< "$zones"
-    total=$((i - 1))
-    if [[ "$total" -lt 1 ]]; then
-        red "没有可用的 Cloudflare 域名！"
-        return 1
-    fi
-    echo "=========================================="
-    reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效选择！"
-        return 1
-    fi
-    zone_domain="${zone_names[$choice]}"
-    selected_zone_id="${zone_ids[$choice]}"
-    CF_ACCOUNT_ID="${account_ids[$choice]}"
-    if [[ -z "$zone_domain" || -z "$selected_zone_id" || -z "$CF_ACCOUNT_ID" ]]; then
-        red "获取 Cloudflare 域名或 Account ID 失败！"
-        return 1
-    fi
-    export zone_domain
-    export selected_zone_id
-    export CF_ACCOUNT_ID
-    return 0
-}
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
     local prefix hostname
@@ -902,17 +850,34 @@ cf_create_tunnel() {
     local tunnel_token_response tunnel_token
     local ingress_data config_response
     local cname_target dns_response dns_id dns_payload
-    if ! cf_select_account; then
-    return 1
-    fi
-    if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        red "无法获取该域名所属的 Cloudflare Account ID！"
+    if [[ -z "$CF_TOKEN" &&
+          ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
+        red "未配置 Cloudflare API 信息！"
         return 1
     fi
-
-    export CF_ACCOUNT_ID
-
-    # 输入域名前缀，直接回车使用根域名
+    cf_select_zone || return 1
+    if [[ -z "$CF_ACCOUNT_ID" ]]; then
+        skyblue "正在获取 Cloudflare Account ID..."
+        if [[ -n "$CF_TOKEN" ]]; then
+            account_response=$(curl -sS \
+            "https://api.cloudflare.com/client/v4/accounts" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json")
+        else
+            account_response=$(curl -sS \
+            "https://api.cloudflare.com/client/v4/accounts" \
+            -H "X-Auth-Email: $CF_EMAIL" \
+            -H "X-Auth-Key: $CF_KEY" \
+            -H "Content-Type: application/json")
+        fi
+        CF_ACCOUNT_ID=$(echo "$account_response" | \
+        jq -r '.result[0].id // empty')
+        if [[ -z "$CF_ACCOUNT_ID" ]]; then
+            red "获取 Cloudflare Account ID 失败！"
+            return 1
+        fi
+        export CF_ACCOUNT_ID
+    fi
     reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
     prefix=$(echo "$prefix" | tr -d '[:space:]')
     prefix="${prefix#.}"
