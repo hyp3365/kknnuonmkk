@@ -1868,6 +1868,7 @@ check_and_issue_ssl() {
             red "无效选择！"
             return 1
         fi
+	fi
     if [[ -n "$input_domain" ]]; then
         domain="$input_domain"
         domain=$(echo "$domain" | tr -d '[:space:]')
