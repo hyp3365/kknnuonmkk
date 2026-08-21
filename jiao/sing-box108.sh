@@ -4310,38 +4310,25 @@ EOF
         yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
     else
         if [[ -z "${CF_TOKEN:-}" &&
-              ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-            echo ""
-            yellow "未检测到 Cloudflare API 凭据。"
-            echo ""
-            echo "请选择 Cloudflare API 认证方式："
-            echo "  1. API Token（推荐）"
-            echo "  2. Global API Key"
-            echo ""
-            read -rp "请选择 [1-2]: " cf_auth_type
-            case "$cf_auth_type" in
-                1)
-                    read -rsp "请输入 Cloudflare API Token: " CF_TOKEN
-                    echo ""
-                    if [[ -z "$CF_TOKEN" ]]; then
-                        yellow "API Token 不能为空，已跳过 CDN 配置。"
-                        CF_TOKEN=""
-                    fi
-                    ;;
-                2)
-                    read -rp "请输入 Cloudflare 账户邮箱: " CF_EMAIL
-                    read -rsp "请输入 Cloudflare Global API Key: " CF_KEY
-                    echo ""
-                    if [[ -z "$CF_EMAIL" || -z "$CF_KEY" ]]; then
-                        yellow "Cloudflare Email 或 Global API Key 不能为空。"
-                        CF_EMAIL=""
-                        CF_KEY=""
-                    fi
-                    ;;
-                *)
-                    yellow "无效选择，已跳过 CDN 配置。"
-                    ;;
-            esac
+      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+    skyblue "请选择 Cloudflare 验证方式："
+    green " 1) Cloudflare API Token"
+    green " 2) Cloudflare Global API Key"
+    local cf_auth_type
+    reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
+    [[ -z "$cf_auth_type" ]] && cf_auth_type=1
+    case "$cf_auth_type" in
+        1)
+            cf_auth_token || return 1
+            ;;
+        2)
+            cf_auth_global || return 1
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+        esac
         fi
         if [[ -n "${CF_TOKEN:-}" ||
               ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
