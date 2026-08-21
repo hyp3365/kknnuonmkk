@@ -825,7 +825,6 @@ cf_select_account() {
 zone_domain="${zone_names[$choice]}"
 selected_zone_id="${zone_ids[$choice]}"
 CF_ACCOUNT_ID="${account_ids[$choice]}"
-local prefix
 reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
 prefix=$(echo "$prefix" | tr -d '[:space:]')
 prefix="${prefix#.}"
