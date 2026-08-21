@@ -845,50 +845,25 @@ cf_select_domain() {
 }
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
-    local prefix hostname
+    local hostname
     local tunnel_name tunnel_data
     local create_response tunnel_id
     local tunnel_token_response tunnel_token
     local ingress_data config_response
     local cname_target dns_response dns_id dns_payload
-    if ! cf_select_account; then
-    return 1
-    fi
     if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        red "无法获取该域名所属的 Cloudflare Account ID！"
+        red "Cloudflare Account ID 不存在！"
         return 1
     fi
-
-    export CF_ACCOUNT_ID
-
-    # 输入域名前缀，直接回车使用根域名
-    reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
-    prefix=$(echo "$prefix" | tr -d '[:space:]')
-    prefix="${prefix#.}"
-    prefix="${prefix%.}"
-
-    if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        red "域名前缀格式无效！"
+    if [[ -z "$selected_zone_id" ]]; then
+        red "Cloudflare Zone ID 不存在！"
         return 1
     fi
-
-    if [[ -n "$prefix" ]]; then
-        hostname="${prefix}.${zone_domain}"
-    else
-        hostname="$zone_domain"
+    if [[ -z "$zone_domain" ]]; then
+        red "域名不存在！"
+        return 1
     fi
-
-    # 自动生成 Tunnel 名称
-    tunnel_name="sing-box-$(date +%Y%m%d%H%M%S)"
-
-    tunnel_data=$(jq -n \
-        --arg name "$tunnel_name" \
-        '{
-            name:$name,
-            config_src:"cloudflare"
-        }')
-
-    # 创建 Tunnel
+    hostname="$zone_domain"  
     create_response=$(cf_call POST \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
         "$tunnel_data")
