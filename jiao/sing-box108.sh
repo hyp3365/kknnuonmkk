@@ -4472,6 +4472,7 @@ fi
             else
             yellow "⚠ 未获取到 Cloudflare Zone ID。"
             fi
+		fi
     mkdir -p /etc/sing-box/conf
     # 1. 写入 VMess 配置文件
     cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
