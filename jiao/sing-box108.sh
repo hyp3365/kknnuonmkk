@@ -1841,14 +1841,16 @@ check_and_issue_ssl() {
         local menu_choice
         reading "请选择操作 [0-2 或已有证书序号]: " menu_choice
         if [[ "$menu_choice" == "1" ]]; then
-
-            if ! cf_select_domain; then
-                return 1
-            fi
-            cert_file=""
-            key_file=""
-            green "已选择域名 ${domain}，跳过证书申请。"
-            return 0
+           if ! cf_select_auth; then
+           return 1
+        fi
+		if ! cf_select_domain; then
+        return 1
+        fi
+        cert_file=""
+        key_file=""
+        green "已选择域名 ${domain}"
+        return 0
         fi
         if [[ "$menu_choice" == "0" ]]; then
             red "已取消操作。"
