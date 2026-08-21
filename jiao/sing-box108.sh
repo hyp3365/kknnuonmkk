@@ -6167,9 +6167,23 @@ manage_argo() {
          ;; 
         4)
 clear
-if ! cf_select_auth; then
-    return 1
-fi
+skyblue "请选择 Cloudflare 验证方式："
+echo " 1) Cloudflare API Token"
+echo " 2) Cloudflare Global API Key"
+local auth_choice
+reading "请输入选择 [1-2]: " auth_choice
+case "$auth_choice" in
+    1)
+        cf_auth_token || return 1
+        ;;
+    2)
+        cf_auth_global || return 1
+        ;;
+    *)
+        red "无效选择！"
+        return 1
+        ;;
+esac
 while true; do
     echo -e "${skyblue}==========================================${re}"
     echo -e "${skyblue}        Cloudflare Tunnel 管理${re}"
