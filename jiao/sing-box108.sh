@@ -663,51 +663,40 @@ cf_tunnel_detail() {
             ;;
     esac
 }
-# ── 选择 Cloudflare 验证方式 ──
-cf_select_auth() {
-    local choice
-    local token_file="/etc/cloudflare/tokens"
-    skyblue "请选择 Cloudflare 验证方式："
-    red "1) Cloudflare API Token"
-    red "2) Cloudflare Global API Key (邮箱 + Key)"
-    reading "请输入选择 [1-2]（默认 1）: " choice
-    [[ -z "$choice" ]] && choice=1
-    case "$choice" in
-        1)
-            local cf_token
-            reading "请输入 Cloudflare API Token: " cf_token
-            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-            [[ -z "$cf_token" ]] && {
-                red "Token 不能为空！"
-                return 1
-            }
-            export CF_TOKEN="$cf_token"
-            unset CF_EMAIL CF_KEY
-            ;;
-        2)
-            local cf_email cf_key
-            reading "请输入 Cloudflare 登录邮箱: " cf_email
-            reading "请输入 Cloudflare Global API Key: " cf_key
-            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
-            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
-            [[ -z "$cf_email" ]] && {
-                red "邮箱不能为空！"
-                return 1
-            }
-            [[ -z "$cf_key" ]] && {
-                red "API Key 不能为空！"
-                return 1
-            }
-            export CF_EMAIL="$cf_email"
-            export CF_KEY="$cf_key"
-            unset CF_TOKEN
-            ;;
-        *)
-            red "无效选择！"
-            return 1
-            ;;
-    esac
-}        
+# ── Cloudflare API Token 验证 ──
+cf_auth_token() {
+    local cf_token
+    reading "请输入 Cloudflare API Token: " cf_token
+    cf_token=$(echo "$cf_token" | tr -d '[:space:]')
+    [[ -z "$cf_token" ]] && {
+        red "Token 不能为空！"
+        return 1
+    }
+    export CF_TOKEN="$cf_token"
+    unset CF_EMAIL CF_KEY
+    return 0
+}
+# ── Cloudflare Global API Key 验证 ──
+cf_auth_global() {
+    local cf_email
+    local cf_key
+    reading "请输入 Cloudflare 登录邮箱: " cf_email
+    cf_email=$(echo "$cf_email" | tr -d '[:space:]')
+    [[ -z "$cf_email" ]] && {
+        red "邮箱不能为空！"
+        return 1
+    }
+    reading "请输入 Cloudflare Global API Key: " cf_key
+    cf_key=$(echo "$cf_key" | tr -d '[:space:]')
+    [[ -z "$cf_key" ]] && {
+        red "API Key 不能为空！"
+        return 1
+    }
+    export CF_EMAIL="$cf_email"
+    export CF_KEY="$cf_key"
+    unset CF_TOKEN
+    return 0
+}
 # ── 拉取并选择 Cloudflare 域名 ──
 cf_select_zone() {
     skyblue "正在从 Cloudflare 拉取已托管的域名列表..."
@@ -1386,7 +1375,11 @@ EOF
 
 # Cloudflare申请证书 
 issue_cf_dns_cert() {
-    cf_select_auth || return 1
+    if [[ -z "$CF_TOKEN" && 
+          ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
+        red "未检测到有效的 Cloudflare 认证信息！"
+        return 1
+    fi
     cf_select_zone || return 1
     echo
     echo "=========================================="
