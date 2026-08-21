@@ -360,50 +360,25 @@ cf_set_ssl() {
     return 1
 }
 
-# ── Cloudflare Origin Rules 管理 ─────────────────────────
-cf_put_origin_rules() {
+# ── Cloudflare Origin Rules 获取 ──
+cf_get_origin_rules() {
     local zone_id="$1"
-    local rules_json="$2"
-    [[ -z "$zone_id" ]] && return 1
-    [[ -z "$rules_json" ]] && return 1
-    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        red "Origin Rules 数据不是合法 JSON"
-        return 1
-    fi
-    local count
-    count=$(echo "$rules_json" | jq length)
-    if [[ "$count" -ge 20 ]]; then
-        yellow "Origin Rules 数量接近限制，清理旧脚本规则..."
-        rules_json=$(echo "$rules_json" | jq '
-        [
-            .[]
-            | select(
-                (.description // "")
-                | startswith("Auto_Script:")
-                | not
-            )
-        ]')
-    fi
-    local payload
-    payload=$(printf '%s' "$rules_json" | jq -c '{rules:.}')
-
-    if [[ -z "$payload" ]]; then
-        red "生成 Origin Rules 请求数据失败"
-        return 1
-    fi
     local response
-    response=$(cf_call PUT \
-        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
-        "$payload")
 
+    [[ -z "$zone_id" ]] && {
+        echo "[]"
+        return 1
+    }
+    response=$(cf_call GET \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-        return 0
+        echo "$response" | jq -c '.result.rules // []'
+    else
+        echo "[]"
     fi
-    yellow "Cloudflare Origin Rules 下发失败："
-    echo "$response" | jq -r '.errors[]?.message // empty'
-    return 1
 }
 
+# ── Cloudflare Origin Rules 管理 ─────────────────────────
 cf_put_origin_rules() {
     local zone_id="$1"
     local rules_json="$2"
