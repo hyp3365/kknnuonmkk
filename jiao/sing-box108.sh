@@ -4680,59 +4680,15 @@ fi
     vmess_ws_cdn_port=$(get_available_port)
     vless_ws_cdn_port=$(get_available_port)
     trojan_ws_cdn_port=$(get_available_port)
-
     vmess_path="/vmess-ws"
     vless_path="/vless-ws"
     trojan_path="/trojan-ws"
-
     allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
-
-    echo ""
-    echo "请选择 Cloudflare 验证方式："
-    echo "1) Cloudflare API Token"
-    echo "2) Cloudflare Global API Key (邮箱 + Key)"
-    read -rp "请输入选择 [1-2]: " cf_type
-
-    case "$cf_type" in
-        1)
-            read -rp "请输入你的 Cloudflare API Token: " cf_token
-            cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-            [[ -z "$cf_token" ]] && {
-                red "Token 不能为空！"
-                return 1
-            }
-            export CF_TOKEN="$cf_token"
-            unset CF_EMAIL CF_KEY
-            ;;
-        2)
-            read -rp "请输入 Cloudflare 登录邮箱: " cf_email
-            read -rp "请输入 Cloudflare Global API Key: " cf_key
-            cf_email=$(echo "$cf_email" | tr -d '[:space:]')
-            cf_key=$(echo "$cf_key" | tr -d '[:space:]')
-            [[ -z "$cf_email" ]] && {
-                red "邮箱不能为空！"
-                return 1
-            }
-            [[ -z "$cf_key" ]] && {
-                red "API Key 不能为空！"
-                return 1
-            }
-            export CF_EMAIL="$cf_email"
-            export CF_KEY="$cf_key"
-            unset CF_TOKEN
-            ;;
-        *)
-            red "无效选择！"
-            return 1
-            ;;
-    esac
-
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
         skyblue "正在自动查找 Cloudflare Zone ID..."
         zone_id=$(cf_find_zone "$domain" 2>/dev/null)
-
         if [[ -n "$zone_id" ]]; then
             green "匹配成功 (Zone ID: $zone_id)"
 
