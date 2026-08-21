@@ -4655,28 +4655,23 @@ fi
     green "--------------------------------------------------"
     ;;
     10)
-    check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
     echo ""
     vmess_ws_cdn_port=$(get_available_port)
     vless_ws_cdn_port=$(get_available_port)
     trojan_ws_cdn_port=$(get_available_port)
-
     vmess_path="/vmess-ws"
     vless_path="/vless-ws"
     trojan_path="/trojan-ws"
-
     allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
     allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
-
     echo ""
     echo "请选择 Cloudflare 验证方式："
     echo "1) Cloudflare API Token"
     echo "2) Cloudflare Global API Key (邮箱 + Key)"
     read -rp "请输入选择 [1-2]: " cf_type
-
     case "$cf_type" in
         1)
             read -rp "请输入你的 Cloudflare API Token: " cf_token
