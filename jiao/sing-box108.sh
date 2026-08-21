@@ -1674,38 +1674,44 @@ check_and_issue_ssl() {
     local ssl_choice
     reading "请输入选择 [1-3]: " ssl_choice
     case "$ssl_choice" in
-        1)
-            if [[ -z "$domain" ]]; then
-                reading "请输入要申请证书的域名: " domain
-
-                domain=$(echo "$domain" | tr -d '[:space:]')
-
-                [[ -z "$domain" ]] && {
-                    red "域名不能为空！"
-                    return 1
-                }
-            fi
-            if ! run_ssl_task "$domain"; then
-                red "80 端口方式申请证书失败。"
+    1)
+        if [[ -z "$domain" ]]; then
+            reading "请输入要申请证书的域名: " domain
+            domain=$(echo "$domain" | tr -d '[:space:]')
+            [[ -z "$domain" ]] && {
+                red "域名不能为空！"
                 return 1
-            fi
-            ;;
-        2)
-            if ! issue_cf_dns_cert; then
-                red "Cloudflare Global API Key 方式申请证书失败。"
-                return 1
-            fi
-            ;;
-        3)
-            if ! issue_cf_token_cert; then
-                red "Cloudflare API Token 方式申请证书失败。"
-                return 1
-            fi
-            ;;
-        *)
-            red "无效选择！"
+            }
+        fi
+        if ! run_ssl_task "$domain"; then
+            red "80 端口方式申请证书失败。"
             return 1
-            ;;
+        fi
+        ;;
+    2)
+        if ! cf_auth_global; then
+            red "Cloudflare Global API Key 认证失败！"
+            return 1
+        fi
+        if ! issue_cf_dns_cert; then
+            red "Cloudflare Global API Key 方式申请证书失败。"
+            return 1
+        fi
+        ;;
+    3)
+        if ! cf_auth_token; then
+            red "Cloudflare API Token 认证失败！"
+            return 1
+        fi
+        if ! issue_cf_dns_cert; then
+            red "Cloudflare API Token 方式申请证书失败。"
+            return 1
+        fi
+        ;;
+    *)
+        red "无效选择！"
+        return 1
+        ;;
     esac
     if [[ -z "$domain" ]]; then
         red "证书申请成功，但未返回证书域名。"
