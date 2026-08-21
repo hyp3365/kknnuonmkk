@@ -674,6 +674,7 @@ cf_auth_token() {
     }
     export CF_TOKEN="$cf_token"
     unset CF_EMAIL CF_KEY
+    export CF_AUTH_TYPE="token"
     return 0
 }
 # ── Cloudflare Global API Key 验证 ──
@@ -695,6 +696,7 @@ cf_auth_global() {
     export CF_EMAIL="$cf_email"
     export CF_KEY="$cf_key"
     unset CF_TOKEN
+    export CF_AUTH_TYPE="global"
     return 0
 }
 # ── 拉取并选择 Cloudflare 域名 ──
