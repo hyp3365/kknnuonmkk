@@ -337,6 +337,22 @@ cf_upsert_dns() {
         cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
     fi
 }
+# ── 删除 Cloudflare DNS 记录 ──
+cf_delete_dns() {
+    local zone_id="$1"
+    local domain="$2"
+    local records rid
+    records=$(cf_call GET \
+        "/zones/${zone_id}/dns_records?name=${domain}" \
+        | jq -r '.result[]?.id')
+    [[ -z "$records" ]] && return 0
+    while read -r rid; do
+        [[ -z "$rid" ]] && continue
+        cf_call DELETE \
+            "/zones/${zone_id}/dns_records/${rid}" \
+            >/dev/null
+    done <<< "$records"
+}
 
 # ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
 cf_set_ssl() {
@@ -525,18 +541,19 @@ set_domain_origin_port() {
 cf_remove_cdn_rules() {
     local domain="$1"
     [[ -z "$domain" ]] && {
-        red "未获取到域名"
-        return 1
+        yellow "未获取到 CDN 域名，跳过删除回源规则"
+        return 0
     }
-    read -rp "是否同时删除 Cloudflare 回源规则？(y/N): " del_cf
-    if [[ ! "$del_cf" =~ ^[Yy]$ ]]; then
+    read -rp "是否同时删除 ${domain} 的 Cloudflare 回源规则？(y/N): " del_cf
+    [[ ! "$del_cf" =~ ^[Yy]$ ]] && {
         yellow "已跳过删除 Cloudflare 回源规则"
         return 0
-    fi
+    }
+    # 没有认证信息时请求
     if [[ -z "${CF_TOKEN:-}" &&
           ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
         echo
-        skyblue "删除 ${domain} 的 Cloudflare 回源规则"
+        skyblue "请输入 Cloudflare 验证信息"
         green "1) Cloudflare API Token"
         green "2) Cloudflare Global API Key (邮箱 + Key)"
         local cf_type
@@ -558,16 +575,15 @@ cf_remove_cdn_rules() {
     local zone_id
     local rules
     local kept
-    echo "DEBUG: 删除域名 [$domain]"
     zone_id=$(cf_find_zone "$domain" 2>/dev/null)
-    echo "DEBUG: 获取到 Zone ID [$zone_id]"
     if [[ -z "$zone_id" ]]; then
-        red "未找到 ${domain} 对应 Cloudflare Zone"
+        yellow "未找到 ${domain} 对应 Zone"
         return 1
     fi
     rules=$(cf_get_origin_rules "$zone_id")
     [[ -z "$rules" || "$rules" == "null" ]] && {
         green "没有 Cloudflare 回源规则"
+        cf_delete_dns "$zone_id" "$domain"
         return 0
     }
     kept=$(echo "$rules" | jq -c \
@@ -582,17 +598,20 @@ cf_remove_cdn_rules() {
             and
             (
                 (.description // "")
-                | contains($d)
+                | test("(^|_)"+$d+"$")
             )
             | not
         )
     ]')
     if cf_put_origin_rules "$zone_id" "$kept"; then
-        green "${domain} 的 Cloudflare 回源规则已删除"
+        green "${domain} Cloudflare 回源规则已删除"
+        cf_delete_dns "$zone_id" "$domain"
+        green "${domain} DNS 解析已删除"
         return 0
+    else
+        yellow "Cloudflare 回源规则删除失败"
+        return 1
     fi
-    yellow "Cloudflare 回源规则删除失败"
-    return 1
 }
 # ── 查看 / 删除 Cloudflare Tunnel ──
 cf_list_tunnels() {
