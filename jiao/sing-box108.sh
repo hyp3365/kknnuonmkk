@@ -1448,13 +1448,17 @@ issue_cf_dns_cert() {
     manage_packages "install" "curl" "socat" "cron" "psmisc"
     # 安装 acme.sh
     if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
-        skyblue "正在安装 acme.sh..."
-        curl -fsSL "https://get.acme.sh" -o /tmp/acme_install.sh
-        bash /tmp/acme_install.sh email="$CF_EMAIL"
-        if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
-            red "acme.sh 安装失败！"
-            return 1
-        fi
+    skyblue "正在安装 acme.sh..."
+    rm -rf "$HOME/.acme.sh"
+    curl -fsSL https://get.acme.sh \
+        -o /tmp/acme_install.sh
+    chmod +x /tmp/acme_install.sh
+    bash /tmp/acme_install.sh \
+        email="${CF_EMAIL:-admin@example.com}"
+    if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
+        red "acme.sh 安装失败！"
+        return 1
+    fi
     fi
     "$HOME/.acme.sh/acme.sh" \
         --set-default-ca \
