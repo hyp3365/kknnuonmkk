@@ -665,6 +665,20 @@ cf_tunnel_detail() {
 }
 # ── Cloudflare API Token 验证 ──
 cf_auth_token() {
+echo ""
+    green "=== Cloudflare API Token 获取 ==="
+    skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
+    echo -e " 1. 登录 Cloudflare 官网，进入 \033[33m管理账户 -> API 令牌\033[0m"
+    echo -e " 2. 点击右侧 \033[33m创建令牌--构建自定义权限策略\033[0m"
+    echo -e " 3. 配置权限策略:选择 \033[33m所有域名\033[0m"
+    echo -e " -\033[33mDNS & Zones (区域) - Zone\033[0m，权限设为 \033[32mRead (读取)\033[0m"
+    echo -e " -\033[33mDNS & Zones (区域) - DNS\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e " -\033[33mDNS & Zones (区域) - Zone Settings\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e " -\033[33mRules & Configuration (规则和配置) - Origin\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
+    echo -e " 4. 添加策略:选择 \033[33m整个账户\033[0m"
+	echo -e " -\033[33mCloudflare One / Zero Trust - Argo Tunnel\033[0m，权限设为 \033[32mRead (全部选择)\033[0m"
+	echo -e " 5. 点击【继续以进行预览】->【创建令牌】并复制生成的字符串"
+    skyblue "------------------------------------------"
     local cf_token
     reading "请输入 Cloudflare API Token: " cf_token
     cf_token=$(echo "$cf_token" | tr -d '[:space:]')
