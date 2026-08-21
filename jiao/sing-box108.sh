@@ -787,8 +787,11 @@ cf_select_account() {
     local choice i total
     zone_domain=""
     selected_zone_id=""
-    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
-        jq -r '.result[]? | "\(.name)|\(.id)|\(.account.id)"')
+    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
+
+echo "$zones"
+
+return 1
     if [[ -z "$zones" ]]; then
         red "没有找到 Cloudflare 托管域名！"
         return 1
