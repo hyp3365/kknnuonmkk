@@ -721,6 +721,7 @@ cf_auth_global() {
 }
 # ── 拉取并选择 Cloudflare 域名 ──
 cf_select_zone() {
+    unset selected_zone_id
     skyblue "正在从 Cloudflare 拉取已托管的域名列表..."
     local response
     if [[ -n "$CF_TOKEN" ]]; then
@@ -762,18 +763,18 @@ cf_select_zone() {
     declare -a domain_array
     declare -a zone_id_array
     local i=1
-    local zone_name
-    local zone_id
+	local zone_name
+    local zone_temp_id
     echo
     echo "=========================================="
     skyblue "请选择域名："
     echo "=========================================="
-    while IFS='|' read -r zone_name zone_id; do
-        [[ -z "$zone_name" || -z "$zone_id" ]] && continue
-        echo "  $i) $zone_name"
-        domain_array[$i]="$zone_name"
-        zone_id_array[$i]="$zone_id"
-        ((i++))
+    while IFS='|' read -r zone_name zone_temp_id; do
+    [[ -z "$zone_name" || -z "$zone_temp_id" ]] && continue
+    echo "  $i) $zone_name"
+    domain_array[$i]="$zone_name"
+    zone_id_array[$i]="$zone_temp_id"
+    ((i++))
     done <<< "$domains_and_ids"
     echo "=========================================="
     local total=$((i - 1))
@@ -793,14 +794,14 @@ cf_select_zone() {
     fi
     zone_domain="${domain_array[$choice]}"
     zone_id="${zone_id_array[$choice]}"
+    selected_zone_id="$zone_id"
+    export selected_zone_id
     if [[ -z "$zone_domain" || -z "$zone_id" ]]; then
         red "获取 Zone 信息失败！"
         return 1
     fi
     green "已选择域名: $zone_domain"
     green "Zone ID: $zone_id"
-	selected_zone_id="$zone_id"
-    export selected_zone_id
     return 0
 }
 # ── 获取 Cloudflare Account ID ──
@@ -4418,18 +4419,15 @@ fi
     esac
     cf_select_zone || return 1
     if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-        if [[ -n "$zone_id" ]]; then
-            green "匹配成功 (Zone ID: $zone_id)"
-            skyblue "正在更新 DNS 记录 (${domain} -> ${server_ip})..."
-            if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-                green "✓ DNS 解析已更新并开启 CDN 代理"
-            else
-                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
-            fi
-            cf_set_ssl "$zone_id" "flexible"
-            green "✓ SSL 模式已自动设置为: Flexible"
-            pfx="${MANAGED_PREFIX:-"Auto_Script:"}"
-            existing=$(cf_get_origin_rules "$zone_id")
+        if [[ -n "$selected_zone_id" ]]; then
+          green "匹配成功 (Zone ID: $selected_zone_id)"
+          if cf_upsert_dns "$selected_zone_id" "$domain" "$server_ip"; then
+          green "✓ DNS 解析已更新并开启 CDN 代理"
+       else
+        yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
+    fi
+    cf_set_ssl "$selected_zone_id" "flexible"
+    existing=$(cf_get_origin_rules "$selected_zone_id")
             kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
                 .[] | select(
                     (.description | startswith($pfx) | not) or
@@ -4466,18 +4464,15 @@ fi
 
             merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
 
-            if cf_put_origin_rules "$zone_id" "$merged"; then
-                green "✓ 回源规则创建成功！"
+            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
+            green "✓ 回源规则创建成功！"
             else
-                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
+            yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
             fi
-        else
-            yellow "⚠ 未能匹配到 Zone ID，请确认域名已托管在该账号下且凭证正确。"
-        fi
-    fi
-
+            else
+            yellow "⚠ 未获取到 Cloudflare Zone ID。"
+            fi
     mkdir -p /etc/sing-box/conf
-
     # 1. 写入 VMess 配置文件
     cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
 {
