@@ -768,7 +768,7 @@ cf_get_account_id() {
     return 0
 }
 # ── 选择 Cloudflare 域名并设置前缀 ──
-cf_select_domain() {
+cf_select_account() {
     local zones
     local zone_name zone_id account_id
     local choice prefix
