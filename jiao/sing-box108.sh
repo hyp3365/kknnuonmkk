@@ -361,35 +361,37 @@ cf_set_ssl() {
 }
 
 # ── Cloudflare Origin Rules 管理 ─────────────────────────
-cf_get_origin_rules() {
-    local zone_id="$1"
-    local response
-    response=$(cf_call GET \
-        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-        echo "$response" | jq -c '.result.rules // []'
-    else
-        echo '[]'
-    fi
-}
-
 cf_put_origin_rules() {
     local zone_id="$1"
     local rules_json="$2"
-    local response
     [[ -z "$zone_id" ]] && return 1
     [[ -z "$rules_json" ]] && return 1
     if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
         red "Origin Rules 数据不是合法 JSON"
         return 1
     fi
+    local count
+    count=$(echo "$rules_json" | jq length)
+    if [[ "$count" -ge 20 ]]; then
+        yellow "Origin Rules 数量接近限制，清理旧脚本规则..."
+        rules_json=$(echo "$rules_json" | jq '
+        [
+            .[]
+            | select(
+                (.description // "")
+                | startswith("Auto_Script:")
+                | not
+            )
+        ]')
+    fi
     local payload
-    payload=$(printf '%s' "$rules_json" | jq -c '{rules: .}')
+    payload=$(printf '%s' "$rules_json" | jq -c '{rules:.}')
 
     if [[ -z "$payload" ]]; then
         red "生成 Origin Rules 请求数据失败"
         return 1
     fi
+    local response
     response=$(cf_call PUT \
         "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
         "$payload")
@@ -398,10 +400,69 @@ cf_put_origin_rules() {
         return 0
     fi
     yellow "Cloudflare Origin Rules 下发失败："
-    echo "$response" | jq -r '
-        .errors[]?
-        | if .message then .message else tostring end
-    ' 2>/dev/null
+    echo "$response" | jq -r '.errors[]?.message // empty'
+    return 1
+}
+
+cf_put_origin_rules() {
+    local zone_id="$1"
+    local rules_json="$2"
+    local add_count="${3:-0}"
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$rules_json" ]] && return 1
+    if ! printf '%s' "$rules_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        red "Origin Rules 数据不是合法 JSON"
+        return 1
+    fi
+    local count
+    count=$(echo "$rules_json" | jq length)
+    # Cloudflare Origin Rules 限制处理
+    if [[ "$add_count" -gt 0 &&
+          $((count + add_count)) -gt 10 ]]; then
+        local remove_count
+        remove_count=$((count + add_count - 10))
+        yellow "Origin Rules 数量超限，删除旧规则 ${remove_count} 条..."
+        rules_json=$(echo "$rules_json" | jq \
+            --argjson n "$remove_count" '
+            . as $rules
+            |
+            [
+                $rules[]
+                | select(
+                    (.description // "")
+                    | startswith("Auto_Script:")
+                )
+            ] as $managed
+            |
+            [
+                $rules[]
+                | select(
+                    (.description // "")
+                    | startswith("Auto_Script:")
+                    | not
+                )
+            ]
+            +
+            ($managed[$n:])
+            ')
+    fi
+    local payload
+    payload=$(printf '%s' "$rules_json" | jq -c '{rules:.}')
+
+    if [[ -z "$payload" ]]; then
+        red "生成 Origin Rules 请求数据失败"
+        return 1
+    fi
+    local response
+    response=$(cf_call PUT \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint" \
+        "$payload")
+
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        return 0
+    fi
+    yellow "Cloudflare Origin Rules 下发失败："
+    echo "$response" | jq -r '.errors[]?.message // empty'
     return 1
 }
 
@@ -4448,34 +4509,51 @@ green "当前 CDN 域名: $domain"
                     (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
                 )
             ]')
-            new_managed=$(jq -n \
-                --arg d "$domain" --arg pfx "$pfx" \
-                --argjson p1 "$vmess_ws_cdn_port" --arg path1 "$vmess_path" \
-                --argjson p2 "$vless_ws_cdn_port" --arg path2 "$vless_path" \
-                --argjson p3 "$trojan_ws_cdn_port" --arg path3 "$trojan_path" '[
-                {
-                    description: ($pfx + "VMESS_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p1 } }
-                },
-                {
-                    description: ($pfx + "VLESS_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p2 } }
-                },
-                {
-                    description: ($pfx + "TROJAN_" + $d),
-                    enabled: true,
-                    expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
-                    action: "route",
-                    action_parameters: { origin: { port: $p3 } }
-                }
-            ]')
-
+            pfx="${MANAGED_PREFIX:-Auto_Script:}"
+new_managed=$(jq -n \
+    --arg d "$domain" \
+    --arg pfx "$pfx" \
+    --argjson p1 "$vmess_ws_cdn_port" \
+    --arg path1 "$vmess_path" \
+    --argjson p2 "$vless_ws_cdn_port" \
+    --arg path2 "$vless_path" \
+    --argjson p3 "$trojan_ws_cdn_port" \
+    --arg path3 "$trojan_path" \
+'[
+    {
+        description: ($pfx + "VMESS_" + $d),
+        enabled: true,
+        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
+        action: "route",
+        action_parameters: {
+            origin: {
+                port: $p1
+            }
+        }
+    },
+    {
+        description: ($pfx + "VLESS_" + $d),
+        enabled: true,
+        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
+        action: "route",
+        action_parameters: {
+            origin: {
+                port: $p2
+            }
+        }
+    },
+    {
+        description: ($pfx + "TROJAN_" + $d),
+        enabled: true,
+        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
+        action: "route",
+        action_parameters: {
+            origin: {
+                port: $p3
+            }
+        }
+    }
+]')
             merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
 
             if cf_put_origin_rules "$selected_zone_id" "$merged"; then
