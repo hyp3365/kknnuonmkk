@@ -1823,11 +1823,10 @@ check_and_issue_ssl() {
         shopt -u nullglob
         echo
         skyblue "============== 本地已有证书列表 =============="
-
+        local i=3
         if [[ ${#cert_domains[@]} -eq 0 ]]; then
             echo "  (未检测到任何本地证书)"
         else
-            local i=2
             local idx
             for idx in "${!cert_domains[@]}"; do
                 echo " ${i}) ${cert_domains[$idx]}  (路径: ${cert_paths[$idx]})"
@@ -1835,30 +1834,40 @@ check_and_issue_ssl() {
             done
         fi
         skyblue "=============================================="
-        echo " 1) 申请新证书"
+        echo " 1) 使用新域名（不申请证书）"
+        echo " 2) 使用新域名（申请证书）"
         echo " 0) 退出"
         echo
         local menu_choice
-        reading "请选择操作 [0-1 或已有证书序号]: " menu_choice
+        reading "请选择操作 [0-2 或已有证书序号]: " menu_choice
+        if [[ "$menu_choice" == "1" ]]; then
+
+            if ! cf_select_domain; then
+                return 1
+            fi
+            cert_file=""
+            key_file=""
+            green "已选择域名 ${domain}，跳过证书申请。"
+            return 0
+        fi
         if [[ "$menu_choice" == "0" ]]; then
             red "已取消操作。"
             return 1
         fi
         if [[ "$menu_choice" =~ ^[0-9]+$ ]] &&
-           [[ "$menu_choice" -ge 2 ]] &&
+           [[ "$menu_choice" -ge 3 ]] &&
            [[ "$menu_choice" -lt "$i" ]]; then
-            local sel_idx=$((menu_choice - 2))
+            local sel_idx=$((menu_choice - 3))
             domain="${cert_domains[$sel_idx]}"
             cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
             key_file="${cert_paths[$sel_idx]}/privkey.pem"
             green "已选择并使用域名 ${domain} 的现有证书。"
             return 0
         fi
-        if [[ "$menu_choice" != "1" ]]; then
-            red "无效的选择！"
+        if [[ "$menu_choice" != "2" ]]; then
+            red "无效选择！"
             return 1
         fi
-    fi
     if [[ -n "$input_domain" ]]; then
         domain="$input_domain"
         domain=$(echo "$domain" | tr -d '[:space:]')
@@ -4986,34 +4995,6 @@ EOF
 check_and_issue_ssl || return 1
 generate_vars
 server_ip=$(get_realip)
-echo "请选择 Cloudflare 验证方式："
-echo "1) Cloudflare API Token"
-echo "2) Cloudflare Global API Key (邮箱 + Key)"
-read -rp "请输入选择 [1-2]: " cf_type
-case "$cf_type" in
-1)
-    read -rp "请输入你的 Cloudflare API Token: " cf_token
-    cf_token=$(echo "$cf_token" | tr -d '[:space:]')
-    [[ -z "$cf_token" ]] && { red "Token 不能为空！"; return 1; }
-    export CF_TOKEN="$cf_token"
-    unset CF_EMAIL CF_KEY
-;;
-2)
-    read -rp "请输入 Cloudflare 登录邮箱: " cf_email
-    read -rp "请输入 Cloudflare Global API Key: " cf_key
-    cf_email=$(echo "$cf_email" | tr -d '[:space:]')
-    cf_key=$(echo "$cf_key" | tr -d '[:space:]')
-    [[ -z "$cf_email" ]] && { red "邮箱不能为空！"; return 1; }
-    [[ -z "$cf_key" ]] && { red "API Key 不能为空！"; return 1; }
-    export CF_EMAIL="$cf_email"
-    export CF_KEY="$cf_key"
-    unset CF_TOKEN
-;;
-*)
-    red "无效选择！"
-    return 1
-;;
-esac
 if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
     skyblue "正在自动查找 Cloudflare Zone ID..."
     zone_id=$(cf_find_zone "$domain" 2>/dev/null)
