@@ -1449,8 +1449,8 @@ issue_cf_dns_cert() {
     # 安装 acme.sh
     if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
         skyblue "正在安装 acme.sh..."
-        curl -fsSL "https://get.acme.sh" |
-            sh -s email="$CF_EMAIL"
+        curl -fsSL "https://get.acme.sh" -o /tmp/acme_install.sh
+        bash /tmp/acme_install.sh email="$CF_EMAIL"
         if [[ ! -f "$HOME/.acme.sh/acme.sh" ]]; then
             red "acme.sh 安装失败！"
             return 1
