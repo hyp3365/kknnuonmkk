@@ -3950,7 +3950,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-    url_param="insecure=1&sni=www.bing.com"
+    url_param="insecure=0&sni=www.bing.com"
     yellow "=> Hysteria2 已配置为使用自签名证书。"
 fi
 
@@ -4041,7 +4041,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-    url_param="allow_insecure=1&sni=www.bing.com"
+    url_param="allow_insecure=0&sni=www.bing.com"
     yellow "=> TUIC 已配置为使用自签名证书。"
 fi
                 yellow "正在配置 tuic..."
