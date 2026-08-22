@@ -4819,6 +4819,132 @@ EOF
     green " 节点链接: $url"
     green "==============================================="
     ;;
+	12)
+    generate_vars
+    server_ip=$(get_realip)
+    echo ""
+    vless_xhttp_cdn_port=$(get_available_port)
+    allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
+    node_remark="${isp}_xray_vles_xhttp_cdn"
+    echo ""
+    skyblue "请选择 Cloudflare 验证方式："
+    green "1) Cloudflare API Token"
+    green "2) Cloudflare Global API Key (邮箱 + Key)"
+    local cf_type
+    reading "请输入选择 [1-2]（默认 1）: " cf_type
+    [[ -z "$cf_type" ]] && cf_type=1
+    case "$cf_type" in
+    1)
+        cf_auth_token || return 1
+        ;;
+    2)
+        cf_auth_global || return 1
+        ;;
+    *)
+        red "无效选择！"
+        return 1
+        ;;
+    esac
+    cf_select_zone || return 1
+    reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
+    prefix=$(echo "$prefix" | tr -d '[:space:]')
+    prefix="${prefix#.}"
+    prefix="${prefix%.}"
+    if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        red "域名前缀格式无效！"
+        return 1
+    fi
+    if [[ -n "$prefix" ]]; then
+        domain="${prefix}.${zone_domain}"
+    else
+        domain="$zone_domain"
+    fi
+    green "当前 CDN 域名: $domain"
+    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+        if [[ -n "$selected_zone_id" ]]; then
+            green "匹配成功 (Zone ID: $selected_zone_id)"
+            if cf_upsert_dns "$selected_zone_id" "$domain" "$server_ip"; then
+                green "✓ DNS 解析已更新并开启 CDN 代理"
+            else
+                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
+            fi
+            cf_set_ssl "$selected_zone_id" "flexible"
+            existing=$(cf_get_origin_rules "$selected_zone_id")
+            pfx="${MANAGED_PREFIX:-Auto_Script:}"
+            kept=$(echo "$existing" | jq --arg pfx "$pfx" '
+            [
+                .[] | select(
+                    (.description | startswith($pfx) | not)
+                )
+            ]')
+            new_managed=$(jq -n \
+                --arg d "$domain" \
+                --arg pfx "$pfx" \
+                --argjson port "$vless_xhttp_cdn_port" \
+                '[
+                    {
+                        description: ($pfx + "VLESS_XHTTP_" + $d),
+                        enabled: true,
+                        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"/vless-xhttp\")"),
+                        action: "route",
+                        action_parameters: {
+                            origin: {
+                                port: $port
+                            }
+                        }
+                    }
+                ]')
+            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
+                green "✓ 回源规则创建成功！"
+            else
+                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
+            fi
+        else
+            yellow "⚠ 未获取到 Cloudflare Zone ID。"
+        fi
+    fi
+    mkdir -p /etc/xray/conf
+    cat > /etc/xray/conf/vless-xhttp-cnd.json << EOF
+{
+  "inbounds": [
+    {
+      "port": $vless_xhttp_cdn_port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$uuid"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "/vless-xhttp",
+          "mode": "auto"
+        }
+      }
+    }
+  ]
+}
+EOF
+    vless_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=/vless-xhttp&mode=auto#$(echo -n "$node_remark" | jq -sRr @uri)"
+    if [ -f "/etc/xray/url.txt" ]; then
+        sed -i "/${node_remark}/d" /etc/xray/url.txt
+    fi
+    echo "$vless_url" >> /etc/xray/url.txt
+    echo "" >> /etc/xray/url.txt
+    base64 -w0 /etc/xray/url.txt > /etc/xray/sub.txt 2>/dev/null
+    restart_xray
+    green "--------------------------------------------------"
+    green " CDN VLESS XHTTP 节点生成成功"
+    green "--------------------------------------------------"
+    green " VLESS XHTTP 节点 : "
+    echo "$vless_url"
+    echo "--------------------------------------------------"
+    ;;
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
