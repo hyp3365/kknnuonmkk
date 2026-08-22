@@ -1993,8 +1993,7 @@ curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$w
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
     
     fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
-    openssl req -new -x509 -days 200 -key "${work_dir}/private.key" -out "${work_dir}/cert_200.pem" -subj "/CN=bing.com" -addext "subjectAltName=DNS:bing.com"
-
+    
     dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
         (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
     
@@ -3986,7 +3985,7 @@ EOF
                 allow_port $hy2_port/udp > /dev/null 2>&1
 				allow_port $hy2_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_hysteria2"                
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"								              
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&pinSHA256=${fingerprint}&alpn=h3&obfs=none#${node_remark}"								              
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
@@ -4073,7 +4072,7 @@ EOF
                 allow_port $tuic_port/udp > /dev/null 2>&1
 				allow_port $tuic_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_tuic"                
-                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"			
+                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&pinSHA256=${fingerprint}&alpn=h3&obfs=none#${node_remark}"			
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
