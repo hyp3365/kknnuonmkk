@@ -3947,7 +3947,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-    url_param="insecure=0&sni=www.bing.com"
+	url_param="insecure=0&sni=www.bing.com&pinSHA256=${fingerprint}"
     yellow "=> Hysteria2 已配置为使用自签名证书。"
 fi
 
@@ -3983,7 +3983,7 @@ EOF
                 allow_port $hy2_port/udp > /dev/null 2>&1
 				allow_port $hy2_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_hysteria2"                
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&pinSHA256=${fingerprint}&alpn=h3&obfs=none#${node_remark}"								              
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"								              
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
@@ -4038,7 +4038,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-    url_param="allow_insecure=0&sni=www.bing.com"
+	url_param="insecure=0&sni=www.bing.com&pinSHA256=${fingerprint}"
     yellow "=> TUIC 已配置为使用自签名证书。"
 fi
                 yellow "正在配置 tuic..."
@@ -4070,7 +4070,7 @@ EOF
                 allow_port $tuic_port/udp > /dev/null 2>&1
 				allow_port $tuic_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_tuic"                
-                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&pinSHA256=${fingerprint}&alpn=h3&obfs=none#${node_remark}"			
+                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3&obfs=none#${node_remark}"			
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
