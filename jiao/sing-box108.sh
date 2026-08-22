@@ -4888,22 +4888,22 @@ EOF
                 )
             ]')
             new_managed=$(jq -n \
-                --arg d "$domain" \
-                --arg pfx "$pfx" \
-                --argjson port "$vless_xhttp_cdn_port" \
-                '[
-                    {
-                        description: ($pfx + "VLESS_XHTTP_" + $d),
-                        enabled: true,
-                        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"/vless-xhttp\")"),
-                        action: "route",
-                        action_parameters: {
-                            origin: {
-                                port: $port
-                            }
-                        }
-                    }
-                ]')
+    --arg d "$domain" \
+    --arg pfx "$pfx" \
+    --argjson port "$vless_xhttp_cdn_port" \
+    '[
+        {
+            description: ($pfx + "VLESS_XHTTP_" + $d),
+            enabled: true,
+            expression: ("(http.host eq \"" + $d + "\")"),
+            action: "route",
+            action_parameters: {
+                origin: {
+                    port: $port
+                }
+            }
+        }
+    ]')
             merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
             if cf_put_origin_rules "$selected_zone_id" "$merged"; then
                 green "✓ 回源规则创建成功！"
@@ -4919,8 +4919,10 @@ EOF
 {
   "inbounds": [
     {
+	  "listen": "::",
       "port": $vless_xhttp_cdn_port,
       "protocol": "vless",
+	  "tag": "vless-xhttp-cdn",
       "settings": {
         "clients": [
           {
@@ -4928,6 +4930,13 @@ EOF
           }
         ],
         "decryption": "none"
+      },
+	  "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
       },
       "streamSettings": {
         "network": "xhttp",
