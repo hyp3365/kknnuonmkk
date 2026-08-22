@@ -4741,6 +4741,11 @@ EOF
     green "--------------------------------------------------"
     ;;
   11)
+    check_xray
+    if [ $? -ne 0 ]; then
+        red "Xray 未安装，请先安装 Xray！"
+        return 1
+    fi
     generate_vars
     server_ip=$(get_realip)
     echo ""
@@ -4820,6 +4825,11 @@ EOF
     green "==============================================="
     ;;
 	12)
+	check_xray
+    if [ $? -ne 0 ]; then
+        red "Xray 未安装，请先安装 Xray！"
+        return 1
+    fi
     generate_vars
     server_ip=$(get_realip)
     echo ""
