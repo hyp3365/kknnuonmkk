@@ -3095,6 +3095,7 @@ change_config() {
 
             restart_singbox
             ip=$(get_realip)
+			fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
             uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
             sed -i "/hysteria2:/d" "$client_dir"
             key_path=$(grep '"key_path"' /etc/sing-box/conf/hysteria2.json | head -n 1 | sed -E 's/.*"key_path"\s*:\s*"([^"]+)".*/\1/')
@@ -3132,7 +3133,7 @@ except:
 " 2>/dev/null)
                 [ -n "$obfs_info" ] && obfs_param="$obfs_info"
             fi
-            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"        
+            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&pinSHA256=${fingerprint}&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"        
             # ------------------------------------------------
 
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
