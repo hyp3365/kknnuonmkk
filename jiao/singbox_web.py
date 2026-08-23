@@ -662,6 +662,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 val_str = data.get("value", "").strip()
                 inbounds = data.get("inbounds", [])
                 outbound = data.get("outbound")
+                outbound = TAG_REVERSE_MAP.get(outbound, outbound)
                 if not outbound:
                     raise Exception("未选择有效出站")
 
