@@ -4978,12 +4978,12 @@ EOF
 }
 EOF
     vless_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=/vless-xhttp&mode=auto#$(echo -n "$node_remark" | jq -sRr @uri)"
-    if [ -f "/etc/xray/url.txt" ]; then
-        sed -i "/${node_remark}/d" /etc/xray/url.txt
+    if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/${node_remark}/d" /etc/sing-box/url.txt
     fi
-    echo "$vless_url" >> /etc/xray/url.txt
-    echo "" >> /etc/xray/url.txt
-    base64 -w0 /etc/xray/url.txt > /etc/xray/sub.txt 2>/dev/null
+    echo "$vless_url" >> /etc/sing-box/url.txt
+    echo "" >> /etc/sing-box/url.txt
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
     restart_xray
     green "--------------------------------------------------"
     green " CDN VLESS XHTTP 节点生成成功"
@@ -5404,6 +5404,36 @@ EOF
         restart_xray
         green "==============================================="
         green " Xray VLESS XHTTP Reality 节点已移除!"
+        green "==============================================="
+    else
+        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    fi
+    ;;
+	62)
+    target="_xray_vles_xhttp_cdn"
+    target_conf="/etc/xray/conf/vless-xhttp-cnd.json"
+    if [ -f "$target_conf" ]; then
+        vless_xhttp_cdn_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
+        if [ -n "$vless_xhttp_cdn_port" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_port" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
+        fi
+        rm -f "$target_conf"
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            sed -i "/${target}/d" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_xray
+        green "==============================================="
+        green " 节点已移除!"
         green "==============================================="
     else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
