@@ -61,7 +61,7 @@ jobs:
           echo "| 文件 | 描述 | 状态 |" >> "$report"
           echo "|------|------|------|" >> "$report"
 
-                    github_latest() {
+          github_latest() {
             local repo="$1"
             local pattern="$2"
 
@@ -71,7 +71,6 @@ jobs:
               grep "$pattern" |
               head -n1
           }
-
 
           retry_download() {
             url="$1"
@@ -110,7 +109,7 @@ jobs:
 
               echo "🔎 检查 GitHub 最新版本：$repo" | tee -a "$logfile"
 
-                            url="$(github_latest "$repo" "$pattern")"
+              url="$(github_latest "$repo" "$pattern")"
 
               if [[ -z "$url" ]]; then
                 echo "❌ 未找到 GitHub Release 文件：$repo $pattern" | tee -a "$logfile"
