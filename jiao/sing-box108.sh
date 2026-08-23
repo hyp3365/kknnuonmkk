@@ -3821,9 +3821,9 @@ manage_nodes_menu() {
     "$CONF_DIR/http.json|HTTP|8"
     "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|9"
     "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
-    "$XRAY_CONF_DIR/xhttp-reality.json|vless-xhttp-reality|11"
-    "$XRAY_CONF_DIR/vless-xhttp-cdn.json|vless-xhttp-cdn|12"
-    "$XRAY_CONF_DIR/vless-xhttp-cdn-tls.json|vless-xhttp-cdn-tls|13"
+    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|11"
+    "$XRAY_CONF_DIR/vless-xhttp-cdn.json|xhttp-cdn|12"
+    "$XRAY_CONF_DIR/vless-xhttp-cdn-tls.json|xhttp-cdn-tls|13"
 )
 		
         clear
