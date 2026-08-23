@@ -62,12 +62,12 @@ jobs:
           echo "|------|------|------|" >> "$report"
 
           github_latest() {
-    local repo="$1"
+            local repo="$1"
 
-    curl -fsSL \
-    "https://api.github.com/repos/${repo}/releases/latest" |
-    jq -r '.assets[].browser_download_url'
-}
+            curl -fsSL \
+              "https://api.github.com/repos/${repo}/releases/latest" |
+              jq -r '.assets[].browser_download_url'
+          }
 
           retry_download() {
             url="$1"
