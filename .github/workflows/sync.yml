@@ -61,6 +61,16 @@ jobs:
           echo "| 文件 | 描述 | 状态 |" >> "$report"
           echo "|------|------|------|" >> "$report"
 
+          github_latest() {
+    local repo="$1"
+    local pattern="$2"
+
+    curl -fsSL \
+    "https://api.github.com/repos/${repo}/releases/latest" |
+    jq -r '.assets[].browser_download_url' |
+    grep -E "$pattern" |
+    head -n1
+}
           retry_download() {
             url="$1"
             out="$2"
