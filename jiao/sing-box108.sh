@@ -4943,7 +4943,7 @@ EOF
         fi
     fi
     mkdir -p /etc/xray/conf
-    cat > /etc/xray/conf/vless-xhttp-cnd.json << EOF
+    cat > /etc/xray/conf/vless-xhttp-cdn.json << EOF
 {
   "inbounds": [
     {
