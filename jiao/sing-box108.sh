@@ -2838,7 +2838,7 @@ uninstall_xray() {
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i \
                     -e '/_xray_vless_xhttp_reality$/d' \
-                    -e '/_xray_vless_cdn$/d' \
+                    -e '/_xray_vles_xhttp_cdn$/d' \
                     -e '/_xray_vless_xhttp_cdn_tsl$/d' \
                     "/etc/sing-box/url.txt"
                 sed -i '/^$/N;/\n$/D' "/etc/sing-box/url.txt"
@@ -3822,8 +3822,8 @@ manage_nodes_menu() {
     "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|9"
     "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
     "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|11"
-    "$XRAY_CONF_DIR/vless-xhttp-cdn.json|xhttp-cdn|12"
-    "$XRAY_CONF_DIR/vless-xhttp-cdn-tls.json|xhttp-cdn-tls|13"
+    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|12"
+    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|13"
 )
 		
         clear
@@ -4943,7 +4943,7 @@ EOF
         fi
     fi
     mkdir -p /etc/xray/conf
-    cat > /etc/xray/conf/vless-xhttp-cdn.json << EOF
+    cat > /etc/xray/conf/xhttp-cdn.json << EOF
 {
   "inbounds": [
     {
@@ -5411,7 +5411,7 @@ EOF
     ;;
 	62)
     target="_xray_vles_xhttp_cdn"
-    target_conf="/etc/xray/conf/vless-xhttp-cnd.json"
+    target_conf="/etc/xray/conf/xhttp-cnd.json"
     if [ -f "$target_conf" ]; then
         vless_xhttp_cdn_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
         if [ -n "$vless_xhttp_cdn_port" ]; then
