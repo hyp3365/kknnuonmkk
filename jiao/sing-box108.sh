@@ -2277,7 +2277,7 @@ get_info() {
 
   green "\nArgoDomain：${purple}$argodomain${re}\n"
 
-  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
+  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/mPaxe1996Ko-5203aap?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
     
   cat > ${work_dir}/url.txt <<EOF
 vmess://$(echo "$VMESS"| base64 -w0)
