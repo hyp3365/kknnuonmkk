@@ -90,9 +90,29 @@ jobs:
             line="$(echo "$line" | tr -s '[:space:]' ' ')"
 
             outname=$(echo "$line" | cut -d ' ' -f1)
-            outformat=$(echo "$line" | cut -d ' ' -f2)
-            desc=$(echo "$line" | cut -d ' ' -f3)
-            url=$(echo "$line" | cut -d ' ' -f4-)
+outformat=$(echo "$line" | cut -d ' ' -f2)
+desc=$(echo "$line" | cut -d ' ' -f3)
+
+url=$(echo "$line" | cut -d ' ' -f4-)
+
+# GitHub Release 自动获取最新版
+if [[ "$url" == github:* ]]; then
+
+    repo=$(echo "$url" | awk '{print $1}' | sed 's/github://')
+    pattern=$(echo "$url" | cut -d ' ' -f2-)
+
+    echo "🔎 检查 GitHub 最新版本：$repo" | tee -a "$logfile"
+
+    url=$(github_latest "$repo" "$pattern")
+
+    if [[ -z "$url" ]]; then
+        echo "❌ 未找到 GitHub Release 文件：$repo $pattern" | tee -a "$logfile"
+        failed=$((failed+1))
+        continue
+    fi
+
+    echo "✅ 最新文件：$url" | tee -a "$logfile"
+fi
             
             tmp="filer/tmpfile"
 
