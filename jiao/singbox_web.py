@@ -597,6 +597,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 idx = int(query.get("index", [0])[0])
                 outbound = query.get("outbound", ["direct"])[0]
+                outbound = TAG_REVERSE_MAP.get(outbound, outbound)
                 with open(ROUTE_FILE, "r") as f:
                     r_json = json.load(f)
                 
