@@ -62,15 +62,12 @@ jobs:
           echo "|------|------|------|" >> "$report"
 
           github_latest() {
-            local repo="$1"
-            local pattern="$2"
+    local repo="$1"
 
-            curl -fsSL \
-              "https://api.github.com/repos/${repo}/releases/latest" |
-              jq -r '.assets[].browser_download_url' |
-              grep -E "$pattern" |
-              head -n1
-          }
+    curl -fsSL \
+    "https://api.github.com/repos/${repo}/releases/latest" |
+    jq -r '.assets[].browser_download_url'
+}
 
           retry_download() {
             url="$1"
