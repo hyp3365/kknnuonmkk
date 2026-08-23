@@ -61,15 +61,33 @@ jobs:
           echo "| 文件 | 描述 | 状态 |" >> "$report"
           echo "|------|------|------|" >> "$report"
 
-          github_latest() {
+                    github_latest() {
             local repo="$1"
             local pattern="$2"
 
             curl -fsSL \
               "https://api.github.com/repos/${repo}/releases/latest" |
               jq -r '.assets[].browser_download_url' |
-              grep -E "$pattern" |
-              sed -n '1p'
+              grep "$pattern" |
+              head -n1
+          }
+
+
+          retry_download() {
+            url="$1"
+            out="$2"
+
+            for i in 1 2 3; do
+              if curl -fsSL \
+                -A "Mozilla/5.0" \
+                -H "Cache-Control: no-cache" \
+                -o "$out" "$url"; then
+                return 0
+              fi
+              sleep 2
+            done
+
+            return 1
           }
 
           while read -r line; do
@@ -92,7 +110,7 @@ jobs:
 
               echo "🔎 检查 GitHub 最新版本：$repo" | tee -a "$logfile"
 
-              url="$(github_latest "$repo" "$pattern" | sed -n '1p')"
+                            url="$(github_latest "$repo" "$pattern")"
 
               if [[ -z "$url" ]]; then
                 echo "❌ 未找到 GitHub Release 文件：$repo $pattern" | tee -a "$logfile"
