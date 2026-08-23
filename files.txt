@@ -7,4 +7,4 @@ jjoo       json          自用          https://16441.kstore.space/jjoo.json
 -          -     WARP添加IPv4/IPv6网络    https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh
 sing-box1.sh    -    佬王sing-box脚本     https://raw.githubusercontent.com/eooce/Sing-box/main/sing-box.sh
 -          -          SSH工具箱        https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh
--          -          nekobox         github:MatsuriDayo/NekoBoxForAndroid NekoBox-.*arm64-v8a\.apk
+-          -          nekobox         github:MatsuriDayo/NekoBoxForAndroid NekoBox-[0-9.]+-arm64-v8a\.apk
