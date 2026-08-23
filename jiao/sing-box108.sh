@@ -3235,9 +3235,9 @@ try:
 except Exception as e:
     print(f'修改 JSON 失败: {e}')
 "
-            sed -i -E 's/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
-            sed -i -E "s/obfs=[^&#]+/obfs=salamander\&obfs-password=${obfs_pwd}/g" /etc/sing-box/url.txt
-            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+            sed -i -E 's/&obfs=[^&#]+//g; s/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
+			sed -i -E "s/&alpn=h3/&obfs=salamander\&obfs-password=${obfs_pwd}\&alpn=h3/g" /etc/sing-box/url.txt		
+			base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
             if command -v restart_singbox &> /dev/null; then
                 restart_singbox
             else
@@ -3278,9 +3278,8 @@ try:
 except Exception as e:
     print(f'清理 JSON 混淆配置失败: {e}')
 "
-            sed -i -E 's/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
-            sed -i -E "s/obfs=[^&#]+/obfs=none/g" /etc/sing-box/url.txt
-            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+            sed -i -E 's/&obfs=[^&#]+//g; s/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
+			base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
             if command -v restart_singbox &> /dev/null; then
                 restart_singbox
             else
