@@ -1,4 +1,4 @@
-Name: 同步多个文件
+name: 同步多个文件
 
 on:
   workflow_dispatch:
