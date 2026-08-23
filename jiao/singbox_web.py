@@ -505,8 +505,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         o_json = json.load(f)
                         for o in o_json.get("outbounds", []):
                             tag = o.get("tag")
-                            if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
-                                data["outbounds"].append(tag)
+                              if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
+                            data["outbounds"].append(TAG_NAME_MAP.get(tag, tag))
 
                 if os.path.exists(INBOUND_FILE):
                     with open(INBOUND_FILE, "r") as f:
