@@ -3236,7 +3236,7 @@ except Exception as e:
     print(f'修改 JSON 失败: {e}')
 "
             sed -i -E 's/&obfs=[^&#]+//g; s/&obfs-password=[^&#]+//g' /etc/sing-box/url.txt
-			sed -i -E "s/&alpn=h3/&obfs=salamander\&obfs-password=${obfs_pwd}\&alpn=h3/g" /etc/sing-box/url.txt		
+	        sed -i -E "s/&alpn=h3/\\&obfs=salamander\\&obfs-password=${obfs_pwd}\\&alpn=h3/g" /etc/sing-box/url.txt
 			base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
             if command -v restart_singbox &> /dev/null; then
                 restart_singbox
@@ -3978,7 +3978,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-	url_param="insecure=0&sni=www.bing.com&pinSHA256=${fingerprint}"
+	url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
     yellow "=> Hysteria2 已配置为使用自签名证书。"
 fi
 
@@ -4014,7 +4014,7 @@ EOF
                 allow_port $hy2_port/udp > /dev/null 2>&1
 				allow_port $hy2_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_hysteria2"                
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3&#${node_remark}"								              
+                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"								              
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
@@ -4069,7 +4069,7 @@ if [ "$cert_type" -eq 2 ]; then
 else
     cert_path="$work_dir/cert.pem"
     key_path="$work_dir/private.key"
-	url_param="insecure=0&sni=www.bing.com&pinSHA256=${fingerprint}"
+	url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
     yellow "=> TUIC 已配置为使用自签名证书。"
 fi
                 yellow "正在配置 tuic..."
@@ -4101,7 +4101,7 @@ EOF
                 allow_port $tuic_port/udp > /dev/null 2>&1
 				allow_port $tuic_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_tuic"                
-                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3&#${node_remark}"			
+                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3#${node_remark}"			
                 if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
