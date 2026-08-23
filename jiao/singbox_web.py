@@ -41,6 +41,14 @@ ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
 OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
 INBOUND_FILE = os.path.join(CONF_DIR, "inbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
+TAG_NAME_MAP = {
+    "ipv6_only": "仅IPv6",
+    "prefer_ipv6": "IPv6优先",
+    "ipv4_only": "仅IPv4",
+    "prefer_ipv4": "IPv4优先"
+}
+
+TAG_REVERSE_MAP = {v: k for k, v in TAG_NAME_MAP.items()}
 
 def ensure_route_file():
     if not os.path.exists(ROUTE_FILE):
