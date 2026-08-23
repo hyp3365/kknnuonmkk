@@ -1,4 +1,4 @@
-name: 同步多个文件
+Name: 同步多个文件
 
 on:
   workflow_dispatch:
@@ -62,15 +62,16 @@ jobs:
           echo "|------|------|------|" >> "$report"
 
           github_latest() {
-    local repo="$1"
-    local pattern="$2"
+            local repo="$1"
+            local pattern="$2"
 
-    curl -fsSL \
-    "https://api.github.com/repos/${repo}/releases/latest" |
-    jq -r '.assets[].browser_download_url' |
-    grep -E "$pattern" |
-    head -n1
-}
+            curl -fsSL \
+              "https://api.github.com/repos/${repo}/releases/latest" |
+              jq -r '.assets[].browser_download_url' |
+              grep -E "$pattern" |
+              head -n1
+          }
+
           retry_download() {
             url="$1"
             out="$2"
@@ -90,29 +91,29 @@ jobs:
             line="$(echo "$line" | tr -s '[:space:]' ' ')"
 
             outname=$(echo "$line" | cut -d ' ' -f1)
-outformat=$(echo "$line" | cut -d ' ' -f2)
-desc=$(echo "$line" | cut -d ' ' -f3)
+            outformat=$(echo "$line" | cut -d ' ' -f2)
+            desc=$(echo "$line" | cut -d ' ' -f3)
 
-url=$(echo "$line" | cut -d ' ' -f4-)
+            url=$(echo "$line" | cut -d ' ' -f4-)
 
-# GitHub Release 自动获取最新版
-if [[ "$url" == github:* ]]; then
+            # GitHub Release 自动获取最新版
+            if [[ "$url" == github:* ]]; then
 
-    repo=$(echo "$url" | awk '{print $1}' | sed 's/github://')
-    pattern=$(echo "$url" | cut -d ' ' -f2-)
+              repo=$(echo "$url" | awk '{print $1}' | sed 's/github://')
+              pattern=$(echo "$url" | cut -d ' ' -f2-)
 
-    echo "🔎 检查 GitHub 最新版本：$repo" | tee -a "$logfile"
+              echo "🔎 检查 GitHub 最新版本：$repo" | tee -a "$logfile"
 
-    url=$(github_latest "$repo" "$pattern")
+              url=$(github_latest "$repo" "$pattern")
 
-    if [[ -z "$url" ]]; then
-        echo "❌ 未找到 GitHub Release 文件：$repo $pattern" | tee -a "$logfile"
-        failed=$((failed+1))
-        continue
-    fi
+              if [[ -z "$url" ]]; then
+                echo "❌ 未找到 GitHub Release 文件：$repo $pattern" | tee -a "$logfile"
+                failed=$((failed+1))
+                continue
+              fi
 
-    echo "✅ 最新文件：$url" | tee -a "$logfile"
-fi
+              echo "✅ 最新文件：$url" | tee -a "$logfile"
+            fi
             
             tmp="filer/tmpfile"
 
