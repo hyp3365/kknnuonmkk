@@ -1845,11 +1845,12 @@ check_and_issue_ssl() {
     echo "请选择证书申请方式："
     echo
     echo " 1) 80 端口申请"
-    echo " 2) Cloudflare DNS API (Global API Key)"
-    echo " 3) Cloudflare DNS API (API Token，推荐)"
+    echo " 2) Cloudflare Global API Key)"
+    echo -e " ${red}3) Cloudflare API Token(推荐)${re}"
     skyblue "=============================================="
     local ssl_choice
-    reading "请输入选择 [1-3]: " ssl_choice
+    reading "请输入选择 [1-3]（默认 3）: " ssl_choice
+	[[ -z "$ssl_choice" ]] && ssl_choice=3
     case "$ssl_choice" in
     1)
         if [[ -z "$domain" ]]; then
