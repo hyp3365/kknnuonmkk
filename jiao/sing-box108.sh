@@ -4101,8 +4101,8 @@ EOF
                 allow_port $tuic_port/udp > /dev/null 2>&1
 				allow_port $tuic_port/tcp > /dev/null 2>&1
                 node_remark="${isp}_tuic"                
-                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&alpn=h3#${node_remark}"			
-                if [ -f "/etc/sing-box/url.txt" ]; then
+                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"			
+				if [ -f "/etc/sing-box/url.txt" ]; then
                     grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
                 fi
                 echo "$url" >> /etc/sing-box/url.txt
