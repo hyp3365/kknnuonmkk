@@ -334,10 +334,23 @@ cf_upsert_dns() {
         rid=$(echo "$existing" | jq -r '.id')
         cf_call PUT "/zones/${zone_id}/dns_records/${rid}" "$payload" >/dev/null
     else
-    local response
-    response=$(cf_call POST "/zones/${zone_id}/dns_records" "$payload")
-    echo "$response" | jq
+    cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
 fi
+}
+cf_get_zone_id_by_domain() {
+    local domain="$1"
+    local response zone
+    zone="$domain"
+    while [[ "$zone" == *.* ]]; do
+        response=$(cf_call GET "/zones?name=$zone")
+        if echo "$response" | jq -e '.success == true and (.result | length > 0)' >/dev/null 2>&1; then
+            selected_zone_id=$(echo "$response" | jq -r '.result[0].id')
+            export selected_zone_id
+            return 0
+        fi
+        zone="${zone#*.}"
+    done
+    return 1
 }
 # ── 删除 Cloudflare DNS 记录 ──
 cf_delete_dns() {
@@ -1783,7 +1796,7 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
             ;;
     esac
 	if [[ -z "$selected_zone_id" ]]; then
-    if ! cf_select_zone; then
+    if ! cf_get_zone_id_by_domain; then
         red "获取 Cloudflare Zone 失败"
         return 1
     fi
