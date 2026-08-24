@@ -105,6 +105,7 @@ hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
 xray_xhttp_reality=$(get_available_port)
 vless_wstls_cdn_port=$(get_available_port)
+vless_wstls_cdn_tsl_port=$(get_available_port)
 vless_ws_cdn_port=$(get_available_port)
 vmess_ws_cdn_port=$(get_available_port)
 trojan_ws_cdn_port=$(get_available_port)
@@ -5039,6 +5040,149 @@ EOF
     echo "$vless_url"
     echo "--------------------------------------------------"
     ;;
+	13)
+	check_xray
+    if [ $? -ne 0 ]; then
+        red "Xray 未安装，请先安装 Xray！"
+        return 1
+    fi
+    check_and_issue_ssl || return 1
+    generate_vars
+    server_ip=$(get_realip)
+    echo ""
+    vless_xhttp_cdn_tsl_port=$(get_available_port)
+    if [[ ! "$vless_xhttp_cdn_tsl_port" =~ ^[0-9]+$ ]]; then
+        red "获取端口失败：${vless_xhttp_cdn_tsl_port:-<空>}"
+        return 1
+    fi
+    cat > /xray/conf/xhttp-cdn-tsl.json << EOF
+{
+  "inbounds": [
+    {
+      "tag": "vless-xhttp-tls",
+      "listen": "::",
+      "port": $vless_xhttp_cdn_tsl_port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$uuid"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "${domain:-$server_ip}",
+          "certificates": [
+            {
+              "certificateFile": "$cert_file",
+              "keyFile": "$key_file"
+            }
+          ]
+        },
+        "xhttpSettings": {
+          "path": "/sspaasksavxssaszass",
+          "mode": "auto"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+    allow_port "$vless_xhttp_cdn_tsl_port/tcp" >/dev/null 2>&1
+    node_remark_direct="${isp}_xray_vless_xhttp_cdn_tsl"
+    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_xhttp_tls_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=${xhttp_path}#${node_remark_direct}"    
+	if [ -f "${work_dir}/url.txt" ]; then
+    sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
+    fi
+    echo "$VLESS_DIRECT_URL" >> "${work_dir}/url.txt"
+    echo "" >> "${work_dir}/url.txt"
+    echo ""
+    read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
+    unset VLESS_CDN_URL
+    if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
+    if [[ -z "$domain" ]]; then
+        yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
+    else
+        if [[ -z "${CF_TOKEN:-}" &&
+      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+    skyblue "请选择 Cloudflare 验证方式："
+    green " 1) Cloudflare API Token"
+    green " 2) Cloudflare Global API Key"
+    local cf_auth_type
+    reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
+    [[ -z "$cf_auth_type" ]] && cf_auth_type=1
+    case "$cf_auth_type" in
+        1)
+            cf_auth_token || return 1
+            ;;
+        2)
+            cf_auth_global || return 1
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+        esac
+        fi
+        if [[ -n "${CF_TOKEN:-}" ||
+              ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+            zone_id=$(cf_find_zone "$domain")
+            if [[ -n "$zone_id" ]]; then
+                green "Cloudflare Zone 检测成功：$zone_id"
+                if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+                    green "Cloudflare DNS 配置成功"
+                else
+                    yellow "警告：Cloudflare DNS 配置失败"
+                fi
+                if cf_set_ssl "$zone_id" "full"; then
+                    green "Cloudflare SSL 模式已设置为 Full"
+                else
+                    yellow "警告：Cloudflare SSL 模式设置失败"
+                fi
+                if set_domain_origin_port \
+                    "$zone_id" \
+                    "$domain" \
+                    "$vless_wstls_cdn_port"; then
+                    green "Cloudflare CDN 回源规则配置成功"
+                    green "回源端口：$vless_wstls_cdn_port"
+                else
+                    yellow "警告：Cloudflare CDN 回源规则配置失败"
+                fi
+                node_remark_cdn="${isp}_vless_wstls_cdn"
+                VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+                if [ -f "${work_dir}/url.txt" ]; then
+                    sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
+                fi
+                echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
+                echo "" >> "${work_dir}/url.txt"
+            else
+                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
+                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
+            fi
+        else
+            yellow "未获得有效的 Cloudflare API 凭据，已跳过 CDN 配置。"
+        fi
+    fi
+fi
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+    restart_singbox
+    green "--------------------------------------------------"
+    green " 节点创建完成！"
+    green "--------------------------------------------------"
+    green " 1. 直连节点链接："
+    echo "$VLESS_DIRECT_URL"
+    if [[ -n "${VLESS_CDN_URL:-}" ]]; then
+        echo ""
+        green " 2. CDN 节点链接："
+        echo "$VLESS_CDN_URL"
+    fi
+    green "--------------------------------------------------"
+    ;;
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
@@ -5463,6 +5607,36 @@ EOF
         vless_xhttp_cdn_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
         if [ -n "$vless_xhttp_cdn_port" ]; then
             for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_port" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
+        fi
+        rm -f "$target_conf"
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            sed -i "/${target}/d" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_xray
+        green "==============================================="
+        green " 节点已移除!"
+        green "==============================================="
+    else
+        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    fi
+    ;;
+	63)
+    target="_xray_vless_xhttp_cdn_tsl"
+    target_conf="/etc/xray/conf/xhttp-cnd-tsl.json"
+    if [ -f "$target_conf" ]; then
+        vless_xhttp_cdn_tsl_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
+        if [ -n "$vless_xhttp_cdn_tsl_port" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_tsl_port" '$0~"dport "p {print $NF}'); do
                 nft delete rule inet filter input handle $handle 2>/dev/null
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
