@@ -454,40 +454,6 @@ cf_put_origin_rules() {
     echo "$response" | jq -r '.errors[]?.message // empty'
     return 1
 }
-# ── 根据回源端口删除 Cloudflare Origin Rule ────────────────
-cf_delete_origin_rule_by_port() {
-    local zone_id="$1"
-    local port="$2"
-    [[ -z "$zone_id" ]] && return 1
-    [[ -z "$port" ]] && return 1
-    local response rules_json new_rules
-    response=$(cf_call GET \
-        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
-    if ! echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-        yellow "获取 Origin Rules 失败"
-        return 1
-    fi
-    rules_json=$(echo "$response" | jq -c '.result.rules // []')
-    new_rules=$(echo "$rules_json" | jq -c \
-        --arg port "$port" '
-        [
-            .[]
-            | select(
-                (.action_parameters.port // "") != $port
-            )
-        ]
-        ')
-    if [[ "$rules_json" == "$new_rules" ]]; then
-        yellow "未找到回源端口 ${port} 的 Origin Rule"
-        return 0
-    fi
-    if cf_put_origin_rules "$zone_id" "$new_rules"; then
-        green "已删除回源端口 ${port} 的 Origin Rule"
-        return 0
-    fi
-    red "删除 Origin Rule 失败: ${port}"
-    return 1
-}
 
 set_domain_origin_port() {
     local zone_id="$1"
@@ -1785,6 +1751,64 @@ check_and_issue_ssl() {
             cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
             key_file="${cert_paths[$sel_idx]}/privkey.pem"
             green "已选择并使用域名 ${domain} 的现有证书。"
+local check_dns
+reading "是否检查 DNS 解析记录？(y/回车跳过): " check_dns
+if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
+    echo
+    skyblue "请选择 Cloudflare 认证方式："
+    echo " 1) API Token（推荐）"
+    echo " 2) Global API Key"
+    echo
+    local cf_choice
+    reading "请输入选择 [1-2]: " cf_choice
+    case "$cf_choice" in
+        1)
+            if ! cf_auth_token; then
+                red "Cloudflare Token 认证失败"
+                return 1
+            fi
+            ;;
+        2)
+            if ! cf_auth_global; then
+                red "Cloudflare Global API Key 认证失败"
+                return 1
+            fi
+            ;;
+        *)
+            red "无效选择"
+            return 1
+            ;;
+    esac
+    if [[ -z "$selected_zone_id" ]]; then
+        cf_select_account || {
+            red "获取 Cloudflare Zone 失败"
+            return 1
+        }
+    fi
+    local server_ip
+    server_ip=$(curl -s4 ifconfig.me)
+    if [[ -z "$server_ip" ]]; then
+        red "无法获取服务器公网 IP"
+        return 1
+    fi
+    local dns_count
+    dns_count=$(cf_call GET \
+        "/zones/${selected_zone_id}/dns_records?name=${domain}" \
+        | jq -r '.result | length')
+    if [[ "$dns_count" == "0" ]]; then
+        yellow "未检测到 ${domain} DNS 记录，正在添加..."
+        if cf_upsert_dns \
+            "$selected_zone_id" \
+            "$domain" \
+            "$server_ip"; then
+            green "DNS 添加成功（已开启小黄云）"
+        else
+            red "DNS 添加失败"
+        fi
+    else
+        green "检测到 ${domain} 已存在 DNS 记录"
+    fi
+fi
             return 0
         fi
         if [[ "$menu_choice" != "1" ]]; then
