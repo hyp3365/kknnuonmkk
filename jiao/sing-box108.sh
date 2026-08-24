@@ -795,6 +795,37 @@ cf_tunnel_detail() {
             ;;
     esac
 }
+
+TOKEN_FILE="/etc/sing-box/token"
+token_manage() {
+    mkdir -p /etc/sing-box
+    echo -e "${green}1.${re} 添加 Token"
+    echo -e "${green}2.${re} 删除 Token"
+    reading "请选择: " choice
+    case "$choice" in
+        1)
+            reading "请输入 Token: " token
+            if [ -z "$token" ]; then
+                red "Token 不能为空"
+                return 1
+            fi
+            echo "$token" > "$TOKEN_FILE"
+            chmod 600 "$TOKEN_FILE"
+            green "Token 添加成功"
+            ;;
+        2)
+            if [ -f "$TOKEN_FILE" ]; then
+                rm -f "$TOKEN_FILE"
+                green "Token 删除成功"
+            else
+                yellow "Token 不存在"
+            fi
+            ;;
+        *)
+            red "无效选择"
+            ;;
+    esac
+}
 # ── Cloudflare API Token 验证 ──
 cf_auth_token() {
 echo ""
@@ -6515,6 +6546,7 @@ clear
 skyblue "请选择 Cloudflare 验证方式："
 echo -e " ${green}1)${re} Cloudflare API Token"
 echo -e " ${green}2)${re} Cloudflare Global API Key"
+echo -e " ${green}3)${re} 本机保存的token"
 local auth_choice
 reading "请输入选择 [1-2]（默认 1）: " auth_choice
 [[ -z "$auth_choice" ]] && auth_choice=1
@@ -6524,6 +6556,9 @@ case "$auth_choice" in
         ;;
     2)
         cf_auth_global || return 1
+        ;;
+	3)
+        TOKEN=$(cat /etc/sing-box/token) || return 1
         ;;
     *)
         red "无效选择！"
@@ -7844,6 +7879,7 @@ menu() {
    red    "14. 本机信息"
    red    "15. WARP分流管理"
    red    "16. xray管理"
+   red    "17. token"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -7906,6 +7942,7 @@ while true; do
 		14) vps_s ;;
 		15)  warp_manage ;;
 		16)  manage_xray ;;
+		17)  token_manage ;;
 		0) exit 0 ;;
         *) red "无效的选项，请输入 0 到 16" ;;
    esac
