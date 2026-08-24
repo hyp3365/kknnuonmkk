@@ -1782,6 +1782,12 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
             return 1
             ;;
     esac
+	if [[ -z "$selected_zone_id" ]]; then
+    if ! cf_select_zone; then
+        red "获取 Cloudflare Zone 失败"
+        return 1
+    fi
+fi
     server_ip=$(get_realip)
     if [[ -z "$server_ip" ]]; then
         red "无法获取服务器公网 IP"
