@@ -5055,7 +5055,7 @@ EOF
         red "获取端口失败：${vless_xhttp_cdn_tsl_port:-<空>}"
         return 1
     fi
-    cat > /xray/conf/xhttp-cdn-tsl.json << EOF
+    cat > /etc/xray/conf/xhttp-cdn-tsl.json << EOF
 {
   "inbounds": [
     {
