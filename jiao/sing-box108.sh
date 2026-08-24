@@ -5048,14 +5048,14 @@ EOF
     check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
-    vless_xhttp_cdn_tsl_port=$(get_available_port)
-    cat > /etc/xray/conf/xhttp-cdn-tsl.json << EOF
+    vless_xhttp_cdn_tls_port=$(get_available_port)
+    cat > /etc/xray/conf/xhttp-cdn-tls.json << EOF
 {
   "inbounds": [
     {
       "tag": "vless-xhttp-tls",
       "listen": "::",
-      "port": $vless_xhttp_cdn_tsl_port,
+      "port": $vless_xhttp_cdn_tls_port,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -5087,9 +5087,9 @@ EOF
 }
 EOF
 
-    allow_port "$vless_xhttp_cdn_tsl_port/tcp" >/dev/null 2>&1
-    node_remark_direct="${isp}_xray_vless_xhttp_cdn_tsl"
-    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tsl_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
+    allow_port "$vless_xhttp_cdn_tls_port/tcp" >/dev/null 2>&1
+    node_remark_direct="${isp}_xray_vless_xhttp_tls"
+    xhttp="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tls_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
 	if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
@@ -5141,18 +5141,18 @@ EOF
                 if set_domain_origin_port \
                     "$zone_id" \
                     "$domain" \
-                    "$vless_wstls_cdn_port"; then
+                    "$vless_xhttp_cdn_tls_port"; then
                     green "Cloudflare CDN 回源规则配置成功"
-                    green "回源端口：$vless_wstls_cdn_port"
+                    green "回源端口：$vless_xhttp_cdn_tls_port"
                 else
                     yellow "警告：Cloudflare CDN 回源规则配置失败"
                 fi
-                node_remark_cdn="${isp}_vless_wstls_cdn"
-                VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
-                if [ -f "${work_dir}/url.txt" ]; then
+                node_remark_cdn="${isp}_xray_vless_xhttp_cdn_tls"
+                XHTTP_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_cdn}"    
+				if [ -f "${work_dir}/url.txt" ]; then
                     sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
                 fi
-                echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
+                echo "$XHTTP_CDN_URL" >> "${work_dir}/url.txt"
                 echo "" >> "${work_dir}/url.txt"
             else
                 yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
@@ -5164,16 +5164,16 @@ EOF
     fi
 fi
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-    restart_singbox
+    restart_xray
     green "--------------------------------------------------"
     green " 节点创建完成！"
     green "--------------------------------------------------"
     green " 1. 直连节点链接："
-    echo "$VLESS_DIRECT_URL"
-    if [[ -n "${VLESS_CDN_URL:-}" ]]; then
+    echo "$xhttp"
+    if [[ -n "${XHTTP_CDN_URL:-}" ]]; then
         echo ""
         green " 2. CDN 节点链接："
-        echo "$VLESS_CDN_URL"
+        echo "$XHTTP_CDN_URL"
     fi
     green "--------------------------------------------------"
     ;;
@@ -5625,12 +5625,12 @@ fi
     fi
     ;;
 	63)
-    target="_xray_vless_xhttp_cdn_tsl"
-    target_conf="/etc/xray/conf/xhttp-cnd-tsl.json"
+    target="_xray_vless_xhttp_tls"
+    target_conf="/etc/xray/conf/xhttp-cnd-tls.json"
     if [ -f "$target_conf" ]; then
-        vless_xhttp_cdn_tsl_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$vless_xhttp_cdn_tsl_port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_tsl_port" '$0~"dport "p {print $NF}'); do
+        vless_xhttp_cdn_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
+        if [ -n "$vless_xhttp_cdn_tls_port" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_tls_port" '$0~"dport "p {print $NF}'); do
                 nft delete rule inet filter input handle $handle 2>/dev/null
             done
             nft list ruleset > /etc/nftables.conf 2>/dev/null
