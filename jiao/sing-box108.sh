@@ -873,7 +873,7 @@ cf_auth_token() {
         -H "Authorization: Bearer $cf_token" \
         -H "Content-Type: application/json" \
         "https://api.cloudflare.com/client/v4/user/tokens/verify")
-    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+    if echo "$response" | jq -r '.success' | grep -q true; then
         mkdir -p /etc/sing-box
         echo "$cf_token" > "$token_file"
         chmod 600 "$token_file"
