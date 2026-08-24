@@ -828,7 +828,28 @@ token_manage() {
 }
 # ── Cloudflare API Token 验证 ──
 cf_auth_token() {
-echo ""
+    echo ""
+    local token_file="/etc/sing-box/token"
+    local cf_token response
+    if [ -f "$token_file" ]; then
+        cf_token=$(cat "$token_file" | tr -d '[:space:]')
+        if [[ -n "$cf_token" ]]; then
+            green "正在验证本机保存的 Cloudflare Token..."
+            response=$(curl -s \
+                -H "Authorization: Bearer $cf_token" \
+                -H "Content-Type: application/json" \
+                "https://api.cloudflare.com/client/v4/user/tokens/verify")
+            if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+                green "本机 Token 验证成功"
+                export CF_TOKEN="$cf_token"
+                unset CF_EMAIL CF_KEY
+                export CF_AUTH_TYPE="token"
+                return 0
+            else
+                yellow "本机 Token 无效，请重新输入"
+            fi
+        fi
+    fi
     green "=== Cloudflare API Token 获取 ==="
     skyblue "请按以下步骤在 Cloudflare 后台操作获取 Token："
     echo -e " 1. 登录 Cloudflare 官网，进入 \033[33m管理账户 -> API 令牌\033[0m"
@@ -839,20 +860,32 @@ echo ""
     echo -e " -\033[33mDNS & Zones - Zone Settings\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
     echo -e " -\033[33mRules & Configuration - Origin\033[0m，权限设为 \033[32mEdit (编辑)\033[0m"
     echo -e " 4. 添加策略:选择 \033[33m整个账户\033[0m"
-	echo -e " -\033[33mCloudflare One / Zero Trust - Argo Tunnel\033[0m，权限设为 \033[32m(全部选择)\033[0m"
-	echo -e " 5. 点击【继续以进行预览】->【创建令牌】并复制生成的字符串"
+    echo -e " -\033[33mCloudflare One / Zero Trust - Argo Tunnel\033[0m，权限设为 \033[32m(全部选择)\033[0m"
+    echo -e " 5. 点击【继续以进行预览】->【创建令牌】并复制生成的字符串"
     skyblue "------------------------------------------"
-    local cf_token
     reading "请输入 Cloudflare API Token: " cf_token
     cf_token=$(echo "$cf_token" | tr -d '[:space:]')
     [[ -z "$cf_token" ]] && {
         red "Token 不能为空！"
         return 1
     }
-    export CF_TOKEN="$cf_token"
-    unset CF_EMAIL CF_KEY
-    export CF_AUTH_TYPE="token"
-    return 0
+    response=$(curl -s \
+        -H "Authorization: Bearer $cf_token" \
+        -H "Content-Type: application/json" \
+        "https://api.cloudflare.com/client/v4/user/tokens/verify")
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        mkdir -p /etc/sing-box
+        echo "$cf_token" > "$token_file"
+        chmod 600 "$token_file"
+        green "Token 验证成功，已保存"
+        export CF_TOKEN="$cf_token"
+        unset CF_EMAIL CF_KEY
+        export CF_AUTH_TYPE="token"
+        return 0
+    else
+        red "Cloudflare API Token 验证失败"
+        return 1
+    fi
 }
 # ── Cloudflare Global API Key 验证 ──
 cf_auth_global() {
@@ -6546,7 +6579,6 @@ clear
 skyblue "请选择 Cloudflare 验证方式："
 echo -e " ${green}1)${re} Cloudflare API Token"
 echo -e " ${green}2)${re} Cloudflare Global API Key"
-echo -e " ${green}3)${re} 本机保存的token"
 local auth_choice
 reading "请输入选择 [1-2]（默认 1）: " auth_choice
 [[ -z "$auth_choice" ]] && auth_choice=1
@@ -6556,9 +6588,6 @@ case "$auth_choice" in
         ;;
     2)
         cf_auth_global || return 1
-        ;;
-	3)
-        TOKEN=$(cat /etc/sing-box/token) || return 1
         ;;
     *)
         red "无效选择！"
