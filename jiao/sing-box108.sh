@@ -5663,14 +5663,12 @@ fi
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
     if [ -f "$target_conf" ]; then
 	    cdn_domain=""
-        cdn_port=""
-        if [ -f "/etc/sing-box/url.txt" ]; then
-        while IFS= read -r line; do
-        if [[ "$line" == trojan://*"_xray_vless_xhttp_tls"* ]]; then
-        cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-        cdn_port=$(echo "$line" | sed -n 's#.*@\([^:/]*\):\([0-9]*\).*#\2#p')
+            if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+            if [[ "$line" == vless://*"_xray_vless_xhttp_tls"* ]]; then
+            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
             break
-        fi
+            fi
     done < /etc/sing-box/url.txt
 fi
         vless_xhttp_cdn_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
@@ -5696,10 +5694,7 @@ fi
         green " 节点已移除!"
         green "==============================================="
 		if [[ -n "$cdn_domain" ]]; then
-         cf_remove_cdn_rules "$cdn_domain"
-        fi
-        if [[ -n "$cdn_port" ]]; then
-          cf_delete_origin_rule_by_port "$zone_id" "$cdn_port"
+            cf_remove_cdn_rules "$cdn_domain"
         fi
     else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
