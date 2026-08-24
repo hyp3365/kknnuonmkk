@@ -105,7 +105,6 @@ hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
 xray_xhttp_reality=$(get_available_port)
 vless_wstls_cdn_port=$(get_available_port)
-vless_wstls_cdn_tsl_port=$(get_available_port)
 vless_ws_cdn_port=$(get_available_port)
 vmess_ws_cdn_port=$(get_available_port)
 trojan_ws_cdn_port=$(get_available_port)
@@ -5049,12 +5048,7 @@ EOF
     check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
-    echo ""
     vless_xhttp_cdn_tsl_port=$(get_available_port)
-    if [[ ! "$vless_xhttp_cdn_tsl_port" =~ ^[0-9]+$ ]]; then
-        red "获取端口失败：${vless_xhttp_cdn_tsl_port:-<空>}"
-        return 1
-    fi
     cat > /etc/xray/conf/xhttp-cdn-tsl.json << EOF
 {
   "inbounds": [
@@ -5095,7 +5089,7 @@ EOF
 
     allow_port "$vless_xhttp_cdn_tsl_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_xray_vless_xhttp_cdn_tsl"
-    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_xhttp_tls_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=${xhttp_path}#${node_remark_direct}"    
+    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tsl_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
 	if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
