@@ -826,28 +826,19 @@ token_manage() {
             ;;
     esac
 }
-# ── Cloudflare API Token 验证 ──
+# ── Cloudflare API Token 获取 ──
 cf_auth_token() {
     echo ""
     local token_file="/etc/sing-box/token"
-    local cf_token response
+    local cf_token
     if [ -f "$token_file" ]; then
         cf_token=$(cat "$token_file" | tr -d '[:space:]')
         if [[ -n "$cf_token" ]]; then
-            green "正在验证本机保存的 Cloudflare Token..."
-            response=$(curl -s \
-                -H "Authorization: Bearer $cf_token" \
-                -H "Content-Type: application/json" \
-                "https://api.cloudflare.com/client/v4/user/tokens/verify")
-            if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-                green "本机 Token 验证成功"
-                export CF_TOKEN="$cf_token"
-                unset CF_EMAIL CF_KEY
-                export CF_AUTH_TYPE="token"
-                return 0
-            else
-                yellow "本机 Token 无效，请重新输入"
-            fi
+            green "读取本机保存的 Cloudflare Token"
+            export CF_TOKEN="$cf_token"
+            unset CF_EMAIL CF_KEY
+            export CF_AUTH_TYPE="token"
+            return 0
         fi
     fi
     green "=== Cloudflare API Token 获取 ==="
@@ -869,23 +860,14 @@ cf_auth_token() {
         red "Token 不能为空！"
         return 1
     }
-    response=$(curl -s \
-        -H "Authorization: Bearer $cf_token" \
-        -H "Content-Type: application/json" \
-        "https://api.cloudflare.com/client/v4/user/tokens/verify")
-    if echo "$response" | jq -r '.success' | grep -q true; then
-        mkdir -p /etc/sing-box
-        echo "$cf_token" > "$token_file"
-        chmod 600 "$token_file"
-        green "Token 验证成功，已保存"
-        export CF_TOKEN="$cf_token"
-        unset CF_EMAIL CF_KEY
-        export CF_AUTH_TYPE="token"
-        return 0
-    else
-        red "Cloudflare API Token 验证失败"
-        return 1
-    fi
+    mkdir -p /etc/sing-box
+    echo "$cf_token" > "$token_file"
+    chmod 600 "$token_file"
+    export CF_TOKEN="$cf_token"
+    unset CF_EMAIL CF_KEY
+    export CF_AUTH_TYPE="token"
+    green "Token 已保存"
+    return 0
 }
 # ── Cloudflare Global API Key 验证 ──
 cf_auth_global() {
