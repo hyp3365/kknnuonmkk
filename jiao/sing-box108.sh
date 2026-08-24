@@ -1760,7 +1760,8 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
     echo " 2) Global API Key"
     echo
     local cf_choice
-    reading "请输入选择 [1-2]: " cf_choice
+    reading "请输入选择 [1-2] (默认 1): " cf_choice
+	[[ -z "$cf_choice" ]] && cf_choice=1
     case "$cf_choice" in
         1)
             if ! cf_auth_token; then
@@ -1779,14 +1780,7 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
             return 1
             ;;
     esac
-    if [[ -z "$selected_zone_id" ]]; then
-        cf_select_account || {
-            red "获取 Cloudflare Zone 失败"
-            return 1
-        }
-    fi
-    local server_ip
-    server_ip=$(curl -s4 ifconfig.me)
+    server_ip=$(get_ip)
     if [[ -z "$server_ip" ]]; then
         red "无法获取服务器公网 IP"
         return 1
