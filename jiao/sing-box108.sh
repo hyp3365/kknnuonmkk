@@ -334,8 +334,10 @@ cf_upsert_dns() {
         rid=$(echo "$existing" | jq -r '.id')
         cf_call PUT "/zones/${zone_id}/dns_records/${rid}" "$payload" >/dev/null
     else
-        cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
-    fi
+    local response
+    response=$(cf_call POST "/zones/${zone_id}/dns_records" "$payload")
+    echo "$response" | jq
+fi
 }
 # ── 删除 Cloudflare DNS 记录 ──
 cf_delete_dns() {
