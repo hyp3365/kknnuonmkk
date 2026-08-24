@@ -5123,11 +5123,11 @@ EOF
 
     allow_port "$vless_xhttp_cdn_tls_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_xray_vless_xhttp_tls"
-    xhttp="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tls_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
+    xhttp_direct="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tls_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
 	if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
-    echo "$VLESS_DIRECT_URL" >> "${work_dir}/url.txt"
+    echo "$xhttp_direct" >> "${work_dir}/url.txt"
     echo "" >> "${work_dir}/url.txt"
     echo ""
     read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
@@ -5203,7 +5203,7 @@ fi
     green " 节点创建完成！"
     green "--------------------------------------------------"
     green " 1. 直连节点链接："
-    echo "$xhttp"
+    echo "$xhttp_direct"
     if [[ -n "${XHTTP_CDN_URL:-}" ]]; then
         echo ""
         green " 2. CDN 节点链接："
