@@ -454,6 +454,40 @@ cf_put_origin_rules() {
     echo "$response" | jq -r '.errors[]?.message // empty'
     return 1
 }
+# ── 根据回源端口删除 Cloudflare Origin Rule ────────────────
+cf_delete_origin_rule_by_port() {
+    local zone_id="$1"
+    local port="$2"
+    [[ -z "$zone_id" ]] && return 1
+    [[ -z "$port" ]] && return 1
+    local response rules_json new_rules
+    response=$(cf_call GET \
+        "/zones/${zone_id}/rulesets/phases/http_request_origin/entrypoint")
+    if ! echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        yellow "获取 Origin Rules 失败"
+        return 1
+    fi
+    rules_json=$(echo "$response" | jq -c '.result.rules // []')
+    new_rules=$(echo "$rules_json" | jq -c \
+        --arg port "$port" '
+        [
+            .[]
+            | select(
+                (.action_parameters.port // "") != $port
+            )
+        ]
+        ')
+    if [[ "$rules_json" == "$new_rules" ]]; then
+        yellow "未找到回源端口 ${port} 的 Origin Rule"
+        return 0
+    fi
+    if cf_put_origin_rules "$zone_id" "$new_rules"; then
+        green "已删除回源端口 ${port} 的 Origin Rule"
+        return 0
+    fi
+    red "删除 Origin Rule 失败: ${port}"
+    return 1
+}
 
 set_domain_origin_port() {
     local zone_id="$1"
@@ -5628,6 +5662,17 @@ fi
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
     if [ -f "$target_conf" ]; then
+	    cdn_domain=""
+        cdn_port=""
+        if [ -f "/etc/sing-box/url.txt" ]; then
+        while IFS= read -r line; do
+        if [[ "$line" == trojan://*"_xray_vless_xhttp_tls"* ]]; then
+        cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+        cdn_port=$(echo "$line" | sed -n 's#.*@\([^:/]*\):\([0-9]*\).*#\2#p')
+            break
+        fi
+    done < /etc/sing-box/url.txt
+fi
         vless_xhttp_cdn_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
         if [ -n "$vless_xhttp_cdn_tls_port" ]; then
             for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_tls_port" '$0~"dport "p {print $NF}'); do
@@ -5650,6 +5695,12 @@ fi
         green "==============================================="
         green " 节点已移除!"
         green "==============================================="
+		if [[ -n "$cdn_domain" ]]; then
+         cf_remove_cdn_rules "$cdn_domain"
+        fi
+        if [[ -n "$cdn_port" ]]; then
+          cf_delete_origin_rule_by_port "$zone_id" "$cdn_port"
+        fi
     else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
