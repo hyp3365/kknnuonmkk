@@ -2920,7 +2920,8 @@ uninstall_xray() {
                 sed -i \
                     -e '/_xray_vless_xhttp_reality$/d' \
                     -e '/_xray_vles_xhttp_cdn$/d' \
-                    -e '/_xray_vless_xhttp_cdn_tsl$/d' \
+                    -e '/_xray_vless_xhttp_cdn_tls$/d' \
+					-e '/_xray_vless_xhttp_tls$/d' \
                     "/etc/sing-box/url.txt"
                 sed -i '/^$/N;/\n$/D' "/etc/sing-box/url.txt"
 
