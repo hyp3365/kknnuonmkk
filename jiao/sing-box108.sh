@@ -5626,7 +5626,7 @@ fi
     ;;
 	63)
     target="_xray_vless_xhttp_tls"
-    target_conf="/etc/xray/conf/xhttp-cnd-tls.json"
+    target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
     if [ -f "$target_conf" ]; then
         vless_xhttp_cdn_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
         if [ -n "$vless_xhttp_cdn_tls_port" ]; then
