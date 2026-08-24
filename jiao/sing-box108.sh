@@ -5666,7 +5666,7 @@ fi
 	    cdn_domain=""
             if [ -f "/etc/sing-box/url.txt" ]; then
             while IFS= read -r line; do
-            if [[ "$line" == vless://*"_xray_vless_xhttp_tls"* ]]; then
+            if [[ "$line" == vless://*"_xray_vless_xhttp_cdn_tls"* ]]; then
             cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
             break
             fi
