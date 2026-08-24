@@ -1780,7 +1780,7 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
             return 1
             ;;
     esac
-    server_ip=$(get_ip)
+    server_ip=$(get_realip)
     if [[ -z "$server_ip" ]]; then
         red "无法获取服务器公网 IP"
         return 1
