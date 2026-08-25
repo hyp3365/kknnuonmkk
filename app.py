@@ -63,13 +63,11 @@ async def channel(
             html += f"""
             <div class="msg">
 
-            <video
-            controls
-            preload="metadata"
-            width="100%">
-            <source src="/video/{channel_id}/{msg.id}"
-            type="video/mp4">
-            </video>
+            <img
+width="100%"
+src="/thumb/{channel_id}/{msg.id}"
+onclick="playVideo('/video/{channel_id}/{msg.id}')"
+style="cursor:pointer;border-radius:8px;">
 
             <p>
             {text}
