@@ -97,7 +97,7 @@ EOF
 # 6. 写入 app.py
 #################################
 cd /opt/tgvideo
-cp app.py app.old
+[ -f app.py ] && cp app.py app.old
 cat > app.py <<'EOF'
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, Response, JSONResponse
