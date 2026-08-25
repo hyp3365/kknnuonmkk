@@ -96,8 +96,7 @@ EOF
 #################################
 # 6. 写入 app.py
 #################################
-
-cd /opt/tgvideo
+Cd /opt/tgvideo
 cp app.py app.old
 cat > app.py <<'EOF'
 from fastapi import FastAPI, HTTPException, Request
@@ -141,148 +140,96 @@ async def channels():
 @app.get("/channel/{channel_id}")
 async def channel(
     channel_id:int,
-    offset:int=0
+    offset_id:int=0
 ):
-    videos_html=""
+
+    html=""
 
     async for msg in client.iter_messages(
         channel_id,
-        limit=30,
-        offset_id=offset
+        limit=50,
+        offset_id=offset_id
     ):
-        if msg.video and msg.video.thumbs:
-            name = ""
 
-            if msg.message:
-                name = msg.message[:60]
-            elif msg.file and msg.file.name:
-                name = msg.file.name
-            else:
-                name = f"视频 {msg.id}"
+        if msg.message:
+            text=msg.message[:200]
+        else:
+            text=""
 
-            videos_html += f"""
-            <div class="item">
+        if msg.video:
 
-            <img
-            onclick="playVideo('/video/{channel_id}/{msg.id}')"
-            src="/thumb/{channel_id}/{msg.id}">
+            html += f"""
+            <div class="msg">
 
-            <div class="name">
-            {name}
-            </div>
+            <video
+            controls
+            preload="metadata"
+            width="100%">
+            <source src="/video/{channel_id}/{msg.id}"
+            type="video/mp4">
+            </video>
+
+            <p>
+            {text}
+            </p>
 
             </div>
             """
-    html=f"""
-<!DOCTYPE html>
+
+        elif text:
+
+            html += f"""
+            <div class="msg">
+            <p>{text}</p>
+            </div>
+            """
+
+
+    return HTMLResponse(f"""
 <html>
 <head>
+
 <meta name="viewport"
 content="width=device-width,initial-scale=1">
+
 <style>
+
 body{{
-margin:10px;
 font-family:Arial;
+background:#eee;
 }}
-.grid{{
-display:grid;
-grid-template-columns:
-repeat(3,1fr);
-gap:10px;
+
+.msg{{
+background:white;
+margin:10px;
+padding:10px;
+border-radius:10px;
 }}
-.item img{{
-width:100%;
-aspect-ratio:16/9;
-object-fit:cover;
+
+video{{
 border-radius:8px;
 }}
-.name{{
-font-size:14px;
-word-break:break-all;
-}}
-.player{{
-display:none;
-position:fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:#000;
-z-index:999;
-}}
-.player video{{
-width:100%;
-margin-top:20%;
-}}
-.close{{
-color:white;
-font-size:30px;
-padding:10px;
-}}
+
 </style>
+
 </head>
+
 <body>
+
 <h3>
-视频
+频道聊天
 </h3>
-<div class="grid">
-{videos_html}
-</div>
-<div style="display:flex;justify-content:space-between;margin:20px">
 
-<a href="/channel/{channel_id}?offset={max(offset-30,0)}">
-<button>
-上一页
-</button>
-</a>
+{html}
 
-
-<a href="/channel/{channel_id}?offset={offset+30}">
-<button>
+<a href="/channel/{channel_id}?offset_id={msg.id}">
 下一页
-</button>
 </a>
 
-</div>
-<div id="loading">
-加载中...
-</div>
-<div id="player"
-class="player">
-<div class="close"
-onclick="closePlayer()">
-×
-</div>
-<video id="video"
-controls
-autoplay>
-</video>
-</div>
-<script>
-function playVideo(url){{
-let box=document
-.getElementById("player");
-let video=document
-.getElementById("video");
-video.src=url;
-box.style.display="block";
-video.play();
-}}
 
-function closePlayer(){{
-let video=document
-.getElementById("video");
-video.pause();
-video.src="";
-document
-.getElementById("player")
-.style.display="none";
-}}
-</script>
 </body>
 </html>
-"""
-    return HTMLResponse(html)
+""")
 @app.get("/api/videos/{channel_id}")
 async def api_videos(
     channel_id:int,
@@ -429,9 +376,6 @@ async def video(
         media_type="video/mp4"
     )
 EOF
-
-
-
 #################################
 # 7. 创建 Python 环境
 #################################
