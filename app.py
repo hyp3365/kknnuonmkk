@@ -51,7 +51,7 @@ async def channel(
         limit=30,
         offset_id=offset
     ):
-        if msg.video:
+        if msg.video and msg.video.thumbs:
             name = ""
 
             if msg.message:
@@ -196,7 +196,7 @@ async def api_videos(
         offset_id=offset
     ):
         last_id=msg.id
-        if msg.video:
+        if msg.video and msg.video.thumbs:
             count+=1
             name=""
             if msg.message:
