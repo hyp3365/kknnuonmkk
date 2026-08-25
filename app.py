@@ -94,8 +94,8 @@ padding:10px;
 <h3>
 视频
 </h3>
-<div id="grid"
-class="grid">
+<div class="grid">
+{videos_html}
 </div>
 <div style="display:flex;justify-content:space-between;margin:20px">
 
