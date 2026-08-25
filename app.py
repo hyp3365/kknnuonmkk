@@ -40,7 +40,10 @@ async def channels():
             """
     return HTMLResponse(html)
 @app.get("/channel/{channel_id}")
-async def channel(channel_id:int):
+async def channel(
+    channel_id:int,
+    offset:int=0
+):
     html=f"""
 <!DOCTYPE html>
 <html>
