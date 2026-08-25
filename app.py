@@ -97,6 +97,22 @@ padding:10px;
 <div id="grid"
 class="grid">
 </div>
+<div style="display:flex;justify-content:space-between;margin:20px">
+
+<a href="/channel/{channel_id}?offset={max(offset-30,0)}">
+<button>
+上一页
+</button>
+</a>
+
+
+<a href="/channel/{channel_id}?offset={offset+30}">
+<button>
+下一页
+</button>
+</a>
+
+</div>
 <div id="loading">
 加载中...
 </div>
