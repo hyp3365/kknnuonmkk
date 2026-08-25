@@ -46,12 +46,15 @@ async def channel(
 ):
 
     html=""
+    last_id=0
 
     async for msg in client.iter_messages(
         channel_id,
         limit=50,
         offset_id=offset_id
     ):
+
+        last_id=msg.id
 
         if msg.message:
             text=msg.message[:200]
@@ -64,10 +67,10 @@ async def channel(
             <div class="msg">
 
             <img
-width="100%"
-src="/thumb/{channel_id}/{msg.id}"
-onclick="playVideo('/video/{channel_id}/{msg.id}')"
-style="cursor:pointer;border-radius:8px;">
+            width="100%"
+            src="/thumb/{channel_id}/{msg.id}"
+            onclick="playVideo('/video/{channel_id}/{msg.id}')"
+            style="cursor:pointer;border-radius:8px;">
 
             <p>
             {text}
@@ -87,6 +90,7 @@ style="cursor:pointer;border-radius:8px;">
 
     return HTMLResponse(f"""
 <html>
+
 <head>
 
 <meta name="viewport"
@@ -106,29 +110,7 @@ padding:10px;
 border-radius:10px;
 }}
 
-video{{
-border-radius:8px;
-}}
-
-</style>
-
-</head>
-
-<body>
-
-<h3>
-频道聊天
-</h3>
-
-{html}
-
-<a href="/channel/{channel_id}?offset_id={last_id}">
-下一页
-</a>
-
-
-<div id="player"
-style="
+#player{{
 display:none;
 position:fixed;
 top:0;
@@ -137,51 +119,87 @@ width:100%;
 height:100%;
 background:#000;
 z-index:999;
-">
+}}
+
+#player video{{
+width:100%;
+margin-top:50px;
+}}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<h3>
+频道聊天
+</h3>
+
+
+{html}
+
+
+<a href="/channel/{channel_id}?offset_id={last_id}">
+下一页
+</a>
+
+
+
+<div id="player">
+
 
 <button onclick="closeVideo()">
 关闭
 </button>
 
+
 <video id="video"
 controls
-autoplay
-style="width:100%;margin-top:50px">
+autoplay>
 </video>
+
 
 </div>
 
 
+
 <script>
 
-function playVideo(url){
+function playVideo(url){{
 
-let p=document.getElementById("player");
-let v=document.getElementById("video");
+let box=document.getElementById("player");
+let video=document.getElementById("video");
 
-v.src=url;
-p.style.display="block";
-v.play();
+video.src=url;
 
-}
+box.style.display="block";
+
+video.play();
+
+}}
 
 
-function closeVideo(){
+function closeVideo(){{
 
-let v=document.getElementById("video");
+let video=document.getElementById("video");
 
-v.pause();
-v.src="";
+video.pause();
+
+video.src="";
 
 document.getElementById("player")
 .style.display="none";
 
-}
+}}
 
 </script>
 
 
 </body>
+
 </html>
 """)
 @app.get("/api/videos/{channel_id}")
