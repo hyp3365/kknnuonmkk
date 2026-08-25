@@ -122,9 +122,63 @@ border-radius:8px;
 
 {html}
 
-<a href="/channel/{channel_id}?offset_id={msg.id}">
+<a href="/channel/{channel_id}?offset_id={last_id}">
 下一页
 </a>
+
+
+<div id="player"
+style="
+display:none;
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:#000;
+z-index:999;
+">
+
+<button onclick="closeVideo()">
+关闭
+</button>
+
+<video id="video"
+controls
+autoplay
+style="width:100%;margin-top:50px">
+</video>
+
+</div>
+
+
+<script>
+
+function playVideo(url){
+
+let p=document.getElementById("player");
+let v=document.getElementById("video");
+
+v.src=url;
+p.style.display="block";
+v.play();
+
+}
+
+
+function closeVideo(){
+
+let v=document.getElementById("video");
+
+v.pause();
+v.src="";
+
+document.getElementById("player")
+.style.display="none";
+
+}
+
+</script>
 
 
 </body>
