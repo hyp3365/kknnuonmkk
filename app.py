@@ -206,7 +206,7 @@ src="/thumb/{channel_id}/{msg.id}">
     return JSONResponse({
         "html": html,
         "next_offset": last_id,
-        "has_more": count == 30
+        "has_more": count >= 30
     })
 @app.get("/thumb/{channel_id}/{msg_id}")
 async def thumb(
