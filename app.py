@@ -153,17 +153,13 @@ document
 .getElementById("player")
 .style.display="none";
 }}
-window.onscroll=function(){{
+window.addEventListener("scroll", function(){{
 if(
-window.innerHeight+
-window.scrollY
->
-document.body.offsetHeight-300
-)
-{{
+window.innerHeight + window.scrollY >= document.body.offsetHeight - 500
+){{
 loadMore();
 }}
-}};
+}});
 loadMore();
 </script>
 </body>
