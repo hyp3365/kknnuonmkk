@@ -88,11 +88,13 @@ font-family:Arial;
 .grid{{
 display:grid;
 grid-template-columns:
-repeat(2,1fr);
+repeat(3,1fr);
 gap:10px;
 }}
 .item img{{
 width:100%;
+aspect-ratio:16/9;
+object-fit:cover;
 border-radius:8px;
 }}
 .name{{
