@@ -112,32 +112,6 @@ autoplay>
 </video>
 </div>
 <script>
-let offset=0;
-let loading=false;
-let hasMore=true;
-function loadMore(){{
-if(loading||!hasMore)
-return;
-loading=true;
-fetch(
-"/api/videos/{channel_id}?offset="+offset
-)
-.then(r=>r.json())
-.then(data=>{{
-document
-.getElementById("grid")
-.insertAdjacentHTML(
-"beforeend",
-data.html
-);
-offset=data.next_offset;
-loading=false;
-if(!data.has_more){{
-hasMore=false;
-document.getElementById("loading").style.display="none";
-}}
-}});
-}}
 function playVideo(url){{
 let box=document
 .getElementById("player");
@@ -147,6 +121,7 @@ video.src=url;
 box.style.display="block";
 video.play();
 }}
+
 function closePlayer(){{
 let video=document
 .getElementById("video");
@@ -156,15 +131,6 @@ document
 .getElementById("player")
 .style.display="none";
 }}
-window.addEventListener("scroll", function(){{
-if(
-window.innerHeight + window.scrollY >= document.body.offsetHeight - 500
-){{
-loadMore();
-}}
-}});
-loadMore();
-setTimeout(loadMore,1000);
 </script>
 </body>
 </html>
