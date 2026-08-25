@@ -222,7 +222,7 @@ async def thumb(
     data = await client.download_media(
         msg,
         file=bytes,
-        thumb=0
+        thumb=1
     )
     if not data:
         raise HTTPException(404)
