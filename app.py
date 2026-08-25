@@ -161,6 +161,7 @@ loadMore();
 }}
 }});
 loadMore();
+setTimeout(loadMore,1000);
 </script>
 </body>
 </html>
