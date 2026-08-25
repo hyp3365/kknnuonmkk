@@ -44,6 +44,36 @@ async def channel(
     channel_id:int,
     offset:int=0
 ):
+    videos_html=""
+
+    async for msg in client.iter_messages(
+        channel_id,
+        limit=30,
+        offset_id=offset
+    ):
+        if msg.video:
+            name = ""
+
+            if msg.message:
+                name = msg.message[:60]
+            elif msg.file and msg.file.name:
+                name = msg.file.name
+            else:
+                name = f"视频 {msg.id}"
+
+            videos_html += f"""
+            <div class="item">
+
+            <img
+            onclick="playVideo('/video/{channel_id}/{msg.id}')"
+            src="/thumb/{channel_id}/{msg.id}">
+
+            <div class="name">
+            {name}
+            </div>
+
+            </div>
+            """
     html=f"""
 <!DOCTYPE html>
 <html>
