@@ -438,7 +438,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/tgvideo
-ExecStart=/opt/tgvideo/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/tgvideo/venv/bin/uvicorn app:app --host 0.0.0.0 --port 18889
 Restart=always
 
 [Install]
@@ -463,5 +463,5 @@ echo
 echo "=========================="
 echo "安装完成"
 echo "访问:"
-echo "http://服务器IP:8000"
+echo "http://服务器IP:18889"
 echo "=========================="
