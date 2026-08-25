@@ -1,4 +1,4 @@
-Cd /opt/tgvideo
+cd /opt/tgvideo
 cp app.py app.old
 cat > app.py <<'EOF'
 from fastapi import FastAPI, HTTPException, Request
