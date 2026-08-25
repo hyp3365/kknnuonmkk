@@ -229,6 +229,38 @@ async def thumb(
         channel_id,
         ids=msg_id
     )
+
+    if not msg:
+        raise HTTPException(404)
+
+    data = None
+
+    # 优先取视频缩略图
+    if msg.video and msg.video.thumbs:
+        data = await client.download_media(
+            msg,
+            file=bytes,
+            thumb=-1
+        )
+
+    # 没有缩略图，用视频第一帧
+    if not data:
+        data = await client.download_media(
+            msg,
+            file=bytes
+        )
+
+    if not data:
+        raise HTTPException(404)
+
+    return Response(
+        content=data,
+        media_type="image/jpeg"
+    )
+    msg = await client.get_messages(
+        channel_id,
+        ids=msg_id
+    )
     if not msg:
         raise HTTPException(404)
     data = await client.download_media(
