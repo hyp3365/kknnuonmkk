@@ -666,7 +666,7 @@ with open(route_file, "r") as f:
                             r["outbound"] = outbound
                             break
                         valid_rules += 1
-                with open(ROUTE_FILE, "w") as f:
+                with open(route_file,"w") as f:
                     json.dump(r_json, f, indent=2)
                 restart_singbox_async()
                 msg = {"code": 0, "msg": "success"}
@@ -677,7 +677,7 @@ with open(route_file, "r") as f:
         elif path == "/api/del_rule":
             try:
                 idx = int(query.get("index", [0])[0])
-                with open(ROUTE_FILE, "r") as f:
+                with open(route_file,"w") as f:
                     r_json = json.load(f)
                 
                 rules = r_json.get("route", {}).get("rules", [])
@@ -691,7 +691,7 @@ with open(route_file, "r") as f:
                         valid_rules += 1
                 if target_i != -1:
                     rules.pop(target_i)
-                    with open(ROUTE_FILE, "w") as f:
+                    with open(route_file,"w") as f:
                         json.dump(r_json, f, indent=2)
                     restart_singbox_async()
                     msg = {"code": 0, "msg": "success"}
@@ -722,7 +722,7 @@ with open(route_file, "r") as f:
                 if not outbound:
                     raise Exception("未选择有效出站")
 
-                with open(ROUTE_FILE, "r") as f:
+                with open(route_file,"w") as f:
                     r_json = json.load(f)
                 new_rule = { "outbound": outbound }
                 if val_str:
@@ -742,7 +742,7 @@ with open(route_file, "r") as f:
                     r_json["route"]["rules"] = []
                 
                 r_json["route"]["rules"].insert(0, new_rule)
-                with open(ROUTE_FILE, "w") as f:
+                with open(route_file,"w") as f:
                     json.dump(r_json, f, indent=2)
                 restart_singbox_async()
                 msg = {"code": 0, "msg": "success"}
@@ -758,7 +758,7 @@ with open(route_file, "r") as f:
                 idx = int(data.get("index", 0))
                 r_type = data.get("type", "domain_suffix")
                 val_str = data.get("value", "").strip()
-                with open(ROUTE_FILE, "r") as f:
+                with open(route_file,"w") as f:
                     r_json = json.load(f)
                 
                 # 【修复】使用 get 防止 KeyError
@@ -781,7 +781,7 @@ with open(route_file, "r") as f:
                                 target_r["domain_suffix"] = vals
                         else:
                             target_r["rule_set"] = [val_str]
-                    with open(ROUTE_FILE, "w") as f:
+                    with open(route_file,"w") as f:
                         json.dump(r_json, f, indent=2)
                     restart_singbox_async()
                     msg = {"code": 0, "msg": "success"}
