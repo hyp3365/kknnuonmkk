@@ -66,6 +66,29 @@ def ensure_route_file():
 
 ensure_route_file()
 
+def get_tag_core(tag):
+
+    for file, core in [
+        (SINGBOX_OUTBOUND_FILE, "singbox"),
+        (XRAY_OUTBOUND_FILE, "xray")
+    ]:
+
+        if not os.path.exists(file):
+            continue
+
+        try:
+            with open(file, "r") as f:
+                data = json.load(f)
+
+            for o in data.get("outbounds", []):
+                if o.get("tag") == tag:
+                    return core
+
+        except:
+            pass
+
+    return None
+
 def restart_singbox_async():
     def _restart():
         subprocess.run(["systemctl", "restart", "sing-box"], check=False)
