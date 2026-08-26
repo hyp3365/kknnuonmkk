@@ -875,13 +875,10 @@ cf_auth_token() {
         red "Token 不能为空！"
         return 1
     }
-    mkdir -p /etc/sing-box
-    echo "$cf_token" > "$token_file"
-    chmod 600 "$token_file"
     export CF_TOKEN="$cf_token"
     unset CF_EMAIL CF_KEY
     export CF_AUTH_TYPE="token"
-    green "Token 已保存"
+    green "Token 已设置"
     return 0
 }
 # ── Cloudflare Global API Key 验证 ──
