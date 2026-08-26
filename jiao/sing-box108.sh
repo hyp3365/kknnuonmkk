@@ -5000,6 +5000,7 @@ EOF
   "inbounds": [
     {
       "listen": "::",
+	  "tag": "vless-xhttp-reality",
       "port": $xray_xhttp_reality,
       "protocol": "vless",
       "settings": {
@@ -5204,7 +5205,7 @@ EOF
 {
   "inbounds": [
     {
-      "tag": "vless-xhttp-tls",
+      "tag": "vless-xhttp-cdn-tls",
       "listen": "::",
       "port": $vless_xhttp_cdn_tls_port,
       "protocol": "vless",
@@ -5342,7 +5343,7 @@ cat >> /etc/xray/conf/xhttp-udp-tls.json <<EOF
 {
   "inbounds": [
  {
-  "tag": "xhttp-h3",
+  "tag": "xhttp-udp-tsl",
   "listen": "::",
   "port": $vless_xhttp_udp_tls_port,
   "protocol": "vless",
@@ -5418,7 +5419,7 @@ cat >> /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
 {
   "inbounds": [
 {
-  "tag": "xhttp-tcpudp-cdn",
+  "tag": "xhttp-tcpudp-cdn-tls",
   "listen": "::",
   "port": $vless_xhttp_tcpudp_tls_port,
   "protocol": "vless",
