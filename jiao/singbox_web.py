@@ -83,6 +83,10 @@ def restart_singbox_async():
     def _restart():
         subprocess.run(["systemctl", "restart", "sing-box"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
+    def restart_xray_async():
+    def _restart():
+        subprocess.run(["systemctl","restart","xray"],check=False)
+    threading.Thread(target=_restart,daemon=True).start()
 
 def is_managed_rule(r):
     if not isinstance(r, dict):
