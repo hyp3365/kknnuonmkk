@@ -369,13 +369,28 @@ cf_delete_dns() {
     done <<< "$records"
 }
 
-# ──  设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
+# ── 设置 Cloudflare SSL 模式 (Flexible/Full/Strict) ─
 cf_set_ssl() {
     local zone_id="$1"
     local ssl_mode="$2"
     local payload
     local response
+    local ssl_name
     [[ -z "$zone_id" || -z "$ssl_mode" ]] && return 1
+    case "$ssl_mode" in
+        flexible)
+            ssl_name="灵活(Flexible)"
+            ;;
+        full)
+            ssl_name="完全(Full)"
+            ;;
+        strict)
+            ssl_name="完全严格(Full Strict)"
+            ;;
+        *)
+            ssl_name="$ssl_mode"
+            ;;
+    esac
     payload=$(jq -n \
         --arg v "$ssl_mode" \
         '{value:$v}')
@@ -383,7 +398,7 @@ cf_set_ssl() {
         "/zones/${zone_id}/settings/ssl" \
         "$payload")
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-        green "Cloudflare SSL 模式已设置为: $ssl_mode"
+        green "Cloudflare SSL 模式已设置为: $ssl_name"
         return 0
     fi
     yellow "Cloudflare SSL 模式设置失败"
