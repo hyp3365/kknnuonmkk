@@ -38,12 +38,14 @@ PORT, WEB_PASSWORD = load_or_generate_config()
 
 SINGBOX_CONF = "/etc/sing-box/conf"
 XRAY_CONF = "/etc/xray/conf"
-SINGBOX_ROUTE = "/etc/sing-box/conf/route.json"
-SINGBOX_OUTBOUND = "/etc/sing-box/conf/outbounds.json"
-XRAY_ROUTE = "/etc/xray/conf/route.json"
-XRAY_OUTBOUND = "/etc/xray/conf/outbounds.json"
-SINGBOX_INBOUND = "/etc/sing-box/conf/inbounds.json"
-XRAY_INBOUND = "/etc/xray/conf/inbounds.json"
+SINGBOX_ROUTE_FILE = "/etc/sing-box/conf/route.json"
+XRAY_ROUTE_FILE = "/etc/xray/conf/route.json"
+
+SINGBOX_OUTBOUND_FILE = "/etc/sing-box/conf/outbounds.json"
+XRAY_OUTBOUND_FILE = "/etc/xray/conf/outbounds.json"
+
+SINGBOX_INBOUND_FILE = "/etc/sing-box/conf/inbounds.json"
+XRAY_INBOUND_FILE = "/etc/xray/conf/inbounds.json"
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 TAG_NAME_MAP = {
     "ipv6_only": "仅IPv6",
