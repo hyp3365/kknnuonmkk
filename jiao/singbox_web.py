@@ -674,11 +674,74 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 "rules":[]
             }
             try:
-                # 出站
-                for file in [
-                    SINGBOX_OUTBOUND_FILE,
-                    XRAY_OUTBOUND_FILE
-                ]:
+                # 出站节点扫描
+node_files = [
+    "vmess-argo.json",
+    "hysteria2.json",
+    "xtls-reality.json",
+    "tuic.json",
+    "anytls.json",
+    "vless-ws-cdn.json",
+    "vmess-ws-cdn.json",
+    "trojan-ws-cdn.json",
+    "h2-reality.json",
+    "endpoints.json"
+]
+
+# 先读取标准 outbounds
+scan_files = [
+    SINGBOX_OUTBOUND_FILE,
+    XRAY_OUTBOUND_FILE
+]
+
+for nf in node_files:
+    for d in [
+        SINGBOX_CONF,
+        XRAY_CONF
+    ]:
+        scan_files.append(
+            os.path.join(d,nf)
+        )
+
+
+for file in scan_files:
+
+    if not os.path.exists(file):
+        continue
+
+    try:
+        with open(file,"r") as f:
+            cfg=json.load(f)
+
+        # outbounds
+        for o in cfg.get("outbounds",[]):
+
+            tag=o.get("tag")
+
+            if tag and tag not in data["outbounds"]:
+                data["outbounds"].append(
+                    TAG_NAME_MAP.get(tag,tag)
+                )
+
+        # endpoints
+        for ep in cfg.get("endpoints",[]):
+
+            tag=ep.get("tag")
+
+            if tag and tag not in data["outbounds"]:
+                data["outbounds"].append(tag)
+
+
+        # inbound 文件里的入口
+        for ib in cfg.get("inbounds",[]):
+
+            tag=ib.get("tag")
+
+            if tag and tag not in data["inbounds"]:
+                data["inbounds"].append(tag)
+
+    except:
+        pass
                     if not os.path.exists(file):
                         continue
                     with open(file,"r") as f:
