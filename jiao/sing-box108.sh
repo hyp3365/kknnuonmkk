@@ -1792,8 +1792,12 @@ if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
             return 1
             ;;
     esac
-	if [[ -z "$selected_zone_id" ]]; then
-    if ! cf_get_zone_id_by_domain; then
+	selected_zone_id=""
+if ! cf_get_zone_id_by_domain "$domain"; then
+    red "获取 Cloudflare Zone 失败"
+    return 1
+fi
+    if ! cf_get_zone_id_by_domain "$domain"; then
         red "获取 Cloudflare Zone 失败"
         return 1
     fi
