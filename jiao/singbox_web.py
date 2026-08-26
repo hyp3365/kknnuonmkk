@@ -43,7 +43,7 @@ XRAY_CONF_DIR = "/etc/xray/conf"
 SB_ROUTE_FILE = os.path.join(SB_CONF_DIR, "route.json")
 XRAY_ROUTE_FILE = os.path.join(XRAY_CONF_DIR, "route.json")
 SB_OUTBOUND_FILE = os.path.join(SB_CONF_DIR, "outbounds.json")
-XRAY_OUTBOUND_FILE = os.path.join(XRAY_CONF_DIR, "outbounds.json") # 新增：Xray 的出站文件路径
+XRAY_OUTBOUND_FILE = os.path.join(XRAY_CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 
 TAG_NAME_MAP = {
@@ -71,10 +71,13 @@ def ensure_route_file(filepath, is_xray=False):
 ensure_route_file(SB_ROUTE_FILE, False)
 ensure_route_file(XRAY_ROUTE_FILE, True)
 
-def restart_services_async():
+# === 优化后的按需重启函数 ===
+def restart_services_async(restart_sb=True, restart_xray=True):
     def _restart():
-        subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-        subprocess.run(["systemctl", "restart", "xray"], check=False)
+        if restart_sb:
+            subprocess.run(["systemctl", "restart", "sing-box"], check=False)
+        if restart_xray:
+            subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
 # === 核心扫描与分类功能 ===
@@ -699,11 +702,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["route"]["rules"][real_idx]["outbound"] = outbound
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["routing"]["rules"][real_idx]["outboundTag"] = outbound
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                    restart_services_async()
+                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
+                    
                     msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "规则索引越界"}
@@ -722,11 +727,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["route"]["rules"].pop(real_idx)
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["routing"]["rules"].pop(real_idx)
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                    restart_services_async()
+                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
+                    
                     msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
@@ -750,9 +757,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 req_inbounds = data.get("inbounds", [])
                 _, _, core_map = gather_nodes()
                 
+                sb_modified = False
+                xray_modified = False
+
                 if not req_inbounds:
+                    # 如果未选择特定节点，默认全局（双端都添加）
                     add_to_singbox(data, [])
                     add_to_xray(data, [])
+                    sb_modified = True
+                    xray_modified = True
                 else:
                     sb_targets = []
                     xray_targets = []
@@ -761,10 +774,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         if core == "singbox": sb_targets.append(ib)
                         else: xray_targets.append(ib)
                     
-                    if sb_targets: add_to_singbox(data, sb_targets)
-                    if xray_targets: add_to_xray(data, xray_targets)
+                    if sb_targets: 
+                        add_to_singbox(data, sb_targets)
+                        sb_modified = True
+                    if xray_targets: 
+                        add_to_xray(data, xray_targets)
+                        xray_modified = True
 
-                restart_services_async()
+                # 精准按需重启：只重启被修改了配置的服务
+                restart_services_async(restart_sb=sb_modified, restart_xray=xray_modified)
                 msg = {"code": 0, "msg": "success"}
             except Exception as e:
                 msg = {"code": 1, "msg": f"添加失败: {str(e)}"}
@@ -795,6 +813,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             else:
                                 rule_obj["rule_set"] = [new_val]
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
                         
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
@@ -806,8 +825,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             else:
                                 rule_obj["domain"] = [f"geosite:{new_val}"]
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
                         
-                    restart_services_async()
                     msg = {"code": 0, "msg": "success"}
                 else:
                     msg = {"code": 1, "msg": "未找到指定规则"}
@@ -838,7 +857,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             username = users[0].get("user") if users else ""
                             password = users[0].get("pass") if users else ""
                             
-                            # 1. 构造 Sing-box 格式的出站节点
                             new_fanout_nodes_sb.append({
                                 "type": "socks",
                                 "tag": f"fanout-{port}",
@@ -848,7 +866,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "password": password
                             })
                             
-                            # 2. 按照 Xray 的出站格式 (socks 协议) 进行转换
                             xray_proxy_setting = {
                                 "servers": [{
                                     "address": address,
@@ -867,7 +884,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "settings": xray_proxy_setting
                             })
 
-            # === A. 写入 Sing-box 出站配置 ===
+            # 写入 Sing-box 出站配置
             sb_outbound_data = {"outbounds": []}
             sb_outbound_file = os.path.join(SB_CONF_DIR, "outbounds.json")
             if os.path.exists(sb_outbound_file):
@@ -877,7 +894,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             if "outbounds" not in sb_outbound_data:
                 sb_outbound_data["outbounds"] = []
             
-            # 过滤掉旧的 fanout 节点并追加新的
             sb_outbound_data["outbounds"] = [
                 o for o in sb_outbound_data["outbounds"] 
                 if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
@@ -887,7 +903,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             with open(sb_outbound_file, "w") as f:
                 json.dump(sb_outbound_data, f, indent=2)
 
-            # === B. 写入 Xray 出站配置 (转换格式) ===
+            # 写入 Xray 出站配置
             xray_outbound_data = {"outbounds": []}
             if os.path.exists(XRAY_OUTBOUND_FILE):
                 with open(XRAY_OUTBOUND_FILE, "r") as f:
@@ -896,7 +912,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             if "outbounds" not in xray_outbound_data:
                 xray_outbound_data["outbounds"] = []
                 
-            # 过滤掉旧的 fanout 节点并追加转换后的新节点
             xray_outbound_data["outbounds"] = [
                 o for o in xray_outbound_data["outbounds"] 
                 if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
@@ -906,7 +921,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             with open(XRAY_OUTBOUND_FILE, "w") as f:
                 json.dump(xray_outbound_data, f, indent=2)
 
-            restart_services_async()
+            # 同步节点通常需要两端都更新并生效，所以两边都重启
+            restart_services_async(restart_sb=True, restart_xray=True)
             return {"code": 0, "msg": "success"}
         except Exception as e:
             return {"code": 1, "msg": f"同步出错: {str(e)}"}
