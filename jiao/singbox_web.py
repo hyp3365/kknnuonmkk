@@ -639,7 +639,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
     def get_route_file(self):
+    if os.path.exists(SINGBOX_ROUTE_FILE):
         return SINGBOX_ROUTE_FILE
+
+    if os.path.exists(XRAY_ROUTE_FILE):
+        return XRAY_ROUTE_FILE
+
+    return SINGBOX_ROUTE_FILE
     def do_GET(self):
         parsed=urllib.parse.urlparse(self.path)
         path=parsed.path
