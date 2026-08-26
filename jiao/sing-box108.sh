@@ -2818,6 +2818,57 @@ install_xray() {
   ]
 }
 EOF
+cat > "${xray_conf_dir}/outbounds.json" << EOF
+{
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "ipv6_only",
+      "settings": {
+        "domainStrategy": "UseIPv6"
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "prefer_ipv6",
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "ipv4_only",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "prefer_ipv4",
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "socks",
+      "tag": "wireproxy",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 40000
+          }
+        ]
+      }
+    }
+  ]
+}
+EOF
+
 }
 
 
