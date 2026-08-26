@@ -271,6 +271,12 @@ ip_address() {
     ipv4_address=$(curl -s -m 2 ipv4.ip.sb)
     ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
 }
+nginx_get_domain() {
+    local file="$1"
+    grep -E "^\s*server_name\s+" "$file" 2>/dev/null \
+    | awk '{for(i=2;i<=NF;i++) if($i !~ /;/) print $i}' \
+    | tr '\n' ' '
+}
 
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
 cf_call() {
@@ -3606,7 +3612,8 @@ disable_open_sub() {
                     echo " (暂无)"
                 else
                     for conf in "${disabled_list[@]}"; do
-                        echo -e " $idx. \033[33m$conf\033[0m"
+                        domain=$(nginx_get_domain "$avail_dir/$conf")
+echo -e " $idx. \033[33m$conf\033[0m \033[36m[$domain]\033[0m"
                         mapping[$idx]="$conf:enable"
                         ((idx++))
                     done
@@ -3618,7 +3625,8 @@ disable_open_sub() {
                     echo " (暂无)"
                 else
                     for conf in "${enabled_list[@]}"; do
-                        echo -e " $idx. \033[32m$conf\033[0m"
+                        domain=$(nginx_get_domain "$avail_dir/$conf")
+echo -e " $idx. \033[32m$conf\033[0m \033[36m[$domain]\033[0m"
                         mapping[$idx]="$conf:disable"
                         ((idx++))
                     done
