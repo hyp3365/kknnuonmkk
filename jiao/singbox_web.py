@@ -36,10 +36,14 @@ def load_or_generate_config():
 
 PORT, WEB_PASSWORD = load_or_generate_config()
 
-CONF_DIR = "/etc/sing-box/conf"
-ROUTE_FILE = os.path.join(CONF_DIR, "route.json")
-OUTBOUND_FILE = os.path.join(CONF_DIR, "outbounds.json")
-INBOUND_FILE = os.path.join(CONF_DIR, "inbounds.json")
+SINGBOX_CONF = "/etc/sing-box/conf"
+XRAY_CONF = "/etc/xray/conf"
+SINGBOX_ROUTE = "/etc/sing-box/conf/route.json"
+SINGBOX_OUTBOUND = "/etc/sing-box/conf/outbounds.json"
+XRAY_ROUTE = "/etc/xray/conf/route.json"
+XRAY_OUTBOUND = "/etc/xray/conf/outbounds.json"
+SINGBOX_INBOUND = "/etc/sing-box/conf/inbounds.json"
+XRAY_INBOUND = "/etc/xray/conf/inbounds.json"
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 TAG_NAME_MAP = {
     "ipv6_only": "仅IPv6",
