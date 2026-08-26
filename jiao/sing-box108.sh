@@ -5359,15 +5359,15 @@ if [ $? -ne 0 ]; then
 fi
 check_and_issue_ssl || return 1
 generate_vars
-vless_xhttp_tcpudp_tls_port=$(get_available_port)
+vless_xhttp_tcpudp_tls_port=$(shuf -e 2053 2083 2087 2096 8443 -n 1)
 
 cat >> /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
 {
   "inbounds": [
 {
-  "tag": "xhttp-h23",
+  "tag": "xhttp-tcpudp-cdn",
   "listen": "::",
-  "port": 443,
+  "port": $vless_xhttp_tcpudp_tls_port,
   "protocol": "vless",
   "settings": {
     "clients": [
@@ -5407,9 +5407,11 @@ cat >> /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
 }
 EOF
 
+allow_port "$vless_xhttp_tcpudp_tls_port/tcp" >/dev/null 2>&1
 allow_port "$vless_xhttp_tcpudp_tls_port/udp" >/dev/null 2>&1
-node_remark="${isp}_xray_vless_xhttp_h23"
-xhttp_h3="vless://$uuid@$cdnip2:$port_xc?encryption=none&security=tls&sni=$sni&alpn=h3&insecure=0&allowInsecure=0&type=xhttp&path=$uuid-xc&mode=auto#${sxname}Vless-xhttp-tls-CDN-UDP-$hostname"
+node_remark="${isp}_xray_vless_xhttp_tcpudpcdn"
+xhttp_tcp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&#${node_remark}"
+xhttp_udp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&alpn=h3#${node_remark}"
 if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
 fi
@@ -5939,6 +5941,48 @@ fi
         green " 节点已移除!"
         green "==============================================="
         else
+        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    fi
+    ;;
+	65)
+    target="_xray_vless_xhttp_tcpudpcdn"
+    target_conf="/etc/xray/conf/xhttp-tcpudp-tls.json"
+    if [ -f "$target_conf" ]; then
+	    cdn_domain=""
+            if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+            if [[ "$line" == vless://*"_xray_vless_xhttp_tcpudpcdn"* ]]; then
+            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+            break
+            fi
+    done < /etc/sing-box/url.txt
+fi
+        vless_xhttp_tcpudp_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
+        if [ -n "$vless_xhttp_tcpudp_tls_port" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_tcpudp_tls_port" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
+            nft list ruleset > /etc/nftables.conf 2>/dev/null
+        fi
+        rm -f "$target_conf"
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            sed -i "/${target}/d" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_xray
+        green "==============================================="
+        green " 节点已移除!"
+        green "==============================================="
+		if [[ -n "$cdn_domain" ]]; then
+            cf_remove_cdn_rules "$cdn_domain"
+        fi
+    else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
