@@ -65,22 +65,47 @@ TAG_REVERSE_MAP = {
     v: k for k, v in TAG_NAME_MAP.items()
 }
 
-def get_tag_core(tag):
-    for file, core in [
-        (SINGBOX_OUTBOUND_FILE, "singbox"),
-        (XRAY_OUTBOUND_FILE, "xray")
+def get_core_files(tag):
+
+    for file,core in [
+        (SINGBOX_OUTBOUND_FILE,"singbox"),
+        (XRAY_OUTBOUND_FILE,"xray")
     ]:
+
         if not os.path.exists(file):
             continue
+
         try:
-            with open(file, "r") as f:
-                data = json.load(f)
-            for o in data.get("outbounds", []):
-                if o.get("tag") == tag:
-                    return core
+            with open(file,"r") as f:
+                data=json.load(f)
+
+            for o in data.get("outbounds",[]):
+
+                if o.get("tag")==tag:
+
+                    if core=="singbox":
+                        return (
+                            "singbox",
+                            SINGBOX_OUTBOUND_FILE,
+                            SINGBOX_ROUTE_FILE
+                        )
+
+                    if core=="xray":
+                        return (
+                            "xray",
+                            XRAY_OUTBOUND_FILE,
+                            XRAY_ROUTE_FILE
+                        )
+
         except:
             pass
-    return None
+
+
+    return (
+        "singbox",
+        SINGBOX_OUTBOUND_FILE,
+        SINGBOX_ROUTE_FILE
+    )
 
 def get_route_file(outbound):
     core = get_tag_core(outbound)
