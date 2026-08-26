@@ -5412,6 +5412,22 @@ allow_port "$vless_xhttp_tcpudp_tls_port/udp" >/dev/null 2>&1
 node_remark="${isp}_xray_vless_xhttp_tcpudpcdn"
 xhttp_tcp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&#${node_remark}"
 xhttp_udp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&alpn=h3#${node_remark}"
+zone_id=$(cf_find_zone "$domain")
+if [[ -n "$zone_id" ]]; then
+    green "Cloudflare Zone 检测成功：$zone_id"
+    if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+        green "Cloudflare DNS 配置成功"
+    else
+        yellow "警告：Cloudflare DNS 配置失败"
+    fi
+    if cf_set_ssl "$zone_id" "full"; then
+        green "Cloudflare SSL 模式已设置为 Full"
+    else
+        yellow "警告：Cloudflare SSL 模式设置失败"
+    fi
+else
+    yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
+fi
 if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
 fi
