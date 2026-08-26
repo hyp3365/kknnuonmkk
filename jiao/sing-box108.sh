@@ -5329,7 +5329,6 @@ cat >> /etc/xray/conf/xhttp-udp-tls.json <<EOF
      ],
     "metadataOnly": false
     }
-   }
   }
  ]
 }
@@ -5338,6 +5337,78 @@ EOF
 allow_port "$vless_xhttp_udp_tls_port/udp" >/dev/null 2>&1
 node_remark="${isp}_xray_vless_xhttp_h3"
 xhttp_h3="vless://${uuid}@${domain}:${vless_xhttp_udp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/ssuddxu&alpn=h3#${node_remark}"
+if [ -f "${work_dir}/url.txt" ]; then
+    sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+fi
+echo "$xhttp_h3" >> "${work_dir}/url.txt"
+echo "" >> "${work_dir}/url.txt"
+base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+restart_xray
+green "--------------------------------------------------"
+green " VLESS XHTTP-H3 节点创建完成！"
+green "--------------------------------------------------"
+echo "$xhttp_h3"
+green "--------------------------------------------------"
+;;
+15)
+check_xray
+if [ $? -ne 0 ]; then
+    red "Xray 未安装，请先安装 Xray！"
+    return 1
+fi
+check_and_issue_ssl || return 1
+generate_vars
+vless_xhttp_tcpudp_tls_port=$(get_available_port)
+
+cat >> /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
+{
+  "inbounds": [
+{
+  "tag": "xhttp-h23",
+  "listen": "::",
+  "port": 443,
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      {
+        "id": "$uuid",
+        "flow": ""
+      }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "tls",
+    "xhttpSettings": {
+    "mode": "auto",
+    "path": "/xjakakkakccdd"
+    },
+    "tlsSettings": {
+     "alpn": [
+      "h2","http/1.1"
+       ],
+      "certificates": [
+        {
+          "certificateFile": "$cert_file",
+          "keyFile": "$key_file"
+        }
+      ]
+    }
+  },
+  "sniffing": {
+    "enabled": true,
+    "destOverride": ["http", "tls", "quic"],
+   "metadataOnly": false
+  }
+ }
+ ]
+}
+EOF
+
+allow_port "$vless_xhttp_tcpudp_tls_port/udp" >/dev/null 2>&1
+node_remark="${isp}_xray_vless_xhttp_h23"
+xhttp_h3="vless://$uuid@$cdnip2:$port_xc?encryption=none&security=tls&sni=$sni&alpn=h3&insecure=0&allowInsecure=0&type=xhttp&path=$uuid-xc&mode=auto#${sxname}Vless-xhttp-tls-CDN-UDP-$hostname"
 if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
 fi
