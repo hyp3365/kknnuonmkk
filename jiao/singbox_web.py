@@ -774,18 +774,15 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 "rules": []
             }
             try:
-                node_files = [
-                    "vmess-argo.json",
-                    "hysteria2.json",
-                    "xtls-reality.json",
-                    "tuic.json",
-                    "anytls.json",
-                    "vless-ws-cdn.json",
-                    "vmess-ws-cdn.json",
-                    "trojan-ws-cdn.json",
-                    "h2-reality.json",
-                    "endpoints.json"
-                ]
+                # 自定义节点扫描
+# 格式: 文件路径, 核心类型
+node_list = [
+    ("/etc/sing-box/conf/vless-ws-cdn.json", "singbox"),
+    ("/etc/sing-box/conf/hysteria2.json", "singbox"),
+
+    ("/etc/xray/conf/vless-ws-cdn.json", "xray"),
+    ("/etc/xray/conf/trojan-ws-cdn.json", "xray")
+]
                 scan_files = [
                     SINGBOX_OUTBOUND_FILE,
                     XRAY_OUTBOUND_FILE
