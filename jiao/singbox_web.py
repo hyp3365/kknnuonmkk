@@ -615,7 +615,7 @@ with open(route_file, "r") as f:
                         except Exception:
                             pass
 
-                if os.path.exists(ROUTE_FILE):
+                if os.path.exists(route_file):
                     with open(ROUTE_FILE, "r") as f:
                         r_json = json.load(f)
                         route_cfg = r_json.get("route", {})
