@@ -159,7 +159,7 @@ def gather_nodes():
     mapped_outbounds = [TAG_NAME_MAP.get(t, t) for t in outbounds]
     return inbounds, mapped_outbounds, inbound_core_map
 
-# === 路由规则容器通用解析器（兼容各种键名结构） ===
+# === 路由规则容器通用解析器 ===
 def get_route_rules_container(r_json, is_xray=False):
     if is_xray:
         if "routing" in r_json and isinstance(r_json["routing"], dict) and "rules" in r_json["routing"]:
@@ -212,7 +212,6 @@ def is_managed_rule_xray(r):
         return True
     return False
 
-# 隐藏不需要用户操作的基础直连规则（如 {"type": "field", "network": "tcp,udp", "outboundTag": "direct"}）
 def is_hidden_xray_rule(r):
     if not isinstance(r, dict):
         return False
@@ -361,7 +360,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>分流 (Sing-box & Xray)</title>
+    <title>双端智能分流 (Sing-box & Xray)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
@@ -601,9 +600,27 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
+// 核心调整：无整页刷新，局部异步更新，并保留 1 秒的人工缓冲延迟
+async function runButtonAction(btn, action, onSuccess) {
+    if (btn.disabled) return;
+    const oldHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "⏳ 处理中...";
+    try { 
+        let res = await action();
+        // 强制 1 秒延迟，保证后台服务重启有足够的缓冲时间
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (onSuccess) await onSuccess(res);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+    }
+}
+
 async function addRule() {
     const btn = document.getElementById('add-btn');
-
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
     let val = type === 'domain_suffix'
@@ -624,11 +641,12 @@ async function addRule() {
         let jsonRes = await resp.json();
         if (jsonRes.code !== 0) {
             alert(jsonRes.msg);
+            throw new Error(jsonRes.msg);
         }
-        return resp;
+        return jsonRes;
     }, async () => {
-        await loadData();
         document.getElementById('new-domain-value').value = '';
+        await loadData();
     });
 }
 
@@ -636,7 +654,13 @@ async function updateRule(idx) {
     const btn = event.currentTarget;
     const val = document.getElementById(`rule-sel-${idx}`).value;
     await runButtonAction(btn, async () => {
-        return fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`);
+        let resp = await fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`);
+        let jsonRes = await resp.json();
+        if (jsonRes.code !== 0) {
+            alert(jsonRes.msg);
+            throw new Error(jsonRes.msg);
+        }
+        return jsonRes;
     }, async () => {
         globalData.rules[idx].outbound = val;
         renderTable();
@@ -647,7 +671,13 @@ async function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
     const btn = event.currentTarget;
     await runButtonAction(btn, async () => {
-        return fetch(`/api/del_rule?index=${idx}&t=${Date.now()}`);
+        let resp = await fetch(`/api/del_rule?index=${idx}&t=${Date.now()}`);
+        let jsonRes = await resp.json();
+        if (jsonRes.code !== 0) {
+            alert(jsonRes.msg);
+            throw new Error(jsonRes.msg);
+        }
+        return jsonRes;
     }, async () => {
         globalData.rules.splice(idx, 1);
         renderTable();
@@ -660,13 +690,19 @@ async function saveEdit() {
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix'
         ? document.getElementById('edit-domain-value').value.trim()
-        : document.getElementById('edit-ruleset-select').value;
+        : document.getElementById('new-ruleset-select').value;
     await runButtonAction(btn, async () => {
-        return fetch('/api/edit_rule', {
+        let resp = await fetch('/api/edit_rule', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: parseInt(idx), type: type, value: val })
         });
+        let jsonRes = await resp.json();
+        if (jsonRes.code !== 0) {
+            alert(jsonRes.msg);
+            throw new Error(jsonRes.msg);
+        }
+        return jsonRes;
     }, async () => {
         closeEditModal();
         await loadData();
@@ -675,25 +711,21 @@ async function saveEdit() {
 
 let isSyncing = false; 
 
-async function runButtonAction(btn, action) {
-    if (btn.disabled) return;
-    const oldHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = "⏳ 处理中...";
-    try { await action(); } catch (e) {}
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    btn.disabled = false;
-    btn.innerHTML = oldHtml;
-    window.location.reload();
-}
-
 async function syncFanout(btn) {
     if (isSyncing) return;
     isSyncing = true;
     try {
         await runButtonAction(btn, async () => {
-            return fetch('/api/sync_fanout?' + Date.now(), { cache: 'no-store' });
-        }, async () => { await loadData(); });
+            let resp = await fetch('/api/sync_fanout?' + Date.now(), { cache: 'no-store' });
+            let jsonRes = await resp.json();
+            if (jsonRes.code !== 0) {
+                alert(jsonRes.msg);
+                throw new Error(jsonRes.msg);
+            }
+            return jsonRes;
+        }, async () => {
+            await loadData();
+        });
     } finally { isSyncing = false; }
 }
 
