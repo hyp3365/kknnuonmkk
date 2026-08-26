@@ -524,6 +524,23 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
     if os.path.exists(outbound_file):
 
+        with open(outbound_file,"r") as f:
+            o_json=json.load(f)
+
+        for o in o_json.get("outbounds", []):
+
+            tag=o.get("tag")
+
+            if not tag:
+                continue
+
+            if tag not in data["outbounds"]:
+                data["outbounds"].append(
+                    TAG_NAME_MAP.get(tag,tag)
+                )
+
+    if os.path.exists(outbound_file):
+
         core = get_tag_core(outbound)
 
 if core == "singbox":
