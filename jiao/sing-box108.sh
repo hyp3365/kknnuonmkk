@@ -5262,7 +5262,7 @@ check_and_issue_ssl || return 1
 generate_vars
 vless_xhttp_udp_tls_port=$(get_available_port)
 
-cat >> etc/xray/conf/xhttp-udp-tls.json <<EOF
+cat >> /etc/xray/conf/xhttp-udp-tls.json <<EOF
 {
   "tag": "xhttp-h3",
   "listen": "::",
