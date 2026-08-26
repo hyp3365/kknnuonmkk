@@ -56,18 +56,6 @@ TAG_NAME_MAP = {
 
 TAG_REVERSE_MAP = {v: k for k, v in TAG_NAME_MAP.items()}
 
-def ensure_route_file():
-    if not os.path.exists(ROUTE_FILE):
-        os.makedirs(os.path.dirname(ROUTE_FILE), exist_ok=True)
-        default_route = {"route": {"rules": [{"outbound": "direct"}]}}
-        try:
-            with open(ROUTE_FILE, "w") as f:
-                json.dump(default_route, f, indent=2)
-        except:
-            pass
-
-ensure_route_file()
-
 def get_tag_core(tag):
 
     for file, core in [
