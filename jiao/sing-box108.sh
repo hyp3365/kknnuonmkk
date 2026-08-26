@@ -2868,7 +2868,14 @@ cat > "${xray_conf_dir}/outbounds.json" << EOF
   ]
 }
 EOF
-
+cat > "${xray_conf_dir}/route.json" << EOF
+{
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": []
+  }
+}
+EOF
 }
 
 
