@@ -381,6 +381,7 @@ style="width:100%;margin-top:10px">
 </tbody>
 </table>
 </div>
+</div>
 <div id="modalOverlay"
 class="modal-overlay"
 onclick="closeEditModal()"></div>
