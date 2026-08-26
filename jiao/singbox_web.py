@@ -77,7 +77,9 @@ def restart_services_async(restart_sb=True, restart_xray=True):
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
             if restart_xray:
-                subprocess.run(["systemctl", "restart", "xray"], check=False)
+                # 只有当 xray 的 outbounds 文件存在时，才允许重启 xray
+                if os.path.exists(XRAY_OUTBOUND_FILE):
+                    subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
 # === 核心扫描与分类功能 ===
@@ -932,7 +934,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "settings": xray_proxy_setting
                             })
 
-            # 写入 Sing-box 出站配置
+            # 1. 必定写入 Sing-box 出站配置
             sb_outbound_data = {"outbounds": []}
             sb_outbound_file = os.path.join(SB_CONF_DIR, "outbounds.json")
             if os.path.exists(sb_outbound_file):
@@ -951,25 +953,31 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             with open(sb_outbound_file, "w") as f:
                 json.dump(sb_outbound_data, f, indent=2)
 
-            # 写入 Xray 出站配置
-            xray_outbound_data = {"outbounds": []}
+            # 2. 检测 /etc/xray/conf/outbounds.json 是否存在
+            # 存在则同步写入，不存在则静默跳过，不报错
+            xray_synced = False
             if os.path.exists(XRAY_OUTBOUND_FILE):
-                with open(XRAY_OUTBOUND_FILE, "r") as f:
-                    try: xray_outbound_data = json.load(f)
-                    except: pass
-            if "outbounds" not in xray_outbound_data:
-                xray_outbound_data["outbounds"] = []
+                xray_outbound_data = {"outbounds": []}
+                try:
+                    with open(XRAY_OUTBOUND_FILE, "r") as f:
+                        xray_outbound_data = json.load(f)
+                except: pass
                 
-            xray_outbound_data["outbounds"] = [
-                o for o in xray_outbound_data["outbounds"] 
-                if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
-            ]
-            xray_outbound_data["outbounds"].extend(new_fanout_nodes_xray)
-            os.makedirs(os.path.dirname(XRAY_OUTBOUND_FILE), exist_ok=True)
-            with open(XRAY_OUTBOUND_FILE, "w") as f:
-                json.dump(xray_outbound_data, f, indent=2)
+                if "outbounds" not in xray_outbound_data:
+                    xray_outbound_data["outbounds"] = []
+                    
+                xray_outbound_data["outbounds"] = [
+                    o for o in xray_outbound_data["outbounds"] 
+                    if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
+                ]
+                xray_outbound_data["outbounds"].extend(new_fanout_nodes_xray)
+                os.makedirs(os.path.dirname(XRAY_OUTBOUND_FILE), exist_ok=True)
+                with open(XRAY_OUTBOUND_FILE, "w") as f:
+                    json.dump(xray_outbound_data, f, indent=2)
+                xray_synced = True
 
-            restart_services_async(restart_sb=True, restart_xray=True)
+            # 重启服务（如果 xray 配置文件不存在，则只重启 sing-box）
+            restart_services_async(restart_sb=True, restart_xray=xray_synced)
             return {"code": 0, "msg": "success"}
         except Exception as e:
             return {"code": 1, "msg": f"同步出错: {str(e)}"}
