@@ -2812,7 +2812,13 @@ cat > "${xray_conf_dir}/route.json" << EOF
 {
   "routing": {
     "domainStrategy": "AsIs",
-    "rules": []
+    "rules": [
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "direct"
+      }
+    ]
   }
 }
 EOF
