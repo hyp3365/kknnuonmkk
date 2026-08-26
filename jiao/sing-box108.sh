@@ -5444,8 +5444,8 @@ EOF
 allow_port "$vless_xhttp_tcpudp_tls_port/tcp" >/dev/null 2>&1
 allow_port "$vless_xhttp_tcpudp_tls_port/udp" >/dev/null 2>&1
 node_remark="${isp}_xray_vless_xhttp_tcpudpcdn"
-xhttp_tcp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&#${node_remark}"
-xhttp_udp="vless://${uuid}@${domain}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/xjakakkakccdd&alpn=h3#${node_remark}"
+xhttp_tcp="vless://${uuid}@${CFIP}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&mode=auto&path=/xjakakkakccdd&#${node_remark}"
+xhttp_udp="vless://${uuid}@${CFIP}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&mode=auto&path=/xjakakkakccdd&alpn=h3#${node_remark}"
 zone_id=$(cf_find_zone "$domain")
 if [[ -n "$zone_id" ]]; then
     green "Cloudflare Zone 检测成功：$zone_id"
