@@ -570,7 +570,11 @@ with open(route_file, "r") as f:
                 data["outbounds"].append(
                     TAG_NAME_MAP.get(tag, tag)
                 )
-                if os.path.exists(INBOUND_FILE):
+                for infile in [
+    SINGBOX_INBOUND_FILE,
+    XRAY_INBOUND_FILE
+]:
+    if os.path.exists(infile):
                     with open(INBOUND_FILE, "r") as f:
                         i_json = json.load(f)
                         for ib in i_json.get("inbounds", []):
