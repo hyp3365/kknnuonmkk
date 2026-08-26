@@ -1988,6 +1988,44 @@ fi
     green "证书: $cert_file"
     green "私钥: $key_file"
     green "=============================================="
+	local check_dns
+    reading "是否添加 DNS 解析记录？(y/回车跳过): " check_dns
+    if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
+    if [[ -z "${CF_TOKEN:-}" ]]; then
+    if ! cf_auth_token; then
+        red "Cloudflare Token 认证失败"
+        return 1
+    fi
+    fi
+    selected_zone_id=""
+    if ! cf_get_zone_id_by_domain "$domain"; then
+        red "获取 Cloudflare Zone 失败"
+        return 1
+    fi
+    local server_ip
+    server_ip=$(get_realip)
+    if [[ -z "$server_ip" ]]; then
+        red "无法获取服务器公网 IP"
+        return 1
+    fi
+    local dns_count
+    dns_count=$(cf_call GET \
+        "/zones/${selected_zone_id}/dns_records?name=${domain}" \
+        | jq -r '.result | length')
+    if [[ "$dns_count" == "0" ]]; then
+        yellow "未检测到 ${domain} DNS 记录，正在添加..."
+        if cf_upsert_dns \
+            "$selected_zone_id" \
+            "$domain" \
+            "$server_ip"; then
+            green "DNS 添加成功（已开启小黄云）"
+        else
+            red "DNS 添加失败"
+        fi
+    else
+        green "检测到 ${domain} 已存在 DNS 记录"
+    fi
+fi
     return 0
 } 
 
