@@ -1797,11 +1797,6 @@ if ! cf_get_zone_id_by_domain "$domain"; then
     red "获取 Cloudflare Zone 失败"
     return 1
 fi
-    if ! cf_get_zone_id_by_domain "$domain"; then
-        red "获取 Cloudflare Zone 失败"
-        return 1
-    fi
-fi
     server_ip=$(get_realip)
     if [[ -z "$server_ip" ]]; then
         red "无法获取服务器公网 IP"
