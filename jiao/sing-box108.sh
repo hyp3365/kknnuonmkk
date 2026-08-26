@@ -3945,6 +3945,7 @@ manage_nodes_menu() {
     "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|11"
     "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|12"
     "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|13"
+	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|14"
 )
 		
         clear
@@ -5251,6 +5252,78 @@ fi
     fi
     green "--------------------------------------------------"
     ;;
+	14)
+check_xray
+if [ $? -ne 0 ]; then
+    red "Xray 未安装，请先安装 Xray！"
+    return 1
+fi
+check_and_issue_ssl || return 1
+generate_vars
+vless_xhttp_udp_tls_port=$(get_available_port)
+
+cat >> etc/xray/conf/xhttp-udp-tls.json <<EOF
+{
+  "tag": "xhttp-h3",
+  "listen": "::",
+  "port": $vless_xhttp_udp_tls_port,
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      {
+        "id": "$uuid",
+        "flow": ""
+      }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "tls",
+    "xhttpSettings": {
+      "mode": "auto",
+      "path": "/ssuddxu"
+    },
+    "tlsSettings": {
+      "alpn": [
+        "h3"
+      ],
+      "certificates": [
+        {
+          "certificateFile": "$cert_file",
+          "keyFile": "$key_file"
+        }
+      ]
+    }
+  },
+  "sniffing": {
+    "enabled": true,
+    "destOverride": [
+      "http",
+      "tls",
+      "quic"
+    ],
+    "metadataOnly": false
+  }
+},
+EOF
+
+allow_port "$vless_xhttp_udp_tls_port/udp" >/dev/null 2>&1
+node_remark="${isp}_xray_vless_xhttp_h3"
+xhttp_h3="vless://${uuid}@${domain}:${vless_xhttp_udp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/ssuddxu&alpn=h3#${node_remark}"
+if [ -f "${work_dir}/url.txt" ]; then
+    sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+fi
+echo "$xhttp_h3" >> "${work_dir}/url.txt"
+echo "" >> "${work_dir}/url.txt"
+base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+restart_xray
+green "--------------------------------------------------"
+green " VLESS XHTTP-H3 节点创建完成！"
+green "--------------------------------------------------"
+echo "$xhttp_h3"
+green "--------------------------------------------------"
+;;
             # --- 完整的删除逻辑 ---
             51) 
 			target="_vless_tcp_reality"
