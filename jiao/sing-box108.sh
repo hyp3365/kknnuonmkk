@@ -2694,8 +2694,10 @@ install_xray() {
         'aarch64' | 'arm64') GOARCH='arm64' ;;
         *) GOARCH='amd64' ;;
     esac
+    # 确保原脚本的目录存在
     [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}"
     [ ! -d "${xray_conf_dir}" ] && mkdir -p "${xray_conf_dir}"
+
     if [[ -x "${xray_dir}/xray" ]]; then
       echo "      已有 $("${xray_dir}/xray" version 2>/dev/null | head -1)"
     else
@@ -2706,23 +2708,25 @@ install_xray() {
       echo "      下载 Xray (${XRAY_ASSET})"
       XT=$(mktemp -d)
       XURL="https://github.com/XTLS/Xray-core/releases/latest/download/${XRAY_ASSET}"
+      
       if curl -fsSL "$XURL" -o "$XT/x.zip"; then
         if command -v unzip >/dev/null; then
           unzip -qo "$XT/x.zip" -d "$XT"
-        elif command -v busybox >/dev/null && busybox unzip -h >/dev/null 2>&1; then
-          busybox unzip -qo "$XT/x.zip" -d "$XT"
+        elif command -v python3 >/dev/null; then
+          python3 -c "import zipfile; zipfile.ZipFile('$XT/x.zip').extractall('$XT')"
         else
           [[ -n "$MGR" ]] && install_pkgs "$MGR" unzip >/dev/null 2>&1 || true
-          command -v unzip >/dev/null && unzip -qo "$XT/x.zip" -d "$XT"
+          unzip -qo "$XT/x.zip" -d "$XT"
         fi
+        
         if [[ -f "$XT/xray" ]]; then
           install -m 755 "$XT/xray" "${xray_dir}/xray"
           echo "      $("${xray_dir}/xray" version 2>/dev/null | head -1)"
         else
-          echo "      解压失败" >&2
+          echo "      解压失败：未找到 xray 二进制文件" >&2
         fi
       else
-        echo "      下载失败" >&2
+        echo "      下载失败：网络请求错误" >&2
       fi
       rm -rf "$XT"
     fi
@@ -2731,15 +2735,18 @@ install_xray() {
         "${xray_dir}/geoip.dat" \
         "${xray_dir}/README.md" \
         "${xray_dir}/LICENSE"
+
     iptables -F > /dev/null 2>&1 \
         && iptables -P INPUT ACCEPT > /dev/null 2>&1 \
         && iptables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
+
     command -v ip6tables &> /dev/null \
         && ip6tables -F > /dev/null 2>&1 \
         && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
+
     cat > "${configxray_dir}" << EOF
 {
   "log": {
@@ -2763,6 +2770,7 @@ install_xray() {
 }
 EOF
 }
+
 
 
 # debian/ubuntu/centos 守护进程
