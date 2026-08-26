@@ -47,13 +47,10 @@ XRAY_OUTBOUND_FILE = os.path.join(XRAY_CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 
 TAG_NAME_MAP = {
-    "ipv6_only": "仅IPv6",
-    "prefer_ipv6": "IPv6优先",
-    "ipv4_only": "仅IPv4",
-    "prefer_ipv4": "IPv4优先"
+    "direct": "直连",
+    "block": "拦截",
+    "dns-out": "DNS"
 }
-
-TAG_REVERSE_MAP = {v: k for k, v in TAG_NAME_MAP.items()}
 
 def ensure_route_file(filepath, is_xray=False):
     if not os.path.exists(filepath):
@@ -71,13 +68,16 @@ def ensure_route_file(filepath, is_xray=False):
 ensure_route_file(SB_ROUTE_FILE, False)
 ensure_route_file(XRAY_ROUTE_FILE, True)
 
-# === 优化后的按需重启函数 ===
+# === 增加重启锁与按需重启函数 ===
+RESTART_LOCK = threading.Lock()
+
 def restart_services_async(restart_sb=True, restart_xray=True):
     def _restart():
-        if restart_sb:
-            subprocess.run(["systemctl", "restart", "sing-box"], check=False)
-        if restart_xray:
-            subprocess.run(["systemctl", "restart", "xray"], check=False)
+        with RESTART_LOCK:
+            if restart_sb:
+                subprocess.run(["systemctl", "restart", "sing-box"], check=False)
+            if restart_xray:
+                subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
 # === 核心扫描与分类功能 ===
@@ -108,12 +108,15 @@ def gather_nodes():
                         inbound_core_map[tag] = "singbox"
         except: pass
         
-    sb_files = ["vmess-argo.json", "hysteria2.json", "xtls-reality.json", 
-                "tuic.json", "anytls.json", "vless-ws-cdn.json", 
-                "vmess-ws-cdn.json", "trojan-ws-cdn.json", "h2-reality.json", "endpoints.json"]
-    for node_filename in sb_files:
-        node_filepath = os.path.join(SB_CONF_DIR, node_filename)
-        if os.path.exists(node_filepath):
+    # === 动态扫描配置文件，不再写死文件名 ===
+    if os.path.exists(SB_CONF_DIR):
+        sb_files = [
+            f for f in os.listdir(SB_CONF_DIR)
+            if f.endswith(".json")
+            and f not in ["route.json", "outbounds.json", "inbounds.json"]
+        ]
+        for node_filename in sb_files:
+            node_filepath = os.path.join(SB_CONF_DIR, node_filename)
             try:
                 with open(node_filepath, "r") as nf:
                     node_data = json.load(nf)
@@ -156,20 +159,30 @@ def gather_nodes():
     mapped_outbounds = [TAG_NAME_MAP.get(t, t) for t in outbounds]
     return inbounds, mapped_outbounds, inbound_core_map
 
-# === 规则判定与解析 ===
+# === 加强规则判断，避免误删系统规则 ===
 def is_managed_rule_sb(r):
-    if not isinstance(r, dict): return False
-    if "domain_suffix" in r or "rule_set" in r: return True
-    conditions = ["domain", "domain_suffix", "domain_keyword", "domain_regex", "geosite", "geoip", "ip_cidr", "ip_is_private", "port", "port_range", "source_ip_cidr", "source_ip_is_private", "source_port", "source_port_range", "network", "type", "protocol", "user", "clash_mode", "rule_set", "auth_user", "client", "pcap"]
-    if not any(c in r for c in conditions): return True
+    if not isinstance(r, dict):
+        return False
+    if "outbound" not in r:
+        return False
+    conditions = [
+        "domain", "domain_suffix", "domain_keyword", "domain_regex",
+        "rule_set", "geoip", "ip_cidr", "port", "network", "protocol", "inbound"
+    ]
+    if any(c in r for c in conditions):
+        return True
     return False
 
 def is_managed_rule_xray(r):
-    if not isinstance(r, dict): return False
-    if r.get("type") != "field": return False
-    if "domain" in r: return True
-    conditions = ["domain", "ip", "port", "sourcePort", "network", "source", "user", "attrs", "protocol"]
-    if not any(c in r for c in conditions): return True
+    if not isinstance(r, dict):
+        return False
+    if r.get("type") != "field":
+        return False
+    if "outboundTag" not in r:
+        return False
+    conditions = ["domain", "ip", "port", "network", "inboundTag"]
+    if any(c in r for c in conditions):
+        return True
     return False
 
 def parse_sb_rule(r, original_index):
@@ -231,7 +244,7 @@ def get_all_rules():
 def add_to_singbox(data, inbounds):
     r_type = data.get("type", "domain_suffix")
     val_str = data.get("value", "").strip()
-    outbound = TAG_REVERSE_MAP.get(data.get("outbound"), data.get("outbound"))
+    outbound = data.get("outbound")
     
     rule = {"outbound": outbound}
     if val_str:
@@ -251,7 +264,7 @@ def add_to_singbox(data, inbounds):
 def add_to_xray(data, inbounds):
     r_type = data.get("type", "domain_suffix")
     val_str = data.get("value", "").strip()
-    outbound = TAG_REVERSE_MAP.get(data.get("outbound"), data.get("outbound"))
+    outbound = data.get("outbound")
     
     rule = {"type": "field", "outboundTag": outbound}
     if val_str:
@@ -364,8 +377,8 @@ HTML_PAGE = """
             </div>
             <div class="form-group">
                 <label>生效节点:</label>
-                <select id="new-rule-inbounds" multiple style="height: 75px;"></select>
-                <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对所有Xray和Singbox节点生效</div>
+                <select id="new-rule-inbounds" multiple style="height: 75px;" onchange="checkXrayRuleSetRestriction()"></select>
+                <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对所有Xray和Singbox节点生效 (Xray 节点不支持规则集)</div>
             </div>
             <div class="form-group">
                 <label>出站节点:</label>
@@ -415,7 +428,26 @@ HTML_PAGE = """
     </div>
 
 <script>
-let globalData = { outbounds: [], inbounds: [], available_rule_sets: [], rules: [] };
+let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
+
+function checkXrayRuleSetRestriction() {
+    let inboundsSelect = document.getElementById('new-rule-inbounds');
+    let selectedInbounds = inboundsSelect ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value) : [];
+    let hasXray = selectedInbounds.some(ib => globalData.inbound_core_map && globalData.inbound_core_map[ib] === 'xray');
+    
+    let typeSelect = document.getElementById('new-rule-type');
+    let ruleSetOption = typeSelect.querySelector('option[value="rule_set"]');
+    
+    if (hasXray) {
+        if (ruleSetOption) ruleSetOption.disabled = true;
+        if (typeSelect.value === 'rule_set') {
+            typeSelect.value = 'domain_suffix';
+            toggleRuleInput('new');
+        }
+    } else {
+        if (ruleSetOption) ruleSetOption.disabled = false;
+    }
+}
 
 function toggleRuleInput(prefix) {
     let type = document.getElementById(prefix + '-rule-type').value;
@@ -477,13 +509,19 @@ function renderSelects() {
     document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
 
     let inHtml = '';
-    globalData.inbounds.forEach(ib => inHtml += `<option value="${ib}">${ib}</option>`);
+    globalData.inbounds.forEach(ib => {
+        let core = globalData.inbound_core_map[ib] || 'singbox';
+        let badge = core === 'xray' ? ' [Xray]' : ' [SB]';
+        inHtml += `<option value="${ib}">${ib}${badge}</option>`;
+    });
     let inEl = document.getElementById('new-rule-inbounds');
     if (inEl) inEl.innerHTML = inHtml || '<option disabled>(无入站节点)</option>';
 
     let rsHtml = '<option value="">(不选择，匹配所有流量)</option>';
     globalData.available_rule_sets.forEach(rs => rsHtml += `<option value="${rs}">${rs}</option>`);
     document.getElementById('new-ruleset-select').innerHTML = rsHtml;
+    
+    checkXrayRuleSetRestriction();
 }
 
 async function loadData() {
@@ -540,11 +578,16 @@ async function addRule() {
         : [];
 
     await runButtonAction(btn, async () => {
-        return fetch('/api/add_rule', {
+        let resp = await fetch('/api/add_rule', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: type, value: val, inbounds: selectedInbounds, outbound: outbound })
         });
+        let jsonRes = await resp.json();
+        if (jsonRes.code !== 0) {
+            alert(jsonRes.msg);
+        }
+        return resp;
     }, async () => {
         await loadData();
         document.getElementById('new-domain-value').value = '';
@@ -665,10 +708,11 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_no_cache_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
             
         elif path == "/api/status":
-            inbounds, outbounds, _ = gather_nodes()
+            inbounds, outbounds, inbound_core_map = gather_nodes()
             data = {
                 "outbounds": outbounds,
                 "inbounds": inbounds,
+                "inbound_core_map": inbound_core_map,
                 "available_rule_sets": [],
                 "rules": get_all_rules()
             }
@@ -692,7 +736,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 idx = int(query.get("index", [0])[0])
                 outbound = query.get("outbound", ["direct"])[0]
-                outbound = TAG_REVERSE_MAP.get(outbound, outbound)
                 
                 rules = get_all_rules()
                 if idx < len(rules):
@@ -702,12 +745,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["route"]["rules"][real_idx]["outbound"] = outbound
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
+                        restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["routing"]["rules"][real_idx]["outboundTag"] = outbound
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
+                        restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -727,12 +770,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["route"]["rules"].pop(real_idx)
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
+                        restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         r_json["routing"]["rules"].pop(real_idx)
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
+                        restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -755,13 +798,19 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(post_data)
                 req_inbounds = data.get("inbounds", [])
+                r_type = data.get("type", "domain_suffix")
                 _, _, core_map = gather_nodes()
                 
+                # 后端拦截：Xray 节点禁止选择规则集
+                if r_type == "rule_set":
+                    if any(core_map.get(ib) == "xray" for ib in req_inbounds):
+                        self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps({"code": 1, "msg": "Xray 节点不支持选择规则集"}, ensure_ascii=False).encode("utf-8"))
+                        return
+
                 sb_modified = False
                 xray_modified = False
 
                 if not req_inbounds:
-                    # 如果未选择特定节点，默认全局（双端都添加）
                     add_to_singbox(data, [])
                     add_to_xray(data, [])
                     sb_modified = True
@@ -781,7 +830,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         add_to_xray(data, xray_targets)
                         xray_modified = True
 
-                # 精准按需重启：只重启被修改了配置的服务
                 restart_services_async(restart_sb=sb_modified, restart_xray=xray_modified)
                 msg = {"code": 0, "msg": "success"}
             except Exception as e:
@@ -813,7 +861,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             else:
                                 rule_obj["rule_set"] = [new_val]
                         with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False) # 只重启 sing-box
+                        restart_services_async(restart_sb=True, restart_xray=False)
                         
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
@@ -825,7 +873,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             else:
                                 rule_obj["domain"] = [f"geosite:{new_val}"]
                         with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True) # 只重启 xray
+                        restart_services_async(restart_sb=False, restart_xray=True)
                         
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -921,7 +969,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             with open(XRAY_OUTBOUND_FILE, "w") as f:
                 json.dump(xray_outbound_data, f, indent=2)
 
-            # 同步节点通常需要两端都更新并生效，所以两边都重启
             restart_services_async(restart_sb=True, restart_xray=True)
             return {"code": 0, "msg": "success"}
         except Exception as e:
