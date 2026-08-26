@@ -366,6 +366,7 @@ style="width:100%;margin-top:10px">
 </div>
 <div class="card">
 <h3>已有规则</h3>
+<div class="table-box">
 <table>
 <thead>
 <tr>
