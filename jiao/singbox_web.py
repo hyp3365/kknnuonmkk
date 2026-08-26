@@ -527,14 +527,24 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             data = {"outbounds": [], "inbounds": [], "available_rule_sets": [], "rules": []}
             try:
                 ignore_outbounds = ["direct", "dns-out", "block"]
-                if os.path.exists(OUTBOUND_FILE):
-                    with open(OUTBOUND_FILE, "r") as f:
-                        o_json = json.load(f)
-                        for o in o_json.get("outbounds", []):
-                            tag = o.get("tag")
-                            if tag and tag not in ignore_outbounds and tag not in data["outbounds"]:
-                                data["outbounds"].append(TAG_NAME_MAP.get(tag, tag))
+                for outbound_file in [
+    SINGBOX_OUTBOUND_FILE,
+    XRAY_OUTBOUND_FILE
+]:
 
+    if os.path.exists(outbound_file):
+
+        with open(outbound_file, "r") as f:
+            o_json = json.load(f)
+
+        for o in o_json.get("outbounds", []):
+
+            tag = o.get("tag")
+
+            if tag and tag not in data["outbounds"]:
+                data["outbounds"].append(
+                    TAG_NAME_MAP.get(tag, tag)
+                )
                 if os.path.exists(INBOUND_FILE):
                     with open(INBOUND_FILE, "r") as f:
                         i_json = json.load(f)
