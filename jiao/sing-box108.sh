@@ -2688,45 +2688,58 @@ manage_service() {
 install_xray() {
     clear
     purple "正在安装 Xray 中，请稍等..."
-
     ARCH_RAW=$(uname -m)
     case "${ARCH_RAW}" in
-        'x86_64') ARCH='amd64'; ARCH_ARG='64' ;;
-        'x86' | 'i686' | 'i386') ARCH='386'; ARCH_ARG='32' ;;
-        'aarch64' | 'arm64') ARCH='arm64'; ARCH_ARG='arm64-v8a' ;;
-        'armv7l') ARCH='armv7'; ARCH_ARG='arm32-v7a' ;;
-        's390x') ARCH='s390x' ;;
-        *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
+        'x86_64') GOARCH='amd64' ;;
+        'aarch64' | 'arm64') GOARCH='arm64' ;;
+        *) GOARCH='amd64' ;;
     esac
-
-    # 创建 Xray 目录及配置目录
-    [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}" && chmod 777 "${xray_dir}"
-    [ ! -d "${xray_conf_dir}" ] && mkdir -p "${xray_conf_dir}" && chmod 777 "${xray_conf_dir}"
-
-    curl -sLo "${xray_dir}/${serverxray_name}.zip" \
-        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH_ARG}.zip"
-
-    unzip "${xray_dir}/${serverxray_name}.zip" -d "${xray_dir}/" > /dev/null 2>&1 \
-        && chmod +x "${xray_dir}/${serverxray_name}"
-
+    [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}"
+    [ ! -d "${xray_conf_dir}" ] && mkdir -p "${xray_conf_dir}"
+    if [[ -x "${xray_dir}/xray" ]]; then
+      echo "      已有 $("${xray_dir}/xray" version 2>/dev/null | head -1)"
+    else
+      case "$GOARCH" in
+        amd64) XRAY_ASSET=Xray-linux-64.zip ;;
+        arm64) XRAY_ASSET=Xray-linux-arm64-v8a.zip ;;
+      esac
+      echo "      下载 Xray (${XRAY_ASSET})"
+      XT=$(mktemp -d)
+      XURL="https://github.com/XTLS/Xray-core/releases/latest/download/${XRAY_ASSET}"
+      if curl -fsSL "$XURL" -o "$XT/x.zip"; then
+        if command -v unzip >/dev/null; then
+          unzip -qo "$XT/x.zip" -d "$XT"
+        elif command -v busybox >/dev/null && busybox unzip -h >/dev/null 2>&1; then
+          busybox unzip -qo "$XT/x.zip" -d "$XT"
+        else
+          [[ -n "$MGR" ]] && install_pkgs "$MGR" unzip >/dev/null 2>&1 || true
+          command -v unzip >/dev/null && unzip -qo "$XT/x.zip" -d "$XT"
+        fi
+        if [[ -f "$XT/xray" ]]; then
+          install -m 755 "$XT/xray" "${xray_dir}/xray"
+          echo "      $("${xray_dir}/xray" version 2>/dev/null | head -1)"
+        else
+          echo "      解压失败" >&2
+        fi
+      else
+        echo "      下载失败" >&2
+      fi
+      rm -rf "$XT"
+    fi
     rm -rf \
-        "${xray_dir}/${serverxray_name}.zip" \
         "${xray_dir}/geosite.dat" \
         "${xray_dir}/geoip.dat" \
         "${xray_dir}/README.md" \
         "${xray_dir}/LICENSE"
-
     iptables -F > /dev/null 2>&1 \
         && iptables -P INPUT ACCEPT > /dev/null 2>&1 \
         && iptables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
-
     command -v ip6tables &> /dev/null \
         && ip6tables -F > /dev/null 2>&1 \
         && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
-
     cat > "${configxray_dir}" << EOF
 {
   "log": {
@@ -2750,6 +2763,7 @@ install_xray() {
 }
 EOF
 }
+
 
 # debian/ubuntu/centos 守护进程
 xray_main_systemd_services() {
