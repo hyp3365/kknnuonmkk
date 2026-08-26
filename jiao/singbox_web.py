@@ -590,7 +590,7 @@ with open(route_file, "r") as f:
                 ]
                 
                 for node_filename in possible_node_files:
-                    node_filepath = os.path.join(CONF_DIR, node_filename)
+                    for conf_dir in [SINGBOX_CONF, XRAY_CONF]:
                     if os.path.exists(node_filepath):
                         try:
                             with open(node_filepath, "r") as nf:
