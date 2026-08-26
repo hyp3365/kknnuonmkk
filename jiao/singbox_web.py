@@ -534,8 +534,20 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
     if os.path.exists(outbound_file):
 
-        with open(outbound_file, "r") as f:
-            o_json = json.load(f)
+        core = get_tag_core(outbound)
+
+if core == "singbox":
+    route_file = SINGBOX_ROUTE_FILE
+
+elif core == "xray":
+    route_file = XRAY_ROUTE_FILE
+
+else:
+    raise Exception("无法识别节点")
+
+
+with open(route_file, "r") as f:
+    r_json = json.load(f)
 
         for o in o_json.get("outbounds", []):
 
