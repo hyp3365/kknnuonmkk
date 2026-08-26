@@ -77,7 +77,6 @@ def restart_services_async(restart_sb=True, restart_xray=True):
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
             if restart_xray:
-                # 只有当 xray 的 outbounds 文件存在时，才允许重启 xray
                 if os.path.exists(XRAY_OUTBOUND_FILE):
                     subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
@@ -110,7 +109,6 @@ def gather_nodes():
                         inbound_core_map[tag] = "singbox"
         except: pass
         
-    # === 动态扫描配置文件，不再写死文件名 ===
     if os.path.exists(SB_CONF_DIR):
         sb_files = [
             f for f in os.listdir(SB_CONF_DIR)
@@ -161,7 +159,34 @@ def gather_nodes():
     mapped_outbounds = [TAG_NAME_MAP.get(t, t) for t in outbounds]
     return inbounds, mapped_outbounds, inbound_core_map
 
-# === 加强规则判断，避免误删系统规则 ===
+# === 路由规则容器通用解析器（兼容各种键名结构） ===
+def get_route_rules_container(r_json, is_xray=False):
+    if is_xray:
+        if "routing" in r_json and isinstance(r_json["routing"], dict) and "rules" in r_json["routing"]:
+            return r_json["routing"], r_json["routing"]["rules"]
+        elif "route" in r_json and isinstance(r_json["route"], dict) and "rules" in r_json["route"]:
+            return r_json["route"], r_json["route"]["rules"]
+        elif "rules" in r_json and isinstance(r_json["rules"], list):
+            return r_json, r_json["rules"]
+        else:
+            if "routing" not in r_json or not isinstance(r_json["routing"], dict):
+                r_json["routing"] = {}
+            if "rules" not in r_json["routing"]:
+                r_json["routing"]["rules"] = []
+            return r_json["routing"], r_json["routing"]["rules"]
+    else:
+        if "route" in r_json and isinstance(r_json["route"], dict) and "rules" in r_json["route"]:
+            return r_json["route"], r_json["route"]["rules"]
+        elif "rules" in r_json and isinstance(r_json["rules"], list):
+            return r_json, r_json["rules"]
+        else:
+            if "route" not in r_json or not isinstance(r_json["route"], dict):
+                r_json["route"] = {}
+            if "rules" not in r_json["route"]:
+                r_json["route"]["rules"] = []
+            return r_json["route"], r_json["route"]["rules"]
+
+# === 规则匹配与过滤 ===
 def is_managed_rule_sb(r):
     if not isinstance(r, dict):
         return False
@@ -185,6 +210,15 @@ def is_managed_rule_xray(r):
     conditions = ["domain", "ip", "port", "network", "inboundTag"]
     if any(c in r for c in conditions):
         return True
+    return False
+
+# 隐藏不需要用户操作的基础直连规则（如 {"type": "field", "network": "tcp,udp", "outboundTag": "direct"}）
+def is_hidden_xray_rule(r):
+    if not isinstance(r, dict):
+        return False
+    if r.get("type") == "field" and "network" in r and r.get("outboundTag") == "direct":
+        if not any(k in r for k in ["domain", "ip", "port", "inboundTag", "protocol", "balancerTag"]):
+            return True
     return False
 
 def parse_sb_rule(r, original_index):
@@ -218,7 +252,7 @@ def parse_xray_rule(r, original_index):
             vals = ", ".join([d.replace("geosite:", "") for d in domain if d.startswith("geosite:")])
         else:
             r_type = "domain_suffix"
-            vals = ", ".join([d.replace("domain:", "") for d in domain])
+            vals = ", ".join([str(d).replace("domain:", "").replace("domain=", "") for d in domain])
     return {
         "type": r_type, "values": vals, "inbounds": inbounds,
         "outbound": r.get("outboundTag", "direct"),
@@ -230,14 +264,18 @@ def get_all_rules():
     try:
         with open(SB_ROUTE_FILE, "r") as f:
             r_json = json.load(f)
-            for i, r in enumerate(r_json.get("route", {}).get("rules", [])):
+            _, r_list = get_route_rules_container(r_json, is_xray=False)
+            for i, r in enumerate(r_list):
                 if is_managed_rule_sb(r):
                     rules.append(parse_sb_rule(r, i))
     except: pass
     try:
         with open(XRAY_ROUTE_FILE, "r") as f:
             r_json = json.load(f)
-            for i, r in enumerate(r_json.get("routing", {}).get("rules", [])):
+            _, r_list = get_route_rules_container(r_json, is_xray=True)
+            for i, r in enumerate(r_list):
+                if is_hidden_xray_rule(r):
+                    continue
                 if is_managed_rule_xray(r):
                     rules.append(parse_xray_rule(r, i))
     except: pass
@@ -258,9 +296,8 @@ def add_to_singbox(data, inbounds):
         rule["inbound"] = inbounds
         
     with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
-    if "route" not in r_json: r_json["route"] = {}
-    if "rules" not in r_json["route"]: r_json["route"]["rules"] = []
-    r_json["route"]["rules"].insert(0, rule)
+    _, r_list = get_route_rules_container(r_json, is_xray=False)
+    r_list.insert(0, rule)
     with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
 
 def add_to_xray(data, inbounds):
@@ -278,9 +315,8 @@ def add_to_xray(data, inbounds):
         rule["inboundTag"] = inbounds
         
     with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-    if "routing" not in r_json: r_json["routing"] = {}
-    if "rules" not in r_json["routing"]: r_json["routing"]["rules"] = []
-    r_json["routing"]["rules"].insert(0, rule)
+    _, r_list = get_route_rules_container(r_json, is_xray=True)
+    r_list.insert(0, rule)
     with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
 
 LOGIN_PAGE = """
@@ -745,14 +781,18 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     real_idx = target["_index"]
                     if target["_file"] == "singbox":
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        r_json["route"]["rules"][real_idx]["outbound"] = outbound
-                        with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False)
+                        _, r_list = get_route_rules_container(r_json, is_xray=False)
+                        if real_idx < len(r_list):
+                            r_list[real_idx]["outbound"] = outbound
+                            with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        r_json["routing"]["rules"][real_idx]["outboundTag"] = outbound
-                        with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True)
+                        _, r_list = get_route_rules_container(r_json, is_xray=True)
+                        if real_idx < len(r_list):
+                            r_list[real_idx]["outboundTag"] = outbound
+                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -770,14 +810,18 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     real_idx = target["_index"]
                     if target["_file"] == "singbox":
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        r_json["route"]["rules"].pop(real_idx)
-                        with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False)
+                        _, r_list = get_route_rules_container(r_json, is_xray=False)
+                        if real_idx < len(r_list):
+                            r_list.pop(real_idx)
+                            with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        r_json["routing"]["rules"].pop(real_idx)
-                        with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True)
+                        _, r_list = get_route_rules_container(r_json, is_xray=True)
+                        if real_idx < len(r_list):
+                            r_list.pop(real_idx)
+                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -803,7 +847,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 r_type = data.get("type", "domain_suffix")
                 _, _, core_map = gather_nodes()
                 
-                # 后端拦截：Xray 节点禁止选择规则集
                 if r_type == "rule_set":
                     if any(core_map.get(ib) == "xray" for ib in req_inbounds):
                         self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps({"code": 1, "msg": "Xray 节点不支持选择规则集"}, ensure_ascii=False).encode("utf-8"))
@@ -854,28 +897,32 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     
                     if target["_file"] == "singbox":
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        rule_obj = r_json["route"]["rules"][real_idx]
-                        rule_obj.pop("domain_suffix", None)
-                        rule_obj.pop("rule_set", None)
-                        if new_val:
-                            if new_type == "domain_suffix":
-                                rule_obj["domain_suffix"] = [v.strip() for v in new_val.split(",") if v.strip()]
-                            else:
-                                rule_obj["rule_set"] = [new_val]
-                        with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=True, restart_xray=False)
+                        _, r_list = get_route_rules_container(r_json, is_xray=False)
+                        if real_idx < len(r_list):
+                            rule_obj = r_list[real_idx]
+                            rule_obj.pop("domain_suffix", None)
+                            rule_obj.pop("rule_set", None)
+                            if new_val:
+                                if new_type == "domain_suffix":
+                                    rule_obj["domain_suffix"] = [v.strip() for v in new_val.split(",") if v.strip()]
+                                else:
+                                    rule_obj["rule_set"] = [new_val]
+                            with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=True, restart_xray=False)
                         
                     elif target["_file"] == "xray":
                         with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        rule_obj = r_json["routing"]["rules"][real_idx]
-                        rule_obj.pop("domain", None)
-                        if new_val:
-                            if new_type == "domain_suffix":
-                                rule_obj["domain"] = [f"domain:{v.strip()}" for v in new_val.split(",") if v.strip()]
-                            else:
-                                rule_obj["domain"] = [f"geosite:{new_val}"]
-                        with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                        restart_services_async(restart_sb=False, restart_xray=True)
+                        _, r_list = get_route_rules_container(r_json, is_xray=True)
+                        if real_idx < len(r_list):
+                            rule_obj = r_list[real_idx]
+                            rule_obj.pop("domain", None)
+                            if new_val:
+                                if new_type == "domain_suffix":
+                                    rule_obj["domain"] = [f"domain:{v.strip()}" for v in new_val.split(",") if v.strip()]
+                                else:
+                                    rule_obj["domain"] = [f"geosite:{new_val}"]
+                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                            restart_services_async(restart_sb=False, restart_xray=True)
                         
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -934,7 +981,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "settings": xray_proxy_setting
                             })
 
-            # 1. 必定写入 Sing-box 出站配置
             sb_outbound_data = {"outbounds": []}
             sb_outbound_file = os.path.join(SB_CONF_DIR, "outbounds.json")
             if os.path.exists(sb_outbound_file):
@@ -953,8 +999,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             with open(sb_outbound_file, "w") as f:
                 json.dump(sb_outbound_data, f, indent=2)
 
-            # 2. 检测 /etc/xray/conf/outbounds.json 是否存在
-            # 存在则同步写入，不存在则静默跳过，不报错
             xray_synced = False
             if os.path.exists(XRAY_OUTBOUND_FILE):
                 xray_outbound_data = {"outbounds": []}
@@ -976,7 +1020,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     json.dump(xray_outbound_data, f, indent=2)
                 xray_synced = True
 
-            # 重启服务（如果 xray 配置文件不存在，则只重启 sing-box）
             restart_services_async(restart_sb=True, restart_xray=xray_synced)
             return {"code": 0, "msg": "success"}
         except Exception as e:
