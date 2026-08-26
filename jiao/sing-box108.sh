@@ -5427,14 +5427,17 @@ fi
 if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
 fi
-echo "$xhttp_h3" >> "${work_dir}/url.txt"
+echo "$xhttp_tcp" >> "${work_dir}/url.txt"
+echo "" >> "${work_dir}/url.txt"
+echo "$xhttp_udp" >> "${work_dir}/url.txt"
 echo "" >> "${work_dir}/url.txt"
 base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
 restart_xray
 green "--------------------------------------------------"
-green " VLESS XHTTP-H3 节点创建完成！"
+green " 节点创建完成！"
+echo "$xhttp_udp"
 green "--------------------------------------------------"
-echo "$xhttp_h3"
+echo "$xhttp_tcp"
 green "--------------------------------------------------"
 ;;
             # --- 完整的删除逻辑 ---
