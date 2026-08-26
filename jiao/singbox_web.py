@@ -681,7 +681,7 @@ async function runButtonAction(btn, action) {
     btn.disabled = true;
     btn.innerHTML = "⏳ 处理中...";
     try { await action(); } catch (e) {}
-    await new Promise(resolve => setTimeout(resolve, 2900));
+    await new Promise(resolve => setTimeout(resolve, 1500));
     btn.disabled = false;
     btn.innerHTML = oldHtml;
     window.location.reload();
