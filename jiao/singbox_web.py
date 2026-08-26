@@ -43,7 +43,7 @@ XRAY_CONF_DIR = "/etc/xray/conf"
 SB_ROUTE_FILE = os.path.join(SB_CONF_DIR, "route.json")
 XRAY_ROUTE_FILE = os.path.join(XRAY_CONF_DIR, "route.json")
 SB_OUTBOUND_FILE = os.path.join(SB_CONF_DIR, "outbounds.json")
-SB_INBOUND_FILE = os.path.join(SB_CONF_DIR, "inbounds.json")
+XRAY_OUTBOUND_FILE = os.path.join(XRAY_CONF_DIR, "outbounds.json") # 新增：Xray 的出站文件路径
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 
 TAG_NAME_MAP = {
@@ -81,7 +81,7 @@ def restart_services_async():
 def gather_nodes():
     inbounds = []
     outbounds = []
-    inbound_core_map = {} # 记录 tag -> "singbox" | "xray"
+    inbound_core_map = {} 
     
     ignore_outbounds = ["direct", "dns-out", "block"]
     
@@ -95,7 +95,7 @@ def gather_nodes():
                         outbounds.append(tag)
         except: pass
         
-    if os.path.exists(SB_INBOUND_FILE):
+    if os.path.exists(SB_INBOUND_FILE := os.path.join(SB_CONF_DIR, "inbounds.json")):
         try:
             with open(SB_INBOUND_FILE, "r") as f:
                 for ib in json.load(f).get("inbounds", []):
@@ -139,12 +139,10 @@ def gather_nodes():
                 try:
                     with open(fpath, "r") as nf:
                         data = json.load(nf)
-                        # Xray 出站
                         for o in data.get("outbounds", []):
                             tag = o.get("tag")
                             if tag and tag not in ignore_outbounds and tag not in outbounds:
                                 outbounds.append(tag)
-                        # Xray 入站
                         for ib in data.get("inbounds", []):
                             tag = ib.get("tag")
                             if tag and tag not in inbounds:
@@ -672,7 +670,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 "rules": get_all_rules()
             }
             try:
-                # 获取可用的 rule_set (仅需从 SB 里读一次用于展示即可)
                 if os.path.exists(SB_ROUTE_FILE):
                     with open(SB_ROUTE_FILE, "r") as f:
                         route_cfg = json.load(f).get("route", {})
@@ -751,19 +748,16 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(post_data)
                 req_inbounds = data.get("inbounds", [])
-                
-                # 识别入站节点的归属 (Sing-box 还是 Xray)
                 _, _, core_map = gather_nodes()
                 
                 if not req_inbounds:
-                    # 如果没有选择任何节点，代表全局应用，向两端都写入
                     add_to_singbox(data, [])
                     add_to_xray(data, [])
                 else:
                     sb_targets = []
                     xray_targets = []
                     for ib in req_inbounds:
-                        core = core_map.get(ib, "singbox") # 未知节点默认给 singbox
+                        core = core_map.get(ib, "singbox")
                         if core == "singbox": sb_targets.append(ib)
                         else: xray_targets.append(ib)
                     
@@ -827,7 +821,10 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         try:
             with open(FANOUT_FILE, "r") as f:
                 xray_data = json.load(f)
-            new_fanout_nodes = []
+            
+            new_fanout_nodes_sb = []
+            new_fanout_nodes_xray = []
+            
             for outbound in xray_data.get("outbounds", []):
                 if outbound.get("protocol") == "socks":
                     tag = str(outbound.get("tag", ""))
@@ -840,7 +837,9 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             users = server_info.get("users", [])
                             username = users[0].get("user") if users else ""
                             password = users[0].get("pass") if users else ""
-                            new_fanout_nodes.append({
+                            
+                            # 1. 构造 Sing-box 格式的出站节点
+                            new_fanout_nodes_sb.append({
                                 "type": "socks",
                                 "tag": f"fanout-{port}",
                                 "server": address,
@@ -848,21 +847,65 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                                 "username": username,
                                 "password": password
                             })
-            outbound_data = {"outbounds": []}
-            if os.path.exists(SB_OUTBOUND_FILE):
-                with open(SB_OUTBOUND_FILE, "r") as f:
-                    try: outbound_data = json.load(f)
+                            
+                            # 2. 按照 Xray 的出站格式 (socks 协议) 进行转换
+                            xray_proxy_setting = {
+                                "servers": [{
+                                    "address": address,
+                                    "port": port
+                                }]
+                            }
+                            if username and password:
+                                xray_proxy_setting["servers"][0]["users"] = [{
+                                    "user": username,
+                                    "pass": password
+                                }]
+                                
+                            new_fanout_nodes_xray.append({
+                                "tag": f"fanout-{port}",
+                                "protocol": "socks",
+                                "settings": xray_proxy_setting
+                            })
+
+            # === A. 写入 Sing-box 出站配置 ===
+            sb_outbound_data = {"outbounds": []}
+            sb_outbound_file = os.path.join(SB_CONF_DIR, "outbounds.json")
+            if os.path.exists(sb_outbound_file):
+                with open(sb_outbound_file, "r") as f:
+                    try: sb_outbound_data = json.load(f)
                     except: pass
-            if "outbounds" not in outbound_data:
-                outbound_data["outbounds"] = []
-            outbound_data["outbounds"] = [
-                o for o in outbound_data["outbounds"] 
+            if "outbounds" not in sb_outbound_data:
+                sb_outbound_data["outbounds"] = []
+            
+            # 过滤掉旧的 fanout 节点并追加新的
+            sb_outbound_data["outbounds"] = [
+                o for o in sb_outbound_data["outbounds"] 
                 if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
             ]
-            outbound_data["outbounds"].extend(new_fanout_nodes)
-            os.makedirs(os.path.dirname(SB_OUTBOUND_FILE), exist_ok=True)
-            with open(SB_OUTBOUND_FILE, "w") as f:
-                json.dump(outbound_data, f, indent=2)
+            sb_outbound_data["outbounds"].extend(new_fanout_nodes_sb)
+            os.makedirs(os.path.dirname(sb_outbound_file), exist_ok=True)
+            with open(sb_outbound_file, "w") as f:
+                json.dump(sb_outbound_data, f, indent=2)
+
+            # === B. 写入 Xray 出站配置 (转换格式) ===
+            xray_outbound_data = {"outbounds": []}
+            if os.path.exists(XRAY_OUTBOUND_FILE):
+                with open(XRAY_OUTBOUND_FILE, "r") as f:
+                    try: xray_outbound_data = json.load(f)
+                    except: pass
+            if "outbounds" not in xray_outbound_data:
+                xray_outbound_data["outbounds"] = []
+                
+            # 过滤掉旧的 fanout 节点并追加转换后的新节点
+            xray_outbound_data["outbounds"] = [
+                o for o in xray_outbound_data["outbounds"] 
+                if not (isinstance(o, dict) and str(o.get("tag", "")).startswith("fanout-"))
+            ]
+            xray_outbound_data["outbounds"].extend(new_fanout_nodes_xray)
+            os.makedirs(os.path.dirname(XRAY_OUTBOUND_FILE), exist_ok=True)
+            with open(XRAY_OUTBOUND_FILE, "w") as f:
+                json.dump(xray_outbound_data, f, indent=2)
+
             restart_services_async()
             return {"code": 0, "msg": "success"}
         except Exception as e:
