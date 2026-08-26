@@ -4017,7 +4017,7 @@ manage_nodes_menu() {
     "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|12"
     "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|13"
 	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|14"
-	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-tls|15"
+	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|15"
 )
 		
         clear
