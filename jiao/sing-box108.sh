@@ -2775,6 +2775,14 @@ install_xray() {
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
 
+        if [ -x "$(command -v systemctl)" ]; then
+         xray_main_systemd_services
+         elif [ -x "$(command -v rc-update)" ]; then
+         xray_alpine_openrc_services
+         else
+         red "Unsupported init system"
+         break
+         fi
     cat > "${configxray_dir}" << EOF
 {
   "log": {
@@ -2834,8 +2842,6 @@ cat > "${xray_conf_dir}/route.json" << EOF
 }
 EOF
 }
-
-
 
 # debian/ubuntu/centos 守护进程
 xray_main_systemd_services() {
@@ -3110,14 +3116,6 @@ manage_xray() {
                 install_xray
                 if [ $? -ne 0 ]; then
                 red "Xray 安装失败！"
-                break
-                fi
-                if [ -x "$(command -v systemctl)" ]; then
-                xray_main_systemd_services
-                elif [ -x "$(command -v rc-update)" ]; then
-                xray_alpine_openrc_services
-                else
-                red "Unsupported init system"
                 break
                 fi
                 fi
