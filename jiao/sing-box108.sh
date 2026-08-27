@@ -2736,6 +2736,14 @@ install_xray() {
       echo "      下载 Xray (${XRAY_ASSET})"
       XT=$(mktemp -d)
       XURL="https://github.com/XTLS/Xray-core/releases/latest/download/${XRAY_ASSET}"
+	  if [ -x "$(command -v systemctl)" ]; then
+         xray_main_systemd_services
+         elif [ -x "$(command -v rc-update)" ]; then
+         xray_alpine_openrc_services
+         else
+         red "Unsupported init system"
+         break
+         fi
       
       if curl -fsSL "$XURL" -o "$XT/x.zip"; then
         if command -v unzip >/dev/null; then
@@ -2775,14 +2783,6 @@ install_xray() {
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
 
-        if [ -x "$(command -v systemctl)" ]; then
-         xray_main_systemd_services
-         elif [ -x "$(command -v rc-update)" ]; then
-         xray_alpine_openrc_services
-         else
-         red "Unsupported init system"
-         break
-         fi
     cat > "${configxray_dir}" << EOF
 {
   "log": {
