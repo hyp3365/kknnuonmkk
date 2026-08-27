@@ -3264,13 +3264,16 @@ change_config() {
           conf_base_dir=$(dirname "$config_dir")
 
           for file in "${conf_base_dir}"/*.json; do
-          if jq -e '.inbounds[]?.tls?.reality?.enabled == true' "$file" >/dev/null 2>&1; then
-          sed -i "s/\"server_name\":[ \t]*\"[^\"]*\"/\"server_name\": \"$new_sni\"/g" "$file"
-          sed -i "s/\"serverName\":[ \t]*\"[^\"]*\"/\"serverName\": \"$new_sni\"/g" "$file"
+          if jq -e '.inbounds[0].tls.enabled == true and .inbounds[0].tls.reality.enabled == true' "$file" >/dev/null 2>&1; then
+          jq --arg sni "$new_sni" '
+         .inbounds[0].tls.server_name = $sni |
+         .inbounds[0].tls.reality.handshake.server = $sni
+         ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
           fi
           done
+
           restart_singbox
-          
+           
           if [ -f "$client_dir" ]; then
             # 通用正则替换 sni 参数
             sed -i "s/sni=[^&]*/sni=$new_sni/g" "$client_dir"
