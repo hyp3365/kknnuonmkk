@@ -3243,8 +3243,8 @@ change_config() {
     case "${choice}" in
         1)  
 		  clear
-          green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n\n6. 自定义域名\n"
-          reading "\n请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
+		  green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n\n6. addons.mozilla.org\n\n7. www.iij.ad.jp\n\n8. 自定义域名\n"
+		  reading "\n请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
   
           case "$new_sni" in
             "1"|"") new_sni="www.joom.com" ;;
