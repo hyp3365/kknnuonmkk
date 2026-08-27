@@ -5108,17 +5108,26 @@ EOF
     ;;
   12)
     check_xray
-    if [ $? -ne 0 ]; then
+xray_status=$?
+
+if [ $xray_status -ne 0 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
+
     if [ -z "$choice" ]; then
         install_xray
-        sleep 2
-        systemctl daemon-reload
+
+        check_xray
+        xray_status=$?
+
+        if [ $xray_status -ne 0 ]; then
+            red "Xray 安装失败！"
+            return 1
+        fi
     else
         return 1
     fi
-    fi
+fi
     generate_vars
     server_ip=$(get_realip)
     echo ""
