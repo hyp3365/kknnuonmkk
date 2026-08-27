@@ -5101,8 +5101,13 @@ EOF
   12)
     check_xray
     if [ $? -ne 0 ]; then
-        red "Xray 未安装，请先安装 Xray！"
+    red "Xray 未安装！"
+    read -rp "按回车安装 Xray，其他键取消: " choice
+    if [ -z "$choice" ]; then
+        install_xray
+    else
         return 1
+    fi
     fi
     generate_vars
     server_ip=$(get_realip)
@@ -5186,8 +5191,13 @@ EOF
 	13)
 	check_xray
     if [ $? -ne 0 ]; then
-        red "Xray 未安装，请先安装 Xray！"
+    red "Xray 未安装！"
+    read -rp "按回车安装 Xray，其他键取消: " choice
+    if [ -z "$choice" ]; then
+        install_xray
+    else
         return 1
+    fi
     fi
     generate_vars
     server_ip=$(get_realip)
@@ -5326,8 +5336,13 @@ EOF
 	14)
 	check_xray
     if [ $? -ne 0 ]; then
-        red "Xray 未安装，请先安装 Xray！"
+    red "Xray 未安装！"
+    read -rp "按回车安装 Xray，其他键取消: " choice
+    if [ -z "$choice" ]; then
+        install_xray
+    else
         return 1
+    fi
     fi
     check_and_issue_ssl || return 1
     generate_vars
@@ -5463,10 +5478,15 @@ fi
     ;;
 	15)
 check_xray
-if [ $? -ne 0 ]; then
-    red "Xray 未安装，请先安装 Xray！"
-    return 1
-fi
+    if [ $? -ne 0 ]; then
+    red "Xray 未安装！"
+    read -rp "按回车安装 Xray，其他键取消: " choice
+    if [ -z "$choice" ]; then
+        install_xray
+    else
+        return 1
+    fi
+    fi
 check_and_issue_ssl || return 1
 generate_vars
 vless_xhttp_udp_tls_port=$(get_available_port)
@@ -5540,8 +5560,13 @@ green "--------------------------------------------------"
 16)
 check_xray
 if [ $? -ne 0 ]; then
-    red "Xray 未安装，请先安装 Xray！"
+red "Xray 未安装！"
+read -rp "按回车安装 Xray，其他键取消: " choice
+if [ -z "$choice" ]; then
+    install_xray
+else
     return 1
+fi
 fi
 check_and_issue_ssl || return 1
 generate_vars
