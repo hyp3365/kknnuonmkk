@@ -165,14 +165,13 @@ check_nginx() {
 
 # 检查 xray 是否已安装
 check_xray() {
-if [ -f "${xray_dir}/${serverxray_name}" ]; then
+if [ -f "/etc/xray/xray" ]; then
     if [ -f /etc/alpine-release ]; then
-        rc-service xray status | grep -q "started" && green "running" && return 0 || yellow "not running" && return 1
-    else 
-        [ "$(systemctl is-active xray)" = "active" ] && green "running" && return 0 || yellow "not running" && return 1
+        rc-service xray status | grep -q "started" && return 0 || return 1
+    else
+        [ "$(systemctl is-active xray)" = "active" ] && return 0 || return 1
     fi
 else
-    red "not installed"
     return 2
 fi
 }
