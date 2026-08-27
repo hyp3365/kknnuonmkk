@@ -3071,9 +3071,11 @@ uninstall_xray() {
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i \
                     -e '/_xray_vless_xhttp_reality$/d' \
-                    -e '/_xray_vles_xhttp_cdn$/d' \
+                    -e '/_xray_vless_xhttp_cdn$/d' \
                     -e '/_xray_vless_xhttp_cdn_tls$/d' \
 					-e '/_xray_vless_xhttp_tls$/d' \
+					-e '/_xray_vless_xhttp_h3$/d' \
+					-e '/_xray_vless_xhttp_tcpudpcdn$/d' \
                     "/etc/sing-box/url.txt"
                 sed -i '/^$/N;/\n$/D' "/etc/sing-box/url.txt"
 
@@ -5119,18 +5121,14 @@ EOF
     ;;
   12)
     check_xray
-xray_status=$?
-
-if [ $xray_status -eq 2 ]; then
+    xray_status=$?
+    if [ $xray_status -eq 2 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
-
     if [ -z "$choice" ]; then
         install_xray
-
         check_xray
         xray_status=$?
-
         if [ $xray_status -eq 2 ]; then
             red "Xray 安装失败！"
             return 1
@@ -5138,7 +5136,7 @@ if [ $xray_status -eq 2 ]; then
     else
         return 1
     fi
-fi
+    fi
     generate_vars
     server_ip=$(get_realip)
     echo ""
@@ -5212,11 +5210,7 @@ EOF
     echo "$url" >> "/etc/sing-box/url.txt"
     echo "" >> "/etc/sing-box/url.txt"
     base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-	echo "检查文件:"
-ls -l "${xray_dir}/${serverxray_name}"
-
-echo "服务名:"
-echo "${serverxray_name}"
+	
     restart_xray
     green "==============================================="
     green " Xray VLESS XHTTP Reality 节点已添加!"
@@ -5225,11 +5219,18 @@ echo "${serverxray_name}"
     ;;
 	13)
 	check_xray
-    if [ $? -ne 0 ]; then
+    xray_status=$?
+    if [ $xray_status -eq 2 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
     if [ -z "$choice" ]; then
         install_xray
+        check_xray
+        xray_status=$?
+        if [ $xray_status -eq 2 ]; then
+            red "Xray 安装失败！"
+            return 1
+        fi
     else
         return 1
     fi
@@ -5239,7 +5240,7 @@ echo "${serverxray_name}"
     echo ""
     vless_xhttp_cdn_port=$(get_available_port)
     allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
-    node_remark="${isp}_xray_vles_xhttp_cdn"
+    node_remark="${isp}_xray_vless_xhttp_cdn"
     echo ""
     skyblue "请选择 Cloudflare 验证方式："
     green "1) Cloudflare API Token"
@@ -5370,11 +5371,18 @@ EOF
     ;;
 	14)
 	check_xray
-    if [ $? -ne 0 ]; then
+    xray_status=$?
+    if [ $xray_status -eq 2 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
     if [ -z "$choice" ]; then
         install_xray
+        check_xray
+        xray_status=$?
+        if [ $xray_status -eq 2 ]; then
+            red "Xray 安装失败！"
+            return 1
+        fi
     else
         return 1
     fi
@@ -5513,11 +5521,18 @@ fi
     ;;
 	15)
 check_xray
-    if [ $? -ne 0 ]; then
+    xray_status=$?
+    if [ $xray_status -eq 2 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
     if [ -z "$choice" ]; then
         install_xray
+        check_xray
+        xray_status=$?
+        if [ $xray_status -eq 2 ]; then
+            red "Xray 安装失败！"
+            return 1
+        fi
     else
         return 1
     fi
@@ -5594,15 +5609,22 @@ green "--------------------------------------------------"
 ;;
 16)
 check_xray
-if [ $? -ne 0 ]; then
-red "Xray 未安装！"
-read -rp "按回车安装 Xray，其他键取消: " choice
-if [ -z "$choice" ]; then
-    install_xray
-else
-    return 1
-fi
-fi
+    xray_status=$?
+    if [ $xray_status -eq 2 ]; then
+    red "Xray 未安装！"
+    read -rp "按回车安装 Xray，其他键取消: " choice
+    if [ -z "$choice" ]; then
+        install_xray
+        check_xray
+        xray_status=$?
+        if [ $xray_status -eq 2 ]; then
+            red "Xray 安装失败！"
+            return 1
+        fi
+    else
+        return 1
+    fi
+    fi
 check_and_issue_ssl || return 1
 generate_vars
 vless_xhttp_tcpudp_tls_port=$(shuf -e 2053 2083 2087 2096 8443 -n 1)
@@ -6138,7 +6160,7 @@ green "--------------------------------------------------"
     fi
     ;;
 	63)
-    target="_xray_vles_xhttp_cdn"
+    target="_xray_vless_xhttp_cdn"
     target_conf="/etc/xray/conf/xhttp-cnd.json"
     if [ -f "$target_conf" ]; then
         vless_xhttp_cdn_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
