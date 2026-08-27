@@ -100,6 +100,7 @@ socks_port=$(get_available_port)
 http_port=$(get_available_port)
 anytls_port=$(get_available_port)
 xtls_reality=$(get_available_port)
+anytls_reality=$(get_available_port)
 h2_reality=$(get_available_port)
 hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
@@ -4026,15 +4027,16 @@ manage_nodes_menu() {
     "$CONF_DIR/h2-reality.json|http-Reality|4"
     "$CONF_DIR/grpc-reality.json|gRPC-Reality|5"
     "$CONF_DIR/anytls.json|anytls|6"
-    "$CONF_DIR/socks5.json|socks5|7"
-    "$CONF_DIR/http.json|HTTP|8"
-    "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|9"
-    "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|10"
-    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|11"
-    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|12"
-    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|13"
-	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|14"
-	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|15"
+	"$CONF_DIR/anytls-reality.json|anytls-Reality|7"
+    "$CONF_DIR/socks5.json|socks5|8"
+    "$CONF_DIR/http.json|HTTP|9"
+    "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|10"
+    "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|11"
+    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|12"
+    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|13"
+    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|14"
+	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
+	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
 )
 		
         clear
@@ -4574,7 +4576,85 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-            7) yellow "正在配置 Socks5..."
+				7)
+			        generate_vars
+                server_ip=$(get_realip)    
+echo ""
+while true; do
+    read -rp "请输入 anytls + Reality 端口 (100-65535, 默认 ${anytls_reality_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$anytls_reality_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
+        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi      
+        anytls_reality_port=$custom_port
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
+         yellow "正在配置 anytls + Reality ..."
+         cat > /etc/sing-box/conf/anytls-reality.json << EOF
+{
+    "inbounds": [
+        {
+            "type": "anytls",
+            "listen": "::",
+			"tag":"anytls-reality",
+			"listen_port":$anytls_reality_port,
+            "users": [
+                {
+                    "password": "$password"
+                }
+            ],
+            "padding_scheme": [
+                "stop=8",
+                "0=30-30",
+                "1=100-400",
+                "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
+                "3=9-9,500-1000",
+                "4=500-1000",
+                "5=500-1000",
+                "6=500-1000",
+                "7=500-1000"
+            ],
+            "tls": {
+                "enabled": true,
+                "server_name": "www.iij.ad.jp",
+                "reality": {
+                    "enabled": true,
+                    "handshake": {
+                        "server": "www.iij.ad.jp",
+                        "server_port": 443
+                    },
+                    "private_key": "$private_key",
+                    "short_id": ["$short_id"]
+                }
+            }
+        }
+    ]
+}
+EOF
+          allow_port $anytls_reality_port/tcp > /dev/null 2>&1
+		  node_remark="${isp}_anytls_reality"
+	      url="anytls://${password}@${server_ip}:${anytls_reality_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+          if [ -f "/etc/sing-box/url.txt" ]; then
+           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+          fi
+          echo "$url" >> "/etc/sing-box/url.txt"
+		  echo "" >> "/etc/sing-box/url.txt"
+          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+          restart_singbox 
+          green "==============================================="
+          green " anytls + Reality 节点已添加!"
+          green " 节点链接: $url"
+          green "==============================================="
+            ;;
+            8) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
                 cat > /etc/sing-box/conf/socks5.json << EOF
@@ -4610,7 +4690,7 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-            8) 
+            9) 
 			yellow "正在配置 HTTP 代理..."
             generate_vars
             server_ip=$(get_realip)
@@ -4648,7 +4728,7 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-		9)
+		10)
     check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
@@ -4779,7 +4859,7 @@ fi
     fi
     green "--------------------------------------------------"
     ;;
-    10)
+    11)
     generate_vars
     server_ip=$(get_realip)
     echo ""
@@ -5008,7 +5088,7 @@ EOF
     echo "$trojan_url"
     green "--------------------------------------------------"
     ;;
-  11)
+  12)
     check_xray
     if [ $? -ne 0 ]; then
         red "Xray 未安装，请先安装 Xray！"
@@ -5093,7 +5173,7 @@ EOF
     green " 节点链接: $url"
     green "==============================================="
     ;;
-	12)
+	13)
 	check_xray
     if [ $? -ne 0 ]; then
         red "Xray 未安装，请先安装 Xray！"
@@ -5233,7 +5313,7 @@ EOF
     echo "$vless_url"
     echo "--------------------------------------------------"
     ;;
-	13)
+	14)
 	check_xray
     if [ $? -ne 0 ]; then
         red "Xray 未安装，请先安装 Xray！"
@@ -5371,7 +5451,7 @@ fi
     fi
     green "--------------------------------------------------"
     ;;
-	14)
+	15)
 check_xray
 if [ $? -ne 0 ]; then
     red "Xray 未安装，请先安装 Xray！"
@@ -5447,7 +5527,7 @@ green "--------------------------------------------------"
 echo "$xhttp_h3"
 green "--------------------------------------------------"
 ;;
-15)
+16)
 check_xray
 if [ $? -ne 0 ]; then
     red "Xray 未安装，请先安装 Xray！"
@@ -5739,7 +5819,7 @@ green "--------------------------------------------------"
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            57)
+            58)
 			target="_socks5"
             target_conf="/etc/sing-box/conf/socks5.json"
             if [ -f "$target_conf" ]; then
@@ -5769,7 +5849,7 @@ green "--------------------------------------------------"
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-            58)
+            59)
 			target="_http"
             target_conf="/etc/sing-box/conf/http.json"
             if [ -f "$target_conf" ]; then
@@ -5799,7 +5879,7 @@ green "--------------------------------------------------"
                 red "错误: 未找到配置文件 ($target_conf)，删除取消。"
             fi
             ;;
-		 59) 
+		 60) 
             target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
             if [ -f "$target_cdn_conf" ] || [ -f "$target_direct_conf" ]; then
@@ -5857,7 +5937,7 @@ green "--------------------------------------------------"
             fi
             ;;
 		    
-		60)
+		61)
     targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
     configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
     exist_flag=0
@@ -5927,7 +6007,7 @@ green "--------------------------------------------------"
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
     fi
     ;;
-		61)
+		62)
     target="_xray_vless_xhttp_reality"
     target_conf="/etc/xray/conf/xhttp-reality.json"
     if [ -f "$target_conf" ]; then
@@ -5957,7 +6037,7 @@ green "--------------------------------------------------"
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	62)
+	63)
     target="_xray_vles_xhttp_cdn"
     target_conf="/etc/xray/conf/xhttp-cnd.json"
     if [ -f "$target_conf" ]; then
@@ -5987,7 +6067,7 @@ green "--------------------------------------------------"
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	63)
+	64)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
     if [ -f "$target_conf" ]; then
@@ -6029,7 +6109,7 @@ fi
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	64)
+	65)
     target="_xray_vless_xhttp_h3"
     target_conf="/etc/xray/conf/xhttp-udp-tls.json"
     if [ -f "$target_conf" ]; then
@@ -6059,7 +6139,7 @@ fi
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	65)
+	66)
     target="_xray_vless_xhttp_tcpudpcdn"
     target_conf="/etc/xray/conf/xhttp-tcpudp-tls.json"
     if [ -f "$target_conf" ]; then
