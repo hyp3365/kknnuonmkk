@@ -2782,6 +2782,7 @@ install_xray() {
         && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
+		start_xray
 
     cat > "${configxray_dir}" << EOF
 {
