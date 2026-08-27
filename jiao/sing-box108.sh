@@ -5110,7 +5110,7 @@ EOF
     check_xray
 xray_status=$?
 
-if [ $xray_status -ne 0 ]; then
+if [ $xray_status -eq 2 ]; then
     red "Xray 未安装！"
     read -rp "按回车安装 Xray，其他键取消: " choice
 
@@ -5120,7 +5120,7 @@ if [ $xray_status -ne 0 ]; then
         check_xray
         xray_status=$?
 
-        if [ $xray_status -ne 0 ]; then
+        if [ $xray_status -eq 2 ]; then
             red "Xray 安装失败！"
             return 1
         fi
@@ -5202,6 +5202,7 @@ EOF
     echo "" >> "/etc/sing-box/url.txt"
     base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
 	
+    restart_xray
     green "==============================================="
     green " Xray VLESS XHTTP Reality 节点已添加!"
     green " 节点链接: $url"
