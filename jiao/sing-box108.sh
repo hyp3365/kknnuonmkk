@@ -5119,6 +5119,7 @@ EOF
     fi
     generate_vars
     server_ip=$(get_realip)
+	start_xray
     echo ""
     while true; do
         read -rp "请输入 Xray VLESS XHTTP Reality 端口 (100-65535, 默认 ${xray_xhttp_reality}): " custom_port
