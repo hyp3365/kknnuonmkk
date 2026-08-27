@@ -3252,7 +3252,9 @@ change_config() {
             "3") new_sni="www.wedgehr.com" ;;
             "4") new_sni="www.cerebrium.ai" ;;
             "5") new_sni="www.nazhumi.com" ;;
-            "6")
+			"6") new_sni="addons.mozilla.org" ;;
+			"7") new_sni="www.iij.ad.jp" ;;
+            "8")
               reading "\n请输入自定义的伪装域名(例如 www.example.com): " new_sni
               [[ -z "$new_sni" ]] && new_sni="www.joom.com"
               ;;
