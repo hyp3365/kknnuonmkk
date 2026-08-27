@@ -276,9 +276,10 @@ nginx_get_domain() {
     awk '/server_name/ {
         for(i=2;i<=NF;i++){
             gsub(";","",$i)
-            printf "%s ",$i
+            if($i != "_")
+                print $i
         }
-    }' "$file"
+    }' "$file" | sort -u | tr '\n' ' '
 }
 
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
