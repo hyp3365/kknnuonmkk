@@ -4484,16 +4484,15 @@ EOF
             green " 节点链接: $url"
             green "==============================================="
             ;;
-            6) 
-			   generate_vars
-               server_ip=$(get_realip)    
-echo ""
+			6) 
+                generate_vars
+server_ip=$(get_realip)
 while true; do
     read -rp "请输入 anytls 端口 (100-65535, 默认 ${anytls_port}): " custom_port
     if [ -z "$custom_port" ]; then
         custom_port=$anytls_port
         break
-    fi
+    fi    
     if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
         if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
             red "该端口已被占用，请重新输入！"
@@ -4505,9 +4504,31 @@ while true; do
         red "输入错误！请输入有效的端口号 (100-65535)。"
     fi
 done
-			   yellow "正在配置 anytls..."
-               mkdir -p /etc/sing-box
-               cat > /etc/sing-box/conf/anytls.json << EOF
+echo -e "\n请选择 TLS 证书类型:"
+echo -e " 1) \e[32m使用自签名证书\e[0m"
+echo -e " 2) \e[32m使用真实域名证书\e[0m"
+read -rp "请输入数字 [1-2] (默认 1): " cert_type
+[ -z "$cert_type" ] && cert_type=1
+if [ "$cert_type" -eq 2 ]; then
+    if check_and_issue_ssl; then
+        cert_path="$cert_file"
+        key_path="$key_file"
+        url_param="sni=${domain}" 
+        green "=> Hysteria2 将使用域名 [ ${domain} ] 的证书配置。"
+    else
+        red "=> 证书选择已取消或申请失败，脚本退出！"
+        return 1
+    fi
+else
+    cert_path="$work_dir/cert.pem"
+    key_path="$work_dir/private.key"
+	url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
+    yellow "=> Hysteria2 已配置为使用自签名证书。"
+fi
+
+
+                yellow "正在配置"
+                cat > /etc/sing-box/conf/anytls.json << EOF
 {
     "inbounds":[
         {
@@ -4523,28 +4544,28 @@ done
             "padding_scheme":[],
             "tls":{
                 "enabled":true,
-                "certificate_path": "$work_dir/cert.pem",
-                "key_path": "$work_dir/private.key"
+                "certificate_path": "$cert_path",
+                "key_path": "$key_path"
             }
         }
     ]
 }
 EOF
-			allow_port $anytls_port/tcp > /dev/null 2>&1
-            node_remark="${isp}_anytls"
-            url="anytls://${password}@${server_ip}:${anytls_port}?sni=addons.mozilla.org&insecure=1#${node_remark}"
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-            fi
-            echo "$url" >> "/etc/sing-box/url.txt"
-            echo "" >> "/etc/sing-box/url.txt"
-            base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-            restart_singbox
-            green "==============================================="
-            green " AnyTLS 节点已添加并重启!"
-            green " 节点链接: $url"
-            green "==============================================="
-            ;;
+				allow_port $anytls_port/tcp > /dev/null 2>&1
+                node_remark="${isp}_anytls"                
+                url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"			
+				if [ -f "/etc/sing-box/url.txt" ]; then
+                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
+                fi
+                echo "$url" >> /etc/sing-box/url.txt
+                echo "" >> /etc/sing-box/url.txt
+                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                restart_singbox
+                green "==============================================="
+                green " anytls 节点已添加!"
+                green " 节点链接: $url"
+                green "==============================================="
+                ;;
             7) yellow "正在配置 Socks5..."
                 generate_vars
                 server_ip=$(get_realip)
