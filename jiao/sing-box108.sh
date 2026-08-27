@@ -5201,7 +5201,11 @@ EOF
     echo "$url" >> "/etc/sing-box/url.txt"
     echo "" >> "/etc/sing-box/url.txt"
     base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-	
+	echo "检查文件:"
+ls -l "${xray_dir}/${serverxray_name}"
+
+echo "服务名:"
+echo "${serverxray_name}"
     restart_xray
     green "==============================================="
     green " Xray VLESS XHTTP Reality 节点已添加!"
