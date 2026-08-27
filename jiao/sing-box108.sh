@@ -2782,7 +2782,6 @@ install_xray() {
         && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
         && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
         && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
-		start_xray
 
     cat > "${configxray_dir}" << EOF
 {
@@ -2992,7 +2991,7 @@ fi
 # 重启 xray
 restart_xray() {
 if [ ${check_xray} -eq 0 ]; then
-   yellow "\n正在重启 ${serverxray_name} 服务\n"
+    yellow "\n正在重启 ${serverxray_name} 服务\n"
     if [ -f /etc/alpine-release ]; then
         rc-service ${serverxray_name} restart
     else
@@ -3005,10 +3004,20 @@ if [ ${check_xray} -eq 0 ]; then
         red "${serverxray_name} 服务重启失败\n"
     fi
 elif [ ${check_xray} -eq 1 ]; then
-    yellow "xray 未运行\n"
-    sleep 1
+    yellow "\n${serverxray_name} 未运行，正在启动...\n"
+    if [ -f /etc/alpine-release ]; then
+        rc-service ${serverxray_name} start
+    else
+        systemctl daemon-reload
+        systemctl start "${serverxray_name}"
+    fi
+    if [ $? -eq 0 ]; then
+        green "${serverxray_name} 服务已成功启动\n"
+    else
+        red "${serverxray_name} 服务启动失败\n"
+    fi
 else
-    yellow "xray 尚未安装！\n"
+    yellow "${serverxray_name} 尚未安装！\n"
     sleep 1
 fi
 }
