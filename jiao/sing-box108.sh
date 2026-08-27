@@ -3262,8 +3262,13 @@ change_config() {
            esac
            
           conf_base_dir=$(dirname "$config_dir")
-          sed -i "s/\"server_name\":[ \t]*\"[^\"]*\"/\"server_name\": \"$new_sni\"/g" "${conf_base_dir}"/*.json
-          sed -i "s/\"server\":[ \t]*\"[^\"]*\"/\"server\": \"$new_sni\"/g" "${conf_base_dir}"/*.json
+
+          for file in "${conf_base_dir}"/*.json; do
+          if jq -e '.inbounds[]?.tls?.reality?.enabled == true' "$file" >/dev/null 2>&1; then
+          sed -i "s/\"server_name\":[ \t]*\"[^\"]*\"/\"server_name\": \"$new_sni\"/g" "$file"
+          sed -i "s/\"serverName\":[ \t]*\"[^\"]*\"/\"serverName\": \"$new_sni\"/g" "$file"
+          fi
+          done
           restart_singbox
           
           if [ -f "$client_dir" ]; then
@@ -5798,6 +5803,36 @@ green "--------------------------------------------------"
 			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
                 if [ -n "$anytls_port" ]; then
                     for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$anytls_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+			57)
+			target="_anytls_reality"
+            target_conf="/etc/sing-box/conf/anytls-reality.json"
+            if [ -f "$target_conf" ]; then
+			    anytls_reality_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+                if [ -n "$anytls_reality_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$anytls_reality_port" '$0~"dport "p {print $NF}'); do
                         nft delete rule inet filter input handle $handle 2>/dev/null
                     done
                     nft list ruleset > /etc/nftables.conf 2>/dev/null
