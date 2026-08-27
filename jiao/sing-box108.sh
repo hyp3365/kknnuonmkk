@@ -5113,6 +5113,7 @@ EOF
     read -rp "按回车安装 Xray，其他键取消: " choice
     if [ -z "$choice" ]; then
         install_xray
+		sleep 2
     else
         return 1
     fi
@@ -5191,7 +5192,9 @@ EOF
     echo "$url" >> "/etc/sing-box/url.txt"
     echo "" >> "/etc/sing-box/url.txt"
     base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-	restart_xray
+	sleep 1
+    check_xray
+    restart_xray
     green "==============================================="
     green " Xray VLESS XHTTP Reality 节点已添加!"
     green " 节点链接: $url"
