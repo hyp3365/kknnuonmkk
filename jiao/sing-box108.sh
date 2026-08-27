@@ -3088,8 +3088,8 @@ uninstall_xray() {
 
 update_xray_status() {
     check_xray >/dev/null 2>&1
-    check_xray=$?
-    case "${check_xray}" in
+    xray_check_result=$?
+    case "${xray_check_result}" in
         0) check_xray_status="running" ;;
         1) check_xray_status="not running" ;;
         2) check_xray_status="not installed" ;;
