@@ -853,7 +853,10 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/":
             self.send_no_cache_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
-            
+        elif path == "/api/speedtest":
+            results = run_speedtest()
+            self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(results, ensure_ascii=False).encode("utf-8"))
+    
         elif path == "/api/status":
             inbounds, outbounds, inbound_core_map = gather_nodes()
             data = {
