@@ -8,6 +8,8 @@ import urllib.parse
 import random
 import time
 import threading
+import socket
+from concurrent.futures import ThreadPoolExecutor
 
 CONFIG_FILE = "/etc/sing-box/web_config.json"
 FAILED_LOCK_UNTIL = 0
