@@ -542,6 +542,33 @@ HTML_PAGE = """
     </div>
 
 <script>
+// === 一键测速逻辑（并发测试，限制 5 秒） ===
+async function speedTest(btn) {
+    if (btn.disabled) return;
+    const oldText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "⏳ 测速中...";
+
+    try {
+        let controller = new AbortController();
+        let timeoutId = setTimeout(() => controller.abort(), 5200); // 前端 5.2 秒超时兜底
+
+        let res = await fetch('/api/speedtest?' + Date.now(), { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            outboundLatencies = await res.json();
+            renderSelects(); // 刷新下拉框显示延迟
+            renderTable();   // 刷新表格下拉框显示延迟
+        }
+    } catch (e) {
+        console.error("测速超时或失败");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldText;
+    }
+}
+
 let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
 
 function checkXrayRuleSetRestriction() {
