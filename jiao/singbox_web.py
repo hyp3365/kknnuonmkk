@@ -413,6 +413,8 @@ LOGIN_PAGE = """
         <input type="password" id="pwd" placeholder="哈哈">
         <button onclick="login()">登 录</button>
     </div>
+    let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
+    let outboundLatencies = {};
     <script>
         function login() {
             let p = document.getElementById('pwd').value;
