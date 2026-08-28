@@ -547,6 +547,7 @@ HTML_PAGE = """
                     <button type="button" onclick="speedTest(this)" style="padding: 3px 10px; font-size: 11px; background: #34a853;">⚡ 一键测速</button>
                 </div>
                 <select id="new-rule-outbound"></select>
+                <select id="new-rule-outbound" style="width: 100%; padding: 4px;"></select>
                 <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">添加规则</button>
             </div>
         </div>
