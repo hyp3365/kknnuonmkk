@@ -121,13 +121,36 @@ def ping_target(tag, host, port):
     if not host or not port:
         return tag, "N/A"
     try:
+        host_str = str(host)
+        
+        # 1. 针对本地节点（如 Fanout SOCKS5），使用 curl 测试真实的代理穿透延迟
+        if host_str in ["127.0.0.1", "0.0.0.0", "localhost", "::1"]:
+            # 通过 socks5 代理请求 Cloudflare 204 接口获取真实耗时
+            cmd = [
+                "curl", "-o", "/dev/null", "-s", "-w", "%{time_total}",
+                "-x", f"socks5h://{host}:{port}", "-m", "4",
+                "http://cp.cloudflare.com/generate_204"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0 and res.stdout.strip():
+                ms = float(res.stdout.strip()) * 1000
+                return tag, f"{int(ms)}ms (HTTP)"
+            else:
+                return tag, "超时 (无网络)"
+
+        # 2. 针对直连或远程节点，回退到 TCP 握手测速
         start = time.perf_counter()
-        s = socket.create_connection((host, int(port)), timeout=4.5)
+        s = socket.create_connection((host, int(port)), timeout=4.0)
         s.close()
-        ms = int((time.perf_counter() - start) * 1000)
-        return tag, f"{ms}ms"
+        ms = (time.perf_counter() - start) * 1000
+        
+        # 修复 int() 截断问题，并标注极低延迟可能的原因
+        if ms < 1:
+            return tag, "<1ms (TUN劫持)"
+        return tag, f"{int(ms)}ms (TCP)"
     except:
         return tag, "超时"
+
 
 def run_speedtest():
     servers = get_outbound_servers()
