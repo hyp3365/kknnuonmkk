@@ -370,7 +370,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>双端智能分流 (Sing-box & Xray)</title>
+    <title>双端分流 (Sing-box & Xray)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
@@ -402,7 +402,7 @@ HTML_PAGE = """
 </head>
 <body>
     <h2>
-        <span>🚀 智能双端分流</span>
+        <span>🚀 双端分流</span>
         <span class="status-text"><span class="status-dot"></span>在线</span>
     </h2>
     
