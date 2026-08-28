@@ -619,9 +619,12 @@ function renderTable() {
 
 function renderSelects() {
     let outHtml = '';
-    globalData.outbounds.forEach(o => outHtml += `<option value="${o}">${o}</option>`);
+    globalData.outbounds.forEach(o => {
+        let delayStr = outboundLatencies[o] ? ` (${outboundLatencies[o]})` : '';
+        outHtml += `<option value="${o}">${o}${delayStr}</option>`;
+    });
     document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
-
+    
     let inHtml = '';
     globalData.inbounds.forEach(ib => {
         let core = globalData.inbound_core_map[ib] || 'singbox';
