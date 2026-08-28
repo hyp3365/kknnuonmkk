@@ -66,7 +66,7 @@ def ensure_route_file(filepath, is_xray=False):
             pass
 
 ensure_route_file(SB_ROUTE_FILE, False)
-ensure_route_file(XRAY_ROUTE_FILE, True)
+# Xray 路由文件采用“有就写入，没有就跳过”的逻辑，初始化时不强制创建
 
 # === 增加重启锁与按需重启函数 ===
 RESTART_LOCK = threading.Lock()
@@ -77,8 +77,8 @@ def restart_services_async(restart_sb=True, restart_xray=True):
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
             if restart_xray:
-                if os.path.exists(XRAY_OUTBOUND_FILE):
-                    subprocess.run(["systemctl", "restart", "xray"], check=False)
+                # 只要为 True 说明确实修改了 Xray 相关文件，直接重启，无需再判断特定文件是否存在
+                subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
 # === 核心扫描与分类功能 ===
@@ -268,16 +268,20 @@ def get_all_rules():
                 if is_managed_rule_sb(r):
                     rules.append(parse_sb_rule(r, i))
     except: pass
-    try:
-        with open(XRAY_ROUTE_FILE, "r") as f:
-            r_json = json.load(f)
-            _, r_list = get_route_rules_container(r_json, is_xray=True)
-            for i, r in enumerate(r_list):
-                if is_hidden_xray_rule(r):
-                    continue
-                if is_managed_rule_xray(r):
-                    rules.append(parse_xray_rule(r, i))
-    except: pass
+    
+    # 有 xray 路由文件才读取，没有则跳过
+    if os.path.exists(XRAY_ROUTE_FILE):
+        try:
+            with open(XRAY_ROUTE_FILE, "r") as f:
+                r_json = json.load(f)
+                _, r_list = get_route_rules_container(r_json, is_xray=True)
+                for i, r in enumerate(r_list):
+                    if is_hidden_xray_rule(r):
+                        continue
+                    if is_managed_rule_xray(r):
+                        rules.append(parse_xray_rule(r, i))
+        except: pass
+        
     return rules
 
 def add_to_singbox(data, inbounds):
@@ -294,12 +298,17 @@ def add_to_singbox(data, inbounds):
     if inbounds:
         rule["inbound"] = inbounds
         
+    ensure_route_file(SB_ROUTE_FILE, is_xray=False)
     with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
     _, r_list = get_route_rules_container(r_json, is_xray=False)
     r_list.insert(0, rule)
     with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
 
 def add_to_xray(data, inbounds):
+    # 有 xray 路由文件才写入，没有则跳过（返回 False 表示未写入）
+    if not os.path.exists(XRAY_ROUTE_FILE):
+        return False
+        
     r_type = data.get("type", "domain_suffix")
     val_str = data.get("value", "").strip()
     outbound = data.get("outbound")
@@ -313,10 +322,14 @@ def add_to_xray(data, inbounds):
     if inbounds:
         rule["inboundTag"] = inbounds
         
-    with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-    _, r_list = get_route_rules_container(r_json, is_xray=True)
-    r_list.insert(0, rule)
-    with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+    try:
+        with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
+        _, r_list = get_route_rules_container(r_json, is_xray=True)
+        r_list.insert(0, rule)
+        with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+        return True
+    except:
+        return False
 
 LOGIN_PAGE = """
 <!DOCTYPE html>
@@ -360,7 +373,7 @@ HTML_PAGE = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>分流 (Sing-box & Xray)</title>
+    <title>双端智能分流 (Sing-box & Xray)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 12px; background: #f4f6f9; color: #333; line-height: 1.5; }
@@ -392,7 +405,7 @@ HTML_PAGE = """
 </head>
 <body>
     <h2>
-        <span>🚀 分流</span>
+        <span>🚀 智能双端分流</span>
         <span class="status-text"><span class="status-dot"></span>在线</span>
     </h2>
     
@@ -600,7 +613,6 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-// 核心调整：无整页刷新，局部异步更新，并保留 1 秒的人工缓冲延迟
 async function runButtonAction(btn, action, onSuccess) {
     if (btn.disabled) return;
     const oldHtml = btn.innerHTML;
@@ -608,7 +620,6 @@ async function runButtonAction(btn, action, onSuccess) {
     btn.innerHTML = "⏳ 处理中...";
     try { 
         let res = await action();
-        // 强制 1 秒延迟，保证后台服务重启有足够的缓冲时间
         await new Promise(resolve => setTimeout(resolve, 1000));
         if (onSuccess) await onSuccess(res);
     } catch (e) {
@@ -690,7 +701,7 @@ async function saveEdit() {
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix'
         ? document.getElementById('edit-domain-value').value.trim()
-        : document.getElementById('new-ruleset-select').value;
+        : document.getElementById('edit-ruleset-select').value; // 修正了这里的取值对象
     await runButtonAction(btn, async () => {
         let resp = await fetch('/api/edit_rule', {
             method: 'POST',
@@ -812,6 +823,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     target = rules[idx]
                     real_idx = target["_index"]
                     if target["_file"] == "singbox":
+                        ensure_route_file(SB_ROUTE_FILE, is_xray=False)
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         _, r_list = get_route_rules_container(r_json, is_xray=False)
                         if real_idx < len(r_list):
@@ -819,12 +831,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
                             restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
-                        with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        _, r_list = get_route_rules_container(r_json, is_xray=True)
-                        if real_idx < len(r_list):
-                            r_list[real_idx]["outboundTag"] = outbound
-                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                            restart_services_async(restart_sb=False, restart_xray=True)
+                        if os.path.exists(XRAY_ROUTE_FILE):
+                            with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
+                            _, r_list = get_route_rules_container(r_json, is_xray=True)
+                            if real_idx < len(r_list):
+                                r_list[real_idx]["outboundTag"] = outbound
+                                with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                                restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -841,6 +854,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     target = rules[idx]
                     real_idx = target["_index"]
                     if target["_file"] == "singbox":
+                        ensure_route_file(SB_ROUTE_FILE, is_xray=False)
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         _, r_list = get_route_rules_container(r_json, is_xray=False)
                         if real_idx < len(r_list):
@@ -848,12 +862,13 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
                             restart_services_async(restart_sb=True, restart_xray=False)
                     elif target["_file"] == "xray":
-                        with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        _, r_list = get_route_rules_container(r_json, is_xray=True)
-                        if real_idx < len(r_list):
-                            r_list.pop(real_idx)
-                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                            restart_services_async(restart_sb=False, restart_xray=True)
+                        if os.path.exists(XRAY_ROUTE_FILE):
+                            with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
+                            _, r_list = get_route_rules_container(r_json, is_xray=True)
+                            if real_idx < len(r_list):
+                                r_list.pop(real_idx)
+                                with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                                restart_services_async(restart_sb=False, restart_xray=True)
                     
                     msg = {"code": 0, "msg": "success"}
                 else:
@@ -889,9 +904,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
                 if not req_inbounds:
                     add_to_singbox(data, [])
-                    add_to_xray(data, [])
+                    xray_modified = add_to_xray(data, [])
                     sb_modified = True
-                    xray_modified = True
                 else:
                     sb_targets = []
                     xray_targets = []
@@ -904,8 +918,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                         add_to_singbox(data, sb_targets)
                         sb_modified = True
                     if xray_targets: 
-                        add_to_xray(data, xray_targets)
-                        xray_modified = True
+                        xray_modified = add_to_xray(data, xray_targets)
 
                 restart_services_async(restart_sb=sb_modified, restart_xray=xray_modified)
                 msg = {"code": 0, "msg": "success"}
@@ -928,6 +941,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                     real_idx = target["_index"]
                     
                     if target["_file"] == "singbox":
+                        ensure_route_file(SB_ROUTE_FILE, is_xray=False)
                         with open(SB_ROUTE_FILE, "r") as f: r_json = json.load(f)
                         _, r_list = get_route_rules_container(r_json, is_xray=False)
                         if real_idx < len(r_list):
@@ -943,18 +957,19 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             restart_services_async(restart_sb=True, restart_xray=False)
                         
                     elif target["_file"] == "xray":
-                        with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
-                        _, r_list = get_route_rules_container(r_json, is_xray=True)
-                        if real_idx < len(r_list):
-                            rule_obj = r_list[real_idx]
-                            rule_obj.pop("domain", None)
-                            if new_val:
-                                if new_type == "domain_suffix":
-                                    rule_obj["domain"] = [f"domain:{v.strip()}" for v in new_val.split(",") if v.strip()]
-                                else:
-                                    rule_obj["domain"] = [f"geosite:{new_val}"]
-                            with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
-                            restart_services_async(restart_sb=False, restart_xray=True)
+                        if os.path.exists(XRAY_ROUTE_FILE):
+                            with open(XRAY_ROUTE_FILE, "r") as f: r_json = json.load(f)
+                            _, r_list = get_route_rules_container(r_json, is_xray=True)
+                            if real_idx < len(r_list):
+                                rule_obj = r_list[real_idx]
+                                rule_obj.pop("domain", None)
+                                if new_val:
+                                    if new_type == "domain_suffix":
+                                        rule_obj["domain"] = [f"domain:{v.strip()}" for v in new_val.split(",") if v.strip()]
+                                    else:
+                                        rule_obj["domain"] = [f"geosite:{new_val}"]
+                                with open(XRAY_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
+                                restart_services_async(restart_sb=False, restart_xray=True)
                         
                     msg = {"code": 0, "msg": "success"}
                 else:
