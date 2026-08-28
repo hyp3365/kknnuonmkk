@@ -610,10 +610,12 @@ function renderTable() {
             let opts = '';
             let isOutboundInList = false;
             globalData.outbounds.forEach(o => {
+                let delayStr = outboundLatencies[o] ? ` (${outboundLatencies[o]})` : '';
                 let selected = (o === r.outbound) ? 'selected' : '';
                 if (o === r.outbound) isOutboundInList = true;
-                opts += `<option value="${o}" ${selected}>${o}</option>`;
+                opts += `<option value="${o}" ${selected}>${o}${delayStr}</option>`;
             });
+
             if (!isOutboundInList && r.outbound) {
                 opts = `<option value="${r.outbound}" selected>${r.outbound}</option>` + opts;
             }
