@@ -45,6 +45,7 @@ XRAY_CONF_DIR = "/etc/xray/conf"
 SB_ROUTE_FILE = os.path.join(SB_CONF_DIR, "route.json")
 XRAY_ROUTE_FILE = os.path.join(XRAY_CONF_DIR, "route.json")
 SB_OUTBOUND_FILE = os.path.join(SB_CONF_DIR, "outbounds.json")
+SB_INBOUND_FILE = os.path.join(SB_CONF_DIR, "inbounds.json")
 XRAY_OUTBOUND_FILE = os.path.join(XRAY_CONF_DIR, "outbounds.json")
 FANOUT_FILE = "/var/lib/fanout/xray.json"
 
@@ -69,21 +70,19 @@ def ensure_route_file(filepath, is_xray=False):
 
 ensure_route_file(SB_ROUTE_FILE, False)
 
-# === 增加重启锁与按需重启函数 ===
+# === 增加重启锁与按需重启函数（已优化延时 2 秒） ===
 RESTART_LOCK = threading.Lock()
 
 def restart_services_async(restart_sb=True, restart_xray=True):
     def _restart():
-        time.sleep(1)
+        # 给前端 2 秒充足的“逃生”时间接收数据并渲染页面
+        time.sleep(2)
         with RESTART_LOCK:
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
             if restart_xray:
                 subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
-
-import socket
-from concurrent.futures import ThreadPoolExecutor
 
 # === 出站节点 TCP 测速功能 ===
 def get_outbound_servers():
@@ -133,14 +132,12 @@ def ping_target(tag, host, port):
 def run_speedtest():
     servers = get_outbound_servers()
     results = {}
-    # 并发测速，总耗时控制在 5 秒以内
     with ThreadPoolExecutor(max_workers=15) as executor:
         futures = [executor.submit(ping_target, tag, srv[0], srv[1]) for tag, srv in servers.items()]
         for f in futures:
             tag, res = f.result()
             results[tag] = res
     return results
-
 
 # === 核心扫描与分类功能 ===
 def gather_nodes():
@@ -160,7 +157,7 @@ def gather_nodes():
                         outbounds.append(tag)
         except: pass
         
-    if os.path.exists(SB_INBOUND_FILE := os.path.join(SB_CONF_DIR, "inbounds.json")):
+    if os.path.exists(SB_INBOUND_FILE):
         try:
             with open(SB_INBOUND_FILE, "r") as f:
                 for ib in json.load(f).get("inbounds", []):
@@ -247,7 +244,6 @@ def get_route_rules_container(r_json, is_xray=False):
                 r_json["route"]["rules"] = []
             return r_json["route"], r_json["route"]["rules"]
 
-# === 规则匹配与过滤 ===
 def is_managed_rule_sb(r):
     if not isinstance(r, dict):
         return False
@@ -410,11 +406,9 @@ LOGIN_PAGE = """
 <body>
     <div class="login-box">
         <h3>你好</h3>
-        <input type="password" id="pwd" placeholder="哈哈">
+        <input type="password" id="pwd" placeholder="密码">
         <button onclick="login()">登 录</button>
     </div>
-    let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
-    let outboundLatencies = {};
     <script>
         function login() {
             let p = document.getElementById('pwd').value;
@@ -491,8 +485,8 @@ HTML_PAGE = """
                 <select id="new-rule-inbounds" multiple style="height: 75px;" onchange="checkXrayRuleSetRestriction()"></select>
                 <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对所有Xray和Singbox节点生效 (Xray 节点不支持规则集)</div>
             </div>
-                        <div class="form-group">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                     <label style="margin-bottom: 0;">出站节点:</label>
                     <button type="button" onclick="speedTest(this)" style="padding: 3px 10px; font-size: 11px; background: #34a853;">⚡ 一键测速</button>
                 </div>
@@ -542,6 +536,9 @@ HTML_PAGE = """
     </div>
 
 <script>
+let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
+let outboundLatencies = {};
+
 // === 一键测速逻辑（并发测试，限制 5 秒） ===
 async function speedTest(btn) {
     if (btn.disabled) return;
@@ -551,15 +548,15 @@ async function speedTest(btn) {
 
     try {
         let controller = new AbortController();
-        let timeoutId = setTimeout(() => controller.abort(), 5200); // 前端 5.2 秒超时兜底
+        let timeoutId = setTimeout(() => controller.abort(), 5200);
 
         let res = await fetch('/api/speedtest?' + Date.now(), { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (res.ok) {
             outboundLatencies = await res.json();
-            renderSelects(); // 刷新下拉框显示延迟
-            renderTable();   // 刷新表格下拉框显示延迟
+            renderSelects(); 
+            renderTable();   
         }
     } catch (e) {
         console.error("测速超时或失败");
@@ -568,8 +565,6 @@ async function speedTest(btn) {
         btn.innerHTML = oldText;
     }
 }
-
-let globalData = { outbounds: [], inbounds: [], inbound_core_map: {}, available_rule_sets: [], rules: [] };
 
 function checkXrayRuleSetRestriction() {
     let inboundsSelect = document.getElementById('new-rule-inbounds');
@@ -709,10 +704,6 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-
-// === 核心：极速异步刷新逻辑 ===
-
-// 通用的执行、转圈与重载（不管后端，强制0.5秒后渲染新界面）
 async function runActionAndReload(btn, apiCallPromise) {
     if (btn.disabled) return;
     const oldHtml = btn.innerHTML;
@@ -724,7 +715,6 @@ async function runActionAndReload(btn, apiCallPromise) {
         if (jsonRes.code !== 0) {
             alert(jsonRes.msg);
         } else {
-            // 人为设置强制 0.5 秒停顿效果，然后立即请求后端最新数据更新前端
             await new Promise(r => setTimeout(r, 500));
             await loadData();
         }
@@ -736,7 +726,6 @@ async function runActionAndReload(btn, apiCallPromise) {
     }
 }
 
-// “添加规则”专属函数：加入 5秒 冷却
 let addBtnCooldown = false;
 async function addRule() {
     if (addBtnCooldown) return;
@@ -767,7 +756,6 @@ async function addRule() {
         if (jsonRes.code !== 0) {
             alert(jsonRes.msg);
         } else {
-            // 前端只转 0.5 秒，随后拉取最新数据（此时文件已经写入）
             await new Promise(r => setTimeout(r, 500));
             document.getElementById('new-domain-value').value = '';
             await loadData();
@@ -776,7 +764,6 @@ async function addRule() {
         console.error(e);
     }
 
-    // 更新按钮状态为冷却中，5秒后恢复可用
     btn.innerHTML = "⏳ 冷却中(5s)...";
     setTimeout(() => {
         addBtnCooldown = false;
@@ -785,21 +772,18 @@ async function addRule() {
     }, 5000);
 }
 
-// 切换规则节点
 async function updateRule(idx) {
     const btn = event.currentTarget;
     const val = document.getElementById(`rule-sel-${idx}`).value;
     await runActionAndReload(btn, fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`));
 }
 
-// 删除规则
 async function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
     const btn = event.currentTarget;
     await runActionAndReload(btn, fetch(`/api/del_rule?index=${idx}&t=${Date.now()}`));
 }
 
-// 保存弹窗修改
 async function saveEdit() {
     const btn = document.getElementById('save-edit-btn');
     let idx = document.getElementById('edit-idx').value;
@@ -834,7 +818,6 @@ async function saveEdit() {
     }
 }
 
-// 节点同步
 let isSyncing = false; 
 async function syncFanout(btn) {
     if (isSyncing) return;
@@ -893,7 +876,6 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/speedtest":
             results = run_speedtest()
             self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps(results, ensure_ascii=False).encode("utf-8"))
-    
         elif path == "/api/status":
             inbounds, outbounds, inbound_core_map = gather_nodes()
             data = {
