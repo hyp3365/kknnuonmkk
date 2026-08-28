@@ -542,14 +542,14 @@ HTML_PAGE = """
                 <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对所有Xray和Singbox节点生效 (Xray 节点不支持规则集)</div>
             </div>
             <div class="form-group">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <label style="margin-bottom: 0;">出站节点:</label>
-                    <button type="button" onclick="speedTest(this)" style="padding: 3px 10px; font-size: 11px; background: #34a853;">⚡ 一键测速</button>
-                </div>
-                <select id="new-rule-outbound"></select>
-                <select id="new-rule-outbound" style="width: 100%; padding: 4px;"></select>
-                <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">添加规则</button>
-            </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+        <label style="margin-bottom: 0;">出站节点:</label>
+        <button type="button" onclick="speedTest(this)" style="padding: 3px 10px; font-size: 11px; background: #34a853;">⚡ 一键测速</button>
+    </div>
+    <select id="new-rule-outbound" style="width: 100%; padding: 4px;"></select>
+    <button id="add-btn" onclick="addRule()" style="width: 100%; margin-top: 8px;">添加规则</button>
+</div>
+
         </div>
 
         <div class="card">
