@@ -652,6 +652,24 @@ function toggleRuleInput(prefix) {
     }
 }
 
+// === 新增：测速状态颜色与图标格式化函数 ===
+function formatDelay(delayVal) {
+    if (!delayVal) return { str: '', style: '' };
+    // 包含 ms 说明通了 -> 绿色
+    if (delayVal.includes('ms')) {
+        return { str: ` (🟢 ${delayVal})`, style: ` style="color: #137333; font-weight: 600;"` };
+    } 
+    // 包含超时、异常、不通 -> 红色
+    else if (delayVal.includes('超时') || delayVal.includes('不通') || delayVal.includes('异常')) {
+        return { str: ` (🔴 ${delayVal})`, style: ` style="color: #d93025; font-weight: 600;"` };
+    } 
+    // 其他状态 (如 N/A, [socks]) -> 橙色/黄色
+    else {
+        return { str: ` (🟡 ${delayVal})`, style: ` style="color: #e37400; font-weight: 600;"` };
+    }
+}
+
+// === 修改：应用颜色的表格渲染函数 ===
 function renderTable() {
     let ruleHtml = '';
     if (globalData.rules.length === 0) {
@@ -661,10 +679,11 @@ function renderTable() {
             let opts = '';
             let isOutboundInList = false;
             globalData.outbounds.forEach(o => {
-                let delayStr = outboundLatencies[o] ? ` (${outboundLatencies[o]})` : '';
+                let fmt = formatDelay(outboundLatencies[o]); // 获取颜色和文字
                 let selected = (o === r.outbound) ? 'selected' : '';
                 if (o === r.outbound) isOutboundInList = true;
-                opts += `<option value="${o}" ${selected}>${o}${delayStr}</option>`;
+                // 将 style 和格式化文字注入下拉选项
+                opts += `<option value="${o}" ${selected}${fmt.style}>${o}${fmt.str}</option>`;
             });
 
             if (!isOutboundInList && r.outbound) {
@@ -697,11 +716,13 @@ function renderTable() {
     document.getElementById('rules-table').innerHTML = ruleHtml;
 }
 
+// === 修改：应用颜色的顶部下拉框渲染函数 ===
 function renderSelects() {
     let outHtml = '';
     globalData.outbounds.forEach(o => {
-        let delayStr = outboundLatencies[o] ? ` (${outboundLatencies[o]})` : '';
-        outHtml += `<option value="${o}">${o}${delayStr}</option>`;
+        let fmt = formatDelay(outboundLatencies[o]); // 获取颜色和文字
+        // 同样注入 style 和格式化文字
+        outHtml += `<option value="${o}"${fmt.style}>${o}${fmt.str}</option>`;
     });
     document.getElementById('new-rule-outbound').innerHTML = outHtml || '<option disabled>(无可用出站)</option>';
     
@@ -720,6 +741,7 @@ function renderSelects() {
     
     checkXrayRuleSetRestriction();
 }
+
 
 async function loadData() {
     try {
