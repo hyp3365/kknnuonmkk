@@ -82,6 +82,66 @@ def restart_services_async(restart_sb=True, restart_xray=True):
                 subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
+import socket
+from concurrent.futures import ThreadPoolExecutor
+
+# === 出站节点 TCP 测速功能 ===
+def get_outbound_servers():
+    servers = {"direct": ("223.5.5.5", 80)}  # 直连节点使用国内公共 DNS 80 端口测试
+    
+    # 扫描 Sing-box 出站
+    if os.path.exists(SB_OUTBOUND_FILE):
+        try:
+            with open(SB_OUTBOUND_FILE, "r") as f:
+                for o in json.load(f).get("outbounds", []):
+                    tag, srv, port = o.get("tag"), o.get("server"), o.get("server_port")
+                    if tag and srv and port:
+                        servers[tag] = (srv, port)
+        except: pass
+
+    # 扫描 Xray 出站
+    if os.path.exists(XRAY_CONF_DIR):
+        for fname in os.listdir(XRAY_CONF_DIR):
+            if fname.endswith(".json"):
+                try:
+                    with open(os.path.join(XRAY_CONF_DIR, fname), "r") as nf:
+                        data = json.load(nf)
+                        for o in data.get("outbounds", []):
+                            tag = o.get("tag")
+                            settings = o.get("settings", {})
+                            if "vnext" in settings and settings["vnext"]:
+                                v = settings["vnext"][0]
+                                servers[tag] = (v.get("address"), v.get("port"))
+                            elif "servers" in settings and settings["servers"]:
+                                s = settings["servers"][0]
+                                servers[tag] = (s.get("address"), s.get("port"))
+                except: pass
+    return servers
+
+def ping_target(tag, host, port):
+    if not host or not port:
+        return tag, "N/A"
+    try:
+        start = time.perf_counter()
+        s = socket.create_connection((host, int(port)), timeout=4.5)
+        s.close()
+        ms = int((time.perf_counter() - start) * 1000)
+        return tag, f"{ms}ms"
+    except:
+        return tag, "超时"
+
+def run_speedtest():
+    servers = get_outbound_servers()
+    results = {}
+    # 并发测速，总耗时控制在 5 秒以内
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        futures = [executor.submit(ping_target, tag, srv[0], srv[1]) for tag, srv in servers.items()]
+        for f in futures:
+            tag, res = f.result()
+            results[tag] = res
+    return results
+
+
 # === 核心扫描与分类功能 ===
 def gather_nodes():
     inbounds = []
