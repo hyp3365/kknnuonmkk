@@ -72,6 +72,7 @@ RESTART_LOCK = threading.Lock()
 
 def restart_services_async(restart_sb=True, restart_xray=True):
     def _restart():
+        time.sleep(1)
         with RESTART_LOCK:
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
