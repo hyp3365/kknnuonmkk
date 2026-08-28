@@ -66,7 +66,6 @@ def ensure_route_file(filepath, is_xray=False):
             pass
 
 ensure_route_file(SB_ROUTE_FILE, False)
-# Xray 路由文件采用“有就写入，没有就跳过”的逻辑，初始化时不强制创建
 
 # === 增加重启锁与按需重启函数 ===
 RESTART_LOCK = threading.Lock()
@@ -77,7 +76,6 @@ def restart_services_async(restart_sb=True, restart_xray=True):
             if restart_sb:
                 subprocess.run(["systemctl", "restart", "sing-box"], check=False)
             if restart_xray:
-                # 只要为 True 说明确实修改了 Xray 相关文件，直接重启，无需再判断特定文件是否存在
                 subprocess.run(["systemctl", "restart", "xray"], check=False)
     threading.Thread(target=_restart, daemon=True).start()
 
@@ -269,7 +267,6 @@ def get_all_rules():
                     rules.append(parse_sb_rule(r, i))
     except: pass
     
-    # 有 xray 路由文件才读取，没有则跳过
     if os.path.exists(XRAY_ROUTE_FILE):
         try:
             with open(XRAY_ROUTE_FILE, "r") as f:
@@ -305,7 +302,6 @@ def add_to_singbox(data, inbounds):
     with open(SB_ROUTE_FILE, "w") as f: json.dump(r_json, f, indent=2)
 
 def add_to_xray(data, inbounds):
-    # 有 xray 路由文件才写入，没有则跳过（返回 False 表示未写入）
     if not os.path.exists(XRAY_ROUTE_FILE):
         return False
         
@@ -613,15 +609,25 @@ function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
 
-async function runButtonAction(btn, action, onSuccess) {
+
+// === 核心：极速异步刷新逻辑 ===
+
+// 通用的执行、转圈与重载（不管后端，强制0.5秒后渲染新界面）
+async function runActionAndReload(btn, apiCallPromise) {
     if (btn.disabled) return;
     const oldHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = "⏳ 处理中...";
-    try { 
-        let res = await action();
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        if (onSuccess) await onSuccess(res);
+    try {
+        let resp = await apiCallPromise;
+        let jsonRes = await resp.json();
+        if (jsonRes.code !== 0) {
+            alert(jsonRes.msg);
+        } else {
+            // 人为设置强制 0.5 秒停顿效果，然后立即请求后端最新数据更新前端
+            await new Promise(r => setTimeout(r, 500));
+            await loadData();
+        }
     } catch (e) {
         console.error(e);
     } finally {
@@ -630,7 +636,10 @@ async function runButtonAction(btn, action, onSuccess) {
     }
 }
 
+// “添加规则”专属函数：加入 5秒 冷却
+let addBtnCooldown = false;
 async function addRule() {
+    if (addBtnCooldown) return;
     const btn = document.getElementById('add-btn');
     let type = document.getElementById('new-rule-type').value;
     let outbound = document.getElementById('new-rule-outbound').value;
@@ -643,7 +652,12 @@ async function addRule() {
         ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value)
         : [];
 
-    await runButtonAction(btn, async () => {
+    addBtnCooldown = true;
+    btn.disabled = true;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = "⏳ 处理中...";
+
+    try {
         let resp = await fetch('/api/add_rule', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -652,57 +666,53 @@ async function addRule() {
         let jsonRes = await resp.json();
         if (jsonRes.code !== 0) {
             alert(jsonRes.msg);
-            throw new Error(jsonRes.msg);
+        } else {
+            // 前端只转 0.5 秒，随后拉取最新数据（此时文件已经写入）
+            await new Promise(r => setTimeout(r, 500));
+            document.getElementById('new-domain-value').value = '';
+            await loadData();
         }
-        return jsonRes;
-    }, async () => {
-        document.getElementById('new-domain-value').value = '';
-        await loadData();
-    });
+    } catch(e) {
+        console.error(e);
+    }
+
+    // 更新按钮状态为冷却中，5秒后恢复可用
+    btn.innerHTML = "⏳ 冷却中(5s)...";
+    setTimeout(() => {
+        addBtnCooldown = false;
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }, 5000);
 }
 
+// 切换规则节点
 async function updateRule(idx) {
     const btn = event.currentTarget;
     const val = document.getElementById(`rule-sel-${idx}`).value;
-    await runButtonAction(btn, async () => {
-        let resp = await fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`);
-        let jsonRes = await resp.json();
-        if (jsonRes.code !== 0) {
-            alert(jsonRes.msg);
-            throw new Error(jsonRes.msg);
-        }
-        return jsonRes;
-    }, async () => {
-        globalData.rules[idx].outbound = val;
-        renderTable();
-    });
+    await runActionAndReload(btn, fetch(`/api/set_rule?index=${idx}&outbound=${encodeURIComponent(val)}&t=${Date.now()}`));
 }
 
+// 删除规则
 async function deleteRule(idx) {
     if (!confirm('确认删除？')) return;
     const btn = event.currentTarget;
-    await runButtonAction(btn, async () => {
-        let resp = await fetch(`/api/del_rule?index=${idx}&t=${Date.now()}`);
-        let jsonRes = await resp.json();
-        if (jsonRes.code !== 0) {
-            alert(jsonRes.msg);
-            throw new Error(jsonRes.msg);
-        }
-        return jsonRes;
-    }, async () => {
-        globalData.rules.splice(idx, 1);
-        renderTable();
-    });
+    await runActionAndReload(btn, fetch(`/api/del_rule?index=${idx}&t=${Date.now()}`));
 }
 
+// 保存弹窗修改
 async function saveEdit() {
     const btn = document.getElementById('save-edit-btn');
     let idx = document.getElementById('edit-idx').value;
     let type = document.getElementById('edit-rule-type').value;
     let val = type === 'domain_suffix'
         ? document.getElementById('edit-domain-value').value.trim()
-        : document.getElementById('edit-ruleset-select').value; // 修正了这里的取值对象
-    await runButtonAction(btn, async () => {
+        : document.getElementById('edit-ruleset-select').value;
+
+    if (btn.disabled) return;
+    const oldHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "⏳ 处理中...";
+    try {
         let resp = await fetch('/api/edit_rule', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -711,33 +721,26 @@ async function saveEdit() {
         let jsonRes = await resp.json();
         if (jsonRes.code !== 0) {
             alert(jsonRes.msg);
-            throw new Error(jsonRes.msg);
+        } else {
+            await new Promise(r => setTimeout(r, 500));
+            closeEditModal();
+            await loadData();
         }
-        return jsonRes;
-    }, async () => {
-        closeEditModal();
-        await loadData();
-    });
+    } catch (e) {
+        console.error(e);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+    }
 }
 
+// 节点同步
 let isSyncing = false; 
-
 async function syncFanout(btn) {
     if (isSyncing) return;
     isSyncing = true;
-    try {
-        await runButtonAction(btn, async () => {
-            let resp = await fetch('/api/sync_fanout?' + Date.now(), { cache: 'no-store' });
-            let jsonRes = await resp.json();
-            if (jsonRes.code !== 0) {
-                alert(jsonRes.msg);
-                throw new Error(jsonRes.msg);
-            }
-            return jsonRes;
-        }, async () => {
-            await loadData();
-        });
-    } finally { isSyncing = false; }
+    await runActionAndReload(btn, fetch('/api/sync_fanout?' + Date.now(), { cache: 'no-store' }));
+    isSyncing = false;
 }
 
 loadData();
