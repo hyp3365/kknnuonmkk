@@ -86,19 +86,25 @@ def restart_services_async(restart_sb=True, restart_xray=True):
 
 # === 出站节点 TCP 测速功能 ===
 def get_outbound_servers():
-    servers = {"direct": ("223.5.5.5", 80)}  # 直连节点使用国内公共 DNS 80 端口测试
+    servers = {"direct": {"type": "direct"}}
     
-    # 扫描 Sing-box 出站
+    # 1. 扫描 Sing-box 出站
     if os.path.exists(SB_OUTBOUND_FILE):
         try:
             with open(SB_OUTBOUND_FILE, "r") as f:
                 for o in json.load(f).get("outbounds", []):
-                    tag, srv, port = o.get("tag"), o.get("server"), o.get("server_port")
-                    if tag and srv and port:
-                        servers[tag] = (srv, port)
+                    tag = o.get("tag")
+                    if tag:
+                        servers[tag] = {
+                            "type": o.get("type", ""),
+                            "server": o.get("server"),
+                            "port": o.get("server_port"),
+                            "user": o.get("username", ""),
+                            "pass": o.get("password", "")
+                        }
         except: pass
 
-    # 扫描 Xray 出站
+    # 2. 扫描 Xray 出站
     if os.path.exists(XRAY_CONF_DIR):
         for fname in os.listdir(XRAY_CONF_DIR):
             if fname.endswith(".json"):
@@ -107,60 +113,87 @@ def get_outbound_servers():
                         data = json.load(nf)
                         for o in data.get("outbounds", []):
                             tag = o.get("tag")
+                            proto = o.get("protocol", "")
                             settings = o.get("settings", {})
+                            server_info = {}
+                            
                             if "vnext" in settings and settings["vnext"]:
-                                v = settings["vnext"][0]
-                                servers[tag] = (v.get("address"), v.get("port"))
+                                server_info = settings["vnext"][0]
                             elif "servers" in settings and settings["servers"]:
-                                s = settings["servers"][0]
-                                servers[tag] = (s.get("address"), s.get("port"))
+                                server_info = settings["servers"][0]
+
+                            user, pwd = "", ""
+                            if "users" in server_info and server_info["users"]:
+                                user = server_info["users"][0].get("user", "")
+                                pwd = server_info["users"][0].get("pass", "")
+
+                            if tag:
+                                servers[tag] = {
+                                    "type": proto,
+                                    "server": server_info.get("address"),
+                                    "port": server_info.get("port"),
+                                    "user": user,
+                                    "pass": pwd
+                                }
                 except: pass
     return servers
 
-def ping_target(tag, host, port):
-    if not host or not port:
+def ping_target(tag, info):
+    proto = str(info.get("type", "")).lower()
+    server = info.get("server")
+    port = info.get("port")
+    user = info.get("user", "")
+    pwd = info.get("pass", "")
+
+    if tag == "direct" or proto == "direct":
         return tag, "N/A"
-    try:
-        host_str = str(host)
         
-        # 1. 针对本地节点（如 Fanout SOCKS5），使用 curl 测试真实的代理穿透延迟
-        if host_str in ["127.0.0.1", "0.0.0.0", "localhost", "::1"]:
-            # 通过 socks5 代理请求 Cloudflare 204 接口获取真实耗时
-            cmd = [
-                "curl", "-o", "/dev/null", "-s", "-w", "%{time_total}",
-                "-x", f"socks5h://{host}:{port}", "-m", "4",
-                "http://cp.cloudflare.com/generate_204"
-            ]
+    if not server or not port:
+        return tag, "无效节点"
+
+    # 复刻 Bash: 针对 socks/http 协议使用 curl 穿透测试
+    if proto in ["socks", "http", "socks5"]:
+        scheme = "http" if proto == "http" else "socks5h"
+        # 拼装带有账密的代理链接
+        auth = f"{user}:{pwd}@" if user and pwd else ""
+        proxy_url = f"{scheme}://{auth}{server}:{port}"
+
+        cmd = [
+            "curl", "-m", "4", "-s", "-o", "/dev/null",
+            "-w", "%{http_code}|%{time_total}",
+            "-x", proxy_url,
+            "https://www.gstatic.com/generate_204"
+        ]
+        try:
             res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0 and res.stdout.strip():
-                ms = float(res.stdout.strip()) * 1000
-                return tag, f"{int(ms)}ms (HTTP)"
-            else:
-                return tag, "超时 (无网络)"
-
-        # 2. 针对直连或远程节点，回退到 TCP 握手测速
-        start = time.perf_counter()
-        s = socket.create_connection((host, int(port)), timeout=4.0)
-        s.close()
-        ms = (time.perf_counter() - start) * 1000
-        
-        # 修复 int() 截断问题，并标注极低延迟可能的原因
-        if ms < 1:
-            return tag, "<1ms (TUN劫持)"
-        return tag, f"{int(ms)}ms (TCP)"
-    except:
-        return tag, "超时"
-
+            parts = res.stdout.strip().split('|')
+            if len(parts) == 2:
+                http_code = parts[0]
+                # 规避某些 Linux 系统的逗号小数点问题
+                time_total = parts[1].replace(',', '.') 
+                # 只有真实返回了 200 或 204 才算通
+                if http_code in ["204", "200"]:
+                    ms_delay = int(float(time_total) * 1000)
+                    return tag, f"{ms_delay}ms"
+                else:
+                    return tag, "超时/不通"
+            return tag, "连接超时"
+        except:
+            return tag, "测速异常"
+    else:
+        # 对 VMess/VLESS 等原生协议回退到 TCP 探活 (显示 [协议名])
+        return tag, f"[{proto}]"
 
 def run_speedtest():
     servers = get_outbound_servers()
     results = {}
     with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(ping_target, tag, srv[0], srv[1]) for tag, srv in servers.items()]
+        futures = [executor.submit(ping_target, tag, info) for tag, info in servers.items()]
         for f in futures:
             tag, res = f.result()
             results[tag] = res
     return results
+
 
 # === 核心扫描与分类功能 ===
 def gather_nodes():
