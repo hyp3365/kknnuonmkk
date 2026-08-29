@@ -282,27 +282,6 @@ nginx_get_domain() {
     }' "$file" | sort -u | tr '\n' ' '
 }
 
-check_install_xray() {
-    check_xray
-    local xray_status=$?
-    if [ "$xray_status" -eq 2 ]; then
-        red "Xray 未安装！"
-        read -rp "按回车安装 Xray，其他键取消: " install_choice
-        if [ -z "$install_choice" ]; then
-            install_xray
-            check_xray
-            xray_status=$?
-            if [ "$xray_status" -eq 2 ]; then
-                red "Xray 安装失败！"
-                return 1
-            fi
-        else
-            return 1
-        fi
-    fi
-    return 0
-}
-
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
 cf_call() {
     local method="$1"
@@ -4134,30 +4113,54 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-		1|4|5|12)
+    1|4|5|8|9|12)
     if [[ "$choice" == "12" ]]; then
-        check_install_xray || return 1
+        check_xray
+        xray_status=$?
+        if [ $xray_status -eq 2 ]; then
+            red "Xray 未安装！"
+            read -rp "按回车安装 Xray，其他键取消: " install_choice
+            if [ -z "$install_choice" ]; then
+                install_xray
+                check_xray
+                xray_status=$?
+                if [ $xray_status -eq 2 ]; then
+                    red "Xray 安装失败！"
+                    return 1
+                fi
+            else
+                return 1
+            fi
+        fi
     fi
     generate_vars
     server_ip=$(get_realip)
     case "$choice" in
-        1)
-            default_port=$xtls_reality
-            node_name="xtls + Reality"
-            ;;
-        4)
-            default_port=$h2_reality
-            node_name="H2 + Reality"
-            ;;
-        5)
-            default_port=$grpc_reality
-            node_name="gRPC + Reality"
-            ;;
-        12)
-            default_port=$xray_xhttp_reality
-            node_name="Xray VLESS XHTTP Reality"
-            ;;
-    esac
+    1)
+        default_port=$xtls_reality
+        node_name="xtls + Reality"
+        ;;
+    4)
+        default_port=$h2_reality
+        node_name="H2 + Reality"
+        ;;
+    5)
+        default_port=$grpc_reality
+        node_name="gRPC + Reality"
+        ;;
+    8)
+        default_port=$socks_port
+        node_name="Socks5"
+        ;;
+    9)
+        default_port=$http_port
+        node_name="HTTP"
+        ;;
+    12)
+        default_port=$xray_xhttp_reality
+        node_name="Xray VLESS XHTTP Reality"
+        ;;
+esac
     while true; do
         read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
         if [ -z "$custom_port" ]; then
@@ -4309,6 +4312,56 @@ EOF
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             restart_service="singbox"
             ;;
+		8)
+    socks_port=$custom_port
+    yellow "正在配置 Socks5..."
+    cat > /etc/sing-box/conf/socks5.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "::",
+      "listen_port": $socks_port,
+      "users": [
+        {
+          "username": "$username",
+          "password": "$password"
+        }
+      ]
+    }
+  ]
+}
+EOF
+    node_remark="${isp}_socks5"
+    url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
+    restart_service="singbox"
+    ;;
+	9)
+    http_port=$custom_port
+    yellow "正在配置 HTTP 代理..."
+    cat > /etc/sing-box/conf/http.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "http",
+      "tag": "http-in",
+      "listen": "::",
+      "listen_port": $http_port,
+      "users": [
+        {
+          "username": "$username",
+          "password": "$password"
+        }
+      ]
+    }
+  ]
+}
+EOF
+    node_remark="${isp}_http"
+    url="http://${username}:${password}@${server_ip}:${http_port}#${node_remark}"
+    restart_service="singbox"
+    ;;
         12)
             xray_xhttp_reality=$custom_port
             mkdir -p /etc/xray/conf
@@ -4357,21 +4410,21 @@ EOF
             restart_service="xray"
             ;;
     esac
-    allow_port "$custom_port/tcp" > /dev/null 2>&1
-    if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
-    fi
-    echo "$url" >> "/etc/sing-box/url.txt"
-    echo "" >> "/etc/sing-box/url.txt"
-    base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-    if [[ "$restart_service" == "singbox" ]]; then
-        restart_singbox
-    else
-        restart_xray
-    fi
-    green "${node_name} 节点已添加!"
-    green "节点链接: $url"
-    ;;		  
+    allow_port "$custom_port/tcp" >/dev/null 2>&1
+if [ -f "/etc/sing-box/url.txt" ]; then
+    sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+fi
+echo "$url" >> "/etc/sing-box/url.txt"
+echo "" >> "/etc/sing-box/url.txt"
+base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+if [[ "$restart_service" == "singbox" ]]; then
+    restart_singbox
+else
+    restart_xray
+fi
+green "${node_name} 节点已添加!"
+green "节点链接: $url"
+;;
         2) 
                 generate_vars
 stop_nginx
@@ -4717,80 +4770,6 @@ EOF
           green " anytls + Reality 节点已添加!"
           green " 节点链接: $url"
           green "==============================================="
-            ;;
-            8) yellow "正在配置 Socks5..."
-                generate_vars
-                server_ip=$(get_realip)
-                cat > /etc/sing-box/conf/socks5.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "socks",
-      "tag": "socks-in",
-      "listen": "::",
-      "listen_port": $socks_port,
-      "users": [
-        {
-          "username": "$username",
-          "password": "$password"
-        }
-      ]
-    }
-  ]
-}
-EOF
-				allow_port $socks_port/tcp > /dev/null 2>&1
-				node_remark="${isp}_socks5"
-                url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> /etc/sing-box/url.txt
-                echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                green "==============================================="
-                green " Socks5 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
-            9) 
-			yellow "正在配置 HTTP 代理..."
-            generate_vars
-            server_ip=$(get_realip)
-            cat > /etc/sing-box/conf/http.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "http",
-      "tag": "http-in",
-      "listen": "::",
-      "listen_port": $http_port,
-      "users": [
-        {
-          "username": "$username",
-          "password": "$password"
-        }
-      ]
-    }
-  ]
-}
-EOF
-            allow_port "$http_port/tcp" > /dev/null 2>&1     
-            node_remark="${isp}_http"
-            url="http://${username}:${password}@${server_ip}:${http_port}#${node_remark}"
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i "/#${node_remark}$/,+1d" "/etc/sing-box/url.txt"
-            fi      
-            echo "$url" >> /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null            
-            restart_singbox
-            
-            green "==============================================="
-            green " HTTP 节点已添加!"
-            green " 节点链接: $url"
-            green "==============================================="
             ;;
 		10)
     check_and_issue_ssl || return 1
