@@ -282,6 +282,27 @@ nginx_get_domain() {
     }' "$file" | sort -u | tr '\n' ' '
 }
 
+check_install_xray() {
+    check_xray
+    local xray_status=$?
+    if [ "$xray_status" -eq 2 ]; then
+        red "Xray 未安装！"
+        read -rp "按回车安装 Xray，其他键取消: " install_choice
+        if [ -z "$install_choice" ]; then
+            install_xray
+            check_xray
+            xray_status=$?
+            if [ "$xray_status" -eq 2 ]; then
+                red "Xray 安装失败！"
+                return 1
+            fi
+        else
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # ── 底层请求封装（支持 Global Key 或 Token 自动切换）──
 cf_call() {
     local method="$1"
