@@ -4174,43 +4174,33 @@ manage_nodes_menu() {
     case "$choice" in
     1)
         default_port=$xtls_reality
-        node_name="xtls + Reality"
         ;;
 	2)
         default_port=$hy2_port
-        node_name="xtls + Reality"
         ;;
     3)
         default_port=$tuic_port
-        node_name="H2 + Reality"
         ;;
     4)
         default_port=$h2_reality
-        node_name="H2 + Reality"
         ;;
     5)
         default_port=$grpc_reality
-        node_name="gRPC + Reality"
         ;;
     6)
         default_port=$anytls_port
-        node_name="anytls"
         ;;
     7)
         default_port=$anytls_reality_port
-        node_name="anytls + Reality"
         ;;
     8)
         default_port=$socks_port
-        node_name="Socks5"
         ;;
     9)
         default_port=$http_port
-        node_name="HTTP"
         ;;
     12)
         default_port=$xray_xhttp_reality
-        node_name="Xray VLESS XHTTP Reality"
         ;;
 esac
     while true; do
@@ -5359,7 +5349,7 @@ check_and_issue_ssl || return 1
 generate_vars
 vless_xhttp_udp_tls_port=$(get_available_port)
 
-cat >> /etc/xray/conf/xhttp-udp-tls.json <<EOF
+cat > /etc/xray/conf/xhttp-udp-tls.json <<EOF
 {
   "inbounds": [
  {
@@ -5447,7 +5437,7 @@ check_and_issue_ssl || return 1
 generate_vars
 vless_xhttp_tcpudp_tls_port=$(shuf -e 2053 2083 2087 2096 8443 -n 1)
 
-cat >> /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
+cat > /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
 {
   "inbounds": [
 {
