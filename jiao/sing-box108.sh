@@ -1013,6 +1013,77 @@ cf_select_zone() {
     green "Zone ID: $zone_id"
     return 0
 }
+── 拉取所有 Cloudflare DNS 解析 ──
+cf_select_all_dns_record() {
+local zones_response dns_response
+local zone_name zid
+local i=1 choice total
+local record_id record_type record_name record_content
+declare -a dns_zone_ids
+declare -a dns_record_ids
+declare -a dns_names
+declare -a dns_types
+declare -a dns_contents
+skyblue "正在获取所有 Cloudflare DNS 解析..."
+zones_response=$(cf_call GET "/zones?per_page=500")
+if ! echo "$zones_response" | jq -e '.success == true' >/dev/null 2>&1; then
+    red "获取 Cloudflare 域名失败！"
+    return 1
+fi
+echo
+skyblue "=========================================="
+skyblue "          所有 DNS 解析记录"
+skyblue "=========================================="
+while IFS='|' read -r zone_name zid; do
+    [[ -z "$zid" ]] && continue
+    dns_response=$(cf_call GET "/zones/${zid}/dns_records?per_page=500")
+    if ! echo "$dns_response" | jq -e '.success == true' >/dev/null 2>&1; then
+        continue
+    fi
+    while IFS='|' read -r record_id record_type record_name record_content; do
+        [[ -z "$record_id" ]] && continue
+        echo "  $i) [$record_type] $record_name → $record_content"
+        dns_zone_ids[$i]="$zid"
+        dns_record_ids[$i]="$record_id"
+        dns_names[$i]="$record_name"
+        dns_types[$i]="$record_type"
+        dns_contents[$i]="$record_content"
+        ((i++))
+    done < <(
+        echo "$dns_response" | jq -r \
+        '.result[] | "\(.id)|\(.type)|\(.name)|\(.content)"'
+    )
+done < <(
+    echo "$zones_response" | jq -r \
+    '.result[] | "\(.name)|\(.id)"'
+)
+total=$((i - 1))
+if [[ "$total" -lt 1 ]]; then
+    yellow "没有找到 DNS 解析记录"
+    return 1
+fi
+echo
+skyblue "=========================================="
+reading "请选择 DNS [1-$total]: " choice
+if [[ -z "$choice" ||
+      ! "$choice" =~ ^[0-9]+$ ||
+      "$choice" -lt 1 ||
+      "$choice" -gt "$total" ]]; then
+    red "无效选择！"
+    return 1
+fi
+selected_dns_zone_id="${dns_zone_ids[$choice]}"
+selected_dns_id="${dns_record_ids[$choice]}"
+selected_dns_name="${dns_names[$choice]}"
+selected_dns_type="${dns_types[$choice]}"
+selected_dns_content="${dns_contents[$choice]}"
+export selected_dns_zone_id
+export selected_dns_id
+export selected_dns_name
+export selected_dns_type
+export selected_dns_content
+return 0
+}
 # ── 获取 Cloudflare Account ID ──
 cf_get_account_id() {
     local zones
@@ -7028,34 +7099,24 @@ while true; do
     green "$domain → $raw_ip"
     ;;
 	5)
-    cf_auth_token || return 1
-    cf_select_zone || return 1
-
-    local subdomain domain
-
-    reading "请输入要删除的主机记录（例如 www，直接回车表示根域名）: " subdomain
-
-    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
-        domain="$zone_domain"
+    cf_select_all_dns_record || return 1
+    echo
+    yellow "准备删除："
+    echo "[$selected_dns_type] $selected_dns_name → $selected_dns_content"
+    local confirm
+    reading "确认删除？[y/N]: " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        response=$(cf_call DELETE \
+            "/zones/${selected_dns_zone_id}/dns_records/${selected_dns_id}")
+        if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+            green "DNS 解析删除成功"
+        else
+            red "DNS 解析删除失败"
+        fi
     else
-        domain="${subdomain}.${zone_domain}"
+        yellow "已取消删除"
     fi
-
-    cf_delete_dns "$zone_id" "$domain"
-
-    green "DNS 解析已删除：$domain"
     ;;
-        0)
-            return 0
-            ;;
-        *)
-            red "无效选择！"
-            sleep 1
-            clear
-            ;;
-    esac
-done
-;;
         5)
             clear
             yellow "\n固定隧道可为json或token，固定隧道端口为8001，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
