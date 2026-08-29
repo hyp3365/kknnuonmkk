@@ -6862,7 +6862,7 @@ manage_argo() {
     skyblue "------------"
     green "3. 重启Argo服务"
     skyblue "------------"
-    green "4. 管理CF隧道"
+    green "4. CF"
     skyblue "----------------"
 	green "5. 添加固定隧道"
     skyblue "----------------"
@@ -6905,10 +6905,13 @@ case "$auth_choice" in
 esac
 while true; do
     echo -e "${skyblue}==========================================${re}"
-    echo -e "${skyblue}        Cloudflare Tunnel 管理${re}"
+    echo -e "${skyblue}        Cloudflare ${re}"
     echo -e "${skyblue}==========================================${re}"
-    echo -e "  ${green}1)${re} 查看隧道"
-    echo -e "  ${purple}2)${re} 新建隧道"
+    green "1. 查看隧道"
+    green "2. 新建隧道"
+	green "3. 添加dns解析"
+	green "4. 修改dns解析"
+	green "5. 删除dns解析"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
@@ -6972,6 +6975,76 @@ while true; do
             reading "按回车返回..." _
             clear
             ;;
+		3)
+    cf_auth_token || return 1
+    cf_select_zone || return 1
+
+    local subdomain domain raw_ip server_ip
+
+    server_ip=$(get_realip)
+
+    echo
+    green "检测到本机公网 IP: $server_ip"
+
+    reading "请输入主机记录（例如 www，直接回车表示根域名）: " subdomain
+    reading "请输入 IP 地址（直接回车使用本机 IP）: " raw_ip
+
+    [[ -z "$raw_ip" ]] && raw_ip="$server_ip"
+
+    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
+        domain="$zone_domain"
+    else
+        domain="${subdomain}.${zone_domain}"
+    fi
+
+    cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
+
+    green "DNS 解析添加成功"
+    green "$domain → $raw_ip"
+    ;;
+	4)
+    cf_auth_token || return 1
+    cf_select_zone || return 1
+
+    local subdomain domain raw_ip
+
+    reading "请输入要修改的主机记录（例如 www，直接回车表示根域名）: " subdomain
+    reading "请输入新的 IP 地址: " raw_ip
+
+    [[ -z "$raw_ip" ]] && {
+        red "IP 地址不能为空！"
+        return 1
+    }
+
+    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
+        domain="$zone_domain"
+    else
+        domain="${subdomain}.${zone_domain}"
+    fi
+
+    cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
+
+    green "DNS 解析修改成功"
+    green "$domain → $raw_ip"
+    ;;
+	5)
+    cf_auth_token || return 1
+    cf_select_zone || return 1
+
+    local subdomain domain
+
+    reading "请输入要删除的主机记录（例如 www，直接回车表示根域名）: " subdomain
+
+    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
+        domain="$zone_domain"
+    else
+        domain="${subdomain}.${zone_domain}"
+    fi
+
+    cf_delete_dns "$zone_id" "$domain"
+
+    green "DNS 解析已删除：$domain"
+    ;;
         0)
             return 0
             ;;
