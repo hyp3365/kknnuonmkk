@@ -5524,9 +5524,52 @@ green "--------------------------------------------------"
 51)
     delete_node "_vless_tcp_reality" "/etc/sing-box/conf/xtls-reality.json" "singbox"
     ;;
-52)
-    delete_node "_hysteria2" "/etc/sing-box/conf/hysteria2.json" "singbox"
-    ;;
+52) 
+            target="_hysteria2"
+            target_conf="/etc/sing-box/conf/hysteria2.json"
+            if [ -f "$target_conf" ]; then
+				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+				
+                # 安全清理 Hysteria2 的 NAT 端口跳跃规则
+                if nft list chain ip nat prerouting &>/dev/null; then
+                    for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                        nft delete rule ip nat prerouting handle $handle 2>/dev/null
+                    done
+                fi
+                if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
+                    for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                        nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
+                    done
+                fi
+
+                # 清理入站放行规则
+                if [ -n "$hy2_port" ]; then
+                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
+                        nft delete rule inet filter input handle $handle 2>/dev/null
+                    done
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                fi
+
+                rm -f "$target_conf"
+                if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+                fi
+                restart_singbox                
+                green "==============================================="
+                green " 节点已移除!"
+                green "==============================================="
+            else
+                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+            fi
+            ;;
+
 53)
     delete_node "_tuic" "/etc/sing-box/conf/tuic.json" "singbox"
     ;;
