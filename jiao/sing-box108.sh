@@ -1013,7 +1013,7 @@ cf_select_zone() {
     green "Zone ID: $zone_id"
     return 0
 }
-── 拉取所有 Cloudflare DNS 解析 ──
+#── 拉取所有 Cloudflare DNS 解析 ──
 cf_select_all_dns_record() {
 local zones_response dns_response
 local zone_name zid
