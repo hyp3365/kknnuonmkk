@@ -4113,7 +4113,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|4|5|6|7|8|9|12)
+    1|2|3|4|5|6|7|8|9|12)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4139,6 +4139,14 @@ manage_nodes_menu() {
     1)
         default_port=$xtls_reality
         node_name="xtls + Reality"
+        ;;
+	2)
+        default_port=$hy2_port
+        node_name="xtls + Reality"
+        ;;
+    3)
+        default_port=$tuic_port
+        node_name="H2 + Reality"
         ;;
     4)
         default_port=$h2_reality
@@ -4223,6 +4231,106 @@ EOF
             url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
             restart_service="singbox"
             ;;
+		2)
+    echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
+    fi
+    yellow "正在配置 hysteria2..."
+    cat > /etc/sing-box/conf/hysteria2.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $hy2_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "ignore_client_bandwidth": false,
+      "masquerade": "https://bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "min_version": "1.3",
+        "max_version": "1.3",
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$hy2_port/udp" >/dev/null 2>&1
+    node_remark="${isp}_hysteria2"
+    url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"
+    ;;
+	3)
+    echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com"
+    fi
+    yellow "正在配置 tuic..."
+    cat > /etc/sing-box/conf/tuic.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "tuic",
+      "tag": "tuic",
+      "listen": "::",
+      "listen_port": $tuic_port,
+      "users": [
+        {
+          "uuid": "$uuid",
+          "password": "$password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$tuic_port/udp" >/dev/null 2>&1
+    node_remark="${isp}_tuic"
+    url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
+    ;;
         4)
             h2_reality=$custom_port
             cat > /etc/sing-box/conf/h2-reality.json << EOF
@@ -4531,184 +4639,6 @@ fi
 green "${node_name} 节点已添加!"
 green "节点链接: $url"
 ;;
-        2) 
-                generate_vars
-stop_nginx
-server_ip=$(get_realip)
-while true; do
-    read -rp "请输入 hysteria2 端口 (100-65535, 默认 ${hy2_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$hy2_port
-        break
-    fi
-    
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        hy2_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-echo -e "\n请选择 TLS 证书类型:"
-echo -e " 1) \e[32m使用自签名证书\e[0m"
-echo -e " 2) \e[32m使用真实域名证书\e[0m"
-read -rp "请输入数字 [1-2] (默认 1): " cert_type
-[ -z "$cert_type" ] && cert_type=1
-
-if [ "$cert_type" -eq 2 ]; then
-    if check_and_issue_ssl; then
-        cert_path="$cert_file"
-        key_path="$key_file"
-        url_param="sni=${domain}" 
-        green "=> Hysteria2 将使用域名 [ ${domain} ] 的证书配置。"
-    else
-        red "=> 证书选择已取消或申请失败，脚本退出！"
-        return 1
-    fi
-else
-    cert_path="$work_dir/cert.pem"
-    key_path="$work_dir/private.key"
-	url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
-    yellow "=> Hysteria2 已配置为使用自签名证书。"
-fi
-
-
-                yellow "正在配置 hysteria2..."
-                cat > /etc/sing-box/conf/hysteria2.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $hy2_port,
-      "users": [
-        {
-          "password": "$uuid"
-        }
-      ],
-      "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "min_version": "1.3",
-        "max_version": "1.3",
-        "certificate_path": "$cert_path",
-        "key_path": "$key_path"
-      }
-    }
-  ]
-}
-EOF
-                allow_port $hy2_port/udp > /dev/null 2>&1
-				allow_port $hy2_port/tcp > /dev/null 2>&1
-                node_remark="${isp}_hysteria2"                
-                url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"								              
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> /etc/sing-box/url.txt
-                echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                restart_nginx
-                green "==============================================="
-                green " hysteria2 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
-	    3) 
-                generate_vars
-stop_nginx
-server_ip=$(get_realip)
-while true; do
-    read -rp "请输入 tuic 端口 (1000-65535, 默认 ${tuic_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$tuic_port
-        break
-    fi
-    
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        tuic_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (1000-65535)。"
-    fi
-done
-echo -e "\n请选择 TLS 证书类型:"
-echo -e " 1) \e[32m使用自签名证书\e[0m"
-echo -e " 2) \e[32m使用真实域名证书\e[0m"
-read -rp "请输入数字 [1-2] (默认 1): " cert_type
-[ -z "$cert_type" ] && cert_type=1
-
-if [ "$cert_type" -eq 2 ]; then
-    if check_and_issue_ssl; then
-        cert_path="$cert_file"
-        key_path="$key_file"
-        url_param="sni=${domain}" 
-        green "=> TUIC 已选择使用域名 [ ${domain} ] 的证书。"
-    else
-        red "=> 证书选择已取消或申请失败，脚本退出！"
-        return 1
-    fi
-else
-    cert_path="$work_dir/cert.pem"
-    key_path="$work_dir/private.key"
-	url_param="insecure=1&sni=www.bing.com"
-    yellow "=> TUIC 已配置为使用自签名证书。"
-fi
-                yellow "正在配置 tuic..."
-                cat > /etc/sing-box/conf/tuic.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "tuic",
-      "tag": "tuic",
-      "listen": "::",
-      "listen_port": $tuic_port,
-      "users": [
-        {
-          "uuid": "$uuid",
-          "password": "$password"
-        }
-      ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-		"certificate_path": "$cert_path",
-        "key_path": "$key_path"
-      }
-    }
-  ]
-}
-EOF
-                allow_port $tuic_port/udp > /dev/null 2>&1
-				allow_port $tuic_port/tcp > /dev/null 2>&1
-                node_remark="${isp}_tuic"                
-                url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"			
-				if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> /etc/sing-box/url.txt
-                echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                restart_nginx
-                green "==============================================="
-                green " tuic 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
 		10)
     check_and_issue_ssl || return 1
     generate_vars
