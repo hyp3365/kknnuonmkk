@@ -4204,21 +4204,21 @@ manage_nodes_menu() {
         ;;
 esac
     while true; do
-        read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
-        if [ -z "$custom_port" ]; then
-            custom_port=$default_port
-            break
+    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$default_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
+        if ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
         fi
-        if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-            if ss -tuln | grep -qE ":$custom_port\b"; then
-                red "该端口已被占用，请重新输入！"
-                continue
-            fi
-            break
-        else
-            red "输入错误！请输入有效的端口号 (100-65535)。"
-        fi
-    done
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
     case "$choice" in
         1)
             xtls_reality=$custom_port
@@ -4229,7 +4229,7 @@ esac
       "type": "vless",
       "tag": "vless-reality",
       "listen": "::",
-      "listen_port": $xtls_reality,
+      "listen_port": $custom_port,
       "users": [
         {
           "uuid": "$uuid",
@@ -4254,7 +4254,7 @@ esac
 }
 EOF
             node_remark="${isp}_vless_tcp_reality"
-            url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
             restart_service="singbox"
             ;;
 		2)
@@ -4284,7 +4284,7 @@ EOF
       "type": "hysteria2",
       "tag": "hysteria2",
       "listen": "::",
-      "listen_port": $hy2_port,
+      "listen_port": $custom_port,
       "users": [
         {
           "password": "$uuid"
@@ -4304,9 +4304,9 @@ EOF
   ]
 }
 EOF
-    allow_port "$hy2_port/udp" >/dev/null 2>&1
+    allow_port "$custom_port/udp" >/dev/null 2>&1
     node_remark="${isp}_hysteria2"
-    url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"
+    url="hysteria2://${uuid}@${server_ip}:${custom_port}/?${url_param}&alpn=h3#${node_remark}"
     ;;
 	3)
     echo -e "\n请选择 TLS 证书类型:"
@@ -4335,7 +4335,7 @@ EOF
       "type": "tuic",
       "tag": "tuic",
       "listen": "::",
-      "listen_port": $tuic_port,
+      "listen_port": $custom_port,
       "users": [
         {
           "uuid": "$uuid",
@@ -4353,9 +4353,9 @@ EOF
   ]
 }
 EOF
-    allow_port "$tuic_port/udp" >/dev/null 2>&1
+    allow_port "$custom_port/udp" >/dev/null 2>&1
     node_remark="${isp}_tuic"
-    url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
+    url="tuic://${uuid}:${password}@${server_ip}:${custom_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
     ;;
         4)
             h2_reality=$custom_port
@@ -4366,7 +4366,7 @@ EOF
       "type": "vless",
       "tag": "h2-reality",
       "listen": "::",
-      "listen_port": $h2_reality,
+      "listen_port": $custom_port,
       "users": [
         {
           "uuid": "$uuid"
@@ -4402,7 +4402,7 @@ EOF
 }
 EOF
             node_remark="${isp}_vless_http_reality"
-            url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
+            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
             restart_service="singbox"
             ;;
         5)
@@ -4414,7 +4414,7 @@ EOF
       "type": "vless",
       "tag": "grpc-reality",
       "listen": "::",
-      "listen_port": $grpc_reality,
+      "listen_port": $custom_port,
       "users": [
         {
           "uuid": "$uuid"
@@ -4451,7 +4451,7 @@ EOF
 }
 EOF
             node_remark="${isp}_vless_grpc_reality"
-            url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
+            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             restart_service="singbox"
             ;;
 	    6)
@@ -4481,7 +4481,7 @@ EOF
             "type":"anytls",
             "tag":"anytls",
             "listen":"::",
-            "listen_port":$anytls_port,
+            "listen_port":$custom_port,
             "users":[
                 {
                     "password":"$password"
@@ -4506,7 +4506,7 @@ EOF
 }
 EOF
     node_remark="${isp}_anytls"
-    url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"
+    url="anytls://${password}@${server_ip}:${custom_port}?${url_param}&alpn=h3#${node_remark}"
     ;;
 	7)
     yellow "正在配置 anytls + Reality..."
@@ -4517,7 +4517,7 @@ EOF
             "type":"anytls",
             "listen":"::",
             "tag":"anytls-reality",
-            "listen_port":$anytls_reality_port,
+            "listen_port":$custom_port,
             "users":[
                 {
                     "password":"$password"
@@ -4552,7 +4552,7 @@ EOF
 }
 EOF
     node_remark="${isp}_anytls_reality"
-    url="anytls://${password}@${server_ip}:${anytls_reality_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+    url="anytls://${password}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
     ;;
 		8)
     socks_port=$custom_port
@@ -4564,7 +4564,7 @@ EOF
       "type": "socks",
       "tag": "socks-in",
       "listen": "::",
-      "listen_port": $socks_port,
+      "listen_port": $custom_port,
       "users": [
         {
           "username": "$username",
@@ -4576,7 +4576,7 @@ EOF
 }
 EOF
     node_remark="${isp}_socks5"
-    url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
+    url="socks://${username}:${password}@${server_ip}:${custom_port}#${node_remark}"
     restart_service="singbox"
     ;;
 	9)
@@ -4589,7 +4589,7 @@ EOF
       "type": "http",
       "tag": "http-in",
       "listen": "::",
-      "listen_port": $http_port,
+      "listen_port": $custom_port,
       "users": [
         {
           "username": "$username",
@@ -4601,7 +4601,7 @@ EOF
 }
 EOF
     node_remark="${isp}_http"
-    url="http://${username}:${password}@${server_ip}:${http_port}#${node_remark}"
+    url="http://${username}:${password}@${server_ip}:${custom_port}#${node_remark}"
     restart_service="singbox"
     ;;
         12)
@@ -4613,7 +4613,7 @@ EOF
     {
       "listen": "::",
       "tag": "vless-xhttp-reality",
-      "port": $xray_xhttp_reality,
+      "port": $custom_port,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -4648,7 +4648,7 @@ EOF
 }
 EOF
             node_remark="${isp}_xray_vless_xhttp_reality"
-            url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
+            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
             restart_service="xray"
             ;;
     esac
