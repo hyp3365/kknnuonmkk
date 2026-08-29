@@ -4134,32 +4134,53 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-		1) 
-                generate_vars
-                server_ip=$(get_realip)    
-echo ""
-while true; do
-    read -rp "请输入 xtls + Reality 端口 (100-65535, 默认 ${xtls_reality}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$xtls_reality
-        break
+		1|4|5|12)
+    if [[ "$choice" == "12" ]]; then
+        check_install_xray || return 1
     fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        xtls_reality=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-                yellow "正在配置 xtls + Reality ..."
-                cat > /etc/sing-box/conf/xtls-reality.json << EOF
+    generate_vars
+    server_ip=$(get_realip)
+    case "$choice" in
+        1)
+            default_port=$xtls_reality
+            node_name="xtls + Reality"
+            ;;
+        4)
+            default_port=$h2_reality
+            node_name="H2 + Reality"
+            ;;
+        5)
+            default_port=$grpc_reality
+            node_name="gRPC + Reality"
+            ;;
+        12)
+            default_port=$xray_xhttp_reality
+            node_name="Xray VLESS XHTTP Reality"
+            ;;
+    esac
+    while true; do
+        read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
+        if [ -z "$custom_port" ]; then
+            custom_port=$default_port
+            break
+        fi
+        if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
+            if ss -tuln | grep -qE ":$custom_port\b"; then
+                red "该端口已被占用，请重新输入！"
+                continue
+            fi
+            break
+        else
+            red "输入错误！请输入有效的端口号 (100-65535)。"
+        fi
+    done
+    case "$choice" in
+        1)
+            xtls_reality=$custom_port
+            cat > /etc/sing-box/conf/xtls-reality.json << EOF
 {
   "inbounds": [
-     {
+    {
       "type": "vless",
       "tag": "vless-reality",
       "listen": "::",
@@ -4187,21 +4208,170 @@ done
   ]
 }
 EOF
-          allow_port $xtls_reality/tcp > /dev/null 2>&1
-		  node_remark="${isp}_vless_tcp_reality"
-		  url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
-          if [ -f "/etc/sing-box/url.txt" ]; then
-           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
-          fi
-          echo "$url" >> "/etc/sing-box/url.txt"
-		  echo "" >> "/etc/sing-box/url.txt"
-          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-          restart_singbox 
-          green "==============================================="
-          green " xtls + Reality 节点已添加!"
-          green " 节点链接: $url"
-          green "==============================================="
+            node_remark="${isp}_vless_tcp_reality"
+            url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+            restart_service="singbox"
             ;;
+        4)
+            h2_reality=$custom_port
+            cat > /etc/sing-box/conf/h2-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "h2-reality",
+      "listen": "::",
+      "listen_port": $h2_reality,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      },
+      "transport": {
+        "type": "http"
+      },
+      "multiplex": {
+        "enabled": true,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 1000,
+          "down_mbps": 1000
+        }
+      }
+    }
+  ]
+}
+EOF
+            node_remark="${isp}_vless_http_reality"
+            url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
+            restart_service="singbox"
+            ;;
+        5)
+            grpc_reality=$custom_port
+            cat > /etc/sing-box/conf/grpc-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "grpc-reality",
+      "listen": "::",
+      "listen_port": $grpc_reality,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "grpc"
+      },
+      "multiplex": {
+        "enabled": true,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 200,
+          "down_mbps": 200
+        }
+      }
+    }
+  ]
+}
+EOF
+            node_remark="${isp}_vless_grpc_reality"
+            url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
+            restart_service="singbox"
+            ;;
+        12)
+            xray_xhttp_reality=$custom_port
+            mkdir -p /etc/xray/conf
+            cat > /etc/xray/conf/xhttp-reality.json << EOF
+{
+  "inbounds": [
+    {
+      "listen": "::",
+      "tag": "vless-xhttp-reality",
+      "port": $xray_xhttp_reality,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$uuid"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.iij.ad.jp:443",
+          "xver": 0,
+          "serverNames": [
+            "www.iij.ad.jp"
+          ],
+          "privateKey": "$private_key",
+          "shortIds": [
+            "$short_id"
+          ]
+        },
+        "xhttpSettings": {
+          "path": "/xhttp",
+          "mode": "auto"
+        }
+      }
+    }
+  ]
+}
+EOF
+            node_remark="${isp}_xray_vless_xhttp_reality"
+            url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
+            restart_service="xray"
+            ;;
+    esac
+    allow_port "$custom_port/tcp" > /dev/null 2>&1
+    if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
+    fi
+    echo "$url" >> "/etc/sing-box/url.txt"
+    echo "" >> "/etc/sing-box/url.txt"
+    base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
+    if [[ "$restart_service" == "singbox" ]]; then
+        restart_singbox
+    else
+        restart_xray
+    fi
+    green "${node_name} 节点已添加!"
+    green "节点链接: $url"
+    ;;		  
         2) 
                 generate_vars
 stop_nginx
