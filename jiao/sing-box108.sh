@@ -4037,7 +4037,43 @@ EOF
     esac
   done
 }
-
+#删除节点函数
+delete_node() {
+    local target="$1"
+    local target_conf="$2"
+    local service="$3"
+    if [ ! -f "$target_conf" ]; then
+        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+        return 1
+    fi
+    local port
+    port=$(grep -E '"listen_port"|"port"' "$target_conf" | head -1 | tr -cd '0-9')
+    if [ -n "$port" ]; then
+        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
+            nft delete rule inet filter input handle "$handle" 2>/dev/null
+        done
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+    fi
+    rm -f "$target_conf"
+    if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/${target}/d" /etc/sing-box/url.txt
+        sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+        echo "" >> /etc/sing-box/url.txt
+    fi
+    if [ -s "/etc/sing-box/url.txt" ]; then
+        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+    else
+        truncate -s 0 /etc/sing-box/sub.txt
+    fi
+    if [ "$service" = "xray" ]; then
+        restart_xray
+    else
+        restart_singbox
+    fi
+    green "==============================================="
+    green " 节点已移除!"
+    green "==============================================="
+}
 
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
@@ -5495,294 +5531,42 @@ echo "$xhttp_tcp"
 green "--------------------------------------------------"
 ;;
             # --- 完整的删除逻辑 ---
-            51) 
-			target="_vless_tcp_reality"
-            target_conf="/etc/sing-box/conf/xtls-reality.json"
-            if [ -f "$target_conf" ]; then
-			    xtls_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$xtls_reality" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$xtls_reality" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-
-            52) 
-            target="_hysteria2"
-            target_conf="/etc/sing-box/conf/hysteria2.json"
-            if [ -f "$target_conf" ]; then
-				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				
-                # 安全清理 Hysteria2 的 NAT 端口跳跃规则
-                if nft list chain ip nat prerouting &>/dev/null; then
-                    for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                        nft delete rule ip nat prerouting handle $handle 2>/dev/null
-                    done
-                fi
-                if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
-                    for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                        nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
-                    done
-                fi
-
-                # 清理入站放行规则
-                if [ -n "$hy2_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-
-			53) 
-			target="_tuic"
-            target_conf="/etc/sing-box/conf/tuic.json"
-            if [ -f "$target_conf" ]; then
-				tuic_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$tuic_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$tuic_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;	
-
-            54) 
-			target="_vless_http_reality"
-            target_conf="/etc/sing-box/conf/h2-reality.json"
-            if [ -f "$target_conf" ]; then
-			    h2_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$h2_reality" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$h2_reality" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-            55)
-            target="_vless_grpc_reality"
-            target_conf="/etc/sing-box/conf/grpc-reality.json"
-            if [ -f "$target_conf" ]; then
-			    grpc_reality=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$grpc_reality" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$grpc_reality" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-            56)
-			target="_anytls"
-            target_conf="/etc/sing-box/conf/anytls.json"
-            if [ -f "$target_conf" ]; then
-			    anytls_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$anytls_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$anytls_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-			57)
-			target="_anytls_reality"
-            target_conf="/etc/sing-box/conf/anytls-reality.json"
-            if [ -f "$target_conf" ]; then
-			    anytls_reality_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$anytls_reality_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$anytls_reality_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-            58)
-			target="_socks5"
-            target_conf="/etc/sing-box/conf/socks5.json"
-            if [ -f "$target_conf" ]; then
-			    socks_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$socks_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$socks_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-            59)
-			target="_http"
-            target_conf="/etc/sing-box/conf/http.json"
-            if [ -f "$target_conf" ]; then
-			    http_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-                if [ -n "$http_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$http_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
+51)
+    delete_node "_vless_tcp_reality" "/etc/sing-box/conf/xtls-reality.json" "singbox"
+    ;;
+52)
+    delete_node "_hysteria2" "/etc/sing-box/conf/hysteria2.json" "singbox"
+    ;;
+53)
+    delete_node "_tuic" "/etc/sing-box/conf/tuic.json" "singbox"
+    ;;
+54)
+    delete_node "_vless_http_reality" "/etc/sing-box/conf/h2-reality.json" "singbox"
+    ;;
+55)
+    delete_node "_vless_grpc_reality" "/etc/sing-box/conf/grpc-reality.json" "singbox"
+    ;;
+56)
+    delete_node "_anytls" "/etc/sing-box/conf/anytls.json" "singbox"
+    ;;
+57)
+    delete_node "_anytls_reality" "/etc/sing-box/conf/anytls-reality.json" "singbox"
+    ;;
+58)
+    delete_node "_socks5" "/etc/sing-box/conf/socks5.json" "singbox"
+    ;;
+59)
+    delete_node "_http" "/etc/sing-box/conf/http.json" "singbox"
+    ;;
+62)
+    delete_node "_xray_vless_xhttp_reality" "/etc/xray/conf/xhttp-reality.json" "xray"
+    ;;
+63)
+    delete_node "_xray_vless_xhttp_cdn" "/etc/xray/conf/xhttp-cnd.json" "xray"
+    ;;
+65)
+    delete_node "_xray_vless_xhttp_h3" "/etc/xray/conf/xhttp-udp-tls.json" "xray"
+    ;;
 		 60) 
             target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
@@ -5911,66 +5695,6 @@ green "--------------------------------------------------"
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
     fi
     ;;
-		62)
-    target="_xray_vless_xhttp_reality"
-    target_conf="/etc/xray/conf/xhttp-reality.json"
-    if [ -f "$target_conf" ]; then
-        xray_xhttp_reality=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$xray_xhttp_reality" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$xray_xhttp_reality" '$0~"dport "p {print $NF}'); do
-                nft delete rule inet filter input handle $handle 2>/dev/null
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-        fi
-        rm -f "$target_conf"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            sed -i "/${target}/d" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_xray
-        green "==============================================="
-        green " Xray VLESS XHTTP Reality 节点已移除!"
-        green "==============================================="
-    else
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-    fi
-    ;;
-	63)
-    target="_xray_vless_xhttp_cdn"
-    target_conf="/etc/xray/conf/xhttp-cnd.json"
-    if [ -f "$target_conf" ]; then
-        vless_xhttp_cdn_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$vless_xhttp_cdn_port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_port" '$0~"dport "p {print $NF}'); do
-                nft delete rule inet filter input handle $handle 2>/dev/null
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-        fi
-        rm -f "$target_conf"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            sed -i "/${target}/d" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_xray
-        green "==============================================="
-        green " 节点已移除!"
-        green "==============================================="
-    else
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-    fi
-    ;;
 	64)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
@@ -6010,36 +5734,6 @@ fi
             cf_remove_cdn_rules "$cdn_domain"
         fi
     else
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-    fi
-    ;;
-	65)
-    target="_xray_vless_xhttp_h3"
-    target_conf="/etc/xray/conf/xhttp-udp-tls.json"
-    if [ -f "$target_conf" ]; then
-        vless_xhttp_udp_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$vless_xhttp_udp_tls_port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_udp_tls_port" '$0~"dport "p {print $NF}'); do
-                nft delete rule inet filter input handle $handle 2>/dev/null
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-        fi
-        rm -f "$target_conf"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            sed -i "/${target}/d" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_xray
-        green "==============================================="
-        green " 节点已移除!"
-        green "==============================================="
-        else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
