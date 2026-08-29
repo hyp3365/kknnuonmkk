@@ -4113,7 +4113,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|4|5|8|9|12)
+    1|4|5|6|7|8|9|12)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4147,6 +4147,14 @@ manage_nodes_menu() {
     5)
         default_port=$grpc_reality
         node_name="gRPC + Reality"
+        ;;
+    6)
+        default_port=$anytls_port
+        node_name="anytls"
+        ;;
+    7)
+        default_port=$anytls_reality_port
+        node_name="anytls + Reality"
         ;;
     8)
         default_port=$socks_port
@@ -4312,6 +4320,106 @@ EOF
             url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
             restart_service="singbox"
             ;;
+	    6)
+    echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
+    fi
+    yellow "正在配置 anytls..."
+    cat > /etc/sing-box/conf/anytls.json << EOF
+{
+    "inbounds":[
+        {
+            "type":"anytls",
+            "tag":"anytls",
+            "listen":"::",
+            "listen_port":$anytls_port,
+            "users":[
+                {
+                    "password":"$password"
+                }
+            ],
+            "padding_scheme":[
+                "stop=6",
+                "0=30-50",
+                "1=80-400",
+                "2=400-500,c,500-1000,c,500-1000",
+                "3=9-9,500-1000",
+                "4=500-1000",
+                "5=500-1000"
+            ],
+            "tls":{
+                "enabled":true,
+                "certificate_path":"$cert_path",
+                "key_path":"$key_path"
+            }
+        }
+    ]
+}
+EOF
+    node_remark="${isp}_anytls"
+    url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"
+    ;;
+	7)
+    yellow "正在配置 anytls + Reality..."
+    cat > /etc/sing-box/conf/anytls-reality.json << EOF
+{
+    "inbounds":[
+        {
+            "type":"anytls",
+            "listen":"::",
+            "tag":"anytls-reality",
+            "listen_port":$anytls_reality_port,
+            "users":[
+                {
+                    "password":"$password"
+                }
+            ],
+            "padding_scheme":[
+                "stop=8",
+                "0=30-30",
+                "1=100-400",
+                "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
+                "3=9-9,500-1000",
+                "4=500-1000",
+                "5=500-1000",
+                "6=500-1000",
+                "7=500-1000"
+            ],
+            "tls":{
+                "enabled":true,
+                "server_name":"www.iij.ad.jp",
+                "reality":{
+                    "enabled":true,
+                    "handshake":{
+                        "server":"www.iij.ad.jp",
+                        "server_port":443
+                    },
+                    "private_key":"$private_key",
+                    "short_id":["$short_id"]
+                }
+            }
+        }
+    ]
+}
+EOF
+    node_remark="${isp}_anytls_reality"
+    url="anytls://${password}@${server_ip}:${anytls_reality_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+    ;;
 		8)
     socks_port=$custom_port
     yellow "正在配置 Socks5..."
@@ -4410,17 +4518,15 @@ EOF
             restart_service="xray"
             ;;
     esac
-    allow_port "$custom_port/tcp" >/dev/null 2>&1
-if [ -f "/etc/sing-box/url.txt" ]; then
-    sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
-fi
-echo "$url" >> "/etc/sing-box/url.txt"
-echo "" >> "/etc/sing-box/url.txt"
-base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-if [[ "$restart_service" == "singbox" ]]; then
-    restart_singbox
-else
+allow_port "$custom_port/tcp" >/dev/null 2>&1
+sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
+echo "$url" >> /etc/sing-box/url.txt
+echo "" >> /etc/sing-box/url.txt
+base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+if [[ "$choice" == "12" ]]; then
     restart_xray
+else
+    restart_singbox
 fi
 green "${node_name} 节点已添加!"
 green "节点链接: $url"
@@ -4603,174 +4709,6 @@ EOF
                 green " 节点链接: $url"
                 green "==============================================="
                 ;;
-			6) 
-                generate_vars
-server_ip=$(get_realip)
-while true; do
-    read -rp "请输入 anytls 端口 (100-65535, 默认 ${anytls_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$anytls_port
-        break
-    fi    
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        anytls_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-echo -e "\n请选择 TLS 证书类型:"
-echo -e " 1) \e[32m使用自签名证书\e[0m"
-echo -e " 2) \e[32m使用真实域名证书\e[0m"
-read -rp "请输入数字 [1-2] (默认 1): " cert_type
-[ -z "$cert_type" ] && cert_type=1
-if [ "$cert_type" -eq 2 ]; then
-    if check_and_issue_ssl; then
-        cert_path="$cert_file"
-        key_path="$key_file"
-        url_param="sni=${domain}" 
-        green "=> Hysteria2 将使用域名 [ ${domain} ] 的证书配置。"
-    else
-        red "=> 证书选择已取消或申请失败，脚本退出！"
-        return 1
-    fi
-else
-    cert_path="$work_dir/cert.pem"
-    key_path="$work_dir/private.key"
-	url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
-    yellow "=> Hysteria2 已配置为使用自签名证书。"
-fi
-
-
-                yellow "正在配置"
-                cat > /etc/sing-box/conf/anytls.json << EOF
-{
-    "inbounds":[
-        {
-            "type":"anytls",
-            "tag":"anytls",
-            "listen":"::",
-            "listen_port":$anytls_port,
-            "users":[
-                {
-                    "password":"$password"
-                }
-            ],
-			"padding_scheme": [
-              "stop=6",
-              "0=30-50",
-              "1=80-400",
-              "2=400-500,c,500-1000,c,500-1000",
-              "3=9-9,500-1000",
-              "4=500-1000",
-              "5=500-1000"
-             ],
-            "tls":{
-                "enabled":true,
-                "certificate_path": "$cert_path",
-                "key_path": "$key_path"
-            }
-        }
-    ]
-}
-EOF
-				allow_port $anytls_port/tcp > /dev/null 2>&1
-                node_remark="${isp}_anytls"                
-                url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"			
-				if [ -f "/etc/sing-box/url.txt" ]; then
-                    grep -q "#${isp}$" "/etc/sing-box/url.txt" && sed -i "/#${isp}$/{N;d;}" "/etc/sing-box/url.txt"
-                fi
-                echo "$url" >> /etc/sing-box/url.txt
-                echo "" >> /etc/sing-box/url.txt
-                base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                restart_singbox
-                green "==============================================="
-                green " anytls 节点已添加!"
-                green " 节点链接: $url"
-                green "==============================================="
-                ;;
-				7)
-			        generate_vars
-                server_ip=$(get_realip)    
-echo ""
-while true; do
-    read -rp "请输入 anytls + Reality 端口 (100-65535, 默认 ${anytls_reality_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$anytls_reality_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 1 ] && [ "$custom_port" -le 65535 ]; then
-        if [ -f "${conf_dir}/node_${custom_port}.json" ] || ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi      
-        anytls_reality_port=$custom_port
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-         yellow "正在配置 anytls + Reality ..."
-         cat > /etc/sing-box/conf/anytls-reality.json << EOF
-{
-    "inbounds": [
-        {
-            "type": "anytls",
-            "listen": "::",
-			"tag":"anytls-reality",
-			"listen_port":$anytls_reality_port,
-            "users": [
-                {
-                    "password": "$password"
-                }
-            ],
-            "padding_scheme": [
-                "stop=8",
-                "0=30-30",
-                "1=100-400",
-                "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
-                "3=9-9,500-1000",
-                "4=500-1000",
-                "5=500-1000",
-                "6=500-1000",
-                "7=500-1000"
-            ],
-            "tls": {
-                "enabled": true,
-                "server_name": "www.iij.ad.jp",
-                "reality": {
-                    "enabled": true,
-                    "handshake": {
-                        "server": "www.iij.ad.jp",
-                        "server_port": 443
-                    },
-                    "private_key": "$private_key",
-                    "short_id": ["$short_id"]
-                }
-            }
-        }
-    ]
-}
-EOF
-          allow_port $anytls_reality_port/tcp > /dev/null 2>&1
-		  node_remark="${isp}_anytls_reality"
-	      url="anytls://${password}@${server_ip}:${anytls_reality_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
-          if [ -f "/etc/sing-box/url.txt" ]; then
-           sed -i "/#${node_remark}$/d" "/etc/sing-box/url.txt"
-          fi
-          echo "$url" >> "/etc/sing-box/url.txt"
-		  echo "" >> "/etc/sing-box/url.txt"
-          base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-          restart_singbox 
-          green "==============================================="
-          green " anytls + Reality 节点已添加!"
-          green " 节点链接: $url"
-          green "==============================================="
-            ;;
 		10)
     check_and_issue_ssl || return 1
     generate_vars
