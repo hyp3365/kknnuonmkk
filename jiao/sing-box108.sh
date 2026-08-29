@@ -7049,52 +7049,38 @@ while true; do
 		3)
     cf_auth_token || return 1
     cf_select_zone || return 1
-
     local subdomain domain raw_ip server_ip
-
     server_ip=$(get_realip)
-
     echo
     green "检测到本机公网 IP: $server_ip"
-
     reading "请输入主机记录（例如 www，直接回车表示根域名）: " subdomain
     reading "请输入 IP 地址（直接回车使用本机 IP）: " raw_ip
-
     [[ -z "$raw_ip" ]] && raw_ip="$server_ip"
-
     if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
         domain="$zone_domain"
     else
         domain="${subdomain}.${zone_domain}"
     fi
-
     cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
-
     green "DNS 解析添加成功"
     green "$domain → $raw_ip"
     ;;
 	4)
     cf_auth_token || return 1
     cf_select_zone || return 1
-
     local subdomain domain raw_ip
-
     reading "请输入要修改的主机记录（例如 www，直接回车表示根域名）: " subdomain
     reading "请输入新的 IP 地址: " raw_ip
-
     [[ -z "$raw_ip" ]] && {
         red "IP 地址不能为空！"
         return 1
     }
-
     if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
         domain="$zone_domain"
     else
         domain="${subdomain}.${zone_domain}"
     fi
-
     cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
-
     green "DNS 解析修改成功"
     green "$domain → $raw_ip"
     ;;
