@@ -6986,7 +6986,7 @@ while true; do
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
-    reading "请输入选择 [0-3]: " cf_tunnel_choice
+    reading "请输入选择 [0-5]: " cf_tunnel_choice
     case "$cf_tunnel_choice" in
         1)
             clear
@@ -7103,6 +7103,15 @@ while true; do
         yellow "已取消删除"
     fi
     ;;
+	0)
+    break
+    ;;
+*)
+    red "无效的选项！"
+    ;;
+esac
+done
+;;
         5)
             clear
             yellow "\n固定隧道可为json或token，固定隧道端口为8001，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
