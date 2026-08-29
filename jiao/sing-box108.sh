@@ -1051,7 +1051,7 @@ while IFS='|' read -r zone_name zid; do
         ((i++))
     done < <(
         echo "$dns_response" | jq -r \
-        '.result[] | "\(.id)|\(.type)|\(.name)|\(.content)"'
+        '.result[] | select(.type == "A" or .type == "AAAA" or (.type == "CNAME" and (.content | contains("cfargotunnel.com")))) | "\(.id)|\(.type)|\(.name)|\(.content)"'
     )
 done < <(
     echo "$zones_response" | jq -r \
