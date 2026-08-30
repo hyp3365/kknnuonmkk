@@ -1220,7 +1220,6 @@ print_separator() {
 # --- 主要执行流程 ---
 
 clear
-install_quick_command
 apply_security_mitigations
 print_separator
 echo -e "\033[1;35m(☆ω☆)✧*｡ 欢迎来到 BBR 管理脚本世界哒！ ✧*｡(☆ω☆)\033[0m"
