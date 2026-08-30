@@ -814,10 +814,10 @@ async function addRule() {
     let selectedInbounds = inboundsSelect
         ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value)
         : [];
-        if (selectedInbounds.length === 0) {
-    alert('请选择生效节点');
-    return;
-}
+    if (selectedInbounds.length === 0) {
+        alert('请选择生效节点');
+        return;
+    }
 
     addBtnCooldown = true;
     btn.disabled = true;
@@ -1057,12 +1057,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(post_data)
                 req_inbounds = data.get("inbounds", [])
-if not req_inbounds:
-    self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps({"code": 1, "msg": "请选择生效节点"}, ensure_ascii=False).encode("utf-8"))
-    return
+                if not req_inbounds:
+                    self.send_no_cache_response(200, "application/json; charset=utf-8", json.dumps({"code": 1, "msg": "请选择生效节点"}, ensure_ascii=False).encode("utf-8"))
+                    return
 
-r_type = data.get("type", "domain_suffix")
-_, _, core_map = gather_nodes()
+                r_type = data.get("type", "domain_suffix")
+                _, _, core_map = gather_nodes()
                 
                 if r_type == "rule_set":
                     if any(core_map.get(ib) == "xray" for ib in req_inbounds):
