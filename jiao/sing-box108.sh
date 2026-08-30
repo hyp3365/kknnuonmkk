@@ -1247,23 +1247,40 @@ cf_create_tunnel() {
 
     # 配置 Tunnel 回源
     ingress_data=$(jq -n \
-        --arg hostname "$hostname" \
-        '{
-            config:{
-                ingress:[
-                    {
-                        hostname:$hostname,
-                        service:"http://localhost:8001",
-                        originRequest:{
-                            noTLSVerify:true
-                        }
-                    },
-                    {
-                        service:"http_status:404"
+    --arg hostname "$hostname" \
+    '{
+        config:{
+            ingress:[
+                {
+                    hostname:$hostname,
+                    path:"/asasbsbs-vmess",
+                    service:"http://localhost:8001",
+                    originRequest:{
+                        noTLSVerify:true
                     }
-                ]
-            }
-        }')
+                },
+                {
+                    hostname:$hostname,
+                    path:"/asasbsbs-vless",
+                    service:"http://localhost:8002",
+                    originRequest:{
+                        noTLSVerify:true
+                    }
+                },
+                {
+                    hostname:$hostname,
+                    path:"/asasbsbs-trojan",
+                    service:"http://localhost:8003",
+                    originRequest:{
+                        noTLSVerify:true
+                    }
+                },
+                {
+                    service:"http_status:404"
+                }
+            ]
+        }
+    }')
 
     config_response=$(cf_call PUT \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
@@ -2268,28 +2285,59 @@ cat > "${conf_dir}/outbounds.json" << EOF
 }
 EOF
 cat > "${conf_dir}/inbounds.json" << EOF
-{   
+{
     "inbounds": [
-     {
-         "type": "vmess",
-         "tag": "vmess-ws",
-         "listen": "::",
-         "listen_port": 8001, 
-         "users": [
-           {
-            "uuid": "$uuid"
-           }
-          ],
-        "transport": {
-          "type": "ws",
-          "path": "/mPaxe1996Ko-5203aap",
-          "early_data_header_name": "Sec-WebSocket-Protocol"
-         }
-       }
-     ]
- }
+        {
+            "type": "vmess",
+            "tag": "vmess-ws-argo",
+            "listen": "::",
+            "listen_port": 8001,
+            "users": [
+                {
+                    "uuid": "$uuid"
+                }
+            ],
+            "transport": {
+                "type": "ws",
+                "path": "/asasbsbs-vmess",
+                "early_data_header_name": "Sec-WebSocket-Protocol"
+            }
+        },
+        {
+            "type": "vless",
+            "tag": "vless-ws-argo",
+            "listen": "::",
+            "listen_port": 8002,
+            "users": [
+                {
+                    "uuid": "$uuid"
+                }
+            ],
+            "transport": {
+                "type": "ws",
+                "path": "/asasbsbs-vless",
+                "early_data_header_name": "Sec-WebSocket-Protocol"
+            }
+        },
+        {
+            "type": "trojan",
+            "tag": "trojan-ws-argo",
+            "listen": "::",
+            "listen_port": 8003,
+            "users": [
+                {
+                    "password": "$uuid"
+                }
+            ],
+            "transport": {
+                "type": "ws",
+                "path": "/asasbsbs-trojan",
+                "early_data_header_name": "Sec-WebSocket-Protocol"
+            }
+        }
+    ]
+}
 EOF
-
     cat > "${conf_dir}/endpoints.json" << EOF
 {
   "endpoints": [
