@@ -539,7 +539,7 @@ HTML_PAGE = """
             <div class="form-group">
                 <label>生效节点:</label>
                 <select id="new-rule-inbounds" multiple style="height: 75px;" onchange="checkXrayRuleSetRestriction()"></select>
-                <div style="font-size:11px; color:#666; margin-top:3px;">留空默认对所有Xray和Singbox节点生效 (Xray 节点不支持规则集)</div>
+                <div style="font-size:11px; color:#666; margin-top:3px;">Xray 节点不支持规则集</div>
             </div>
             <div class="form-group">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
