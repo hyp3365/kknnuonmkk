@@ -7254,6 +7254,7 @@ vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&se
 new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
 new_content="${new_content}
 ${vless_url}"
+
 # Trojan
 trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
 node_remark="${isp}_trojan-ws-argo"
