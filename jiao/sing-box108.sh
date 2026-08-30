@@ -7237,40 +7237,45 @@ ArgoDomain=$get_argodomain
 
 # 更新Argo域名到订阅
 change_argo_domain() {
-content=$(cat "$client_dir")
-vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-vmess_prefix="vmess://"
-encoded_vmess="${vmess_url#"$vmess_prefix"}"
-decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
-new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
+    content=$(cat "$client_dir")
 
-# VLESS
-vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
-node_remark="${isp}_vless-ws-argo"
-vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
-new_content="${new_content}
-${vless_url}"
+    vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
+    vmess_prefix="vmess://"
+    encoded_vmess="${vmess_url#"$vmess_prefix"}"
+    decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
+    updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
+    encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
+    new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
+    new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 
-# Trojan
-trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
-node_remark="${isp}_trojan-ws-argo"
-trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://')
-new_content="${new_content}
-${trojan_url}"
+    if [[ "$1" == "vmess" ]]; then
+        echo "$new_content" > "$client_dir"
+        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+        green "Argo VMess节点已更新："
+        purple "$new_vmess_url"
+        return
+    fi
 
-echo "$new_content" > "$client_dir"
+    vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
+    node_remark="${isp}_vless-ws-argo"
+    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
+    new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
+    new_content="${new_content}
+    ${vless_url}"
 
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
+    trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
+    node_remark="${isp}_trojan-ws-argo"
+    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
+    new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://')
+    new_content="${new_content}
+    ${trojan_url}"
 
-green "Argo节点已更新，更新订阅或手动复制以下节点："
-purple "$new_vmess_url"
-purple "$vless_url"
-purple "$trojan_url"
+    echo "$new_content" > "$client_dir"
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+    green "Argo节点已更新，更新订阅或手动复制以下节点："
+    purple "$new_vmess_url"
+    purple "$vless_url"
+    purple "$trojan_url"
 }
 
 # 查看节点信息和订阅链接
