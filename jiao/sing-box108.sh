@@ -1032,7 +1032,7 @@ if ! echo "$zones_response" | jq -e '.success == true' >/dev/null 2>&1; then
 fi
 echo
 skyblue "=========================================="
-skyblue "          A解析 AAAA继续 隧道解析"
+skyblue "          A   AAAA   隧道解析"
 skyblue "=========================================="
 while IFS='|' read -r zone_name zid; do
     [[ -z "$zid" ]] && continue
