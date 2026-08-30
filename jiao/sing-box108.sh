@@ -4090,40 +4090,40 @@ EOF
 }
 #删除节点函数
 delete_node() {
-    local target="$1"
-    local target_conf="$2"
-    local service="$3"
-    if [ ! -f "$target_conf" ]; then
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-        return 1
-    fi
-    local port
-    port=$(grep -E '"listen_port"|"port"' "$target_conf" | head -1 | tr -cd '0-9')
-    if [ -n "$port" ]; then
-        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
-            nft delete rule inet filter input handle "$handle" 2>/dev/null
-        done
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-    fi
-    rm -f "$target_conf"
-    if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/${target}/d" /etc/sing-box/url.txt
-        sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-        echo "" >> /etc/sing-box/url.txt
-    fi
-    if [ -s "/etc/sing-box/url.txt" ]; then
-        base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-    else
-        truncate -s 0 /etc/sing-box/sub.txt
-    fi
-    if [ "$service" = "xray" ]; then
-        restart_xray
-    else
-        restart_singbox
-    fi
-    green "==============================================="
-    green " 节点已移除!"
-    green "==============================================="
+local target="$1"
+local target_conf="$2"
+local service="$3"
+if [ ! -f "$target_conf" ]; then
+    red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    return 1
+fi
+local port
+port=$(grep -E '"listen_port"|"port"' "$target_conf" | head -1 | tr -cd '0-9')
+if [ -n "$port" ] && [ "$port" != "443" ]; then
+    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
+        nft delete rule inet filter input handle "$handle" 2>/dev/null
+    done
+    nft list ruleset > /etc/nftables.conf 2>/dev/null
+fi
+rm -f "$target_conf"
+if [ -f "/etc/sing-box/url.txt" ]; then
+    sed -i "/${target}/d" /etc/sing-box/url.txt
+    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+    echo "" >> /etc/sing-box/url.txt
+fi
+if [ -s "/etc/sing-box/url.txt" ]; then
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+else
+    truncate -s 0 /etc/sing-box/sub.txt
+fi
+if [ "$service" = "xray" ]; then
+    restart_xray
+else
+    restart_singbox
+fi
+green "==============================================="
+green " 节点已移除!"
+green "==============================================="
 }
 
 manage_nodes_menu() {
