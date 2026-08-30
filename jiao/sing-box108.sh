@@ -8359,7 +8359,9 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing.sh)
 		   ;;
 		9) manage_nodes_menu ;;
-	    10) bbr_menu ;;
+	    10) clear
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/bbr.sh)
+		   ;;
 		11) update_script ;;
 		12) iptables_ssl ;;
 		13) 
