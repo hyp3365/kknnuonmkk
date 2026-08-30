@@ -7255,12 +7255,12 @@ change_argo_domain() {
     # 获取 VLESS 节点
     vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
     node_remark_vless="${isp}_vless-ws-argo"
-    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark_vless}"
+    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark_vless}"
 
     # 获取 Trojan 节点
     trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
     node_remark_trojan="${isp}_trojan-ws-argo"
-    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark_trojan}"
+    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?ed=2560&eh=Sec-WebSocket-Protocol&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark_trojan}"
 
     # 在文件末尾追加：中间隔一个空行，末尾增加一个空行
     printf "\n%s\n\n%s\n\n" "$vless_url" "$trojan_url" >> "$client_dir"
