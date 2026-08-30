@@ -2260,7 +2260,7 @@ cat > "${conf_dir}/outbounds.json" << EOF
     },
 	{
       "type": "socks",
-      "tag": "wireproxy",
+      "tag": "warp-40000",
       "server": "127.0.0.1",
       "server_port": 40000
     }
