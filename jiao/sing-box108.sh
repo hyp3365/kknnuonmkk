@@ -1640,8 +1640,7 @@ EOF
         --auto-upgrade >/dev/null 2>&1
     return 0
 }
-
-# Cloudflare申请证书
+#证书申请
 issue_cf_dns_cert() {
     case "$CF_AUTH_TYPE" in
         token)
@@ -1661,7 +1660,6 @@ issue_cf_dns_cert() {
             return 1
             ;;
     esac
-    # 自动拉取 Zone
     cf_select_zone || return 1
     echo
     echo "=========================================="
@@ -1687,36 +1685,13 @@ issue_cf_dns_cert() {
             }
             prefix="${prefix%.}"
             if [[ ! "$prefix" =~ ^[a-zA-Z0-9-]+$ ]]; then
-                red "前缀格式无效！"
+                red "前缀只能是单段, 不能包含点号！"
                 return 1
             fi
             cert_domain="${prefix}.${zone_domain}"
             ;;
         3)
-            local wildcard_prefix
-            reading "请输入泛域名，例如 * 或 *.ab: " wildcard_prefix
-            wildcard_prefix=$(echo "$wildcard_prefix" | tr -d '[:space:]')
-            [[ -z "$wildcard_prefix" ]] && {
-                red "泛域名不能为空！"
-                return 1
-            }
-            if [[ "$wildcard_prefix" == "*" ]]; then
-                cert_domain="*.${zone_domain}"
-            elif [[ "$wildcard_prefix" == \*.* ]]; then
-                wildcard_prefix="${wildcard_prefix#*.}"
-                if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-                    red "泛域名格式无效！"
-                    return 1
-                fi
-                cert_domain="*.${wildcard_prefix}.${zone_domain}"
-            else
-                if [[ ! "$wildcard_prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-                    red "泛域名格式无效！"
-                    return 1
-                fi
-                cert_domain="*.${wildcard_prefix}.${zone_domain}"
-
-            fi
+            cert_domain="*.${zone_domain}"
             ;;
         *)
             red "无效选择！"
@@ -1743,7 +1718,7 @@ issue_cf_dns_cert() {
     fi
     if [[ "$CF_AUTH_TYPE" == "token" ]]; then
         export CF_Token="$CF_TOKEN"
-     skyblue "当前使用 Cloudflare API Token"
+        skyblue "当前使用 Cloudflare API Token"
     elif [[ "$CF_AUTH_TYPE" == "global" ]]; then
         export CF_Email="$CF_EMAIL"
         export CF_Key="$CF_KEY"
@@ -1779,6 +1754,10 @@ issue_cf_dns_cert() {
             domain="$cert_domain"
             cert_file="${save_path}/fullchain.pem"
             key_file="${save_path}/privkey.pem"
+            raw_ip=$(get_realip)
+            if [[ -n "$raw_ip" ]]; then
+            cf_upsert_dns "$zone_id" "$cert_domain" "$raw_ip"
+            fi
             green "=========================================="
             green "证书申请成功！"
             green "=========================================="
@@ -1800,6 +1779,7 @@ issue_cf_dns_cert() {
         return 1
     fi
 }
+
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
