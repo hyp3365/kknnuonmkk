@@ -5594,11 +5594,11 @@ green "--------------------------------------------------"
                 fi
 
                 # 清理入站放行规则
-                if [ -n "$hy2_port" ]; then
-                    for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                if [ -n "$hy2_port" ] && [ "$hy2_port" != "443" ]; then
+                 for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
+                 nft delete rule inet filter input handle $handle 2>/dev/null
+                done
+                nft list ruleset > /etc/nftables.conf 2>/dev/null
                 fi
 
                 rm -f "$target_conf"
