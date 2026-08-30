@@ -814,6 +814,10 @@ async function addRule() {
     let selectedInbounds = inboundsSelect
         ? Array.from(inboundsSelect.selectedOptions).map(opt => opt.value)
         : [];
+        if (selectedInbounds.length === 0) {
+    alert('请选择生效节点');
+    return;
+}
 
     addBtnCooldown = true;
     btn.disabled = true;
