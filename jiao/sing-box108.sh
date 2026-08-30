@@ -7172,19 +7172,22 @@ EOF
             fi
             ;; 
         6)
-            clear
-            if command_exists rc-service 2>/dev/null; then
-                alpine_openrc_services
-            else
-                main_systemd_services
-            fi
-			systemctl enable argo-watchdog &>/dev/null
-            systemctl daemon-reload &>/dev/null 
-            systemctl restart argo-watchdog &>/dev/null
-            get_quick_tunnel
-            change_argo_domain 
-            ;; 
-
+    clear
+    if command_exists rc-service 2>/dev/null; then
+        alpine_openrc_services
+    else
+        main_systemd_services
+    fi
+    systemctl enable argo-watchdog &>/dev/null
+    systemctl daemon-reload &>/dev/null 
+    systemctl restart argo-watchdog &>/dev/null
+    get_quick_tunnel
+    content=$(cat "$client_dir")
+    content=$(printf '%s\n' "$content" | grep -v '_vless-ws-argo')
+    content=$(printf '%s\n' "$content" | grep -v '_trojan-ws-argo')
+    echo "$content" > "$client_dir"
+    change_argo_domain
+    ;;
         7)  
             if command_exists rc-service 2>/dev/null; then
                 if grep -Fq -- '--url http://localhost' "/etc/init.d/argo"; then
@@ -7247,15 +7250,14 @@ new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 # VLESS
 vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
 node_remark="${isp}_vless-ws-argo"
-vless_url="vless://${vless_uuid}@${ArgoDomain}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
+vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
 new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
 new_content="${new_content}
 ${vless_url}"
-
 # Trojan
 trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
 node_remark="${isp}_trojan-ws-argo"
-trojan_url="trojan://${trojan_password}@${ArgoDomain}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
+trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
 new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://')
 new_content="${new_content}
 ${trojan_url}"
