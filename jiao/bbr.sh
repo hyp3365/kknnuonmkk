@@ -99,6 +99,54 @@ revert_to_official_kernel_and_uninstall_bbrv3() {
     fi
 }
 
+install_official_kernel_bbr3() {
+    echo -e "\033[36m正在准备安装支持 BBR3 的官方高版本内核...\033[0m"
+    sudo apt-get update -y
+    
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    local arch
+    arch=$(uname -m)
+
+    if [[ "$ID" == "ubuntu" ]]; then
+        echo -e "\033[36m正在为 Ubuntu 安装最新的 HWE 内核 (通常包含最新的 BBR 补丁)...\033[0m"
+        sudo apt-get install --install-recommends -y linux-generic-hwe-22.04 || sudo apt-get install -y linux-image-generic
+    elif [[ "$ID" == "debian" ]]; then
+        echo -e "\033[36m正在为 Debian 启用 backports 源并安装最新内核...\033[0m"
+        if grep -q "bullseye" /etc/os-release; then
+            echo "deb http://deb.debian.org/debian bullseye-backports main" | sudo tee /etc/apt/sources.list.d/backports.list
+        elif grep -q "bookworm" /etc/os-release; then
+            echo "deb http://deb.debian.org/debian bookworm-backports main" | sudo tee /etc/apt/sources.list.d/backports.list
+        fi
+        sudo apt-get update -y
+        
+        # 尝试通过 lsb_release 获取版本代号，若失败则回退默认包名
+        local codename
+        codename=$(lsb_release -cs 2>/dev/null || awk -F= '/^VERSION_CODENAME=/{print $2}' /etc/os-release)
+        
+        if [[ "$arch" == "x86_64" ]]; then
+            sudo apt-get install -t "${codename}-backports" -y linux-image-amd64 linux-headers-amd64 2>/dev/null || sudo apt-get install -y linux-image-amd64
+        elif [[ "$arch" == "aarch64" ]]; then
+            sudo apt-get install -t "${codename}-backports" -y linux-image-arm64 linux-headers-arm64 2>/dev/null || sudo apt-get install -y linux-image-arm64
+        fi
+    else
+        echo -e "\033[33m未能精准识别发行版，尝试通用安装命令...\033[0m"
+        sudo apt-get install -y linux-image-generic || sudo apt-get install -y linux-image-amd64
+    fi
+
+    echo -e "\033[36m正在更新引导加载程序...\033[0m"
+    if command -v update-grub &> /dev/null; then
+        sudo update-grub
+    fi
+
+    echo -e "\033[1;32m内核安装执行完毕！(由于不同发行版的官方编译策略，若原生仍未带BBRv3，请考虑 Xanmod 源)\033[0m"
+    echo -n -e "\033[33m是否立即重启系统以应用新内核？ (y/n): \033[0m"
+    read -r REBOOT_NOW
+    if [[ "$REBOOT_NOW" == "y" || "$REBOOT_NOW" == "Y" ]]; then
+        sudo reboot
+    fi
+}
+
 # ================= 网络优化与测速功能 =================
 
 clean_sysctl_conf() {
@@ -302,6 +350,24 @@ select_tuning_rtt() {
     done
 }
 
+load_qdisc_module() {
+    local qdisc_name="$1"
+    local module_name="sch_$qdisc_name"
+
+    [[ "$qdisc_name" == "fq" ]] && return 0
+
+    if lsmod | grep -q "^${module_name//-/_}"; then
+        return 0
+    fi
+
+    if modinfo "$module_name" > /dev/null 2>&1; then
+        sudo modprobe "$module_name" 2>/dev/null
+        return $?
+    fi
+
+    return 1
+}
+
 apply_smart_bandwidth_tuning() {
     local upload_mbps=""
     local download_mbps=""
@@ -312,7 +378,10 @@ apply_smart_bandwidth_tuning() {
     local smart_qdisc="fq"
 
     echo -e "\033[36m正在准备 BBR 智能带宽优化...\033[0m"
-    load_qdisc_module "$smart_qdisc"
+    if ! load_qdisc_module "$smart_qdisc"; then
+        echo -e "\033[31m✘ 错误：当前内核不支持或缺失 $smart_qdisc 模块。\033[0m"
+        return 1
+    fi
     sudo sysctl -w net.core.default_qdisc="$smart_qdisc" > /dev/null
     sudo sysctl -w net.ipv4.tcp_congestion_control="$smart_algo" > /dev/null
 
@@ -352,7 +421,10 @@ apply_extreme_speedtest_tuning() {
     local buffer_bytes="1073741824"
 
     echo -e "\033[36m正在应用极限测速挑战模式...\033[0m"
-    load_qdisc_module "$extreme_qdisc"
+    if ! load_qdisc_module "$extreme_qdisc"; then
+        echo -e "\033[31m✘ 错误：当前内核不支持或缺失 $extreme_qdisc 模块。\033[0m"
+        return 1
+    fi
     sudo sysctl -w net.core.default_qdisc="$extreme_qdisc" > /dev/null
     sudo sysctl -w net.ipv4.tcp_congestion_control="$extreme_algo" > /dev/null
 
@@ -374,14 +446,6 @@ clear_network_optimizations() {
     sudo rm -f "$SECURITY_MODPROBE_CONF"
     sudo sysctl --system > /dev/null 2>&1 || true
     echo -e "\033[1;32m✔ 已清空所有关联的网络优化持久配置\033[0m"
-}
-
-load_qdisc_module() {
-    local qdisc_name="$1"
-    local module_name="sch_$qdisc_name"
-    if ! lsmod | grep -q "^${module_name//-/_}"; then
-        sudo modprobe "$module_name" 2>/dev/null || true
-    fi
 }
 
 ensure_iproute2_tools() {
@@ -415,8 +479,13 @@ persist_qdisc_module() {
 }
 
 ask_to_save() {
-    load_qdisc_module "$QDISC"
     echo -e "\033[36m正在应用配置...\033[0m"
+    
+    if ! load_qdisc_module "$QDISC"; then
+        echo -e "\033[31m✘ 错误：当前内核不支持或缺失 $QDISC 模块，配置应用终止！\033[0m"
+        return 1
+    fi
+
     sudo sysctl -w net.core.default_qdisc="$QDISC" > /dev/null 2>&1
     sudo sysctl -w net.ipv4.tcp_congestion_control="$ALGO" > /dev/null 2>&1
     apply_qdisc_to_active_interfaces "$QDISC" || return 1
@@ -466,8 +535,9 @@ echo -e "\033[33m 7. 🌏 亚太机器 TCP 调优\033[0m"
 echo -e "\033[33m 8. 🧠 BBR 智能带宽优化\033[0m"
 echo -e "\033[33m 9. 🧹 清空网络优化配置\033[0m"
 echo -e "\033[33m10. 🧨 BBR 疯批模式（极限测速挑战）\033[0m"
+echo -e "\033[33m11. 🚀 安装支持 BBRv3 的官方/高版本稳定内核\033[0m"
 print_separator
-echo -n -e "\033[36m请选择一个操作 (1-10): \033[0m"
+echo -n -e "\033[36m请选择一个操作 (1-11): \033[0m"
 read -r ACTION
 
 case "$ACTION" in
@@ -505,6 +575,6 @@ case "$ACTION" in
     8) apply_smart_bandwidth_tuning ;;
     9) clear_network_optimizations ;;
     10) apply_extreme_speedtest_tuning ;;
-    *) echo -e "\033[31m无效的选项，请输入 1-10 之间的数字。\033[0m" ;;
+    11) install_official_kernel_bbr3 ;;
+    *) echo -e "\033[31m无效的选项，请输入 1-11 之间的数字。\033[0m" ;;
 esac
-
