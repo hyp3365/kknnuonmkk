@@ -7242,7 +7242,6 @@ ArgoDomain=$get_argodomain
 change_argo_domain() {
     generate_vars
     content=$(cat "$client_dir")
-
     vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir" | head -n1)
     vmess_prefix="vmess://"
     encoded_vmess="${vmess_url#"$vmess_prefix"}"
@@ -7251,36 +7250,30 @@ change_argo_domain() {
     encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
     new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
     new_content=$(printf '%s\n' "$content" | sed "s|$vmess_url|$new_vmess_url|")
-	
-    new_content=$(printf '%s\n' "$new_content" | grep -v '_vless-ws-argo' | grep -v '_trojan-ws-argo')
-
-    new_content=$(printf '%s\n' "$new_content" | sed ':a;/^[[:space:]]*$/{$d;N;ba}')
 
     # VLESS
-vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
-node_remark="${isp}_vless-ws-argo"
-vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
-new_content="${new_content}
-${vless_url}"
+    vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
+    node_remark="${isp}_vless-ws-argo"
+    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
 
-# Trojan
-trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
-node_remark="${isp}_trojan-ws-argo"
-trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://')
-new_content="${new_content}
+    # Trojan
+    trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
+    node_remark="${isp}_trojan-ws-argo"
+    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
+
+    
+    new_content="${new_content}
+${vless_url}
+
 ${trojan_url}
+
 "
 
-echo "$new_content" > "$client_dir"
+    echo "$new_content" > "$client_dir"
 
-base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
 
-green "Argo节点已更新，更新订阅或手动复制以下节点："
-purple "$new_vmess_url"
-purple "$vless_url"
-purple "$trojan_url"
+    green "Argo节点已更新，更新订阅或手动复制节点"
 }
 
 # 查看节点信息和订阅链接
