@@ -79,24 +79,6 @@ check_release_api_response() {
     fi
 }
 
-install_quick_command() {
-    if [[ "${BBRV3_SKIP_QUICK_COMMAND:-0}" == "1" ]]; then
-        return 0
-    fi
-
-    if sudo tee "$QUICK_COMMAND_PATH" > /dev/null <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-export BBRV3_SKIP_QUICK_COMMAND=1
-exec bash <(curl -fsSL "$INSTALL_SCRIPT_URL")
-EOF
-    then
-        sudo chmod 755 "$QUICK_COMMAND_PATH"
-    else
-        echo -e "\033[33m提示：快捷命令 b 安装失败，不影响当前脚本运行。\033[0m"
-    fi
-}
-
 version_ge() {
     local current="$1"
     local required="$2"
