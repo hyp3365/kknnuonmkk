@@ -7243,37 +7243,23 @@ updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host
 encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
 new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
 new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-# VLESS
-vless_url=$(grep -o 'vless://[^ ]*' "$client_dir" | head -n1)
-if [[ -n "$vless_url" ]]; then
-    vless_url=$(echo "$vless_url" | sed \
-        -E "s#@[^:/?]+:#@${ArgoDomain}:#")
-    vless_url=$(echo "$vless_url" | sed \
-        -E "s#path=[^&]*#path=%2Fasasbsbs-vless#")
-    vless_url=$(echo "$vless_url" | sed \
-        -E "s#sni=[^&]*#sni=${ArgoDomain}#")
-    new_content=$(echo "$new_content" | sed \
-        "s|$(grep -o 'vless://[^ ]*' "$client_dir" | head -n1)|$vless_url|")
-fi
-# Trojan
-trojan_url=$(grep -o 'trojan://[^ ]*' "$client_dir" | head -n1)
-if [[ -n "$trojan_url" ]]; then
-    trojan_url=$(echo "$trojan_url" | sed \
-        -E "s#@[^:/?]+:#@${ArgoDomain}:#")
-    trojan_url=$(echo "$trojan_url" | sed \
-        -E "s#path=[^&]*#path=%2Fasasbsbs-trojan#")
-    trojan_url=$(echo "$trojan_url" | sed \
-        -E "s#sni=[^&]*#sni=${ArgoDomain}#")
-    new_content=$(echo "$new_content" | sed \
-        "s|$(grep -o 'trojan://[^ ]*' "$client_dir" | head -n1)|$trojan_url|")
-fi
-echo "$new_content" > "$client_dir"
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-green "vmess节点已更新,更新订阅或手动复制以下vmess-argo节点\n"
-purple "$new_vmess_url\n"
 
-[[ -n "$vless_url" ]] && purple "$vless_url\n"
-[[ -n "$trojan_url" ]] && purple "$trojan_url\n"
+# VLESS
+vless_url="vless://${uuid}@${ArgoDomain}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#vless-argo"
+new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://' ; printf '%s\n' "$vless_url")
+
+# Trojan
+trojan_url="trojan://${uuid}@${ArgoDomain}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#trojan-argo"
+new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://' ; printf '%s\n' "$trojan_url")
+
+echo "$new_content" > "$client_dir"
+
+base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
+
+green "Argo节点已更新，更新订阅或手动复制以下节点："
+purple "$new_vmess_url"
+purple "$vless_url"
+purple "$trojan_url"
 }
 
 # 查看节点信息和订阅链接
