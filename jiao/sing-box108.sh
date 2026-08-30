@@ -7245,12 +7245,20 @@ new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
 new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
 
 # VLESS
-vless_url="vless://${uuid}@${ArgoDomain}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#vless-argo"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://' ; printf '%s\n' "$vless_url")
+vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
+node_remark="${isp}_vless-ws-argo"
+vless_url="vless://${vless_uuid}@${ArgoDomain}:443?encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark}"
+new_content=$(printf '%s\n' "$new_content" | grep -v '^vless://')
+new_content="${new_content}
+${vless_url}"
 
 # Trojan
-trojan_url="trojan://${uuid}@${ArgoDomain}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#trojan-argo"
-new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://' ; printf '%s\n' "$trojan_url")
+trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
+node_remark="${isp}_trojan-ws-argo"
+trojan_url="trojan://${trojan_password}@${ArgoDomain}:443?security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark}"
+new_content=$(printf '%s\n' "$new_content" | grep -v '^trojan://')
+new_content="${new_content}
+${trojan_url}"
 
 echo "$new_content" > "$client_dir"
 
