@@ -268,8 +268,8 @@ get_realip() {
     fi
 }
 ip_address() {
-    ipv4_address=$(curl -s -m 2 ipv4.ip.sb)
-    ipv6_address=$(curl -s -m 2 ipv6.ip.sb)
+    ipv4_address=$(curl -s -m 3 ipv4.ip.sb)
+    ipv6_address=$(curl -s -m 3 ipv6.ip.sb)
 }
 nginx_get_domain() {
     local file="$1"
@@ -835,34 +835,21 @@ cf_tunnel_detail() {
             ;;
     esac
 }
-# ── 自动识别当前 VPS Tunnel 并添加路由 ──
-# ── 自动识别当前 VPS Tunnel 并添加路由 ──
+# ── 添加 Cloudflare Tunnel 路由 ──
 cf_add_tunnel_route() {
-    local port
-    local token tunnel_id server_ip
+    local port token tunnel_id server_ip
     local tunnel_data tunnel_name tunnel_status
-    local connections
-    local zone_response
-    local domain zone_id
-    local prefix hostname
+    local connections zone_response
+    local domain zone_id prefix hostname
     local config_data ingress new_config response
-    local i choice total
-    local account_response
-
+    local account_response choice i total
     declare -a zone_names
     declare -a zone_ids
-
-    # ── 检查 Cloudflare API 认证 ──
-    if [[ -z "$CF_TOKEN" &&
-          ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
+    if [[ -z "$CF_TOKEN" && ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
         red "未配置 Cloudflare API 信息！"
         return 1
     fi
-
-    # ── 获取 Account ID ──
     if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        skyblue "正在获取 Cloudflare Account ID..."
-
         if [[ -n "$CF_TOKEN" ]]; then
             account_response=$(curl -sS \
                 "https://api.cloudflare.com/client/v4/accounts" \
@@ -875,244 +862,120 @@ cf_add_tunnel_route() {
                 -H "X-Auth-Key: $CF_KEY" \
                 -H "Content-Type: application/json")
         fi
-
-        CF_ACCOUNT_ID=$(echo "$account_response" |
-            jq -r '.result[0].id // empty')
-
+        CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
         if [[ -z "$CF_ACCOUNT_ID" ]]; then
             red "获取 Cloudflare Account ID 失败！"
             return 1
         fi
-
         export CF_ACCOUNT_ID
     fi
-
-    # ── 输入端口 ──
     reading "请输入程序端口: " port
-
-    if [[ -z "$port" ||
-          ! "$port" =~ ^[0-9]+$ ||
-          "$port" -lt 1 ||
-          "$port" -gt 65535 ]]; then
+    if [[ -z "$port" || ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
         red "端口无效！"
         return 1
     fi
-
-    # ── 读取 Argo Token ──
     if [[ ! -f "/etc/systemd/system/argo.service" ]]; then
-        red "未找到 /etc/systemd/system/argo.service！"
+        red "未找到 argo.service！"
         return 1
     fi
-
-    token=$(grep -oP -- '--token \K[^ ]+' \
-        /etc/systemd/system/argo.service | head -n1)
-
+    token=$(grep -oP -- '--token \K[^ ]+' /etc/systemd/system/argo.service | head -n1)
     if [[ -z "$token" ]]; then
-        red "无法从 argo.service 获取 Tunnel Token！"
+        red "无法获取 Tunnel Token！"
         return 1
     fi
-
-    # ── 从 Token 获取 Tunnel ID ──
-    tunnel_id=$(echo "$token" |
-        base64 -d 2>/dev/null |
-        jq -r '.t // empty' 2>/dev/null)
-
+    tunnel_id=$(echo "$token" | base64 -d 2>/dev/null | jq -r '.t // empty' 2>/dev/null)
     if [[ -z "$tunnel_id" ]]; then
-        red "无法从 Tunnel Token 获取 Tunnel ID！"
+        red "无法获取 Tunnel ID！"
         return 1
     fi
-
-    # ── 获取 VPS 公网 IP ──
-    server_ip=$(curl -4 -sL \
-        --connect-timeout 5 \
-        ip.sb 2>/dev/null |
-        tr -d '[:space:]')
-
-    if [[ -z "$server_ip" ]]; then
+    tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
+    if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
+        red "Tunnel 不存在或无权访问！"
+        return 1
+    fi
+    tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
+    tunnel_status=$(echo "$tunnel_data" | jq -r '.result.status // "unknown"')
+    ip_address
+    if [[ -z "$ipv4_address" && -z "$ipv6_address" ]]; then
         red "无法获取 VPS 公网 IP！"
         return 1
     fi
-
-    # ── 通过 Tunnel ID 查询 Tunnel ──
-    skyblue "正在识别当前 VPS 的 Cloudflare Tunnel..."
-
-    tunnel_data=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
-        2>/dev/null)
-
-    if [[ "$(echo "$tunnel_data" |
-        jq -r '.success // false')" != "true" ]]; then
-
-        red "Tunnel ID 无效或 Tunnel 不存在！"
+    connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
+    if [[ "$(echo "$connections" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Tunnel 连接失败！"
         return 1
     fi
-
-    tunnel_name=$(echo "$tunnel_data" |
-        jq -r '.result.name // "-"')
-
-    tunnel_status=$(echo "$tunnel_data" |
-        jq -r '.result.status // "unknown"')
-
-    # ── 通过 VPS IP 验证 Tunnel ──
-    connections=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" \
-        2>/dev/null)
-
-    if [[ "$(echo "$connections" |
-        jq -r '.success // false')" != "true" ]]; then
-
-        red "无法获取 Tunnel 连接信息！"
-        return 1
-    fi
-
-    if ! echo "$connections" |
-        jq -e --arg ip "$server_ip" \
-        'any(.result[]?.conns[]?.origin_ip; . == $ip)' \
+    if ! echo "$connections" | jq -e \
+        --arg ipv4 "$ipv4_address" \
+        --arg ipv6 "$ipv6_address" \
+        'any(.result[]?.conns[]?.origin_ip; (. == $ipv4 and $ipv4 != "") or (. == $ipv6 and $ipv6 != ""))' \
         >/dev/null 2>&1; then
-
-        red "Tunnel 验证失败！"
-        red "Tunnel ID 与当前 VPS IP 不匹配。"
-
-        echo "当前 VPS IP: $server_ip"
-        echo "Tunnel 连接 IP:"
-
-        echo "$connections" |
-            jq -r '.result[]?.conns[]?.origin_ip // empty' |
-            sort -u |
-            sed 's/^/  /'
-
+        red "Tunnel 与当前 VPS IP 不匹配！"
         return 1
     fi
-
-    green "已找到当前 VPS 对应的 Tunnel！"
-
-    # ── 拉取 Cloudflare 域名 ──
-    skyblue "正在拉取 Cloudflare 域名..."
-
-    zone_response=$(cf_call GET \
-        "/zones?per_page=500" \
-        2>/dev/null)
-
-    if [[ "$(echo "$zone_response" |
-        jq -r '.success // false')" != "true" ]]; then
-
+    green "已找到当前 VPS Tunnel"
+    echo "Tunnel: $tunnel_name"
+    echo "ID: $tunnel_id"
+    if [[ -n "$ipv4_address" ]]; then
+        echo "IPv4: $ipv4_address"
+    fi
+    if [[ -n "$ipv6_address" ]]; then
+        echo "IPv6: $ipv6_address"
+    fi
+    zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
+    if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Cloudflare 域名失败！"
-        echo "$zone_response" |
-            jq -r '.errors[]?.message // empty'
         return 1
     fi
-
-    # ── 显示域名 ──
     i=1
-
-    echo
-    echo "=========================================="
-    skyblue "请选择域名："
-    echo "=========================================="
-
     while IFS='|' read -r domain zone_id; do
         [[ -z "$domain" || -z "$zone_id" ]] && continue
-
-        echo "  $i) $domain"
-
+        echo "$i) $domain"
         zone_names[$i]="$domain"
         zone_ids[$i]="$zone_id"
-
         ((i++))
-    done < <(
-        echo "$zone_response" |
-            jq -r '.result[]? | "\(.name)|\(.id)"'
-    )
-
+    done < <(echo "$zone_response" | jq -r '.result[]? | "\(.name)|\(.id)"')
     total=$((i - 1))
-
     [[ "$total" -lt 1 ]] && {
-        red "没有找到 Cloudflare 托管域名！"
+        red "没有找到 Cloudflare 域名！"
         return 1
     }
-
-    echo "=========================================="
-
-    reading "请输入数字选择 [1-$total]: " choice
-
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-
+    reading "请选择域名 [1-$total]: " choice
+    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
         red "无效选择！"
         return 1
     fi
-
     domain="${zone_names[$choice]}"
     zone_id="${zone_ids[$choice]}"
-
-    green "已选择域名: $domain"
-
-    # ── 输入前缀或完整域名 ──
     reading "请输入前缀或完整域名: " prefix
-
     prefix=$(echo "$prefix" | tr -d '[:space:]')
     prefix="${prefix#.}"
     prefix="${prefix%.}"
-
     if [[ -z "$prefix" ]]; then
         hostname="$domain"
-
-    elif [[ "$prefix" == "$domain" ||
-            "$prefix" == *".${domain}" ]]; then
+    elif [[ "$prefix" == "$domain" || "$prefix" == *".${domain}" ]]; then
         hostname="$prefix"
-
     else
         hostname="${prefix}.${domain}"
     fi
-
-    # ── 确认使用的 Tunnel ──
-    echo
     echo "=========================================="
-    skyblue "确认添加路由的 Tunnel"
+    echo "Tunnel: $tunnel_name"
+    echo "Tunnel ID: $tunnel_id"
+    echo "域名: $hostname"
+    echo "端口: $port"
     echo "=========================================="
-    echo "Tunnel 名称 : $tunnel_name"
-    echo "Tunnel ID   : $tunnel_id"
-    echo "Tunnel 状态 : $tunnel_status"
-    echo "服务器 IP   : $server_ip"
-    echo "域名        : $hostname"
-    echo "本地服务    : http://127.0.0.1:$port"
-    echo "=========================================="
-
-    reading "确认使用此 Tunnel 添加路由？[y/N]: " choice
-
-    [[ ! "$choice" =~ ^[Yy]$ ]] && {
-        yellow "已取消添加。"
-        return 0
-    }
-
-    # ── 获取 Tunnel 当前配置 ──
-    config_data=$(cf_call GET \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-        2>/dev/null)
-
-    if [[ "$(echo "$config_data" |
-        jq -r '.success // false')" != "true" ]]; then
-
+    reading "确认添加路由？[y/N]: " choice
+    [[ ! "$choice" =~ ^[Yy]$ ]] && return 0
+    config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
+    if [[ "$(echo "$config_data" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Tunnel 配置失败！"
         return 1
     fi
-
-    ingress=$(echo "$config_data" |
-        jq -c '.result.config.ingress // []')
-
-    # ── 检查域名是否已经存在 ──
-    if echo "$ingress" |
-        jq -e --arg h "$hostname" \
-        'any(.[]?; .hostname == $h)' \
-        >/dev/null 2>&1; then
-
-        red "此域名已经存在于该 Tunnel：$hostname"
+    ingress=$(echo "$config_data" | jq -c '.result.config.ingress // []')
+    if echo "$ingress" | jq -e --arg h "$hostname" 'any(.[]?; .hostname == $h)' >/dev/null 2>&1; then
+        red "域名已存在！"
         return 1
     fi
-
-    # ── 添加路由，保持 404 在最后 ──
     new_config=$(jq -n \
         --arg hostname "$hostname" \
         --arg service "http://127.0.0.1:$port" \
@@ -1122,55 +985,29 @@ cf_add_tunnel_route() {
                 ingress: (
                     $ingress
                     | map(select(.service != "http_status:404"))
-                    + [
-                        {
-                            hostname: $hostname,
-                            service: $service
-                        }
-                    ]
-                    + [
-                        {
-                            service: "http_status:404"
-                        }
-                    ]
+                    + [{
+                        hostname: $hostname,
+                        service: $service
+                    }]
+                    + [{
+                        service: "http_status:404"
+                    }]
                 )
             }
         }')
-
-    # ── 写入 Tunnel 配置 ──
     response=$(cf_call PUT \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-        "$new_config" \
-        2>/dev/null)
-
-    if [[ "$(echo "$response" |
-        jq -r '.success // false')" == "true" ]]; then
-
-        green "=========================================="
+        "$new_config" 2>/dev/null)
+    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
         green "Tunnel 路由添加成功！"
-        green "=========================================="
-        green "Tunnel : $tunnel_name"
-        green "域名   : $hostname"
-        green "服务   : http://127.0.0.1:$port"
+        green "域名: $hostname"
+        green "端口: $port"
         return 0
     fi
-
     red "Tunnel 路由添加失败！"
-
-    echo "$response" |
-        jq -r '.errors[]? |
-        if (.code // "") != "" then
-            "错误码: \(.code)\n错误信息: \(.message)"
-        else
-            .message // empty
-        end'
-
+    echo "$response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
     return 1
 }
-        
-    
-    
-        
     
 
 TOKEN_FILE="/etc/sing-box/token"
