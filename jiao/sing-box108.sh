@@ -7172,10 +7172,10 @@ while true; do
     echo -e "${skyblue}        Cloudflare ${re}"
     echo -e "${skyblue}==========================================${re}"
     green "1. 查看隧道"
-    green "2. 新建隧道"
-	green "3. 添加dns解析"
-	green "4. 删除dns解析"
-	green "5. 添加隧道路由"
+    green "2. 添加固定隧道"
+	green "3. 添加隧道路由"
+	green "4. 添加dns解析"
+	green "5. 删除dns解析"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
@@ -7239,7 +7239,7 @@ while true; do
             reading "按回车返回..." _
             clear
             ;;
-		3)
+		4)
     cf_auth_token || return 1
     cf_select_zone || return 1
     local subdomain domain raw_ip server_ip
@@ -7258,7 +7258,7 @@ while true; do
     green "DNS 解析添加成功"
     green "$domain → $raw_ip"
     ;;
-	4)
+	5)
     cf_select_all_dns_record || return 1
     echo
     yellow "准备删除："
@@ -7277,7 +7277,7 @@ while true; do
         yellow "已取消删除"
     fi
     ;;
-	5)
+	3)
     cf_add_tunnel_route ;;
 	0)
     break
