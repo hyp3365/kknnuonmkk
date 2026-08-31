@@ -657,9 +657,9 @@ cf_remove_cdn_rules() {
 cf_list_tunnels() {
     local tunnels count choice tunnel_id tunnel_name tunnel_status
     local connections config_data hostnames connection_count
-    local i=1 total
+    local origin_ip i total
     declare -a tunnel_ids
-
+    ip_address
     tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
     [[ -z "$tunnels" ]] && { red "获取 Cloudflare Tunnel 失败！"; return 1; }
     if [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]]; then
@@ -667,28 +667,23 @@ cf_list_tunnels() {
         echo "$tunnels" | jq -r '.errors[]?.message // empty'
         return 1
     fi
-
     count=$(echo "$tunnels" | jq '.result | length')
     if [[ "$count" -eq 0 ]]; then
         yellow "暂无 Cloudflare Tunnel。"
         reading "按回车返回..." _
         return 0
     fi
-
     while true; do
         clear
         echo -e "${skyblue}==========================================${re}"
         echo -e "${skyblue}        Cloudflare Tunnel${re}"
         echo -e "${skyblue}==========================================${re}"
-
         i=1
         unset tunnel_ids
         declare -a tunnel_ids
-
         while IFS='|' read -r tunnel_id tunnel_name tunnel_status; do
             [[ -z "$tunnel_id" ]] && continue
             tunnel_ids[$i]="$tunnel_id"
-
             case "$tunnel_status" in
                 healthy)   tunnel_status="🟢 正常" ;;
                 degraded)  tunnel_status="🟡 异常" ;;
@@ -696,50 +691,46 @@ cf_list_tunnels() {
                 inactive)  tunnel_status="⚪ 未运行" ;;
                 *)         tunnel_status="⚪ 未知" ;;
             esac
-
             echo -e "${green}${i})${re} ${tunnel_name}"
             echo "   状态: $tunnel_status"
-
             config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
             hostnames=$(echo "$config_data" | jq -r '.result.config.ingress[]?.hostname // empty' | paste -sd ',' -)
             [[ -n "$hostnames" ]] && echo "   域名: $hostnames" || echo "   域名: -"
-
             connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
-
             if [[ "$(echo "$connections" | jq -r '.success // false')" == "true" ]]; then
                 connection_count=$(echo "$connections" | jq '[.result[]?.conns[]?] | length')
                 if [[ "$connection_count" -gt 0 ]]; then
                     echo "   服务器IP:"
-                    echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u | sed 's/^/      /'
+                    while read -r origin_ip; do
+                        [[ -z "$origin_ip" ]] && continue
+                        if [[ "$origin_ip" == "$ipv4_address" || "$origin_ip" == "$ipv6_address" ]]; then
+                            echo -e "      ${red}${origin_ip} (本机ip)${re}"
+                        else
+                            echo "      $origin_ip"
+                        fi
+                    done < <(echo "$connections" | jq -r '.result[]?.conns[]?.origin_ip // empty' | sort -u)
                 else
                     echo "   服务器IP: -"
                 fi
             else
                 echo "   服务器IP: -"
             fi
-
             echo "------------------------------------------"
             ((i++))
         done < <(echo "$tunnels" | jq -r '.result[] | "\(.id)|\(.name)|\(.status // "unknown")"')
-
         total=$((i - 1))
         echo -e "${red}0)${re} 返回"
         echo -e "${skyblue}==========================================${re}"
         reading "请输入选择 [0-$total]: " choice
-
         [[ "$choice" == "0" ]] && return 0
-
         if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
             red "无效选择！"
             sleep 1
             continue
         fi
-
         tunnel_id="${tunnel_ids[$choice]}"
         [[ -z "$tunnel_id" ]] && { red "Tunnel ID 获取失败！"; sleep 1; continue; }
-
         cf_tunnel_detail "$tunnel_id"
-
         tunnels=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?is_deleted=false&per_page=100" 2>/dev/null)
         [[ "$(echo "$tunnels" | jq -r '.success // false')" != "true" ]] && return 1
     done
