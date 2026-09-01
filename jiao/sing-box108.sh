@@ -3494,6 +3494,128 @@ change_hosts() {
     sed -i '1s/.*/127.0.0.1   localhost/' /etc/hosts
     sed -i '2s/.*/::1         localhost/' /etc/hosts
 }
+# 修改节点uuid
+change_uuid() {
+    local url_file="/etc/sing-box/url.txt"
+    local sub_file="/etc/sing-box/sub.txt"
+    if [ ! -f "$url_file" ]; then
+        red "未找到：$url_file"
+        return 1
+    fi
+    for conf_dir in /etc/sing-box/conf /etc/xray/conf; do
+        [ -d "$conf_dir" ] || continue
+        while IFS= read -r file; do
+            jq -e 'has("inbounds") and (.inbounds | type == "array")' "$file" >/dev/null 2>&1 || continue
+            inbound_count=$(jq '.inbounds | length' "$file")
+            for ((i=0; i<inbound_count; i++)); do
+                protocol=$(jq -r ".inbounds[$i].type // .inbounds[$i].protocol // empty" "$file")
+                case "$protocol" in
+                    socks|http) continue ;;
+                esac
+                old_value=$(jq -r ".inbounds[$i].users[0].uuid // .inbounds[$i].users[0].password // .inbounds[$i].settings.clients[0].id // .inbounds[$i].settings.clients[0].password // empty" "$file")
+                [ -z "$old_value" ] || [ "$old_value" = "null" ] && continue
+                new_uuid=$(cat /proc/sys/kernel/random/uuid)
+                if [ "$protocol" = "tuic" ]; then
+                    jq \
+                        --arg uuid "$new_uuid" \
+                        --argjson index "$i" '
+                        .inbounds[$index].users |= map(
+                            if .uuid != null then
+                                .uuid = $uuid
+                            else
+                                .
+                            end
+                        )
+                        ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+                    if grep -Fq "tuic://${old_value}:" "$url_file"; then
+                        sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
+                    fi
+                elif [ "$protocol" = "vmess" ]; then
+                    jq \
+                        --arg uuid "$new_uuid" \
+                        --argjson index "$i" '
+                        .inbounds[$index].settings.clients |= map(
+                            if .id != null then
+                                .id = $uuid
+                            else
+                                .
+                            end
+                        )
+                        ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+                    while IFS= read -r line; do
+                        case "$line" in
+                            vmess://*)
+                                vmess_b64="${line#vmess://}"
+                                vmess_json=$(printf '%s' "$vmess_b64" | base64 -d 2>/dev/null)
+                                [ -z "$vmess_json" ] && continue
+                                vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
+                                [ "$vmess_id" = "$old_value" ] || continue
+                                new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
+                                [ -z "$new_vmess_json" ] && continue
+                                new_vmess_b64=$(printf '%s' "$new_vmess_json" | base64 -w0)
+                                sed -i "s#^vmess://.*#vmess://${new_vmess_b64}#" "$url_file"
+                                break
+                                ;;
+                        esac
+                    done < "$url_file"
+                else
+                    jq \
+                        --arg uuid "$new_uuid" \
+                        --argjson index "$i" '
+                        .inbounds[$index].users |=
+                            if . == null then
+                                .
+                            else
+                                map(
+                                    if .uuid != null then
+                                        .uuid = $uuid
+                                    else
+                                        .
+                                    end |
+                                    if .password != null then
+                                        .password = $uuid
+                                    else
+                                        .
+                                    end
+                                )
+                            end |
+                        .inbounds[$index].settings.clients |=
+                            if . == null then
+                                .
+                            else
+                                map(
+                                    if .id != null then
+                                        .id = $uuid
+                                    else
+                                        .
+                                    end |
+                                    if .password != null then
+                                        .password = $uuid
+                                    else
+                                        .
+                                    end
+                                )
+                            end
+                        ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+                    for scheme in vless hysteria2 anytls trojan; do
+                        if grep -Fq "${scheme}://${old_value}@" "$url_file"; then
+                            sed -i "s#${scheme}://${old_value}@#${scheme}://${new_uuid}@#g" "$url_file"
+                            break
+                        fi
+                    done
+                fi
+                green "已修改：$file"
+                yellow "UUID：$new_uuid"
+            done
+        done < <(find "$conf_dir" -type f -name "*.json")
+    done
+    restart_singbox
+    check_xray >/dev/null 2>&1
+    xray_status=$?
+    [ "$xray_status" -ne 2 ] && restart_xray
+    base64 -w0 "$url_file" > "$sub_file"
+    green "所有节点 UUID 修改完成！"
+}
 
 # 变更配置
 change_config() {
@@ -3512,21 +3634,24 @@ change_config() {
     echo ""
     green "=== 修改节点配置 ===\n"
     green "sing-box当前状态: $singbox_status\n"
-    green "1. 修改Reality伪装域名"
+	green "1. 修改节点UUID"
     skyblue "------------"
-    green "2. 添加hysteria2端口跳跃"
+    green "2. 修改Reality伪装域名"
     skyblue "------------"
-    green "3. 删除hysteria2端口跳跃"
+    green "3. 添加hysteria2端口跳跃"
     skyblue "------------"
-	green "4. hysteria2开启混淆"
+    green "4. 删除hysteria2端口跳跃"
     skyblue "------------"
-    green "5. hysteria2关闭混淆"
+	green "5. hysteria2开启混淆"
+    skyblue "------------"
+    green "6. hysteria2关闭混淆"
     skyblue "------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "请输入选择: " choice
     case "${choice}" in
-        1)  
+	    1) change_uuid ;;
+        2)  
 		  clear
 		  green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n\n6. addons.mozilla.org\n\n7. www.iij.ad.jp\n\n8. 自定义域名\n"
 		  reading "\n请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
@@ -3568,7 +3693,7 @@ change_config() {
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
-        2) 
+        3) 
 		    generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local check_cmds=("nft" "curl" "shuf" "python3")
@@ -3672,7 +3797,7 @@ except:
             purple "跳跃区间：$min_port-$max_port"
             ;;
 
-        3)  
+        4)  
             purple "正在清理端口跳跃规则..."
             if nft list chain ip nat prerouting &>/dev/null; then
                 for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
@@ -3695,7 +3820,7 @@ except:
             
             green "\n[✔] 端口跳跃已关闭"
             ;;
-		4)  # 检测并自动补全 python3 依赖
+		5)  # 检测并自动补全 python3 依赖
 if ! command -v python3 &> /dev/null; then
     yellow "检测到缺少依赖 python3，正在安装..."
     if [ -f /etc/debian_version ]; then
@@ -3755,7 +3880,7 @@ except Exception as e:
             green "=================================================="
             echo "" 
             ;;
-		5)
+		6)
             if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
                 red "未检测到 Hysteria2 节点配置或链接！"
                 exit 1
