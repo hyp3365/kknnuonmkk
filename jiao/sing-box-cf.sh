@@ -1219,7 +1219,7 @@ jq -n \
                 tag: "cloudflared-in",
                 token: $token,
                 ha_connections: 4,
-                protocol: "http2",
+                protocol: "quic",
                 post_quantum: true,
 				edge_ip_version: 0,
 				datagram_version: "v3"
