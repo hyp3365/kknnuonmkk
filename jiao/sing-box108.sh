@@ -4358,7 +4358,11 @@ except Exception as e:
     echo ""
     ;;
         0)  menu ;;
-        *)  read "无效的选项！" ;; 
+        *)  
+            red "无效的选项！"
+            sleep 1
+            change_config
+            ;;
     esac
 }
 
