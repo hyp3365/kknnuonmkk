@@ -826,6 +826,7 @@ while true; do
    green "9. fanout"
    green "10. 三网回程测试"
    green "11. HE隧道"
+   green "12. route64隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -947,6 +948,9 @@ while true; do
 		    ;;
 		11) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/he-manager.sh)
+		    ;;
+		12) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/route64-ipv6.sh)
 		    ;;
         0)
             echo "退出脚本"
