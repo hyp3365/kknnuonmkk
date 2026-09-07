@@ -381,6 +381,24 @@ delete_route64() {
 
     systemctl stop route64-ipv6.service 2>/dev/null || true
     systemctl disable route64-ipv6.service 2>/dev/null || true
+    if [ -f "$OUTBOUND_FILE" ] && jq empty "$OUTBOUND_FILE" >/dev/null 2>&1; then
+        local TMP
+        TMP=$(mktemp)
+        if jq '.outbounds |= map(select((.tag // "") | startswith("route64-ipv6-") | not))' "$OUTBOUND_FILE" > "$TMP"; then
+            mv "$TMP" "$OUTBOUND_FILE"
+        else
+            rm -f "$TMP"
+        fi
+    fi
+    if [ -f "$ROUTE_FILE" ] && jq empty "$ROUTE_FILE" >/dev/null 2>&1; then
+        local TMP
+        TMP=$(mktemp)
+        if jq '.route.rules = ((.route.rules // []) | map(select((.outbound // "") | startswith("route64-ipv6-") | not)))' "$ROUTE_FILE" > "$TMP"; then
+            mv "$TMP" "$ROUTE_FILE"
+        else
+            rm -f "$TMP"
+        fi
+    fi
 
     if [ -n "${PREFIX56:-}" ] && [ -n "${TABLE:-}" ]; then
         ip -6 rule del pref 100 from "$PREFIX56" lookup "$TABLE" 2>/dev/null || true
