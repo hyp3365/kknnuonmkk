@@ -354,13 +354,18 @@ EOF
     systemctl enable wg-quick@${IFACE}.service >/dev/null 2>&1
     systemctl enable route64-ipv6.service >/dev/null 2>&1
     
-    # 启动隧道
-    if ! wg-quick up "$IFACE"; then
+    # 启动隧道及依赖服务
+    systemctl daemon-reload
+    if ! systemctl restart "wg-quick@${IFACE}.service"; then
         echo -e "${R}Route64 WireGuard 启动失败。${NC}"
         read -r -p "按回车返回..."
         return 1
     fi
-    systemctl restart route64-ipv6.service
+    if ! systemctl restart route64-ipv6.service; then
+        echo -e "${R}Route64 策略路由服务启动失败。${NC}"
+        read -r -p "按回车返回..."
+        return 1
+    fi
 
     echo -e "\n${G}========================================${NC}"
     echo -e "${G}        Route64 配置完成${NC}"
