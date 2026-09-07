@@ -1,7 +1,10 @@
+
 #!/bin/bash
 # ==========================================
 # Route64 IPv6 隧道管理脚本
 # ==========================================
+G="\033[1;32m"
+NC="\033[0m"
 IFACE="route64"
 WG_DIR="/etc/wireguard"
 WG_FILE="$WG_DIR/route64.conf"
@@ -70,10 +73,9 @@ generate_random_ipv6() {
 }
 add_ipv6() {
     clear
-    echo "========================================"
-    echo "          添加 Route64 IPv6"
-    echo "========================================"
-    echo
+    echo -e "${G}========================================${NC}"
+    echo -e "${G}          添加 Route64 IPv6${NC}"
+    echo -e "${G}========================================${NC}"
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "Route64 尚未配置。"
         read -r -p "按回车返回..."
@@ -122,16 +124,22 @@ add_ipv6() {
 }
 add_route64() {
     clear
-    echo "========================================"
-    echo "        添加 / 重置 Route64 隧道"
-    echo "========================================"
+    echo -e "${G}========================================${NC}"
+    echo -e "${G}        添加 / 重置 Route64 隧道${NC}"
+    echo -e "${G}========================================${NC}"
     echo "请粘贴 ROUTE64 WireGuard 配置。"
-    echo "粘贴完成后，单独输入 END 并回车。"
+    echo "粘贴完成后，连续按两次回车继续："
     local tmp_conf="/tmp/route64.conf.$$"
     rm -f "$tmp_conf"
+    local EMPTY_COUNT=0
     while IFS= read -r line; do
-        [ "$line" = "END" ] && break
-        printf '%s\n' "$line" >> "$tmp_conf"
+        if [ -z "$line" ]; then
+            EMPTY_COUNT=$((EMPTY_COUNT+1))
+        else
+            EMPTY_COUNT=0
+            printf '%s\n' "$line" >> "$tmp_conf"
+        fi
+        [ "$EMPTY_COUNT" -ge 2 ] && break
     done
     if [ ! -s "$tmp_conf" ]; then
         echo "未读取到 WireGuard 配置。"
@@ -256,14 +264,14 @@ EOF
     chmod 600 /etc/route64-ips.list
     cat > /etc/systemd/system/route64-ipv6.service <<EOF
 [Unit]
-Description=Route64 IPv6 Policy Routing
+Description=Route64 IPv6 Policy Routing and IP Restore
 After=wg-quick@route64.service
 Requires=wg-quick@route64.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'ip -6 rule del from "$prefix56_canonical" table 200 2>/dev/null || true; ip -6 rule add pref 100 from "$prefix56_canonical" table 200; ip -6 route replace default dev route64 table 200'
-ExecStop=/bin/sh -c 'ip -6 rule del from "$prefix56_canonical" table 200 2>/dev/null || true; ip -6 route flush table 200 2>/dev/null || true'
+ExecStart=/bin/bash -c 'source /etc/route64.conf 2>/dev/null; ip -6 rule del from "\$PREFIX56" table 200 2>/dev/null || true; ip -6 rule add pref 100 from "\$PREFIX56" table 200 2>/dev/null || true; ip -6 route replace default dev route64 table 200 2>/dev/null || true; if [ -f /etc/route64-ips.list ]; then while read ip; do [ -n "\$ip" ] && ip -6 addr add "\$ip/128" dev lo 2>/dev/null || true; done < /etc/route64-ips.list; fi'
+ExecStop=/bin/bash -c 'source /etc/route64.conf 2>/dev/null; ip -6 rule del from "\$PREFIX56" table 200 2>/dev/null || true; ip -6 route flush table 200 2>/dev/null || true'
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -285,31 +293,6 @@ EOF
     echo "eth0 / HE IPv6 可以继续共存。"
     wg show route64
     read -r -p "按回车返回..."
-}
-create_service(){
-cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=Route64 IPv6 address restore
-After=wg-quick@route64.service
-Requires=wg-quick@route64.service
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/bash -c '
-source $CONFIG_FILE
-ip -6 route replace \${PREFIX56} dev route64
-if [ -f $LIST_FILE ]; then
-while read ip
-do
-[ -n "\$ip" ] && ip -6 addr add \$ip/128 dev lo 2>/dev/null || true
-done < $LIST_FILE
-fi
-'
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable route64-ipv6.service
 }
 delete_route64(){
 echo "删除 Route64"
@@ -474,14 +457,15 @@ menu(){
 while true
 do
 clear
-echo "========== Route64 IPv6 =========="
-echo "1. 添加 Route64 隧道"
-echo "2. 删除 Route64"
-echo "3. 随机添加 IPv6"
-echo "4. 删除 IPv6"
-echo "5. 查看状态"
-echo "6. 测试 IPv6"
-echo "0. 退出"
+echo -e "${G}========== Route64 IPv6 ==========${NC}"
+echo -e "${G}1. 添加 Route64 隧道${NC}"
+echo -e "${G}2. 删除 Route64${NC}"
+echo -e "${G}3. 随机添加 IPv6${NC}"
+echo -e "${G}4. 删除 IPv6${NC}"
+echo -e "${G}5. 查看状态${NC}"
+echo -e "${G}6. 测试 IPv6${NC}"
+echo -e "${G}0. 退出${NC}"
+echo -e "${G}==================================${NC}"
 read -p "选择 [0-6]: " CHOOSE
 case "$CHOOSE" in
 1)
@@ -518,3 +502,4 @@ done
 install_dep
 load_config
 menu
+
