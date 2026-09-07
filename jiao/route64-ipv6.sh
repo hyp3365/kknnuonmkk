@@ -76,7 +76,144 @@ load_config(){
 
 }
 
+generate_random_ipv6() {
+    local prefix="$1"
+    prefix="${prefix%/56}"
+    prefix="${prefix%::}"
+    prefix="${prefix%:}"
 
+    IFS=':' read -r -a parts <<< "$prefix"
+
+    local p1="${parts[0]}"
+    local p2="${parts[1]}"
+    local p3="${parts[2]}"
+    local p4="${parts[3]}"
+
+    p1=$(printf '%04x' "$((16#$p1))")
+    p2=$(printf '%04x' "$((16#$p2))")
+    p3=$(printf '%04x' "$((16#$p3))")
+    p4=$(printf '%04x' "$((16#$p4))")
+
+    local subnet
+    local h1 h2 h3 h4
+
+    subnet=$(printf '%02x' $((RANDOM % 256)))
+
+    h1=$(printf '%04x' $((RANDOM % 65536)))
+    h2=$(printf '%04x' $((RANDOM % 65536)))
+    h3=$(printf '%04x' $((RANDOM % 65536)))
+    h4=$(printf '%04x' $((RANDOM % 65536)))
+
+    echo "${p1}:${p2}:${p3}:${p4:0:2}${subnet}:${h1}:${h2}:${h3}:${h4}"
+}
+
+add_ipv6() {
+    clear
+    echo "========================================"
+    echo "          添加 Route64 IPv6"
+    echo "========================================"
+    echo
+
+    if [ ! -f "$CONFIG_RECORD" ]; then
+        echo "Route64 尚未配置。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    source "$CONFIG_RECORD"
+
+    if [ -z "$PREFIX56" ]; then
+        echo "未找到 Route64 /56。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if [ ! -f "$LIST_FILE" ]; then
+        touch "$LIST_FILE"
+        chmod 600 "$LIST_FILE"
+    fi
+
+    local NEW_IPV6=""
+    local i
+
+    for i in $(seq 1 100); do
+        NEW_IPV6=$(generate_random_ipv6 "$PREFIX56")
+
+        if ! grep -qxF "$NEW_IPV6" "$LIST_FILE" 2>/dev/null; then
+            break
+        fi
+
+        NEW_IPV6=""
+    done
+
+    if [ -z "$NEW_IPV6" ]; then
+        echo "生成随机 IPv6 失败。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    echo "随机 IPv6："
+    echo
+    echo "$NEW_IPV6"
+    echo
+
+    if ! ip -6 addr add "$NEW_IPV6/128" dev lo 2>/dev/null; then
+        echo "IPv6 添加失败。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    echo "$NEW_IPV6" >> "$LIST_FILE"
+
+    local count
+    count=$(jq '
+        [.outbounds[]? |
+        select(.tag | startswith("route64-ipv6-"))] |
+        length
+    ' "$OUTBOUND_FILE" 2>/dev/null)
+
+    count=$((count + 1))
+
+    local tag="route64-ipv6-$count"
+
+    jq \
+        --arg tag "$tag" \
+        --arg ip "$NEW_IPV6" \
+        '
+        .outbounds += [{
+            "type": "direct",
+            "tag": $tag,
+            "bind_interface": "route64",
+            "inet6_bind_address": $ip
+        }]
+        ' \
+        "$OUTBOUND_FILE" > /tmp/route64-outbounds.json
+
+    if [ $? -ne 0 ]; then
+        ip -6 addr del "$NEW_IPV6/128" dev lo 2>/dev/null
+        sed -i "\|^${NEW_IPV6}$|d" "$LIST_FILE"
+
+        echo "sing-box 配置写入失败。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    mv /tmp/route64-outbounds.json "$OUTBOUND_FILE"
+
+    echo
+    echo "========================================"
+    echo "IPv6 添加成功"
+    echo "========================================"
+    echo
+    echo "IPv6：$NEW_IPV6"
+    echo "Outbound：$tag"
+    echo
+    echo "已绑定：route64"
+    echo "无需重启 sing-box"
+    echo
+
+    read -r -p "按回车返回..."
+}
 
 add_route64() {
     clear
