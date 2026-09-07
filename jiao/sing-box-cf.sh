@@ -1221,8 +1221,8 @@ jq -n \
                 ha_connections: 4,
                 protocol: "http2",
                 post_quantum: true,
-				"edge_ip_version": 0,
-				"datagram_version": "v3"
+				edge_ip_version: 0,
+				datagram_version: "v3"
             }
         ]
     }' > "$cloudflared_conf"
@@ -1925,8 +1925,10 @@ cf_create_tunnel() {
                     tag: "cloudflared-in",
                     token: $token,
                     ha_connections: 4,
-                    protocol: "http2",
-                    post_quantum: false
+                    protocol: "quic",			
+                    post_quantum: true,
+                    edge_ip_version: 0,
+                    datagram_version: "v3"
                 }
             ]
         }' > "$cloudflared_file"
