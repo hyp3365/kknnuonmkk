@@ -4235,15 +4235,14 @@ fi
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
             fi 
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
+			if [ -f "/etc/sing-box/url.txt" ]; then
+                 sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+                 echo "" >> /etc/sing-box/url.txt
+            fi
+            if [ -s "/etc/sing-box/url.txt" ]; then
+                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+               else
+                 truncate -s 0 /etc/sing-box/sub.txt
             fi
             green "\n[✔] 端口跳跃已关闭"
 			hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
@@ -4339,15 +4338,14 @@ except Exception as e:
         systemctl restart sing-box >/dev/null 2>&1
     fi
 	if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-    fi
+                 sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+                 echo "" >> /etc/sing-box/url.txt
+            fi
+            if [ -s "/etc/sing-box/url.txt" ]; then
+                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+               else
+                 truncate -s 0 /etc/sing-box/sub.txt
+            fi
     hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
     echo ""
     green "=================================================="
