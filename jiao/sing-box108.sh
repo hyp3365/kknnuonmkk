@@ -4192,39 +4192,35 @@ change_config() {
             sed -i "/hysteria2:/d" "$client_dir"
             obfs_param=""
 if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
-obfs_info=$(python3 - <<'PY'
+    obfs_info=$(python3 -c "
 import json
-path="/etc/sing-box/conf/hysteria2.json"
 try:
-    with open(path,"r",encoding="utf-8") as f:
-        data=json.load(f)
-    obfs={}
-    if "inbounds" in data:
-        for ib in data["inbounds"]:
-            if ib.get("type")=="hysteria2":
-                obfs=ib.get("obfs",{})
-                break
+    with open('/etc/sing-box/conf/hysteria2.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    obfs = {}
+    if isinstance(data, dict):
+        if 'inbounds' in data:
+            for ib in data['inbounds']:
+                if ib.get('type') == 'hysteria2':
+                    obfs = ib.get('obfs', {})
+                    break
+        else:
+            obfs = data.get('obfs', {})
+    if obfs.get('type') == 'gecko' and obfs.get('password'):
+        print(f\"obfs=gecko&obfs-password={obfs.get('password')}&obfs-min={obfs.get('min_packet_size',512)}&obfs-max={obfs.get('max_packet_size',1200)}\")
     else:
-        obfs=data.get("obfs",{})
-
-    if obfs.get("type")=="gecko" and obfs.get("password"):
-        print(
-            "obfs=gecko&obfs-password={}&obfs-min={}&obfs-max={}".format(
-                obfs["password"],
-                obfs.get("min_packet_size",512),
-                obfs.get("max_packet_size",1200)
-            )
-        )
+        print('')
 except:
-    pass
-PY
-)
-[ -n "$obfs_info" ] && obfs_param="$obfs_info"
+    print('')
+" 2>/dev/null)
+    [ -n "$obfs_info" ] && obfs_param="$obfs_info"
 fi
-            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3${obfs_param:+&$obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"      
-            # ------------------------------------------------
+            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3${obfs_param:+&$obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"    
+            echo "" >> "${work_dir}/url.txt"
+			# ------------------------------------------------
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
             green "\nHysteria2 端口跳跃已开启"
+			green cat "$client_dir" | grep hysteria2 green
             purple "跳跃区间：$min_port-$max_port"
             ;;
         4)  
