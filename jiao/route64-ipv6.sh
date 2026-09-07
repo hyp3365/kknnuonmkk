@@ -1,0 +1,809 @@
+#!/bin/bash
+
+# ==========================================
+# Route64 IPv6 隧道管理脚本
+# ==========================================
+
+IFACE="route64"
+
+WG_DIR="/etc/wireguard"
+WG_FILE="$WG_DIR/route64.conf"
+
+CONFIG_FILE="/etc/route64.conf"
+LIST_FILE="/etc/route64-ips.list"
+
+OUTBOUND_FILE="/etc/sing-box/conf/outbounds.json"
+ROUTE_FILE="/etc/sing-box/conf/route.json"
+
+SERVICE_FILE="/etc/systemd/system/route64-ipv6.service"
+
+
+[ "$(id -u)" != "0" ] && {
+    echo "请使用 root 运行"
+    exit 1
+}
+
+
+install_dep(){
+
+    local NEED=""
+
+    command -v wg >/dev/null || NEED="$NEED wireguard-tools"
+    command -v ip >/dev/null || NEED="$NEED iproute2"
+    command -v curl >/dev/null || NEED="$NEED curl"
+    command -v jq >/dev/null || NEED="$NEED jq"
+
+
+    if [ -n "$NEED" ]; then
+
+        echo "安装依赖:$NEED"
+
+        if command -v apt >/dev/null; then
+            apt update
+            apt install -y $NEED
+
+        elif command -v apk >/dev/null; then
+            apk add $NEED
+
+        elif command -v yum >/dev/null; then
+            yum install -y $NEED
+
+        else
+            echo "无法自动安装依赖"
+            exit 1
+        fi
+
+    fi
+}
+
+
+
+save_config(){
+
+cat > "$CONFIG_FILE" <<EOF
+IFACE="$IFACE"
+PREFIX56="$PREFIX56"
+TUN_IPV6="$TUN_IPV6"
+EOF
+
+}
+
+
+
+load_config(){
+
+[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+
+}
+
+
+
+add_route64(){
+
+
+echo "========== 添加 Route64 =========="
+
+mkdir -p "$WG_DIR"
+
+
+echo
+echo "请粘贴 WireGuard 配置"
+echo "空行结束"
+echo
+
+
+TMP="/tmp/route64.conf"
+
+rm -f "$TMP"
+
+
+while read line
+do
+
+    [ -z "$line" ] && break
+
+    echo "$line" >> "$TMP"
+
+done
+
+
+if ! grep -q "\[Interface\]" "$TMP"; then
+
+    echo "配置格式错误"
+
+    return
+
+fi
+
+
+
+cp "$TMP" "$WG_FILE"
+
+chmod 600 "$WG_FILE"
+
+
+
+TUN_IPV6=$(grep Address "$WG_FILE" | awk '{print $3}' | cut -d/ -f1)
+
+
+echo
+echo "检测隧道 IPv6:"
+echo "$TUN_IPV6"
+
+
+echo
+
+read -p "请输入 Route64 IPv6 /56 地址段: " PREFIX56
+
+
+PREFIX56=$(echo "$PREFIX56" | sed 's|/56||')
+
+
+if [ -z "$PREFIX56" ]; then
+
+    echo "未输入 /56"
+
+    return
+
+fi
+
+
+
+save_config
+
+
+
+systemctl enable wg-quick@route64
+
+
+systemctl restart wg-quick@route64
+
+
+
+sleep 2
+
+
+
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+
+    echo "WireGuard 启动失败"
+
+    return
+
+fi
+
+
+
+echo
+
+echo "添加 /56 路由"
+
+ip -6 route replace \
+"$PREFIX56::/56" \
+dev "$IFACE"
+
+
+
+create_service
+
+
+
+echo
+echo "Route64 添加完成"
+
+echo
+echo "隧道:"
+echo "$TUN_IPV6"
+
+echo
+
+echo "IPv6 地址池:"
+echo "$PREFIX56::/56"
+
+
+}
+
+
+
+create_service(){
+
+
+cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Route64 IPv6 address restore
+After=wg-quick@route64.service
+Requires=wg-quick@route64.service
+
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+ExecStart=/bin/bash -c '
+source $CONFIG_FILE
+
+ip -6 route replace \${PREFIX56}::/56 dev route64
+
+if [ -f $LIST_FILE ]; then
+
+while read ip
+do
+
+[ -n "\$ip" ] && ip -6 addr add \$ip/64 dev lo 2>/dev/null || true
+
+done < $LIST_FILE
+
+fi
+
+'
+
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+
+systemctl daemon-reload
+
+systemctl enable route64-ipv6.service
+
+
+}
+
+
+
+delete_route64(){
+
+
+echo "删除 Route64"
+
+
+systemctl disable wg-quick@route64 2>/dev/null
+
+
+wg-quick down route64 2>/dev/null
+
+
+rm -f "$WG_FILE"
+
+
+systemctl disable route64-ipv6.service 2>/dev/null
+
+rm -f "$SERVICE_FILE"
+
+
+rm -f "$CONFIG_FILE"
+
+
+ip link delete "$IFACE" 2>/dev/null
+
+
+
+echo "Route64 已删除"
+
+
+}
+add_singbox_outbound(){
+
+[ ! -f "$OUTBOUND_FILE" ] && return
+
+
+local IP="$1"
+
+
+local NUM
+
+NUM=$(jq -r '
+.outbounds[]?
+| select(.tag|startswith("route64-ipv6-"))
+| .tag
+| sub("route64-ipv6-";"")
+' "$OUTBOUND_FILE" 2>/dev/null | sort -n | tail -1)
+
+
+
+if [ -z "$NUM" ]; then
+    NUM=1
+else
+    NUM=$((NUM+1))
+fi
+
+
+TAG="route64-ipv6-$NUM"
+
+
+TMP=$(mktemp)
+
+
+jq \
+--arg tag "$TAG" \
+--arg ip "$IP" \
+'
+.outbounds += [{
+"type":"direct",
+"tag":$tag,
+"bind_interface":"route64",
+"inet6_bind_address":$ip
+}]
+' "$OUTBOUND_FILE" > "$TMP" &&
+mv "$TMP" "$OUTBOUND_FILE"
+
+
+echo
+echo "sing-box 出站添加:"
+echo "tag: $TAG"
+echo "ip : $IP"
+
+
+}
+
+
+
+delete_singbox_outbound(){
+
+
+[ ! -f "$OUTBOUND_FILE" ] && return
+
+
+local IP="$1"
+
+
+TAG=$(jq -r \
+--arg ip "$IP" '
+.outbounds[]?
+|select(.inet6_bind_address==$ip)
+|.tag
+' "$OUTBOUND_FILE")
+
+
+
+[ -z "$TAG" ] && return
+
+
+
+TMP=$(mktemp)
+
+
+jq \
+--arg ip "$IP" \
+'
+.outbounds |= map(
+select(.inet6_bind_address != $ip)
+)
+' "$OUTBOUND_FILE" > "$TMP" &&
+mv "$TMP" "$OUTBOUND_FILE"
+
+
+
+if [ -f "$ROUTE_FILE" ]; then
+
+TMP=$(mktemp)
+
+jq \
+--arg tag "$TAG" \
+'
+.route.rules |= map(
+select(.outbound != $tag)
+)
+' "$ROUTE_FILE" > "$TMP" &&
+mv "$TMP" "$ROUTE_FILE"
+
+fi
+
+
+echo "删除 sing-box:"
+echo "$TAG"
+
+
+}
+
+
+
+random_ipv6(){
+
+
+load_config
+
+
+if [ -z "$PREFIX56" ]; then
+
+echo "没有检测到 /56"
+
+return
+
+fi
+
+
+
+mkdir -p "$(dirname "$LIST_FILE")"
+
+
+HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+
+
+
+A=${HEX:0:4}
+
+B=${HEX:4:4}
+
+C=${HEX:8:4}
+
+
+
+NEW_IPV6="${PREFIX56}:${A}:${B}:${C}::1"
+
+
+
+echo "$NEW_IPV6" >> "$LIST_FILE"
+
+
+
+ip -6 addr add \
+"$NEW_IPV6/64" \
+dev lo 2>/dev/null || true
+
+
+
+echo
+
+echo "添加 IPv6:"
+echo "$NEW_IPV6"
+
+
+
+add_singbox_outbound "$NEW_IPV6"
+
+
+
+}
+
+
+
+list_ipv6(){
+
+
+if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
+
+echo "暂无 IPv6"
+
+return
+
+fi
+
+
+
+nl -w2 -s ". " "$LIST_FILE"
+
+
+
+}
+
+
+
+delete_ipv6(){
+
+
+if [ ! -f "$LIST_FILE" ]; then
+
+echo "暂无 IPv6"
+
+return
+
+fi
+
+
+
+echo "========== IPv6列表 =========="
+
+list_ipv6
+
+
+echo
+
+read -p "输入编号: " NUM
+
+
+
+IP=$(sed -n "${NUM}p" "$LIST_FILE")
+
+
+
+if [ -z "$IP" ]; then
+
+echo "编号错误"
+
+return
+
+fi
+
+
+
+echo "删除:"
+echo "$IP"
+
+
+
+ip -6 addr del \
+"$IP/64" \
+dev lo 2>/dev/null || true
+
+
+
+sed -i "${NUM}d" "$LIST_FILE"
+
+
+
+delete_singbox_outbound "$IP"
+
+
+
+echo "删除完成"
+
+
+}
+status(){
+
+clear
+
+echo "========== Route64 状态 =========="
+
+echo
+
+ip link show "$IFACE" 2>/dev/null || echo "route64 未启动"
+
+
+echo
+
+echo "========== Route64 IPv6 =========="
+
+ip -6 addr show dev "$IFACE" 2>/dev/null | grep global
+
+
+echo
+
+echo "========== /56 路由 =========="
+
+ip -6 route | grep "$PREFIX56" || echo "无"
+
+
+echo
+
+echo "========== 已分配 IPv6 =========="
+
+list_ipv6
+
+
+echo
+
+read -p "回车返回..."
+
+}
+
+
+
+test_ipv6(){
+
+
+if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
+
+echo "没有 IPv6 地址"
+
+read -p "回车返回..."
+
+return
+
+fi
+
+
+
+echo "========== IPv6 测试 =========="
+
+
+local TOTAL=0
+local OK=0
+local FAIL=0
+
+
+
+while read IP
+
+do
+
+[ -z "$IP" ] && continue
+
+
+TOTAL=$((TOTAL+1))
+
+
+echo
+
+echo "[$TOTAL] $IP"
+
+
+START=$(date +%s%3N)
+
+
+
+RESULT=$(curl -6 \
+--interface "$IP" \
+--connect-timeout 8 \
+--max-time 15 \
+-s https://ip.sb 2>/dev/null)
+
+
+
+END=$(date +%s%3N)
+
+
+TIME=$((END-START))
+
+
+
+if [ -n "$RESULT" ]; then
+
+
+echo "✓ 成功"
+
+echo "出口:"
+echo "$RESULT"
+
+echo "耗时:"
+echo "${TIME} ms"
+
+
+OK=$((OK+1))
+
+
+else
+
+
+echo "✗ 失败"
+
+FAIL=$((FAIL+1))
+
+
+fi
+
+
+
+done < "$LIST_FILE"
+
+
+
+echo
+
+echo "=============================="
+
+echo "总数:$TOTAL"
+
+echo "成功:$OK"
+
+echo "失败:$FAIL"
+
+
+read -p "回车返回..."
+
+}
+
+
+
+menu(){
+
+
+while true
+
+do
+
+
+clear
+
+
+echo "========== Route64 IPv6 =========="
+
+echo
+
+echo "1. 添加 Route64 隧道"
+
+echo "2. 删除 Route64"
+
+echo "3. 随机添加 IPv6"
+
+echo "4. 删除 IPv6"
+
+echo "5. 查看状态"
+
+echo "6. 测试 IPv6"
+
+echo "0. 退出"
+
+echo
+
+
+read -p "选择 [0-6]: " CHOOSE
+
+
+
+case "$CHOOSE" in
+
+
+1)
+
+add_route64
+
+read -p "回车继续..."
+
+;;
+
+
+2)
+
+delete_route64
+
+read -p "回车继续..."
+
+;;
+
+
+3)
+
+random_ipv6
+
+read -p "回车继续..."
+
+;;
+
+
+4)
+
+delete_ipv6
+
+read -p "回车继续..."
+
+;;
+
+
+5)
+
+status
+
+;;
+
+
+6)
+
+test_ipv6
+
+;;
+
+
+0)
+
+exit 0
+
+;;
+
+
+*)
+
+echo "错误"
+
+sleep 1
+
+;;
+
+
+esac
+
+
+done
+
+}
+
+
+
+install_dep
+
+load_config
+
+menu
+
