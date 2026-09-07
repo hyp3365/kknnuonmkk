@@ -4208,19 +4208,19 @@ try:
             obfs = data.get('obfs', {})
     if obfs.get('type') == 'gecko' and obfs.get('password'):
         print(f\"obfs=gecko&obfs-password={obfs.get('password')}&obfs-min={obfs.get('min_packet_size',512)}&obfs-max={obfs.get('max_packet_size',1200)}\")
-    else:
-        print('')
 except:
-    print('')
+    pass
 " 2>/dev/null)
     [ -n "$obfs_info" ] && obfs_param="$obfs_info"
 fi
-            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3${obfs_param:+&$obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"    
+            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
             echo "" >> "${work_dir}/url.txt"
+			hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
 			# ------------------------------------------------
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
-            green "\nHysteria2 端口跳跃已开启"
-			green cat "$client_dir" | grep hysteria2 green
+            green "Hysteria2 端口跳跃已开启"
+            green "${hy2_link}"
+            green "=================================================="
             purple "跳跃区间：$min_port-$max_port"
             ;;
         4)  
