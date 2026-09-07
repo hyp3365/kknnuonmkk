@@ -4161,7 +4161,7 @@ change_config() {
                 nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
                 nft add rule ip6 hysteria_nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
             fi       
-            nft list ruleset > /etc/nftables.conf      
+            nft list ruleset > /etc/nftables.conf 2>/dev/null    
             if command -v systemctl &> /dev/null; then
                 systemctl enable nftables >/dev/null 2>&1
                 systemctl start nftables >/dev/null 2>&1
@@ -4234,7 +4234,17 @@ fi
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
-            fi       
+            fi 
+            if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
+            fi
             green "\n[✔] 端口跳跃已关闭"
 			hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
             green "${hy2_link}"
@@ -4289,7 +4299,7 @@ except Exception as e:
                 systemctl restart sing-box >/dev/null 2>&1
             fi
             hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
-            
+            echo "" >> "${work_dir}/url.txt"
             echo ""
             green "=================================================="
             green "Hysteria2 gecko混淆已开启！"
@@ -4327,6 +4337,16 @@ except Exception as e:
         restart_singbox
     else
         systemctl restart sing-box >/dev/null 2>&1
+    fi
+	if [ -f "/etc/sing-box/url.txt" ]; then
+                    sed -i "/${target}/d" /etc/sing-box/url.txt
+                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+					echo "" >> /etc/sing-box/url.txt
+                fi
+                if [ -s "/etc/sing-box/url.txt" ]; then
+                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+                else
+                    truncate -s 0 /etc/sing-box/sub.txt
     fi
     hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
     echo ""
