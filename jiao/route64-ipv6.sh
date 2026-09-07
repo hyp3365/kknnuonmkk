@@ -78,131 +78,254 @@ load_config(){
 
 
 
-add_route64(){
-
-
-echo "========== 添加 Route64 =========="
-
-mkdir -p "$WG_DIR"
-
-
-echo
-echo "请粘贴 WireGuard 配置"
-echo "空行结束"
-echo
-
-
-TMP="/tmp/route64.conf"
-
-rm -f "$TMP"
-
-
-while read line
-do
-
-    [ -z "$line" ] && break
-
-    echo "$line" >> "$TMP"
-
-done
-
-
-if ! grep -q "\[Interface\]" "$TMP"; then
-
-    echo "配置格式错误"
-
-    return
-
-fi
-
-
-
-cp "$TMP" "$WG_FILE"
-
-chmod 600 "$WG_FILE"
-
-
-
-TUN_IPV6=$(grep Address "$WG_FILE" | awk '{print $3}' | cut -d/ -f1)
-
-
-echo
-echo "检测隧道 IPv6:"
-echo "$TUN_IPV6"
-
-
-echo
-
-read -p "请输入 Route64 IPv6 /56 地址段: " PREFIX56
-
-
-PREFIX56=$(echo "$PREFIX56" | sed 's|/56||')
-
-
-if [ -z "$PREFIX56" ]; then
-
-    echo "未输入 /56"
-
-    return
-
-fi
-
-
-
-save_config
-
-
-
-systemctl enable wg-quick@route64
-
-
-systemctl restart wg-quick@route64
-
-
-
-sleep 2
-
-
-
-if ! ip link show "$IFACE" >/dev/null 2>&1; then
-
-    echo "WireGuard 启动失败"
-
-    return
-
-fi
-
-
-
-echo
-
-echo "添加 /56 路由"
-
-ip -6 route replace \
-"$PREFIX56::/56" \
-dev "$IFACE"
-
-
-
-create_service
-
-
-
-echo
-echo "Route64 添加完成"
-
-echo
-echo "隧道:"
-echo "$TUN_IPV6"
-
-echo
-
-echo "IPv6 地址池:"
-echo "$PREFIX56::/56"
-
-
+add_route64() {
+    clear
+    echo "========================================"
+    echo "        添加 / 重置 Route64 隧道"
+    echo "========================================"
+    echo
+    echo "请粘贴 ROUTE64 WireGuard 配置。"
+    echo "粘贴完成后，单独输入 END 并回车。"
+    echo
+
+    local tmp_conf="/tmp/route64.conf.$$"
+
+    rm -f "$tmp_conf"
+
+    while IFS= read -r line; do
+        [ "$line" = "END" ] && break
+        printf '%s\n' "$line" >> "$tmp_conf"
+    done
+
+    if [ ! -s "$tmp_conf" ]; then
+        echo
+        echo "未读取到 WireGuard 配置。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if ! grep -q '^\[Interface\]' "$tmp_conf"; then
+        echo
+        echo "配置中没有 [Interface]。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if ! grep -q '^\[Peer\]' "$tmp_conf"; then
+        echo
+        echo "配置中没有 [Peer]。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if ! grep -q '^PrivateKey[[:space:]]*=' "$tmp_conf"; then
+        echo
+        echo "缺少 PrivateKey。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if ! grep -q '^PublicKey[[:space:]]*=' "$tmp_conf"; then
+        echo
+        echo "缺少 Peer PublicKey。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    echo
+    echo "请输入 ROUTE64 分配给你的 IPv6 /56 区段。"
+    echo "例如：2a11:6c7:2001:c400::/56"
+    echo
+
+    local prefix56
+    read -r -p "IPv6 /56： " prefix56
+
+    prefix56="${prefix56//[[:space:]]/}"
+
+    if [ -z "$prefix56" ]; then
+        echo
+        echo "未输入 /56 区段。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    if [[ "$prefix56" != */56 ]]; then
+        echo
+        echo "错误：必须输入 /56 区段。"
+        echo "例如：2a11:6c7:2001:c400::/56"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    prefix56="${prefix56%/56}"
+    prefix56="${prefix56%::}"
+    prefix56="${prefix56%:}"
+
+    local p1 p2 p3 p4
+    IFS=':' read -r p1 p2 p3 p4 _ <<< "$prefix56"
+
+    if [ -z "$p1" ] || [ -z "$p2" ] || [ -z "$p3" ] || [ -z "$p4" ]; then
+        echo
+        echo "错误：/56 格式不正确。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    p1=$(printf '%x' "$((16#$p1))" 2>/dev/null) || true
+    p2=$(printf '%x' "$((16#$p2))" 2>/dev/null) || true
+    p3=$(printf '%x' "$((16#$p3))" 2>/dev/null) || true
+    p4=$(printf '%04x' "$((16#$p4))" 2>/dev/null) || true
+
+    if [ -z "$p1" ] || [ -z "$p2" ] || [ -z "$p3" ] || [ -z "$p4" ]; then
+        echo
+        echo "错误：无法解析 /56。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    local prefix56_canonical="${p1}:${p2}:${p3}:${p4}::/56"
+
+    echo
+    echo "----------------------------------------"
+    echo "WireGuard 配置："
+    cat "$tmp_conf"
+    echo
+    echo "Route64 /56："
+    echo "$prefix56_canonical"
+    echo "----------------------------------------"
+    echo
+    read -r -p "回车确认继续，输入其他内容取消： " confirm
+
+    if [ -n "$confirm" ]; then
+        echo
+        echo "已取消。"
+        rm -f "$tmp_conf"
+        read -r -p "按回车返回..."
+        return 0
+    fi
+
+    echo
+    echo "正在配置 Route64..."
+
+    systemctl stop wg-quick@route64.service 2>/dev/null || true
+
+    mkdir -p /etc/wireguard
+
+    # 删除旧的 Table 设置
+    sed -i '/^[[:space:]]*Table[[:space:]]*=/d' "$tmp_conf"
+
+    # 在 [Interface] 后加入 Table = off
+    awk '
+    BEGIN { done=0 }
+    /^\[Interface\][[:space:]]*$/ {
+        print
+        print "Table = off"
+        done=1
+        next
+    }
+    { print }
+    ' "$tmp_conf" > /etc/wireguard/route64.conf
+
+    chmod 600 /etc/wireguard/route64.conf
+
+    rm -f "$tmp_conf"
+
+    cat > /etc/route64.conf <<EOF
+PREFIX56=$prefix56_canonical
+TABLE=200
+INTERFACE=route64
+EOF
+
+    chmod 600 /etc/route64.conf
+
+    # 确保 route64 路由表存在
+    if ! grep -qE '^[[:space:]]*200[[:space:]]+route64[[:space:]]*$' /etc/iproute2/rt_tables; then
+        echo "200 route64" >> /etc/iproute2/rt_tables
+    fi
+
+    # 清理旧 Route64 策略路由
+    ip -6 rule del from "$prefix56_canonical" table 200 2>/dev/null || true
+    ip -6 rule del from "$prefix56_canonical" lookup 200 2>/dev/null || true
+
+    ip -6 route flush table 200 2>/dev/null || true
+
+    # 启动 WireGuard
+    if ! wg-quick up route64; then
+        echo
+        echo "Route64 WireGuard 启动失败。"
+        read -r -p "按回车返回..."
+        return 1
+    fi
+
+    systemctl enable wg-quick@route64.service >/dev/null 2>&1
+
+    # Route64 专用策略路由
+    ip -6 route replace default dev route64 table 200
+
+    ip -6 rule add pref 100 from "$prefix56_canonical" table 200 2>/dev/null || true
+
+    # 保存 IPv6 列表
+    touch /etc/route64-ips.list
+    chmod 600 /etc/route64-ips.list
+
+    # 创建开机恢复服务
+    cat > /etc/systemd/system/route64-ipv6.service <<EOF
+[Unit]
+Description=Route64 IPv6 Policy Routing
+After=wg-quick@route64.service
+Requires=wg-quick@route64.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+ExecStart=/bin/sh -c 'ip -6 rule del from "$prefix56_canonical" table 200 2>/dev/null || true; ip -6 rule add pref 100 from "$prefix56_canonical" table 200; ip -6 route replace default dev route64 table 200'
+
+ExecStop=/bin/sh -c 'ip -6 rule del from "$prefix56_canonical" table 200 2>/dev/null || true; ip -6 route flush table 200 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable route64-ipv6.service >/dev/null 2>&1
+    systemctl restart route64-ipv6.service
+
+    echo
+    echo "========================================"
+    echo "        Route64 配置完成"
+    echo "========================================"
+    echo
+    echo "WireGuard 配置："
+    echo "/etc/wireguard/route64.conf"
+    echo
+    echo "IPv6 /56："
+    echo "$prefix56_canonical"
+    echo
+    echo "路由表："
+    echo "200 route64"
+    echo
+    echo "策略："
+    echo "from $prefix56_canonical -> table 200"
+    echo
+    echo "主路由表不会被 Route64 修改。"
+    echo "eth0 / HE IPv6 可以继续共存。"
+    echo
+
+    wg show route64
+
+    echo
+    read -r -p "按回车返回..."
 }
-
 
 
 create_service(){
