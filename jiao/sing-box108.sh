@@ -4121,12 +4121,11 @@ change_config() {
           while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
           green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
            ;;
-        3) 
-		    generate_vars
+         3) 
+            generate_vars
             purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
             local check_cmds=("nft" "curl" "shuf" "python3")
-            local install_pkgs=("nftables" "curl" "coreutils" "python3")
-            
+            local install_pkgs=("nftables" "curl" "coreutils" "python3")  
             for i in "${!check_cmds[@]}"; do
                 if ! command -v "${check_cmds[$i]}" &> /dev/null; then
                     yellow "检测到缺少依赖 ${install_pkgs[$i]}，正在安装..."
@@ -4136,8 +4135,7 @@ change_config() {
                         yum install -y "${install_pkgs[$i]}"
                     fi
                 fi
-            done
-            
+            done       
             reading "请输入跳跃起始端口: " min_port
             while [ -z "$min_port" ]; do
                 red "不能为空，请重新输入: "
@@ -4147,38 +4145,31 @@ change_config() {
             reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
             [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
             yellow "结束端口为：$max_port\n"
-            
             listen_port=$(grep '"listen_port"' /etc/sing-box/conf/hysteria2.json | head -n 1 | awk -F': ' '{print $2}' | tr -d ', "')
             if [ -z "$listen_port" ]; then
                 red "无法自动获取 Hysteria2 监听端口，请检查配置文件！"
                 exit 1
-            fi
-            
+            fi  
             purple "正在设置端口跳跃规则..."
-            
             sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
             [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
-            
-            nft add table ip nat 2>/dev/null
-            nft 'add chain ip nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
-            nft add rule ip nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
-
+            nft add table ip hysteria_nat 2>/dev/null
+            nft 'add chain ip hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+            nft add rule ip hysteria_nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
             if [ -f /proc/net/if_inet6 ]; then
-                nft add table ip6 nat 2>/dev/null
-                nft 'add chain ip6 nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
-                nft add rule ip6 nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
-            fi
-            
-            nft list ruleset > /etc/nftables.conf
-            
+                nft add table ip6 hysteria_nat 2>/dev/null
+                nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+                nft add rule ip6 hysteria_nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
+            fi       
+            nft list ruleset > /etc/nftables.conf      
             if command -v systemctl &> /dev/null; then
                 systemctl enable nftables >/dev/null 2>&1
                 systemctl start nftables >/dev/null 2>&1
             elif command -v rc-service &> /dev/null; then
                 rc-update add nftables default 2>/dev/null
-            fi
+            fi    
             ip=$(get_realip)
-		    uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
+            uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
             sed -i "/hysteria2:/d" "$client_dir"
             key_path=$(grep '"key_path"' /etc/sing-box/conf/hysteria2.json | head -n 1 | sed -E 's/.*"key_path"\s*:\s*"([^"]+)".*/\1/')
             if [[ "$key_path" =~ \/root\/cert\/([^\/]+)\/ ]]; then
@@ -4190,7 +4181,7 @@ change_config() {
             fi
             node_remark="${isp}_hysteria2"
             sed -i "/hysteria2:/d" "$client_dir"
-            obfs_param=""
+            obfs_param=""       
 if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
     obfs_info=$(python3 -c "
 import json
@@ -4215,36 +4206,38 @@ except:
 fi
             echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
             echo "" >> "${work_dir}/url.txt"
-			hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
-			# ------------------------------------------------
+            hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
+            # ------------------------------------------------
             base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
             green "Hysteria2 端口跳跃已开启"
             green "${hy2_link}"
             green "=================================================="
             purple "跳跃区间：$min_port-$max_port"
             ;;
-        4)  
+         4)  
             purple "正在清理端口跳跃规则..."
+            nft delete table ip hysteria_nat 2>/dev/null
+            if [ -f /proc/net/if_inet6 ]; then
+                nft delete table ip6 hysteria_nat 2>/dev/null
+            fi
             if nft list chain ip nat prerouting &>/dev/null; then
                 for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
                     nft delete rule ip nat prerouting handle $handle 2>/dev/null
                 done
-            fi
-            
+            fi         
             if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
                 for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
                     nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
                 done
             fi
-            
             nft list ruleset > /etc/nftables.conf 2>/dev/null
-
             if [ -f "/etc/sing-box/url.txt" ]; then
                 sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
                 base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
-            fi
-            
+            fi       
             green "\n[✔] 端口跳跃已关闭"
+			hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
+            green "${hy2_link}"
             ;;
 		5)  # 检测并自动补全 python3 依赖
 if ! command -v python3 &> /dev/null; then
