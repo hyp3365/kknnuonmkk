@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本 (Netplan 纯粘贴持久版)
+# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版)
 # ==========================================
 NETPLAN_FILE="/etc/netplan/99-he-tunnel.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
@@ -13,14 +13,28 @@ ROUTE_FILE="/etc/sing-box/conf/route.json"
 [ "$(id -u)" != "0" ] && echo "错误: 请使用 root 权限运行此脚本！" && exit 1
 
 install_dep(){
-    if command -v apt >/dev/null 2>&1; then
-        command -v curl >/dev/null || (apt update -y && apt install curl iproute2 gawk jq netplan.io -y)
+    if command -v apt-get >/dev/null 2>&1; then
+        local PKGS=()
+
+        command -v curl >/dev/null 2>&1 || PKGS+=(curl)
+        command -v ip >/dev/null 2>&1 || PKGS+=(iproute2)
+        command -v awk >/dev/null 2>&1 || PKGS+=(gawk)
+        command -v jq >/dev/null 2>&1 || PKGS+=(jq)
+        command -v netplan >/dev/null 2>&1 || PKGS+=(netplan.io)
+
+        if [ "${#PKGS[@]}" -gt 0 ]; then
+            apt-get update -y
+            apt-get install -y "${PKGS[@]}"
+        fi
     fi
 
-    if ! command -v netplan >/dev/null 2>&1; then
-        echo "错误: 未检测到 Netplan 环境！"
-        exit 1
-    fi
+    # 最终断言检查
+    for cmd in curl ip awk jq netplan; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "错误: 缺少核心依赖: $cmd，请手动排查包管理器问题！"
+            exit 1
+        fi
+    done
 }
 
 list_ipv6(){
@@ -163,11 +177,38 @@ add_he(){
     fi
 
     echo
-    echo "========== 准备写入的 Netplan 配置 =========="
-    cat "$TMP"
-    echo "============================================="
+    read -p "请输入 Routed IPv6 前缀 (必须明确包含 /48 或 /64，例如 2001:470:c::/48): " INPUT_PREFIX
+    if [ -z "$INPUT_PREFIX" ]; then
+        echo "错误: 未输入前缀，取消操作！"
+        rm -f "$TMP"
+        return
+    fi
+
+    # 校验 IPv6 前缀格式合法性（基础 Hex + 冒号与末尾掩码）
+    if ! echo "$INPUT_PREFIX" | grep -qE '^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{0,4}/(48|64)$'; then
+        echo "错误: 输入的前缀格式不合法！示例: 2001:470:c::/48 或 2001:470:c:ed9::/64"
+        rm -f "$TMP"
+        return
+    fi
+
+    local PREFIX_LEN=""
+    if [[ "$INPUT_PREFIX" =~ /48$ ]]; then
+        PREFIX_LEN=48
+    elif [[ "$INPUT_PREFIX" =~ /64$ ]]; then
+        PREFIX_LEN=64
+    fi
+
+    ROUTED_PREFIX=$(echo "$INPUT_PREFIX" | sed -E 's/[[:space:]]+//;s|/.*||;s/::$//')
+
     echo
-    read -p "确认写入 $NETPLAN_FILE 并应用? [y/N]: " OK
+    echo "========== 准备写入的配置总览 =========="
+    echo "[Netplan 预览]"
+    cat "$TMP"
+    echo "----------------------------------------"
+    echo "待分配 IPv6 前缀: $ROUTED_PREFIX/$PREFIX_LEN"
+    echo "========================================"
+    echo
+    read -p "确认写入配置并生效? [y/N]: " OK
     if [ "$OK" != "y" ] && [ "$OK" != "Y" ]; then
         echo "取消操作"
         rm -f "$TMP"
@@ -180,7 +221,7 @@ add_he(){
     cp "$TMP" "$NETPLAN_FILE"
     rm -f "$TMP"
 
-    echo "正在测试 Netplan 配置..."
+    echo "正在测试 Netplan 语法..."
     if ! netplan generate; then
         echo "错误: Netplan 语法解析失败！正在自动回滚..."
         if [ -f "${NETPLAN_FILE}.bak" ]; then
@@ -191,7 +232,7 @@ add_he(){
         return 1
     fi
 
-    echo "正在应用 Netplan..."
+    echo "正在应用 Netplan 配置..."
     if ! netplan apply; then
         echo "错误: Netplan 应用失败！正在自动回滚..."
         if [ -f "${NETPLAN_FILE}.bak" ]; then
@@ -203,37 +244,8 @@ add_he(){
         return 1
     fi
 
+    # 应用成功，清理备份并保存持久化信息
     rm -f "${NETPLAN_FILE}.bak"
-    ip link set "$IFACE" mtu 1480 2>/dev/null || true
-    echo "Netplan 隧道应用成功！"
-    echo
-
-    read -p "请输入 Routed IPv6 前缀 (例如 2001:470:xxxx::/64 或 2001:470:xxxx::/48): " INPUT_PREFIX
-    if [ -z "$INPUT_PREFIX" ]; then
-        echo "警告: 未输入前缀，后续将无法随机生成 IPv6 地址！"
-        setup_systemd_restore
-        return
-    fi
-
-    # 明确判断掩码长度，不依赖冒号数量猜测
-    local PREFIX_LEN=""
-    if [[ "$INPUT_PREFIX" =~ /48$ ]]; then
-        PREFIX_LEN=48
-    elif [[ "$INPUT_PREFIX" =~ /64$ ]]; then
-        PREFIX_LEN=64
-    else
-        echo "未在输入中匹配到掩码，请选择前缀类型："
-        echo "1) /48"
-        echo "2) /64"
-        read -p "选择 [1-2]: " MASK_CHOICE
-        case "$MASK_CHOICE" in
-            1) PREFIX_LEN=48 ;;
-            2) PREFIX_LEN=64 ;;
-            *) echo "输入无效，默认设为 /64" ; PREFIX_LEN=64 ;;
-        esac
-    fi
-
-    ROUTED_PREFIX=$(echo "$INPUT_PREFIX" | sed -E 's/[[:space:]]+//;s|/.*||;s/::$//')
 
     cat > "$CONFIG_RECORD" <<EOF
 ROUTED_PREFIX="$ROUTED_PREFIX"
@@ -243,7 +255,7 @@ EOF
     setup_systemd_restore
     echo
     echo "========================================"
-    echo "HE IPv6 隧道配置完毕！"
+    echo "HE IPv6 隧道配置完毕且生效！"
     echo "Netplan 配置文件: $NETPLAN_FILE"
     echo "已记录 IPv6 前缀: $ROUTED_PREFIX/$PREFIX_LEN"
     echo "========================================"
@@ -319,7 +331,7 @@ add_ipv6(){
     local RETRY=0
     local NEW_IPV6=""
 
-    # 随机生成并自动判重 (校验记录文件与 lo 接口现存 IP)
+    # 随机生成并自动判重 (使用固定字符串精确匹配 -qsF / -qsxF)
     while [ $RETRY -lt $MAX_RETRY ]; do
         HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
         R1="${HEX:0:4}"; R2="${HEX:4:4}"; R3="${HEX:8:4}"; R4="${HEX:12:4}"; R5="${HEX:16:4}"
@@ -330,7 +342,7 @@ add_ipv6(){
             NEW_IPV6="${PREFIX}:${R1}:${R2}:${R3}:${R4}"
         fi
 
-        if grep -qsxF "$NEW_IPV6" "$LIST_FILE" 2>/dev/null || ip -6 addr show dev lo | grep -qs "$NEW_IPV6"; then
+        if grep -qsxF "$NEW_IPV6" "$LIST_FILE" 2>/dev/null || ip -6 addr show dev lo | grep -qsF "$NEW_IPV6"; then
             RETRY=$((RETRY + 1))
         else
             break
