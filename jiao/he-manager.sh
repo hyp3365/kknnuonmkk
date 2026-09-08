@@ -4,7 +4,7 @@
 # ==========================================
 CONF_DIR="/etc/network/interfaces.d"
 CONF_FILE="$CONF_DIR/he-ipv6"
-NETPLAN_FILE="/etc/netplan/99-he-ipv6.yaml"
+NETPLAN_FILE="/etc/netplan/99-he-tunnel.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
 LIST_FILE="/etc/he-ipv6-ips.list"
 IFACE="he-ipv6"
@@ -187,95 +187,50 @@ EOF
 
 rebuild_and_apply(){
     load_record
-    if [ -z "$HE_SERVER_V4" ] || [ -z "$CLIENT_IPV6" ]; then
+    if [ -z "$HE_SERVER_V4" ] || [ -z "$HE_SERVER_V6" ] || [ -z "$CLIENT_IPV6" ]; then
         echo "错误: 缺少核心配置记录，请重新添加 HE 隧道。"
         return 1
     fi
-    POLICY_PREFIX=""
-    if [ -n "$ROUTED_PREFIX" ]; then
-        PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
-        if [ "$PREFIX_PARTS" -eq 3 ]; then
-            POLICY_PREFIX="${ROUTED_PREFIX}::/48"
-        elif [ "$PREFIX_PARTS" -eq 4 ]; then
-            POLICY_PREFIX="${ROUTED_PREFIX}::/64"
-        fi
-    fi
-
-    if [ "$MODE" = "ifupdown" ]; then
-        fix_interfaces_file
-        cat > "$CONF_FILE" <<EOF
-auto $IFACE
-iface $IFACE inet6 v4tunnel
-        address $CLIENT_IPV6
-        netmask 64
-        endpoint $HE_SERVER_V4
-        ttl 255
-        gateway $HE_SERVER_V6
-EOF
-        if [ -f "$LIST_FILE" ]; then
-            while read -r ip; do
-                [ -n "$ip" ] && echo "        post-up ip -6 addr add $ip/128 dev lo || true" >> "$CONF_FILE"
-                [ -n "$ip" ] && echo "        pre-down ip -6 addr del $ip/128 dev lo || true" >> "$CONF_FILE"
-            done < "$LIST_FILE"
-        fi
-        echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE metric 2048 || true" >> "$CONF_FILE"
-        echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE table 200 || true" >> "$CONF_FILE"
-        echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
-        
-        if [ -n "$POLICY_PREFIX" ]; then
-            echo "        post-up ip -6 rule add from $POLICY_PREFIX table 200 || true" >> "$CONF_FILE"
-        fi
-        apply_config_ifupdown || return 1
-    else
-        # Netplan 模式：仅管隧道、路由、策略
-        mkdir -p /etc/netplan
-        detect_public_ipv4
-        cat > "$NETPLAN_FILE" <<EOF
+    mkdir -p /etc/netplan
+    detect_public_ipv4
+    cat > "$NETPLAN_FILE" <<EOF
 network:
   version: 2
   tunnels:
     $IFACE:
       mode: sit
-      local: $PUBLIC_V4
       remote: $HE_SERVER_V4
+      local: $PUBLIC_V4
       addresses:
         - "$CLIENT_IPV6/64"
       routes:
         - to: default
           via: "$HE_SERVER_V6"
-          metric: 2048
-        - to: default
-          via: "$HE_SERVER_V6"
-          table: 200
-      routing-policy:
-        - from: "$CLIENT_IPV6/128"
-          table: 200
 EOF
-        if [ -n "$POLICY_PREFIX" ]; then
-            cat >> "$NETPLAN_FILE" <<EOF
-        - from: "$POLICY_PREFIX"
-          table: 200
-EOF
-        fi
-        
-        echo "正在应用 Netplan 网络配置..."
-        netplan apply || {
-            echo "错误: Netplan 配置应用失败！"
-            return 1
-        }
-        ip link set "$IFACE" mtu 1480 2>/dev/null || true
-
-        # 配置并启用 systemd 自动恢复服务，确保重启后 lo 附加 IP 不丢失
-        setup_systemd_restore
-
-        # 立即把列表里的 IP 绑定到 lo
-        if [ -f "$LIST_FILE" ]; then
-            while read -r ip; do
-                [ -n "$ip" ] && ip -6 addr add "$ip/128" dev lo 2>/dev/null || true
-            done < "$LIST_FILE"
-        fi
+    echo
+    echo "========== Netplan 配置 =========="
+    cat "$NETPLAN_FILE"
+    echo "=================================="
+    echo
+    echo "正在检查 Netplan 配置..."
+    if ! netplan generate; then
+        echo "错误: Netplan 配置检查失败！"
+        return 1
     fi
-    echo "配置应用完成！"
+    echo "正在应用 Netplan..."
+    if ! netplan apply; then
+        echo "错误: Netplan 应用失败！"
+        return 1
+    fi
+    ip link set "$IFACE" mtu 1480 2>/dev/null || true
+    setup_systemd_restore
+    if [ -f "$LIST_FILE" ]; then
+        while IFS= read -r ip; do
+            [ -n "$ip" ] || continue
+            ip -6 addr replace "$ip/128" dev lo 2>/dev/null || true
+        done < "$LIST_FILE"
+    fi
+    echo "配置完成！"
     return 0
 }
 
@@ -320,63 +275,104 @@ apply_config_ifupdown(){
 }
 
 add_he(){
-    echo "========== 导入 HE IPv6 隧道配置 =========="
-    echo "请粘贴 HE 配置，回车结束"
+    echo "========== 添加 HE IPv6 隧道 =========="
+    echo "请粘贴 Netplan 配置内容"
+    echo "输入空行结束"
     echo
-    TMP="/tmp/he-config.txt"
-    rm -f "$TMP"
-    EMPTY_COUNT=0
-    while true
-    do
-        read line
-        if [ -z "$line" ]; then
-            EMPTY_COUNT=$((EMPTY_COUNT+1))
-        else
-            EMPTY_COUNT=0
-            echo "$line" >> "$TMP"
-        fi
-        if [ "$EMPTY_COUNT" -ge 1 ]; then
-            break
-        fi
+    local TMP
+    TMP=$(mktemp)
+    while IFS= read -r line; do
+        [ -z "$line" ] && break
+        printf '%s\n' "$line" >> "$TMP"
     done
-    HE_SERVER_V4=$(grep -E 'endpoint ' "$TMP" | awk '{print $2}')
-    HE_SERVER_V6=$(grep -E 'gateway ' "$TMP" | awk '{print $2}')
-    CLIENT_IPV6=$(grep -E 'address ' "$TMP" | awk '{print $2}')
-    PUBLIC_V4=$(grep -E 'local ' "$TMP" | awk '{print $2}')
-    if [ -z "$HE_SERVER_V4" ] || \
-       [ -z "$HE_SERVER_V6" ] || \
-       [ -z "$CLIENT_IPV6" ]; then
-        echo "配置解析失败，请检查 HE 配置格式"
+    if [ ! -s "$TMP" ]; then
+        echo "未输入配置，取消操作"
+        rm -f "$TMP"
         return
     fi
     echo
-    echo "解析结果:"
-    echo "----------------------"
-    echo "本机 IPv4 : $PUBLIC_V4"
-    echo "HE IPv4   : $HE_SERVER_V4"
-    echo "本机 IPv6 : $CLIENT_IPV6"
-    echo "网关 IPv6 : $HE_SERVER_V6"
-    echo "----------------------"
+    echo "========== Netplan 配置 =========="
+    cat "$TMP"
+    echo "=================================="
     echo
-    read -p "请输入 he隧道 IPv6 前缀 (/64 或 /48): " ROUTED_PREFIX
-    if [ -n "$ROUTED_PREFIX" ]; then
-        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||;s/::$//')
+    read -p "请输入 Routed IPv6 前缀 (/48 或 /64): " ROUTED_PREFIX
+    if [ -z "$ROUTED_PREFIX" ]; then
+        echo "未输入 IPv6 前缀，取消操作"
+        rm -f "$TMP"
+        return
     fi
-    read -p "确认写入配置并启动? [y/N]: " OK
-    [ "$OK" != "y" ] && return
-    cat > "$CONFIG_RECORD" <<EOF
-HE_SERVER_V4="$HE_SERVER_V4"
-HE_SERVER_V6="$HE_SERVER_V6"
-CLIENT_IPV6="$CLIENT_IPV6"
-PUBLIC_V4="$PUBLIC_V4"
-ROUTED_PREFIX="$ROUTED_PREFIX"
-EOF
-    rm -f "$LIST_FILE"
-    rebuild_and_apply
+    ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's/[[:space:]]+//;s|/.*||;s/::$//')
+    IFS=':' read -ra PREFIX_PARTS <<< "$ROUTED_PREFIX"
+    if [ "${#PREFIX_PARTS[@]}" -eq 3 ]; then
+        PREFIX_LEN=48
+    elif [ "${#PREFIX_PARTS[@]}" -eq 4 ]; then
+        PREFIX_LEN=64
+    else
+        echo "IPv6 前缀格式错误"
+        echo "请输入类似:"
+        echo "2001:470:xxxx"
+        echo "或者:"
+        echo "2001:470:xxxx:xxxx"
+        rm -f "$TMP"
+        return
+    fi
     echo
-    echo "HE 隧道添加完成"
+    echo "Routed IPv6 前缀:"
+    echo "$ROUTED_PREFIX/$PREFIX_LEN"
+    echo
+    read -p "确认写入配置并应用? [y/N]: " OK
+    [ "$OK" != "y" ] && {
+        rm -f "$TMP"
+        return
+    }
+    mkdir -p /etc/netplan
+    if [ -f "$NETPLAN_FILE" ]; then
+        cp "$NETPLAN_FILE" "${NETPLAN_FILE}.bak"
+    fi
+    cp "$TMP" "$NETPLAN_FILE"
+    rm -f "$TMP"
+    cat > "$CONFIG_RECORD" <<EOF
+ROUTED_PREFIX="$ROUTED_PREFIX"
+PREFIX_LEN="$PREFIX_LEN"
+EOF
+    echo
+    echo "正在检查 Netplan 配置..."
+    if ! netplan generate; then
+        echo "错误: Netplan 配置检查失败！"
+        if [ -f "${NETPLAN_FILE}.bak" ]; then
+            mv "${NETPLAN_FILE}.bak" "$NETPLAN_FILE"
+        else
+            rm -f "$NETPLAN_FILE"
+        fi
+        rm -f "$CONFIG_RECORD"
+        netplan generate >/dev/null 2>&1 || true
+        return 1
+    fi
+    echo "正在应用 Netplan..."
+    if ! netplan apply; then
+        echo "错误: Netplan 应用失败！"
+        if [ -f "${NETPLAN_FILE}.bak" ]; then
+            mv "${NETPLAN_FILE}.bak" "$NETPLAN_FILE"
+            netplan apply >/dev/null 2>&1 || true
+        fi
+        rm -f "$CONFIG_RECORD"
+        return 1
+    fi
+    rm -f "${NETPLAN_FILE}.bak"
+    setup_systemd_restore
+    if [ -f "$LIST_FILE" ]; then
+        while IFS= read -r ip; do
+            [ -n "$ip" ] || continue
+            ip -6 addr replace "$ip/128" dev lo 2>/dev/null || true
+        done < "$LIST_FILE"
+    fi
+    echo
+    echo "========================================"
+    echo "HE IPv6 隧道添加完成"
+    echo "Netplan: $NETPLAN_FILE"
+    echo "Routed:  $ROUTED_PREFIX/$PREFIX_LEN"
+    echo "========================================"
 }
-
 delete_he(){
     echo "正在删除 HE 隧道..."
     if [ -f "$OUTBOUND_FILE" ]; then
