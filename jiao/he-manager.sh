@@ -8,6 +8,7 @@ LIST_FILE="/etc/he-ipv6-ips.list"
 IFACE="he-ipv6"
 OUTBOUND_FILE="/etc/sing-box/conf/outbounds.json"
 ROUTE_FILE="/etc/sing-box/conf/route.json"
+NEED_RESTART_SINGBOX=0
 
 # 检查 Root 权限
 [ "$(id -u)" != "0" ] && echo "错误: 请使用 root 权限运行此脚本！" && exit 1
@@ -123,33 +124,35 @@ add_singbox_outbound(){
 }
 
 delete_singbox_route(){
-    [ ! -f "$ROUTE_FILE" ] && return 0
+    [ ! -f "$ROUTE_FILE" ] && return 1
     local TAG="$1"
     local TMP_JSON
+    if ! jq -e --arg tag "$TAG" '
+        .route.rules[]?
+        | select(.outbound == $tag)
+    ' "$ROUTE_FILE" >/dev/null 2>&1; then
+        return 1
+    fi
     TMP_JSON=$(mktemp)
-
-    if jq \
-    --arg tag "$TAG" \
-    '
-    .route.rules |= map(
-        select(
-            .outbound != $tag
+    if jq --arg tag "$TAG" '
+        .route.rules |= map(
+            select(.outbound != $tag)
         )
-    )
     ' "$ROUTE_FILE" > "$TMP_JSON"; then
         mv "$TMP_JSON" "$ROUTE_FILE"
         echo "route 规则已删除:"
         echo " outbound: $TAG"
+        NEED_RESTART_SINGBOX=1
+        return 0
     else
         rm -f "$TMP_JSON"
+        return 1
     fi
 }
-
 delete_singbox_outbound(){
     [ ! -f "$OUTBOUND_FILE" ] && return 0
     local IP="$1"
     local TAGS=()
-
     mapfile -t TAGS < <(
         jq -r --arg ip "$IP" '
         .outbounds[]?
@@ -157,15 +160,11 @@ delete_singbox_outbound(){
         | .tag // empty
         ' "$OUTBOUND_FILE"
     )
-
     [ "${#TAGS[@]}" -eq 0 ] && return 0
-
     local TMP_JSON
     TMP_JSON=$(mktemp)
-
     if jq \
-    --arg ip "$IP" \
-    '
+    --arg ip "$IP" '
     .outbounds |= map(
         select(.inet6_bind_address != $ip)
     )
@@ -175,8 +174,10 @@ delete_singbox_outbound(){
         for TAG in "${TAGS[@]}"; do
             [ -n "$TAG" ] && delete_singbox_route "$TAG"
         done
+        return 0
     else
         rm -f "$TMP_JSON"
+        return 1
     fi
 }
 
@@ -424,24 +425,21 @@ add_ipv6(){
 }
 
 delete_ipv6(){
+    NEED_RESTART_SINGBOX=0
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "没有可删除的额外 IPv6 地址"
         read -p "按回车键继续..."
         return
     fi
-
     echo "========== 当前配置的额外 IPv6 地址 =========="
     list_ipv6
     echo
     read -p "输入要删除的编号: " NUM
-
-    # 严谨校验数字编号与界限
     if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
-        echo "错误: 输入的编号无效，请输入有效数字！"
+        echo "错误: 输入的编号无效！"
         read -p "按回车键继续..."
         return
     fi
-
     local TOTAL_LINES
     TOTAL_LINES=$(wc -l < "$LIST_FILE")
     if [ "$NUM" -gt "$TOTAL_LINES" ]; then
@@ -449,23 +447,19 @@ delete_ipv6(){
         read -p "按回车键继续..."
         return
     fi
-
     DEL_IP=$(sed -n "${NUM}p" "$LIST_FILE")
-    if [ -z "$DEL_IP" ]; then
-        echo "获取 IP 失败！"
-        read -p "按回车键继续..."
-        return
-    fi
-
-    # 1. 从 lo 接口解绑 IP
     ip -6 addr del "$DEL_IP/128" dev lo 2>/dev/null || true
-
-    # 2. 删除 sing-box 出站 JSON
     delete_singbox_outbound "$DEL_IP"
-
-    # 3. 从记录清单删除
     sed -i "${NUM}d" "$LIST_FILE"
-    echo "已移除 IP 记录: $DEL_IP"
+    echo "已移除 IP: $DEL_IP"
+    if [ "$NEED_RESTART_SINGBOX" -eq 1 ]; then
+        echo "正在重启 sing-box..."
+        if systemctl is-active sing-box >/dev/null 2>&1; then
+            systemctl restart sing-box
+        fi
+    else
+        echo "未删除分流规则"
+    fi
     read -p "按回车键继续..."
 }
 
