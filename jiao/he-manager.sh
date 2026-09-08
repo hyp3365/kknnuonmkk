@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版1)
+# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版)
 # ==========================================
 NETPLAN_FILE="/etc/netplan/99-he-tunnel.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
@@ -28,13 +28,47 @@ install_dep(){
         fi
     fi
 
-    # 最终断言检查
     for cmd in curl ip awk jq netplan; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             echo "错误: 缺少核心依赖: $cmd，请手动排查包管理器问题！"
             exit 1
         fi
     done
+}
+
+# 模块化 IPv6 生成器
+generate_ipv6(){
+    local prefix="$1"
+    local prefix_len="$2"
+    local hex
+    hex=$(tr -d '-' < /proc/sys/kernel/random/uuid)
+
+    if [ "$prefix_len" = "48" ]; then
+        printf '%s:%s:%s:%s:%s:%s\n' \
+            "$prefix" \
+            "${hex:0:4}" \
+            "${hex:4:4}" \
+            "${hex:8:4}" \
+            "${hex:12:4}" \
+            "${hex:16:4}"
+    else
+        printf '%s:%s:%s:%s:%s\n' \
+            "$prefix" \
+            "${hex:0:4}" \
+            "${hex:4:4}" \
+            "${hex:8:4}" \
+            "${hex:12:4}"
+    fi
+}
+
+rollback_netplan(){
+    if [ -f "${NETPLAN_FILE}.bak" ]; then
+        mv -f "${NETPLAN_FILE}.bak" "$NETPLAN_FILE"
+    else
+        rm -f "$NETPLAN_FILE"
+    fi
+    netplan generate >/dev/null 2>&1 || true
+    netplan apply >/dev/null 2>&1 || true
 }
 
 list_ipv6(){
@@ -46,7 +80,7 @@ list_ipv6(){
 }
 
 add_singbox_outbound(){
-    [ ! -f "$OUTBOUND_FILE" ] && return
+    [ ! -f "$OUTBOUND_FILE" ] && return 0
     local IP="$1"
     local NUM
     NUM=$(jq -r '
@@ -55,14 +89,18 @@ add_singbox_outbound(){
         | .tag
         | sub("he-ipv6-";"")
     ' "$OUTBOUND_FILE" 2>/dev/null | sort -n | tail -1)
+
     if [ -z "$NUM" ]; then
         NUM=1
     else
         NUM=$((NUM+1))
     fi
+
     local TAG="he-ipv6-$NUM"
+    local TMP_JSON
     TMP_JSON=$(mktemp)
-    jq \
+
+    if ! jq \
     --arg tag "$TAG" \
     --arg ip "$IP" \
     '
@@ -72,18 +110,25 @@ add_singbox_outbound(){
         "bind_interface":"he-ipv6",
         "inet6_bind_address":$ip
     }]
-    ' "$OUTBOUND_FILE" > "$TMP_JSON"
+    ' "$OUTBOUND_FILE" > "$TMP_JSON"; then
+        rm -f "$TMP_JSON"
+        return 1
+    fi
+
     mv "$TMP_JSON" "$OUTBOUND_FILE"
     echo "sing-box 出站已写入 JSON (未重启 sing-box):"
     echo " tag: $TAG"
     echo " ipv6: $IP"
+    return 0
 }
 
 delete_singbox_route(){
-    [ ! -f "$ROUTE_FILE" ] && return
+    [ ! -f "$ROUTE_FILE" ] && return 0
     local TAG="$1"
+    local TMP_JSON
     TMP_JSON=$(mktemp)
-    jq \
+
+    if jq \
     --arg tag "$TAG" \
     '
     .route.rules |= map(
@@ -91,34 +136,48 @@ delete_singbox_route(){
             .outbound != $tag
         )
     )
-    ' "$ROUTE_FILE" > "$TMP_JSON"
-    mv "$TMP_JSON" "$ROUTE_FILE"
-    echo "route 规则已删除:"
-    echo " outbound: $TAG"
+    ' "$ROUTE_FILE" > "$TMP_JSON"; then
+        mv "$TMP_JSON" "$ROUTE_FILE"
+        echo "route 规则已删除:"
+        echo " outbound: $TAG"
+    else
+        rm -f "$TMP_JSON"
+    fi
 }
 
 delete_singbox_outbound(){
-    [ ! -f "$OUTBOUND_FILE" ] && return
+    [ ! -f "$OUTBOUND_FILE" ] && return 0
     local IP="$1"
-    TAG=$(jq -r \
-    --arg ip "$IP" '
-    .outbounds[]?
-    | select(.inet6_bind_address==$ip)
-    | .tag
-    ' "$OUTBOUND_FILE")
-    [ -z "$TAG" ] && return
+    local TAGS=()
+
+    mapfile -t TAGS < <(
+        jq -r --arg ip "$IP" '
+        .outbounds[]?
+        | select(.inet6_bind_address == $ip)
+        | .tag // empty
+        ' "$OUTBOUND_FILE"
+    )
+
+    [ "${#TAGS[@]}" -eq 0 ] && return 0
+
+    local TMP_JSON
     TMP_JSON=$(mktemp)
-    jq \
+
+    if jq \
     --arg ip "$IP" \
     '
     .outbounds |= map(
         select(.inet6_bind_address != $ip)
     )
-    ' "$OUTBOUND_FILE" > "$TMP_JSON"
-    mv "$TMP_JSON" "$OUTBOUND_FILE"
-    echo "sing-box 出站已删除 (未重启 sing-box):"
-    echo " tag: $TAG"
-    delete_singbox_route "$TAG"
+    ' "$OUTBOUND_FILE" > "$TMP_JSON"; then
+        mv "$TMP_JSON" "$OUTBOUND_FILE"
+        echo "sing-box 出站已删除 (未重启 sing-box): $IP"
+        for TAG in "${TAGS[@]}"; do
+            [ -n "$TAG" ] && delete_singbox_route "$TAG"
+        done
+    else
+        rm -f "$TMP_JSON"
+    fi
 }
 
 load_record(){
@@ -128,7 +187,6 @@ load_record(){
 }
 
 setup_systemd_restore(){
-    # 使用 replace 指令替代 add，提升恢复时的稳定性
     cat > /usr/local/bin/he-ipv6-restore << 'EOF'
 #!/bin/bash
 LIST_FILE="/etc/he-ipv6-ips.list"
@@ -178,27 +236,31 @@ add_he(){
 
     echo
     read -p "请输入 Routed IPv6 前缀 (必须明确包含 /48 或 /64，例如 2001:470:c::/48): " INPUT_PREFIX
-    if [ -z "$INPUT_PREFIX" ]; then
-        echo "错误: 未输入前缀，取消操作！"
-        rm -f "$TMP"
-        return
-    fi
-
-    # 校验 IPv6 前缀格式合法性（基础 Hex + 冒号与末尾掩码）
-    if ! echo "$INPUT_PREFIX" | grep -qE '^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{0,4}/(48|64)$'; then
-        echo "错误: 输入的前缀格式不合法！示例: 2001:470:c::/48 或 2001:470:c:ed9::/64"
-        rm -f "$TMP"
-        return
-    fi
+    INPUT_PREFIX=$(echo "$INPUT_PREFIX" | tr -d '[:space:]')
 
     local PREFIX_LEN=""
-    if [[ "$INPUT_PREFIX" =~ /48$ ]]; then
-        PREFIX_LEN=48
-    elif [[ "$INPUT_PREFIX" =~ /64$ ]]; then
-        PREFIX_LEN=64
+    case "$INPUT_PREFIX" in
+        */48)
+            PREFIX_LEN=48
+            ;;
+        */64)
+            PREFIX_LEN=64
+            ;;
+        *)
+            echo "错误: IPv6 前缀必须以 /48 或 /64 结尾！"
+            rm -f "$TMP"
+            return
+            ;;
+    esac
+
+    local RAW_ADDR="${INPUT_PREFIX%/*}"
+    if [[ ! "$RAW_ADDR" =~ ^[0-9a-fA-F:]+$ ]] || [[ "$RAW_ADDR" != *:* ]]; then
+        echo "错误: 输入的前缀地址格式不合法！示例: 2001:470:c::/48 或 2001:470:c:ed9::/64"
+        rm -f "$TMP"
+        return
     fi
 
-    ROUTED_PREFIX=$(echo "$INPUT_PREFIX" | sed -E 's/[[:space:]]+//;s|/.*||;s/::$//')
+    ROUTED_PREFIX=$(echo "$RAW_ADDR" | sed -E 's/::$//')
 
     echo
     echo "========== 准备写入的配置总览 =========="
@@ -216,35 +278,24 @@ add_he(){
     fi
 
     mkdir -p /etc/netplan
-    # 创建备份以支持回滚
     [ -f "$NETPLAN_FILE" ] && cp "$NETPLAN_FILE" "${NETPLAN_FILE}.bak"
     cp "$TMP" "$NETPLAN_FILE"
     rm -f "$TMP"
 
     echo "正在测试 Netplan 语法..."
     if ! netplan generate; then
-        echo "错误: Netplan 语法解析失败！正在自动回滚..."
-        if [ -f "${NETPLAN_FILE}.bak" ]; then
-            mv "${NETPLAN_FILE}.bak" "$NETPLAN_FILE"
-        else
-            rm -f "$NETPLAN_FILE"
-        fi
+        echo "错误: Netplan 语法解析失败！正在自动恢复原状..."
+        rollback_netplan
         return 1
     fi
 
     echo "正在应用 Netplan 配置..."
     if ! netplan apply; then
-        echo "错误: Netplan 应用失败！正在自动回滚..."
-        if [ -f "${NETPLAN_FILE}.bak" ]; then
-            mv "${NETPLAN_FILE}.bak" "$NETPLAN_FILE"
-            netplan apply 2>/dev/null || true
-        else
-            rm -f "$NETPLAN_FILE"
-        fi
+        echo "错误: Netplan 应用失败！正在自动恢复原状..."
+        rollback_netplan
         return 1
     fi
 
-    # 应用成功，清理备份并保存持久化信息
     rm -f "${NETPLAN_FILE}.bak"
 
     cat > "$CONFIG_RECORD" <<EOF
@@ -265,30 +316,34 @@ delete_he(){
     echo "正在清理 HE 隧道及相关配置..."
     local NEED_RESTART_SINGBOX=0
 
-    # 1. 检查并清除 sing-box 配置
+    # 1. 检查并清除 sing-box 配置 (使用 mktemp 避免并发冲突)
     if [ -f "$OUTBOUND_FILE" ]; then
         if jq -e '.outbounds[]? | select((.tag // "") | startswith("he-ipv6-"))' "$OUTBOUND_FILE" >/dev/null 2>&1; then
+            local TMP_JSON
+            TMP_JSON=$(mktemp)
             jq '
             .outbounds |= map(
                 select((.tag // "") | startswith("he-ipv6-") | not)
             )
-            ' "$OUTBOUND_FILE" > /tmp/out.json && mv /tmp/out.json "$OUTBOUND_FILE"
+            ' "$OUTBOUND_FILE" > "$TMP_JSON" && mv "$TMP_JSON" "$OUTBOUND_FILE"
             NEED_RESTART_SINGBOX=1
         fi
     fi
 
     if [ -f "$ROUTE_FILE" ]; then
         if jq -e '.route.rules[]? | select((.outbound // "") | startswith("he-ipv6-"))' "$ROUTE_FILE" >/dev/null 2>&1; then
+            local TMP_JSON
+            TMP_JSON=$(mktemp)
             jq '
             .route.rules |= map(
                 select((.outbound // "") | startswith("he-ipv6-") | not)
             )
-            ' "$ROUTE_FILE" > /tmp/route.json && mv /tmp/route.json "$ROUTE_FILE"
+            ' "$ROUTE_FILE" > "$TMP_JSON" && mv "$TMP_JSON" "$ROUTE_FILE"
             NEED_RESTART_SINGBOX=1
         fi
     fi
 
-    # 2. 清理已挂载在 lo 上的 IPv6 地址，消除脏地址
+    # 2. 清理已挂载在 lo 上的 IPv6 地址
     if [ -f "$LIST_FILE" ]; then
         while IFS= read -r ip; do
             [ -n "$ip" ] && ip -6 addr del "$ip/128" dev lo 2>/dev/null || true
@@ -309,7 +364,7 @@ delete_he(){
 
     echo "HE 网络隧道及网卡绑定已彻底清除！"
 
-    # 4. 仅在确实修改了路由/出站配置文件时，才重启 sing-box
+    # 4. 重启 sing-box (仅当修改过配置时)
     if [ "$NEED_RESTART_SINGBOX" -eq 1 ]; then
         if systemctl is-active sing-box >/dev/null 2>&1; then
             echo "检测到已移除 sing-box 相关出站与路由规则，正在重启 sing-box..."
@@ -331,16 +386,8 @@ add_ipv6(){
     local RETRY=0
     local NEW_IPV6=""
 
-    # 随机生成并自动判重 (使用固定字符串精确匹配 -qsF / -qsxF)
     while [ $RETRY -lt $MAX_RETRY ]; do
-        HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-        R1="${HEX:0:4}"; R2="${HEX:4:4}"; R3="${HEX:8:4}"; R4="${HEX:12:4}"; R5="${HEX:16:4}"
-
-        if [ "$PREFIX_LEN" -eq 48 ]; then
-            NEW_IPV6="${PREFIX}:${R1}:${R2}:${R3}:${R4}:${R5}"
-        else
-            NEW_IPV6="${PREFIX}:${R1}:${R2}:${R3}:${R4}"
-        fi
+        NEW_IPV6=$(generate_ipv6 "$PREFIX" "$PREFIX_LEN")
 
         if grep -qsxF "$NEW_IPV6" "$LIST_FILE" 2>/dev/null || ip -6 addr show dev lo | grep -qsF "$NEW_IPV6"; then
             RETRY=$((RETRY + 1))
@@ -355,20 +402,24 @@ add_ipv6(){
         return
     fi
 
-    # 1. 绑定 IPv6 到 lo 接口
-    ip -6 addr add "$NEW_IPV6/128" dev lo 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "错误: 绑定 IPv6 至 lo 接口失败！"
+    # 保证事务原子性：先写入 sing-box JSON
+    if ! add_singbox_outbound "$NEW_IPV6"; then
+        echo "错误: 写入 sing-box 出站配置失败，取消绑定 IPv6！"
         read -p "按回车键继续..."
         return
     fi
 
-    # 2. 写入列表记录
+    # 绑定 IPv6 到 lo 接口
+    if ! ip -6 addr add "$NEW_IPV6/128" dev lo 2>/dev/null; then
+        echo "错误: 绑定 IPv6 至 lo 接口失败，正在自动回滚 sing-box 配置..."
+        delete_singbox_outbound "$NEW_IPV6"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    # 写入记录文件
     echo "$NEW_IPV6" >> "$LIST_FILE"
     echo "✓ 附加 IPv6 已成功绑定至 lo 接口: $NEW_IPV6"
-
-    # 3. 添加 sing-box 出站 (不重启 sing-box)
-    add_singbox_outbound "$NEW_IPV6"
     read -p "按回车键继续..."
 }
 
@@ -378,14 +429,30 @@ delete_ipv6(){
         read -p "按回车键继续..."
         return
     fi
+
     echo "========== 当前配置的额外 IPv6 地址 =========="
     list_ipv6
     echo
     read -p "输入要删除的编号: " NUM
-    [ -z "$NUM" ] && return
+
+    # 严谨校验数字编号与界限
+    if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
+        echo "错误: 输入的编号无效，请输入有效数字！"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    local TOTAL_LINES
+    TOTAL_LINES=$(wc -l < "$LIST_FILE")
+    if [ "$NUM" -gt "$TOTAL_LINES" ]; then
+        echo "错误: 编号超出范围！"
+        read -p "按回车键继续..."
+        return
+    fi
+
     DEL_IP=$(sed -n "${NUM}p" "$LIST_FILE")
     if [ -z "$DEL_IP" ]; then
-        echo "输入的编号无效！"
+        echo "获取 IP 失败！"
         read -p "按回车键继续..."
         return
     fi
@@ -393,7 +460,7 @@ delete_ipv6(){
     # 1. 从 lo 接口解绑 IP
     ip -6 addr del "$DEL_IP/128" dev lo 2>/dev/null || true
 
-    # 2. 删除 sing-box 出站 JSON (不重启 sing-box)
+    # 2. 删除 sing-box 出站 JSON
     delete_singbox_outbound "$DEL_IP"
 
     # 3. 从记录清单删除
@@ -404,14 +471,25 @@ delete_ipv6(){
 
 status(){
     clear
-    echo "========== HE IPv6 设备状态 =========="
+    echo "========== HE IPv6 隧道设备状态 =========="
     ip link show "$IFACE" 2>/dev/null || echo "隧道设备未启动"
     echo
-    echo "========== 已绑定的全局 IPv6 地址 =========="
+    echo "========== 已绑定的全局 IPv6 地址 ($IFACE) =========="
     ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | awk '{print $2}' || echo "无"
     echo
-    echo "========== 额外附加的 IPv6 地址清单 (lo 接口) =========="
-    list_ipv6
+    echo "========== lo 接口 HE 附加 IPv6 绑定状态 =========="
+    if [ -f "$LIST_FILE" ] && [ -s "$LIST_FILE" ]; then
+        while IFS= read -r ip; do
+            [ -z "$ip" ] && continue
+            if ip -6 addr show dev lo | grep -qsF "$ip"; then
+                echo "✓ $ip"
+            else
+                echo "✗ $ip (记录存在但系统未绑定)"
+            fi
+        done < "$LIST_FILE"
+    else
+        echo "无附加记录"
+    fi
     echo
     read -p "按回车键返回主菜单..."
 }
@@ -425,9 +503,11 @@ test_ipv6(){
         read -p "按回车键继续..."
         return
     fi
+
     local total=0
     local success=0
     local failed=0
+
     while IFS= read -r TEST_IP; do
         [ -z "$TEST_IP" ] && continue
         total=$((total + 1))
@@ -454,6 +534,7 @@ test_ipv6(){
             echo "✗ 连通失败 | 耗时: ${COST} ms"
         fi
     done < "$LIST_FILE"
+
     echo ""
     echo "========================================"
     echo "测试完成 | 总数: $total | 成功: $success | 失败: $failed"
@@ -465,7 +546,7 @@ menu(){
     while true
     do
         clear
-        echo "========== HE IPv6 隧道 (Netplan 持久版) =========="
+        echo "========== HE IPv6 隧道 (Netplan 持久版1) =========="
         echo "1. 添加/重置 HE 隧道"
         echo "2. 删除 HE 隧道"
         echo "3. 随机添加附加 IPv6 地址"
