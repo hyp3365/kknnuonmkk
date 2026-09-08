@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本
+# HE IPv6 隧道脚本 (持久)
 # ==========================================
 CONF_DIR="/etc/network/interfaces.d"
 CONF_FILE="$CONF_DIR/he-ipv6"
@@ -153,6 +153,38 @@ EOF
     fi
 }
 
+setup_systemd_restore(){
+    # 创建重启后恢复 lo 附加 IP 的独立脚本
+    cat > /usr/local/bin/he-ipv6-restore << 'EOF'
+#!/bin/bash
+LIST_FILE="/etc/he-ipv6-ips.list"
+[ -f "$LIST_FILE" ] || exit 0
+while IFS= read -r ip; do
+    [ -n "$ip" ] || continue
+    ip -6 addr add "$ip/128" dev lo 2>/dev/null || true
+done < "$LIST_FILE"
+EOF
+    chmod +x /usr/local/bin/he-ipv6-restore
+
+    # 注册 systemd 服务，确保在网络就绪后自动执行恢复
+    cat > /etc/systemd/system/he-ipv6-restore.service << 'EOF'
+[Unit]
+Description=HE IPv6 Additional Addresses Restore
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/he-ipv6-restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable he-ipv6-restore.service >/dev/null 2>&1
+}
+
 rebuild_and_apply(){
     load_record
     if [ -z "$HE_SERVER_V4" ] || [ -z "$CLIENT_IPV6" ]; then
@@ -195,7 +227,7 @@ EOF
         fi
         apply_config_ifupdown || return 1
     else
-        # Netplan 模式：仅管隧道、路由、策略，lo 地址统一由下文统一通过 ip 命令绑定
+        # Netplan 模式：仅管隧道、路由、策略
         mkdir -p /etc/netplan
         detect_public_ipv4
         cat > "$NETPLAN_FILE" <<EOF
@@ -233,7 +265,10 @@ EOF
         }
         ip link set "$IFACE" mtu 1480 2>/dev/null || true
 
-        # 无论什么模式，附加 IP 统一使用最稳健的 ip 命令直接挂载到 lo 环回口
+        # 配置并启用 systemd 自动恢复服务，确保重启后 lo 附加 IP 不丢失
+        setup_systemd_restore
+
+        # 立即把列表里的 IP 绑定到 lo
         if [ -f "$LIST_FILE" ]; then
             while read -r ip; do
                 [ -n "$ip" ] && ip -6 addr add "$ip/128" dev lo 2>/dev/null || true
@@ -364,6 +399,10 @@ delete_he(){
         rm -f "$CONF_FILE"
     else
         rm -f "$NETPLAN_FILE"
+        systemctl disable he-ipv6-restore.service 2>/dev/null || true
+        rm -f /etc/systemd/system/he-ipv6-restore.service
+        rm -f /usr/local/bin/he-ipv6-restore
+        systemctl daemon-reload
         netplan apply 2>/dev/null || true
     fi
     ip link set "$IFACE" down 2>/dev/null || true
@@ -426,7 +465,6 @@ add_ipv6(){
     else
         echo "✗ 警告: 未能在 lo 接口检测到新 IP，请稍后检查状态"
     fi
-
     # 4. 添加 sing-box 出站配置
     add_singbox_outbound "$NEW_IPV6"
     read -p "按回车键继续..."
@@ -532,7 +570,7 @@ menu(){
     while true
     do
         clear
-        echo "========== HE IPv6 隧道 =========="
+        echo "========== HE IPv6 隧道 (持久化版) =========="
         echo "1. 添加/重置 HE 隧道"
         echo "2. 删除 HE 隧道"
         echo "3. 随机添加附加 IPv6 地址"
