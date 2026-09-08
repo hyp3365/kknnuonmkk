@@ -141,6 +141,16 @@ rebuild_and_apply(){
         echo "错误: 缺少核心配置记录，请重新添加 HE 隧道。"
         return 1
     fi
+    POLICY_PREFIX=""
+    if [ -n "$ROUTED_PREFIX" ]; then
+        PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
+        if [ "$PREFIX_PARTS" -eq 3 ]; then
+            POLICY_PREFIX="${ROUTED_PREFIX}::/48"
+        elif [ "$PREFIX_PARTS" -eq 4 ]; then
+            POLICY_PREFIX="${ROUTED_PREFIX}::/64"
+        fi
+    fi
+
     if [ "$MODE" = "ifupdown" ]; then
         fix_interfaces_file
         cat > "$CONF_FILE" <<EOF
@@ -154,25 +164,18 @@ iface $IFACE inet6 v4tunnel
 EOF
         if [ -f "$LIST_FILE" ]; then
             while read -r ip; do
-                [ -n "$ip" ] && echo "        up ip -6 addr add $ip/64 dev $IFACE || true" >> "$CONF_FILE"
+                [ -n "$ip" ] && echo "        post-up ip -6 addr add $ip/128 dev lo || true" >> "$CONF_FILE"
+                [ -n "$ip" ] && echo "        pre-down ip -6 addr del $ip/128 dev lo || true" >> "$CONF_FILE"
             done < "$LIST_FILE"
         fi
         echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE metric 2048 || true" >> "$CONF_FILE"
         echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE table 200 || true" >> "$CONF_FILE"
         echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
-        if [ -n "$ROUTED_PREFIX" ]; then
-    PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
-    if [ "$PREFIX_PARTS" -eq 3 ]; then
-        POLICY_PREFIX="${ROUTED_PREFIX}::/48"
-    elif [ "$PREFIX_PARTS" -eq 4 ]; then
-        POLICY_PREFIX="${ROUTED_PREFIX}::/64"
-    else
-        POLICY_PREFIX=""
-    fi
-    if [ -n "$POLICY_PREFIX" ]; then
-        echo "        post-up ip -6 rule add from $POLICY_PREFIX table 200 || true" >> "$CONF_FILE"
-    fi
-    fi
+        
+        if [ -n "$POLICY_PREFIX" ]; the
+            echo "        post-up ip -6 route add blackhole $POLICY_PREFIX || true" >> "$CONF_FILE"
+            echo "        post-up ip -6 rule add from $POLICY_PREFIX table 200 || true" >> "$CONF_FILE"
+        fi
     else
         mkdir -p /etc/netplan
         cat > "$NETPLAN_FILE" <<EOF
@@ -184,13 +187,6 @@ network:
       remote: $HE_SERVER_V4
       addresses:
         - "$CLIENT_IPV6/64"
-EOF
-        if [ -f "$LIST_FILE" ]; then
-            while read -r ip; do
-                [ -n "$ip" ] && echo "        - \"$ip/64\"" >> "$NETPLAN_FILE"
-            done < "$LIST_FILE"
-        fi
-        cat >> "$NETPLAN_FILE" <<EOF
       routes:
         - to: default
           via: "$HE_SERVER_V6"
@@ -198,69 +194,40 @@ EOF
         - to: default
           via: "$HE_SERVER_V6"
           table: 200
+EOF
+        if [ -n "$POLICY_PREFIX" ]; then
+            cat >> "$NETPLAN_FILE" <<EOF
+        - to: "$POLICY_PREFIX"
+          type: blackhole
+EOF
+        fi       
+        cat >> "$NETPLAN_FILE" <<EOF
       routing-policy:
         - from: "$CLIENT_IPV6/128"
           table: 200
 EOF
-        if [ -n "$ROUTED_PREFIX" ]; then
-    PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
-    if [ "$PREFIX_PARTS" -eq 3 ]; then
-        POLICY_PREFIX="${ROUTED_PREFIX}::/48"
-    elif [ "$PREFIX_PARTS" -eq 4 ]; then
-        POLICY_PREFIX="${ROUTED_PREFIX}::/64"
-    fi
-    if [ -n "$POLICY_PREFIX" ]; then
-        cat >> "$NETPLAN_FILE" <<EOF
+        if [ -n "$POLICY_PREFIX" ]; then
+            cat >> "$NETPLAN_FILE" <<EOF
         - from: "$POLICY_PREFIX"
           table: 200
 EOF
-    fi
-    fi
         fi
+        if [ -f "$LIST_FILE" ] && [ -s "$LIST_FILE" ]; then
+            cat >> "$NETPLAN_FILE" <<EOF
+  ethernets:
+    lo:
+      match:
+        name: lo
+      addresses:
+EOF
+            while read -r ip; do
+                [ -n "$ip" ] && echo "        - \"$ip/128\"" >> "$NETPLAN_FILE"
+            done < "$LIST_FILE"
+        fi
+    fi
     apply_config || return 1
 }
-apply_config(){
-    echo "正在应用网络配置..."
-    while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
-    ip link set "$IFACE" down 2>/dev/null || true
-    ip tunnel del "$IFACE" 2>/dev/null || true
-    if [ "$MODE" = "ifupdown" ]; then
-        ifdown "$IFACE" 2>/dev/null || true
-    else
-        netplan apply 2>/dev/null || true
-        sleep 1 
-    fi
-    if ! ip link show "$IFACE" >/dev/null 2>&1; then
-        detect_public_ipv4
-        ip tunnel add "$IFACE" mode sit \
-        local "$PUBLIC_V4" \
-        remote "$HE_SERVER_V4" \
-        ttl 255 || {
-            echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
-            return 1
-        }
-    fi   
-    ip link set "$IFACE" up 2>/dev/null || true
-    ip link set "$IFACE" mtu 1480 2>/dev/null || true
-    ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true 
-    if [ -f "$LIST_FILE" ]; then
-        while read -r ip; do
-            [ -n "$ip" ] && ip -6 addr add "$ip/64" dev "$IFACE" 2>/dev/null || true
-        done < "$LIST_FILE"
-    fi  
-    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 2>/dev/null || true
-    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 2>/dev/null || true
-    ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 2>/dev/null || true
-    if [ -n "$ROUTED_PREFIX" ]; then
-        if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
-            ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 2>/dev/null || true
-        else
-            ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 2>/dev/null || true
-        fi
-    fi
-    echo "配置应用完成！"
-    return 0
-}
+
 
 add_he(){
     echo "========== 导入 HE IPv6 隧道配置 =========="
