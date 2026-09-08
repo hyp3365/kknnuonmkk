@@ -540,7 +540,7 @@ menu(){
     while true
     do
         clear
-        echo "========== HE IPv6 隧道 1 =========="
+        echo "========== HE IPv6 隧道 放行41端口 =========="
         echo "1. 添加/重置 HE 隧道"
         echo "2. 删除 HE 隧道"
         echo "3. 随机添加附加 IPv6 地址"
