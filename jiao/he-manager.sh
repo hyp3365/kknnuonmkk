@@ -193,11 +193,19 @@ EOF
           table: 200
 EOF
         if [ -n "$ROUTED_PREFIX" ]; then
-            cat >> "$NETPLAN_FILE" <<EOF
-        - from: "${ROUTED_PREFIX}::/64"
+    PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
+    if [ "$PREFIX_PARTS" -eq 3 ]; then
+        POLICY_PREFIX="${ROUTED_PREFIX}::/48"
+    elif [ "$PREFIX_PARTS" -eq 4 ]; then
+        POLICY_PREFIX="${ROUTED_PREFIX}::/64"
+    fi
+    if [ -n "$POLICY_PREFIX" ]; then
+        cat >> "$NETPLAN_FILE" <<EOF
+        - from: "$POLICY_PREFIX"
           table: 200
 EOF
-        fi
+    fi
+    fi
         fi
     apply_config || return 1
 }
