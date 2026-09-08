@@ -188,7 +188,7 @@ $line"
     echo
     read -p "请输入 Routed IPv6 前缀 (例如 2a01:7900:201:44::/64): " T64_ROUTED_PREFIX
 
-    if [ -z "$T64_LOCAL_V4" ] || [ -z "$T64_REMOTE_V4" ] || [ -z "$T64_TUNNEL_IPV6" ] || [ -z "$T64_ROUTED_PREFIX" ]; me
+    if [ -z "$T64_LOCAL_V4" ] || [ -z "$T64_REMOTE_V4" ] || [ -z "$T64_TUNNEL_IPV6" ] || [ -z "$T64_ROUTED_PREFIX" ]; then
         echo "错误: 解析配置失败或 Routed IPv6 不能为空！"
         return 1
     fi
