@@ -198,8 +198,8 @@ EOF
           table: 200
 EOF
         fi
-    fi
-    apply_config
+        fi
+    apply_config || return 1
 }
 apply_config(){
     echo "正在应用网络配置..."
@@ -210,35 +210,40 @@ apply_config(){
         ifdown "$IFACE" 2>/dev/null || true
     else
         netplan apply 2>/dev/null || true
+        sleep 1 
     fi
-    detect_public_ipv4
-ip tunnel add "$IFACE" mode sit \
-local "$PUBLIC_V4" \
-remote "$HE_SERVER_V4" \
-ttl 255 || {
-        echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
-        return 1
-    }
-    ip link set "$IFACE" up
-    ip link set "$IFACE" mtu 1480
-    ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true
+    if ! ip link show "$IFACE" >/dev/null 2>&1; then
+        detect_public_ipv4
+        ip tunnel add "$IFACE" mode sit \
+        local "$PUBLIC_V4" \
+        remote "$HE_SERVER_V4" \
+        ttl 255 || {
+            echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
+            return 1
+        }
+    fi   
+    ip link set "$IFACE" up 2>/dev/null || true
+    ip link set "$IFACE" mtu 1480 2>/dev/null || true
+    ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true 
     if [ -f "$LIST_FILE" ]; then
         while read -r ip; do
             [ -n "$ip" ] && ip -6 addr add "$ip/64" dev "$IFACE" 2>/dev/null || true
         done < "$LIST_FILE"
-    fi
-    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 || true
-    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 || true
-    ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 || true
+    fi  
+    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 2>/dev/null || true
+    ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 2>/dev/null || true
+    ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 2>/dev/null || true
     if [ -n "$ROUTED_PREFIX" ]; then
-    if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
-    ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 || true
-else
-    ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 || true
-fi
+        if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
+            ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 2>/dev/null || true
+        else
+            ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 2>/dev/null || true
+        fi
     fi
     echo "配置应用完成！"
+    return 0
 }
+
 add_he(){
     echo "========== 导入 HE IPv6 隧道配置 =========="
     echo "请粘贴 HE 配置，回车结束"
@@ -344,36 +349,35 @@ add_ipv6(){
         ROUTED_PREFIX="$BASE_PREFIX"
     fi
     PREFIX=$(echo "$BASE_PREFIX" | sed 's|/.*||')
-HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-R1="${HEX:0:4}"
-R2="${HEX:4:4}"
-R3="${HEX:8:4}"
-R4="${HEX:12:4}"
-R5="${HEX:16:4}"
-IFS=':' read -ra PARTS <<< "$PREFIX"
-if [ "${#PARTS[@]}" -eq 3 ]; then
-    # /48
-    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}:${R5}"
-elif [ "${#PARTS[@]}" -eq 4 ]; then
-    # /64
-    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${PARTS[3]}:${R1}:${R2}:${R3}:${R4}"
-else
-    echo "IPv6前缀格式错误"
-    return
-fi
+    HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+    R1="${HEX:0:4}"
+    R2="${HEX:4:4}"
+    R3="${HEX:8:4}"
+    R4="${HEX:12:4}"
+    R5="${HEX:16:4}"
+    IFS=':' read -ra PARTS <<< "$PREFIX" 
+    if [ "${#PARTS[@]}" -eq 3 ]; then
+        # /48
+        NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}:${R5}"
+    elif [ "${#PARTS[@]}" -eq 4 ]; then
+        # /64
+        NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${PARTS[3]}:${R1}:${R2}:${R3}:${R4}"
+    else
+        echo "IPv6前缀格式错误"
+        return
+    fi
     echo "$NEW_IPV6" >> "$LIST_FILE"
-    rebuild_and_apply
+    if ! rebuild_and_apply; then
+        echo -e "\n发生错误，回滚并撤销本次 IP 添加..."
+        sed -i '$d' "$LIST_FILE" # 删除最后一行错误的记录
+        read -p "按回车键继续..."
+        return
+    fi  
     echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
     add_singbox_outbound "$NEW_IPV6"
     read -p "按回车键继续..."
 }
-list_ipv6(){
-    if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
-        echo "(暂无额外的附加 IPv6 地址)"
-        return
-    fi
-    awk '{print NR ". " $0}' "$LIST_FILE"
-}
+
 delete_ipv6(){
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "没有可删除的额外 IPv6 地址"
