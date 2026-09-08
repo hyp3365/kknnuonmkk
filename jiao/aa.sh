@@ -828,6 +828,7 @@ while true; do
    green "11. BBR3"
    green "12. HE隧道"
    green "13. route64隧道"
+   green "14. Tunnel64隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -956,6 +957,9 @@ while true; do
 		    ;;
 		13) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/route64-ipv6.sh)
+		    ;;
+		14) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel64.sh)
 		    ;;
         0)
             echo "退出脚本"
