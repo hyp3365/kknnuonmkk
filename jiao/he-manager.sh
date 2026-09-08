@@ -161,8 +161,18 @@ EOF
         echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE table 200 || true" >> "$CONF_FILE"
         echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
         if [ -n "$ROUTED_PREFIX" ]; then
-            echo "        post-up ip -6 rule add from ${ROUTED_PREFIX}::/64 table 200 || true" >> "$CONF_FILE"
-        fi
+    PREFIX_PARTS=$(echo "$ROUTED_PREFIX" | tr ':' '\n' | grep -c .)
+    if [ "$PREFIX_PARTS" -eq 3 ]; then
+        POLICY_PREFIX="${ROUTED_PREFIX}::/48"
+    elif [ "$PREFIX_PARTS" -eq 4 ]; then
+        POLICY_PREFIX="${ROUTED_PREFIX}::/64"
+    else
+        POLICY_PREFIX=""
+    fi
+    if [ -n "$POLICY_PREFIX" ]; then
+        echo "        post-up ip -6 rule add from $POLICY_PREFIX table 200 || true" >> "$CONF_FILE"
+    fi
+    fi
     else
         mkdir -p /etc/netplan
         cat > "$NETPLAN_FILE" <<EOF
