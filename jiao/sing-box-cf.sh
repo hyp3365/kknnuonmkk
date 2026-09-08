@@ -7955,55 +7955,99 @@ SRVEOF
             green "清理完成！配置文件已更新保存。"
             sleep 1 && iptables_ssl ;;
         10)
-            clear
-            sed -i 's/^#\s*Port/Port/' /etc/ssh/sshd_config
-            current_port=$(grep -E '^Port\s+[0-9]+' /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
-            [ -z "$current_port" ] && current_port=22
-            
-            ipt_msg "\033[0;36m" "当前的 SSH 端口号是: $current_port"
-            skyblue "---------------------------"
-            
-            read -p $'\033[1;35m请输入新的 SSH 端口号 (1-65535): \033[0m' new_port
-            
-            if [ -z "$new_port" ]; then
-                yellow "未输入端口号，操作取消"
-                sleep 1 && iptables_ssl
-            elif ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
-                red "错误：请输入 1-65535 之间的有效端口号！"
-                sleep 1 && iptables_ssl
-            elif [ "$new_port" -eq "$current_port" ]; then
-                yellow "新端口与当前端口相同，无需修改。"
-                sleep 1 && iptables_ssl
+    clear
+    current_port=$(grep -RniE '^\s*Port\s+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | awk '{print $2}' | head -n 1)
+    [ -z "$current_port" ] && current_port=$(grep -E '^#\s*Port\s+[0-9]+' /etc/ssh/sshd_config | awk '{print $2}' | head -n 1)
+    [ -z "$current_port" ] && current_port=22
+    ipt_msg "\033[0;36m" "当前的 SSH 端口号是: $current_port"
+    skyblue "---------------------------"
+    read -p $'\033[1;35m请输入新的 SSH 端口号 (1-65535): \033[0m' new_port
+    if [ -z "$new_port" ]; then
+        yellow "未输入端口号，操作取消"
+        sleep 1 && iptables_ssl
+    elif ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
+        red "错误：请输入 1-65535 之间的有效端口号！"
+        sleep 1 && iptables_ssl
+    elif [ "$new_port" -eq "$current_port" ]; then
+        yellow "新端口与当前端口相同，无需修改。"
+        sleep 1 && iptables_ssl
+    else
+        cp -f /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+        sed -i '/^\s*#\?\s*Port\s\+[0-9]\+/d' /etc/ssh/sshd_config
+        if [ -d /etc/ssh/sshd_config.d ]; then
+            find /etc/ssh/sshd_config.d/ -type f -name "*.conf" -exec sed -i '/^\s*Port\s\+/d' {} +
+        fi
+        echo "Port $new_port" >> /etc/ssh/sshd_config
+        if command -v getenforce &>/dev/null && [ "$(getenforce)" = "Enforcing" ]; then
+            if command -v semanage &>/dev/null; then
+                semanage port -a -t ssh_port_t -p tcp "$new_port" 2>/dev/null || semanage port -m -t ssh_port_t -p tcp "$new_port" 2>/dev/null
             else
-                cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-                if grep -qE '^Port\s+[0-9]+' /etc/ssh/sshd_config; then
-                    sed -i "s/^Port\s\+[0-9]\+/Port $new_port/g" /etc/ssh/sshd_config
-                else
-                    echo "Port $new_port" >> /etc/ssh/sshd_config
-                fi
-                
-                if command -v systemctl &>/dev/null; then
-                    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
-                else
-                    service sshd restart 2>/dev/null || service ssh restart 2>/dev/null
-                fi
-                
-                green "成功：SSH 端口已修改为 $new_port"
-
-                if command -v apt-get &>/dev/null; then
-                    apt-get remove -y iptables-persistent ufw >/dev/null 2>&1
-                elif command -v yum &>/dev/null; then
-                    yum remove -y firewalld iptables-services >/dev/null 2>&1
-                fi
-                
-                yellow "为了防止新端口未放行导致断网，正在自动关闭防火墙拦截模式..."
-                nft 'add chain inet filter input { type filter hook input priority 0; policy accept; }' 2>/dev/null
-                save_nft_rules
-                green "拦截已关闭，防火墙当前为 [放行所有] 状态"
-                
-                sleep 2 && iptables_ssl
+                yellow "SELinux 处于开启状态，尝试临时设为 Permissive 模式以确保 SSH 放行..."
+                setenforce 0
+                sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
             fi
-            ;;
+        fi
+        if ! sshd -t 2>/dev/null; then
+            red "错误：SSH 配置检查失败，正在恢复原配置..."
+            cp -f /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+            systemctl daemon-reload 2>/dev/null
+            systemctl restart ssh.service 2>/dev/null || systemctl restart sshd.service 2>/dev/null || systemctl restart ssh 2>/dev/null
+            sleep 2
+            iptables_ssl
+        fi
+        yellow "正在放行新端口 $new_port 防火墙规则..."
+        if command -v ufw &>/dev/null && ufw status | grep -qw active; then
+            ufw allow "$new_port"/tcp >/dev/null 2>&1
+        elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld; then
+            firewall-cmd --add-port="$new_port"/tcp --permanent >/dev/null 2>&1
+            firewall-cmd --reload >/dev/null 2>&1
+        else
+            if command -v nft &>/dev/null; then
+                nft insert rule inet filter input tcp dport "$new_port" accept 2>/dev/null
+                nft insert rule ip filter input tcp dport "$new_port" accept 2>/dev/null
+                nft insert rule ip filter INPUT tcp dport "$new_port" accept 2>/dev/null
+                if type save_nft_rules &>/dev/null; then
+                    save_nft_rules
+                fi
+            fi
+            
+            if command -v iptables &>/dev/null; then
+                iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null
+            fi
+        fi
+        if command -v systemctl &>/dev/null; then
+            systemctl daemon-reload
+            if systemctl is-active --quiet ssh.socket || systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+                systemctl stop ssh.socket 2>/dev/null
+                systemctl disable ssh.socket 2>/dev/null
+            fi
+            systemctl enable ssh.service 2>/dev/null
+            systemctl restart ssh.service 2>/dev/null || \
+            systemctl restart sshd.service 2>/dev/null || \
+            systemctl restart ssh 2>/dev/null || {
+                red "SSH 服务重启失败！已尝试恢复原端口。"
+                cp -f /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+                systemctl restart ssh.service 2>/dev/null || systemctl restart sshd.service 2>/dev/null
+                sleep 2
+                iptables_ssl
+            }
+        else
+            service sshd restart 2>/dev/null || service ssh restart 2>/dev/null
+        fi
+        sleep 1
+        if ss -tln 2>/dev/null | grep -qE "[:.]$new_port[[:space:]]"; then
+            green "成功：SSH 当前正在监听端口 $new_port"
+        else
+            red "错误：SSH 未监听端口 $new_port"
+            yellow "当前 SSH 监听情况："
+            ss -tlnp 2>/dev/null | grep ssh
+            yellow "正在尝试回退到旧配置..."
+            cp -f /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+            systemctl restart ssh.service 2>/dev/null || systemctl restart sshd.service 2>/dev/null
+        fi       
+        sleep 3 && iptables_ssl
+    fi
+    ;;
 		11) fail2ban_manage ;;
         0) menu ;;
         *) iptables_ssl ;;
