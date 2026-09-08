@@ -825,8 +825,9 @@ while true; do
    green "8. 切换优先ipv4/ipv6"
    green "9. fanout"
    green "10. 三网回程测试"
-   green "11. HE隧道"
-   green "12. route64隧道"
+   green "11. BBR3"
+   green "12. HE隧道"
+   green "13. route64隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -946,10 +947,14 @@ while true; do
 		10) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh)
 		    ;;
-		11) 
+		11)  
+		   clear
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/bbr.sh)
+		   ;;
+		12) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/he-manager.sh)
 		    ;;
-		12) 
+		13) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/route64-ipv6.sh)
 		    ;;
         0)
