@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本 
+# HE IPv6 隧道脚本
 # ==========================================
 CONF_DIR="/etc/network/interfaces.d"
 CONF_FILE="$CONF_DIR/he-ipv6"
@@ -191,17 +191,20 @@ EOF
         echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
         
         if [ -n "$POLICY_PREFIX" ]; then
-            echo "        post-up ip -6 route add blackhole $POLICY_PREFIX || true" >> "$CONF_FILE"
             echo "        post-up ip -6 rule add from $POLICY_PREFIX table 200 || true" >> "$CONF_FILE"
         fi
+        apply_config_ifupdown || return 1
     else
+        # Netplan 模式：仅管隧道、路由、策略，lo 地址统一由下文统一通过 ip 命令绑定
         mkdir -p /etc/netplan
+        detect_public_ipv4
         cat > "$NETPLAN_FILE" <<EOF
 network:
   version: 2
   tunnels:
     $IFACE:
       mode: sit
+      local: $PUBLIC_V4
       remote: $HE_SERVER_V4
       addresses:
         - "$CLIENT_IPV6/64"
@@ -212,14 +215,6 @@ network:
         - to: default
           via: "$HE_SERVER_V6"
           table: 200
-EOF
-        if [ -n "$POLICY_PREFIX" ]; then
-            cat >> "$NETPLAN_FILE" <<EOF
-        - to: "$POLICY_PREFIX"
-          type: blackhole
-EOF
-        fi       
-        cat >> "$NETPLAN_FILE" <<EOF
       routing-policy:
         - from: "$CLIENT_IPV6/128"
           table: 200
@@ -230,43 +225,41 @@ EOF
           table: 200
 EOF
         fi
-        if [ -f "$LIST_FILE" ] && [ -s "$LIST_FILE" ]; then
-            cat >> "$NETPLAN_FILE" <<EOF
-  ethernets:
-    lo:
-      match:
-        name: lo
-      addresses:
-EOF
+        
+        echo "正在应用 Netplan 网络配置..."
+        netplan apply || {
+            echo "错误: Netplan 配置应用失败！"
+            return 1
+        }
+        ip link set "$IFACE" mtu 1480 2>/dev/null || true
+
+        # 无论什么模式，附加 IP 统一使用最稳健的 ip 命令直接挂载到 lo 环回口
+        if [ -f "$LIST_FILE" ]; then
             while read -r ip; do
-                [ -n "$ip" ] && echo "        - \"$ip/128\"" >> "$NETPLAN_FILE"
+                [ -n "$ip" ] && ip -6 addr add "$ip/128" dev lo 2>/dev/null || true
             done < "$LIST_FILE"
         fi
     fi
-    apply_config || return 1
+    echo "配置应用完成！"
+    return 0
 }
 
-apply_config(){
-    echo "正在应用网络配置..."
+# 仅用于 ifupdown 模式的命令式应用函数
+apply_config_ifupdown(){
+    echo "正在应用 ifupdown 网络配置..."
     while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
     ip link set "$IFACE" down 2>/dev/null || true
     ip tunnel del "$IFACE" 2>/dev/null || true
-    if [ "$MODE" = "ifupdown" ]; then
-        ifdown "$IFACE" 2>/dev/null || true
-    else
-        netplan apply 2>/dev/null || true
-        sleep 1 
-    fi
-    if ! ip link show "$IFACE" >/dev/null 2>&1; then
-        detect_public_ipv4
-        ip tunnel add "$IFACE" mode sit \
-        local "$PUBLIC_V4" \
-        remote "$HE_SERVER_V4" \
-        ttl 255 || {
-            echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
-            return 1
-        }
-    fi   
+    ifdown "$IFACE" 2>/dev/null || true
+    
+    detect_public_ipv4
+    ip tunnel add "$IFACE" mode sit \
+    local "$PUBLIC_V4" \
+    remote "$HE_SERVER_V4" \
+    ttl 255 || {
+        echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
+        return 1
+    }
     ip link set "$IFACE" up 2>/dev/null || true
     ip link set "$IFACE" mtu 1480 2>/dev/null || true
     ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true 
@@ -283,14 +276,11 @@ apply_config(){
     
     if [ -n "$ROUTED_PREFIX" ]; then
         if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
-            ip -6 route add blackhole "${ROUTED_PREFIX}::/64" 2>/dev/null || true
             ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 2>/dev/null || true
         else
-            ip -6 route add blackhole "${ROUTED_PREFIX}::/48" 2>/dev/null || true
             ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 2>/dev/null || true
         fi
     fi
-    echo "配置应用完成！"
     return 0
 }
 
@@ -418,14 +408,26 @@ add_ipv6(){
         echo "IPv6前缀格式错误"
         return
     fi
+
+    # 1. 写入 LIST_FILE
     echo "$NEW_IPV6" >> "$LIST_FILE"
+
+    # 2. rebuild_and_apply 应用网络变动
     if ! rebuild_and_apply; then
         echo -e "\n发生错误，回滚并撤销本次 IP 添加..."
         sed -i '$d' "$LIST_FILE" 
         read -p "按回车键继续..."
         return
     fi  
-    echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
+
+    # 3. 确认系统成功绑定该 IPv6
+    if ip -6 addr show dev lo | grep -q "$NEW_IPV6"; then
+        echo "✓ 校验成功: 附加 IPv6 已成功绑定至 lo 环回口"
+    else
+        echo "✗ 警告: 未能在 lo 接口检测到新 IP，请稍后检查状态"
+    fi
+
+    # 4. 添加 sing-box 出站配置
     add_singbox_outbound "$NEW_IPV6"
     read -p "按回车键继续..."
 }
