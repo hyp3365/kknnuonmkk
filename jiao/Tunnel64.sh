@@ -86,7 +86,14 @@ ip tunnel del "$IFACE" 2>/dev/null || true
 ip tunnel add "$IFACE" mode sit remote "$T64_REMOTE_V4" local "$T64_LOCAL_V4" ttl 255 2>/dev/null || exit 1
 ip link set "$IFACE" up mtu "${T64_MTU:-1480}"
 ip -6 addr replace "$T64_TUNNEL_IPV6" dev "$IFACE"
+
+# 主表路由
+ip -6 route replace "$T64_TUNNEL_IPV6" dev "$IFACE" 2>/dev/null || true
 ip -6 route replace "$T64_ROUTED_PREFIX" dev "$IFACE"
+
+# Table 201 路由表补全
+ip -6 route replace "$T64_TUNNEL_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+ip -6 route replace "$T64_ROUTED_PREFIX" dev "$IFACE" table "$TABLE"
 ip -6 route replace default dev "$IFACE" table "$TABLE"
 
 while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
@@ -138,7 +145,14 @@ setup_tunnel_runtime(){
     ip link set "$T64_IFACE" up mtu "$T64_MTU"
 
     ip -6 addr replace "$T64_TUNNEL_IPV6" dev "$T64_IFACE" || { ip tunnel del "$T64_IFACE" 2>/dev/null; return 1; }
+
+    # 主表路由
+    ip -6 route replace "$T64_TUNNEL_IPV6" dev "$T64_IFACE" 2>/dev/null || true
     ip -6 route replace "$T64_ROUTED_PREFIX" dev "$T64_IFACE"
+
+    # Table 201 专用路由表补全
+    ip -6 route replace "$T64_TUNNEL_IPV6" dev "$T64_IFACE" table "$T64_TABLE" 2>/dev/null || true
+    ip -6 route replace "$T64_ROUTED_PREFIX" dev "$T64_IFACE" table "$T64_TABLE"
     ip -6 route replace default dev "$T64_IFACE" table "$T64_TABLE"
 
     while ip -6 rule del pref "$T64_RULE_PREF" 2>/dev/null; do :; done
@@ -157,24 +171,24 @@ add_tunnel64(){
 $line"
     done
 
-    T64_REMOTE_V4=$(echo "$PASTE_DATA" | grep -iE 'Server IPv4|remote' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-    T64_LOCAL_V4=$(echo "$PASTE_DATA" | grep -iE 'Client IPv4|local' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-    
+    # 精准抽取 Remote IPv4 (兼容 Server IPv4 文本 与 ip tunnel 命令)
+    T64_REMOTE_V4=$(echo "$PASTE_DATA" | grep -i 'Server IPv4' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+    [ -z "$T64_REMOTE_V4" ] && T64_REMOTE_V4=$(echo "$PASTE_DATA" | awk -F'remote' '{print $2}' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+
+    # 精准抽取 Local IPv4 (兼容 Client IPv4 文本 与 ip tunnel 命令)
+    T64_LOCAL_V4=$(echo "$PASTE_DATA" | grep -i 'Client IPv4' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+    [ -z "$T64_LOCAL_V4" ] && T64_LOCAL_V4=$(echo "$PASTE_DATA" | awk -F'local' '{print $2}' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+
+    # 精准抽取 Tunnel IPv6
     T64_TUNNEL_IPV6=$(echo "$PASTE_DATA" | grep -iE 'Client IPv6|ip addr add' | grep -oE '([0-9a-fA-F:]+)/64' | head -n1)
     [ -z "$T64_TUNNEL_IPV6" ] && T64_TUNNEL_IPV6=$(echo "$PASTE_DATA" | grep -oE '([0-9a-fA-F:]+)/64' | head -n1)
-
-    if [ -z "$T64_REMOTE_V4" ] || [ -z "$T64_LOCAL_V4" ]; then
-        local IP4S=($(echo "$PASTE_DATA" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'))
-        [ -z "$T64_REMOTE_V4" ] && T64_REMOTE_V4="${IP4S[0]}"
-        [ -z "$T64_LOCAL_V4" ] && T64_LOCAL_V4="${IP4S[1]}"
-    fi
 
     T64_MTU="1480"
 
     echo
     read -p "请输入 Routed IPv6 前缀 (例如 2a01:7900:201:44::/64): " T64_ROUTED_PREFIX
 
-    if [ -z "$T64_LOCAL_V4" ] || [ -z "$T64_REMOTE_V4" ] || [ -z "$T64_TUNNEL_IPV6" ] || [ -z "$T64_ROUTED_PREFIX" ]; then
+    if [ -z "$T64_LOCAL_V4" ] || [ -z "$T64_REMOTE_V4" ] || [ -z "$T64_TUNNEL_IPV6" ] || [ -z "$T64_ROUTED_PREFIX" ]; me
         echo "错误: 解析配置失败或 Routed IPv6 不能为空！"
         return 1
     fi
@@ -186,6 +200,7 @@ $line"
     echo "Tunnel IPv6 : $T64_TUNNEL_IPV6"
     echo "Routed Prefix: $T64_ROUTED_PREFIX"
     echo "MTU         : $T64_MTU"
+    echo "提示        : 已安全隔离主表默认路由，流量仅在 Table 201 内走隧道"
     echo "========================================"
 
     read -p "确认应用并保存配置? [y/N]: " OK
