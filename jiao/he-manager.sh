@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版)
+# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版1)
 # ==========================================
 NETPLAN_FILE="/etc/netplan/99-he-tunnel.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
