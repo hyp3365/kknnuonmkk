@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# HE IPv6 隧道脚本 (Netplan 纯粘贴原子化版)
+# HE IPv6 隧道脚本
 # ==========================================
 NETPLAN_FILE="/etc/netplan/99-he-tunnel.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
@@ -218,7 +218,7 @@ EOF
 
 add_he(){
     echo "========== 添加 HE IPv6 隧道 =========="
-    echo "请直接粘贴你的 Netplan 配置内容"
+    echo "请直接粘贴 Linux（netplan 0.103+）配置内容"
     echo "输入完成后按 Enter 换行并保持空行回车确认："
     echo
     local TMP
@@ -235,7 +235,7 @@ add_he(){
     fi
 
     echo
-    read -p "请输入 Routed IPv6 前缀 (必须明确包含 /48 或 /64，例如 2001:470:c::/48): " INPUT_PREFIX
+    read -p "请输入 Routed IPv6 前缀 (必须明确包含 /48 或 /64，例如 2001:470:c123::/48): " INPUT_PREFIX
     INPUT_PREFIX=$(echo "$INPUT_PREFIX" | tr -d '[:space:]')
 
     local PREFIX_LEN=""
@@ -255,7 +255,7 @@ add_he(){
 
     local RAW_ADDR="${INPUT_PREFIX%/*}"
     if [[ ! "$RAW_ADDR" =~ ^[0-9a-fA-F:]+$ ]] || [[ "$RAW_ADDR" != *:* ]]; then
-        echo "错误: 输入的前缀地址格式不合法！示例: 2001:470:c::/48 或 2001:470:c:ed9::/64"
+        echo "错误: 输入的前缀地址格式不合法！示例: 2001:470:c123::/48 或 2001:470:c123:ed9::/64"
         rm -f "$TMP"
         return
     fi
@@ -546,7 +546,7 @@ menu(){
     while true
     do
         clear
-        echo "========== HE IPv6 隧道 (Netplan 持久版1) =========="
+        echo "========== HE IPv6 隧道 1 =========="
         echo "1. 添加/重置 HE 隧道"
         echo "2. 删除 HE 隧道"
         echo "3. 随机添加附加 IPv6 地址"
