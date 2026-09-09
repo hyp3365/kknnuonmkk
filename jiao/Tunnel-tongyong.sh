@@ -351,15 +351,17 @@ add_wg_tunnel(){
     local tmp_conf=$(mktemp)
     echo -e "$wg_raw" > "$tmp_conf"
 
-    local WG_PRIVKEY=$(sed -n 's/^[ \t]*[Pp][Rr][Ii][Vv][Aa][Tt][Ee][Kk][Ee][Yy][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
-    local WG_PUBKEY=$(sed -n 's/^[ \t]*[Pp][Uu][Bb][Ll][Ii][Cc][Kk][Ee][Yy][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
-    local WG_ENDPOINT=$(sed -n 's/^[ \t]*[Ee][Nn][Dd][Pp][Oo][Ii][Nn][Tt][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
-    local WG_MTU=$(sed -n 's/^[ \t]*[Mm][Tt][Uu][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
-    local WG_PSK=$(sed -n 's/^[ \t]*[Pp][Rr][Ee][Ss][Hh][Aa][Rr][Ee][Dd][Kk][Ee][Yy][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
-    local WG_KEEPALIVE=$(sed -n 's/^[ \t]*[Pp][Ee][Rr][Ss][Ii][Ss][Tt][Ee][Nn][Tt][Kk][Ee][Ee][Pp][Aa][Ll][Ii][Vv][Ee][ \t]*=[ \t]*//p' "$tmp_conf" | tr -d '\r')
+        # 使用更严谨的 sed 模式：匹配 key，去除前后空格，只取等号右侧的纯数值部分
+    local WG_PRIVKEY=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ii][Vv][Aa][Tt][Ee][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_PUBKEY=$(sed -n 's/^[[:space:]]*[Pp][Uu][Bb][Ll][Ii][Cc][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_ENDPOINT=$(sed -n 's/^[[:space:]]*[Ee][Nn][Dd][Pp][Oo][Ii][Nn][Tt][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_MTU=$(sed -n 's/^[[:space:]]*[Mm][Tt][Uu][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_PSK=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ee][Ss][Hh][Aa][Rr][Ee][Dd][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_KEEPALIVE=$(sed -n 's/^[[:space:]]*[Pp][Ee][Rr][Ss][Ii][Ss][Tt][Ee][Nn][Tt][Kk][Ee][Ee][Pp][Aa][Ll][Ii][Vv][Ee][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
 
-    local WG_ADDRESS=$(awk 'tolower($0)~/[ \t]*address[ \t]*=/ {sub(/^[ \t]*[Aa][Dd][Dd][Re][Ee][Ss][Ss][ \t]*=[ \t]*/, ""); print}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
-    local WG_ALLOWEDIPS=$(awk 'tolower($0)~/[ \t]*allowedips[ \t]*=/ {sub(/^[ \t]*[Aa][Ll][Ll][Oo][Ww][Ee][Dd][Ii][Pp][Ss][ \t]*=[ \t]*/, ""); print}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    # 处理 Address 和 AllowedIPs（支持多行或单行，用 awk 精准分离键值并清理空格与回车）
+    local WG_ADDRESS=$(awk -F'=' 'tolower($1) ~ /[[:space:]]*address[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    local WG_ALLOWEDIPS=$(awk -F'=' 'tolower($1) ~ /[[:space:]]*allowedips[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
 
     rm -f "$tmp_conf"
 
