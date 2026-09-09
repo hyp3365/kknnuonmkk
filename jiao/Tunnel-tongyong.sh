@@ -121,7 +121,7 @@ for conf in "$CONFIG_DIR"/*.conf; do
         [ -n "$LOCAL_V4" ] && [ -n "$REMOTE_V4" ] && [ -n "$TUNNEL_IPV6" ] || continue
         ip tunnel del "$IFACE" 2>/dev/null || true
         ip tunnel add "$IFACE" mode sit remote "$REMOTE_V4" local "$LOCAL_V4" ttl 255 2>/dev/null || continue
-        ip link set "$IFACE" up mtu "${MTU:-1480}"
+        ip link set "$IFACE" up mtu "${MTU:-1400}"
 
         TABLE="${TABLE:-201}"
         RULE_PREF="${RULE_PREF:-32764}"
