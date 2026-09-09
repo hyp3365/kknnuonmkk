@@ -8675,7 +8675,7 @@ select_outbound_target() {
     display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (脚本 WARP 出站)")
     local custom_tags=($(jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
     local tmp_dir=$(mktemp -d)
-    local i=3
+    local i=2
     for tag in "${custom_tags[@]}"; do
         (
             local proxy_json=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" 2>/dev/null)
@@ -8711,7 +8711,7 @@ select_outbound_target() {
         ((i++))
     done
     wait
-    i=3
+    i=2
     for tag in "${custom_tags[@]}"; do
         local status_str=""
         if [ -f "$tmp_dir/$i.res" ]; then
