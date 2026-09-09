@@ -321,6 +321,17 @@ EOF
 
     update_systemd_restore
     echo "✓ 隧道 $IFACE 添加成功并已生效！"
+
+    # 新增：去除可能附带的掩码段并尝试 ping 测试上游网关连通性
+    local server_gw="${SERVER_IPV6%%/*}"
+    if [ -n "$server_gw" ]; then
+        echo "=========================================="
+        echo "正在测试与上游网关 ($server_gw) 的连通性 (Ping 10次)..."
+        ping -6 -c 10 "$server_gw"
+        echo "=========================================="
+    else
+        echo "提示: 未提供有效的服务端 IPv6，跳过连通性测试。"
+    fi
 }
 
 add_wg_tunnel(){
@@ -351,7 +362,6 @@ add_wg_tunnel(){
     local tmp_conf=$(mktemp)
     echo -e "$wg_raw" > "$tmp_conf"
 
-        # 使用更严谨的 sed 模式：匹配 key，去除前后空格，只取等号右侧的纯数值部分
     local WG_PRIVKEY=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ii][Vv][Aa][Tt][Ee][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
     local WG_PUBKEY=$(sed -n 's/^[[:space:]]*[Pp][Uu][Bb][Ll][Ii][Cc][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
     local WG_ENDPOINT=$(sed -n 's/^[[:space:]]*[Ee][Nn][Dd][Pp][Oo][Ii][Nn][Tt][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
@@ -359,17 +369,15 @@ add_wg_tunnel(){
     local WG_PSK=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ee][Ss][Hh][Aa][Rr][Ee][Dd][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
     local WG_KEEPALIVE=$(sed -n 's/^[[:space:]]*[Pp][Ee][Rr][Ss][Ii][Ss][Tt][Ee][Nn][Tt][Kk][Ee][Ee][Pp][Aa][Ll][Ii][Vv][Ee][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
 
-    # 处理 Address 和 AllowedIPs（支持多行或单行，用 awk 精准分离键值并清理空格与回车）
     local WG_ADDRESS=$(awk -F'=' 'tolower($1) ~ /[[:space:]]*address[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
     local WG_ALLOWEDIPS=$(awk -F'=' 'tolower($1) ~ /[[:space:]]*allowedips[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
 
     rm -f "$tmp_conf"
 
-    # 提取 IPv4 和 IPv6 地址支持双栈
     local WG_IPV4=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/\./ && $i!~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
     local WG_IPV6=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
     
-    if [ -z "$WG_PRIVKEY" ] || { [ -z "$WG_IPV4" ] && [ -z "$WG_IPV6" ]; } || [ -z "$WG_PUBKEY" ] || [ -z "$WG_ENDPOINT" ]; then
+    if [ -z "$WG_PRIVKEY" ] || { [ -z "$WG_IPV4" ] && [ -z "$WG_IPV6" ]; } || [ -z "$WG_PUBKEY" ] || [ -z "$WG_ENDPOINT" ]; me }; then
         echo "错误: 无法解析配置，请确保 PrivateKey, Address (包含IPv4或IPv6), PublicKey, Endpoint 配置完整。"
         return 1
     fi
@@ -384,11 +392,9 @@ add_wg_tunnel(){
     local RULE_PREF="$NEW_PREF"
     local RULE_PREF_V4="$NEW_PREF_V4"
 
-    # 修复 AllowedIPs 格式问题，去除多余空格以防 wg 工具报错
     [ -z "$WG_ALLOWEDIPS" ] && WG_ALLOWEDIPS="::/0,0.0.0.0/0"
     WG_ALLOWEDIPS=$(echo "$WG_ALLOWEDIPS" | tr -d ' ')
 
-    # 生成安全的 WG 配置文件
     cat > "$CONFIG_DIR/$IFACE.wg" <<EOF
 [Interface]
 PrivateKey = $WG_PRIVKEY
@@ -696,9 +702,9 @@ menu(){
             TYPE="sit"
             source "$f"
             if [ "$TYPE" = "wg" ]; then
-                echo "   [$i] [WG]  接口: $IFACE | 节点: $WG_ENDPOINT | 路由前缀: ${ROUTED_PREFIX:-无}"
+                echo -e "   [\033[32m$i\033[0m] [WG]  接口: \033[32m$IFACE\033[0m | 节点: $WG_ENDPOINT | 路由前缀: ${ROUTED_PREFIX:-无}"
             else
-                echo "   [$i] [SIT] 接口: $IFACE | 远端IPv4: $REMOTE_V4 | 路由前缀: ${ROUTED_PREFIX:-无}"
+                echo -e "   [\033[32m$i\033[0m] [SIT] 接口: \033[32m$IFACE\033[0m | 远端IPv4: $REMOTE_V4 | 路由前缀: ${ROUTED_PREFIX:-无}"
             fi
             i=$((i + 1))
         done
