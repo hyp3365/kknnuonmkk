@@ -350,16 +350,15 @@ add_wg_tunnel(){
     
     local tmp_conf=$(mktemp)
     echo -e "$wg_raw" > "$tmp_conf"
-    
-    local WG_PRIVKEY=$(awk -F'=' 'tolower($1)~/[ \t]*privatekey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
-    local WG_ADDRESS=$(awk -F'=' 'tolower($1)~/[ \t]*address[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//')
-    local WG_PUBKEY=$(awk -F'=' 'tolower($1)~/[ \t]*publickey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
-    local WG_ENDPOINT=$(awk -F'=' 'tolower($1)~/[ \t]*endpoint[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
-    local WG_MTU=$(awk -F'=' 'tolower($1)~/[ \t]*mtu[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
-    local WG_PSK=$(awk -F'=' 'tolower($1)~/[ \t]*presharedkey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
-    # 支持多行或逗号分隔的 AllowedIPs 聚合
-    local WG_ALLOWEDIPS=$(awk -F'=' 'tolower($1)~/[ \t]*allowedips[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//')
-    local WG_KEEPALIVE=$(awk -F'=' 'tolower($1)~/[ \t]*persistentkeepalive[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf")
+
+    local WG_PRIVKEY=$(awk -F'=' 'tolower($1)~/[ \t]*privatekey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
+    local WG_ADDRESS=$(awk -F'=' 'tolower($1)~/[ \t]*address[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    local WG_PUBKEY=$(awk -F'=' 'tolower($1)~/[ \t]*publickey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
+    local WG_ENDPOINT=$(awk -F'=' 'tolower($1)~/[ \t]*endpoint[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
+    local WG_MTU=$(awk -F'=' 'tolower($1)~/[ \t]*mtu[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
+    local WG_PSK=$(awk -F'=' 'tolower($1)~/[ \t]*presharedkey[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
+    local WG_ALLOWEDIPS=$(awk -F'=' 'tolower($1)~/[ \t]*allowedips[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    local WG_KEEPALIVE=$(awk -F'=' 'tolower($1)~/[ \t]*persistentkeepalive[ \t]*/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$tmp_conf" | tr -d '\r')
     rm -f "$tmp_conf"
 
     # 提取 IPv4 和 IPv6 地址支持双栈
