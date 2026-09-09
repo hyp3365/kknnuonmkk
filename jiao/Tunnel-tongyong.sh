@@ -28,8 +28,8 @@ install_dep(){
 
 generate_ipv6(){
     local prefix_str="$1"
-    local network="${prefix_str%/*}"  # 提取前缀部分，例如 2001:470:1234::
-    local cidr="${prefix_str#*/}"     # 提取掩码部分，例如 48 或 64
+    local network="${prefix_str%/*}"  # 提取前缀部分
+    local cidr="${prefix_str#*/}"     # 提取掩码部分
     
     # 移除末尾的 :: 和 :
     network=$(echo "$network" | sed 's/:*$//')
@@ -261,7 +261,7 @@ delete_tunnel(){
     while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
     ip -6 route flush table "$TABLE" 2>/dev/null || true
 
-    # 3. 显式清理主表中的路由 (补上你提到的 TUNNEL_IPV6)
+    # 3. 显式清理主表中的路由
     [ -n "$ROUTED_PREFIX" ] && ip -6 route del "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null || true
     [ -n "$TUNNEL_IPV6" ] && ip -6 route del "$TUNNEL_IPV6" dev "$IFACE" 2>/dev/null || true
 
@@ -269,14 +269,13 @@ delete_tunnel(){
     ip link set "$IFACE" down 2>/dev/null || true
     ip tunnel del "$IFACE" 2>/dev/null || true
 
-    # 5. 清理配置文件并检查是否需要关闭自启服务
+    # 5. 清理配置文件
     rm -f "$config_file" "$list_file"
     remove_systemd_restore_if_empty
     
     echo "✓ 隧道 $IFACE 已彻底删除"
     read -p "按回车键返回..."
 }
-
 
 add_ipv6(){
     local config_file="$1"
@@ -320,9 +319,8 @@ add_ipv6(){
     echo "$NEW_IPV6" >> "$list_file"
     echo "✓ 附加 IPv6 添加成功: $NEW_IPV6"
 
-    # 简单测试路由方向
     if ip -6 route get 2606:4700:4700::1111 from "$NEW_IPV6" 2>/dev/null | grep -qs "$IFACE"; then
-        echo "✓ 路由校验通过: $NEW_IPV6 成功匹配策略路由表 $TABLE"
+        echo "✓ 路由校验通过: 成功匹配策略路由表 $TABLE"
     else
         echo "⚠️ 警告: 策略路由匹配异常，该 IP 流量可能未走隧道"
     fi
@@ -429,7 +427,6 @@ test_route(){
     ip -6 route get 2606:4700:4700::1111 from "$TEST_IP"
     
     echo "========== ping 对端 (测试隧道连通性) =========="
-    # 使用用户输入的 SERVER_IPV6 作为 Ping 目标 (去除 /64 等掩码)
     local target_ip="${SERVER_IPV6%%/*}"
     if [ -n "$target_ip" ]; then
         ping -6 -I "$TEST_IP" -c 3 -W 3 "$target_ip"
@@ -488,8 +485,10 @@ tunnel_submenu(){
 menu(){
     while true; do
         clear
-        echo "========== 隧道管理 =========="
-        echo "1. 添加新隧道"
+        echo "========== 通用隧道管理 =========="
+        echo "0. 退出脚本"
+        echo "a. 添加新隧道"
+        echo "----------------------------------------"
         echo "已添加的隧道列表："
         
         local i=1
@@ -502,15 +501,14 @@ menu(){
             echo "   [$i] 接口: $IFACE | 远端IPv4: $REMOTE_V4 | 路由前缀: $ROUTED_PREFIX"
             i=$((i + 1))
         done
-        [ "$has_tunnel" -eq 0 ] && echo "   (暂无隧道，请先添加)"
+        [ "$has_tunnel" -eq 0 ] && echo "   (暂无隧道，请先按 a 添加)"
 
         echo "----------------------------------------"
-        echo "请输入要操作的隧道编号 (或输入 1 添加新隧道, 0 退出):"
-        read -p "选择: " CHOOSE
+        read -p "请输入选项 (a:添加, 0:退出, 或输入隧道编号进行管理): " CHOOSE
 
         case "$CHOOSE" in
             0) exit 0 ;;
-            1) add_tunnel64; read -p "按回车键继续..." ;;
+            a|A) add_tunnel64; read -p "按回车键继续..." ;;
             *)
                 if [[ "$CHOOSE" =~ ^[1-9][0-9]*$ ]]; then
                     local selected_file=$(get_tunnel_file_by_index "$CHOOSE")
@@ -531,4 +529,3 @@ menu(){
 
 install_dep
 menu
-
