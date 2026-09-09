@@ -829,6 +829,7 @@ while true; do
    green "12. HE隧道"
    green "13. route64隧道"
    green "14. Tunnel64隧道"
+   green "15. 其他隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -960,6 +961,9 @@ while true; do
 		    ;;
 		14) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel64.sh)
+		    ;;
+		15) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel-tongyong.sh)
 		    ;;
         0)
             echo "退出脚本"
