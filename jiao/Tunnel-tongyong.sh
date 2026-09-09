@@ -226,7 +226,7 @@ setup_tunnel_runtime(){
 
     else
         ip tunnel add "$IFACE" mode sit remote "$REMOTE_V4" local "$LOCAL_V4" ttl 255 || return 1
-        ip link set "$IFACE" up mtu "${MTU:-1480}"
+        ip link set "$IFACE" up mtu "${MTU:-1400}"
 
         ip -6 addr replace "$TUNNEL_IPV6" dev "$IFACE" || { ip tunnel del "$IFACE"; return 1; }
 
@@ -291,7 +291,7 @@ add_sit_tunnel(){
     fi
 
     local TYPE="sit"
-    local MTU="1480"
+    local MTU="1400"
     get_new_table_pref
     local TABLE="$NEW_TABLE"
     local RULE_PREF="$NEW_PREF"
