@@ -106,16 +106,23 @@ generate_ipv6() {
     local prefix_str="$1"
     local network="${prefix_str%/*}"
     local cidr="${prefix_str#*/}"
-    
-    network=$(echo "$network" | sed 's/:*$//')
+    [[ "$network" == "$cidr" || -z "$cidr" ]] && cidr=64
+    local prefix_blocks=$(( cidr / 16 ))
+    local random_blocks=$(( (128 - cidr) / 16 ))
+    local clean_net=$(echo "$network" | sed -E 's/::/:/g; s/:$//')
+    local current_blocks=$(echo "$clean_net" | awk -F':' '{print NF}')
+    while [ "$current_blocks" -lt "$prefix_blocks" ]; do
+        clean_net="${clean_net}:0"
+        current_blocks=$((current_blocks + 1))
+    done
     local hex=$(tr -d '-' < /proc/sys/kernel/random/uuid)
-    
-    if [ "$cidr" = "48" ]; then
-        printf '%s:%s:%s:%s:%s:%s\n' "$network" "${hex:0:4}" "${hex:4:4}" "${hex:8:4}" "${hex:12:4}" "${hex:16:4}"
-    else
-        printf '%s:%s:%s:%s:%s\n' "$network" "${hex:0:4}" "${hex:4:4}" "${hex:8:4}" "${hex:12:4}"
-    fi
+    local suffix=""
+    for ((i=0; i<random_blocks; i++)); do
+        suffix="${suffix}:${hex:$((i*4)):4}"
+    done
+    echo "${clean_net}${suffix}"
 }
+
 
 get_new_table_pref() {
     local max_table=200
