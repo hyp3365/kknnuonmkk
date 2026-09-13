@@ -518,7 +518,7 @@ add_wg_tunnel() {
     fi
 
     local WG_IPV4=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/\./ && $i!~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
-    local WG_IPV6=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
+    local WG_IPV6=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
 
     if [ -z "$WG_PRIVKEY" ] || { [ -z "$WG_IPV4" ] && [ -z "$WG_IPV6" ]; } || [ -z "$WG_PUBKEY" ] || [ -z "$WG_ENDPOINT" ]; then
         echo "[错误] 无法解析配置，核心参数 (PrivateKey/Address/PublicKey/Endpoint) 缺失。"
