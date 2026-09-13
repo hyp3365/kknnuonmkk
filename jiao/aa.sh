@@ -826,9 +826,7 @@ while true; do
    green "9. fanout"
    green "10. 三网回程测试"
    green "11. BBR3"
-   green "12. route64隧道"
-   green "13. Tunnel64隧道"
-   green "14. 其他隧道"
+   green "12. 其他ipv6隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -953,12 +951,6 @@ while true; do
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/bbr.sh)
 		   ;;
 		12) 
-		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/route64-ipv6.sh)
-		    ;;
-		13) 
-		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel64.sh)
-		    ;;
-		14) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel-tongyong.sh)
 		    ;;
         0)
