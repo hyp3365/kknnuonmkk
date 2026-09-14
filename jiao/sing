@@ -1,0 +1,73 @@
+sing-box 只允许白名单网站访问 解析dns
+
+{
+  "log": {
+    "disabled": false,
+    "level": "error",
+    "output": "/etc/sing-box/sb.log",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "local",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          "googleapis.com",
+          "gstatic.com",
+          "googleusercontent.com",
+          "ggpht.com",
+          "twitch.tv",
+          "youtube.com",
+          "youtu.be",
+          "googlevideo.com",
+          "ytimg.com",
+          "youtube-nocookie.com"
+        ],
+        "server": "local"
+      },
+      {
+        "action": "reject"
+      }
+    ],
+    "final": "local"
+  },
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "domain_suffix": [
+          "googleapis.com",
+          "gstatic.com",
+          "googleusercontent.com",
+          "ggpht.com",
+          "twitch.tv",
+          "youtube.com",
+          "youtu.be",
+          "googlevideo.com",
+          "ytimg.com",
+          "youtube-nocookie.com"
+        ],
+        "outbound": "direct"
+      }
+    ],
+    "final": "block"
+  }
+}
+
