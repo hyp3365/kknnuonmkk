@@ -8794,6 +8794,27 @@ select_inbound_target() {
     done
     return 0
 }
+# udp流量在vps访问网站改成tcp流量
+add_udp_reject_rule() {
+    clear
+    echo ""
+    local new_rule=$(jq -n '{
+        inbound: ["tuic", "hysteria2"],
+        network: ["udp"],
+        action: "reject"
+    }')
+    jq --argjson rule "$new_rule" '
+        .route.rules //= [] |
+        .route.rules = [$rule] + (.route.rules | map(select(
+            ( ((.inbound // []) | sort) == ["hysteria2", "tuic"] and .network == ["udp"] ) | not
+        )))
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "\n✅ UDP在访问网站时将使用TCP"
+    sleep 2
+    warp_manage
+}
 
 add_rule_menu() {
     clear
@@ -8812,6 +8833,7 @@ add_rule_menu() {
     skyblue "-----------------------------"
     green "11. 设置全局代理出站 (所有流量走指定代理)"
     green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
+	green "13. UDP流量在VPS到网站之间使用TCP访问"
     skyblue "-----------------------------"
     purple "0.  返回上级菜单"
     skyblue "-----------------------------"
@@ -8829,6 +8851,7 @@ add_rule_menu() {
         10) add_custom_domain_rule; return ;;
         11) set_global_outbound; return ;;
         12) restore_direct_outbound; return ;;
+		13) add_udp_reject_rule; return ;;
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
