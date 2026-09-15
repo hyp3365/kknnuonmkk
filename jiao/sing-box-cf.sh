@@ -7345,11 +7345,9 @@ add_safe_rule() {
     return 0
 }
 
-# 修复保存逻辑：使用更安全的 awk 状态机，避免破坏配置结构
 save_nft_rules() {
     local conf="/etc/nftables.conf"
     echo "flush ruleset" > "$conf"
-    # 安全跳过 inet port_manager 表，保留其余所有内容
     nft list ruleset 2>/dev/null | awk '
         BEGIN { skip=0 }
         /^table inet port_manager/ { skip=1 }
@@ -7391,40 +7389,6 @@ EOF
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
-save_nft_rules() {
-    local conf="/etc/nftables.conf"
-    echo "flush ruleset" > "$conf"
-    nft list ruleset 2>/dev/null | awk '
-        BEGIN { skip=0 }
-        /^table inet port_manager/ { skip=1 }
-        /^table / && !/^table inet port_manager/ { skip=0 }
-        { if(!skip) print }
-    ' >> "$conf"
-}
-check_rule_files() {
-    local conf="/etc/nftables.conf"
-    if ! command -v nft &> /dev/null; then return; fi
-    
-    if ! nft list table inet filter &>/dev/null; then
-        cat > "$conf" << EOF
-flush ruleset
-table inet filter {
-    chain input {
-        type filter hook input priority 0; policy accept;
-        iif "lo" accept
-        ct state established,related accept
-    }
-    chain forward {
-        type filter hook forward priority 0; policy accept;
-    }
-    chain output {
-        type filter hook output priority 0; policy accept;
-    }
-}
-EOF
-        nft -f "$conf" 2>/dev/null
-    fi
-}
 iptables_ssl() {
     check_and_install_nftables
     clear
