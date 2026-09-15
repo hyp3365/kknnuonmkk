@@ -1,3 +1,11 @@
+sing-box添加ipv6隧道作为出站 下列代码添加到出站
+{
+      "type": "direct",
+      "tag": "sit-ipv6-1",
+      "bind_interface": "NetAssist",#NetAssist 是ipv6隧道网卡名
+      "inet6_bind_address": "2a01:d0:9ccd:cabb:d9e6:fc73:4a3f:b310"
+}
+
 sing-box 只允许白名单网站访问 解析dns
 
 {
