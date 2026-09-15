@@ -7646,7 +7646,7 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-        2)
+                2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
             if [ -z "$raw_rules" ]; then
@@ -7665,7 +7665,7 @@ iptables_ssl() {
                 local rule_ip=()
                 local rule_count=0
 
-                # 逐条解析规则（不盲目打散/合并，保证每一条规则精准对应唯一的 handle）
+                # 1. 逐条解析规则 (适配新的 meta nfproto 表达方式)
                 while read -r line; do
                     [ -z "$line" ] && continue
                     
@@ -7678,9 +7678,9 @@ iptables_ssl() {
                     if echo "$line" | grep -qw "udp"; then proto="udp"; fi
                     
                     local ip_limit="所有 IP"
-                    if echo "$line" | grep -q "saddr 0.0.0.0/0"; then
+                    if echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
                         ip_limit="仅 IPv4"
-                    elif echo "$line" | grep -q "saddr ::/0"; then
+                    elif echo "$line" | grep -q "meta nfproto ipv6" || echo "$line" | grep -q "saddr ::/0"; then
                         ip_limit="仅 IPv6"
                     elif echo "$line" | grep -q "saddr"; then
                         ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
@@ -7693,11 +7693,36 @@ iptables_ssl() {
                     rule_ip[$rule_count]="$ip_limit"
                 done <<< "$raw_rules"
 
-                # 打印独立规则列表
+                # 2. 打印规则列表
                 for ((i=1; i<=rule_count; i++)); do
                     printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
                 done
-                # 修改单条规则 (重点修复：先添加，成功后再删旧规则)
+
+                skyblue "------------------------------------------------------------"
+                green " [0] 返回主菜单"
+                echo -e "操作提示：输入${green}数字${re}(修改规则) | 输入 ${red}d+数字${re}(删除规则, 如 ${red}d1${re}) | 输入 ${green}0${re}(返回)"
+                reading "请输入指令: " input_cmd
+
+                input_cmd=$(echo "$input_cmd" | xargs)
+
+                if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
+                    : # 返回主菜单
+                # 删除单条规则 (d+数字)
+                elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
+                    local sel_idx="${BASH_REMATCH[1]}"
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local target_handle="${rule_handles[$sel_idx]}"
+                        local target_port="${rule_port[$sel_idx]}"
+                        
+                        nft delete rule inet filter script_input handle "$target_handle" 2>/dev/null
+                        save_nft_rules
+                        flush_port_conntrack "$target_port"
+                        
+                        green "成功：已删除序号 [$sel_idx] (${rule_proto[$sel_idx]} 端口 $target_port) 的规则"
+                    else
+                        red "错误：找不到序号为 [$sel_idx] 的规则！"
+                    fi
+                # 修改规则 (精准控制，防止旧 handle 残留)
                 elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
                     local sel_idx="$input_cmd"
                     if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
@@ -7706,12 +7731,42 @@ iptables_ssl() {
                         
                         green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / ${rule_proto[$sel_idx]}):"
                         
-                        # ... 省略端口输入和协议输入代码，与你原来一致 ...
+                        reading "请输入新端口号 (直接回车保持 $curr_port): " new_port
+                        [ -z "$new_port" ] && new_port="$curr_port"
+                        
+                        if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
+                            red "错误：无效的端口号！修改已取消。"
+                        else
+                            green "\n请选择放行协议:"
+                            green " 1. TCP"
+                            green " 2. UDP"
+                            green " 3. TCP + UDP (默认)"
+                            reading "请输入选择 [1-3] (默认 3): " proto_choice
 
-                            # 核心修复：原子替换逻辑
+                            local proto_list=()
+                            case "${proto_choice}" in
+                                1) proto_list=("tcp") ;;
+                                2) proto_list=("udp") ;;
+                                *) proto_list=("tcp" "udp") ;;
+                            esac
+
+                            green "\n请选择允许访问的 IP 模式:"
+                            green " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
+                            green " 2. 仅允许所有 IPv4 访问"
+                            green " 3. 仅允许所有 IPv6 访问"
+                            reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+
+                            local custom_ips=""
+                            if [ "${ip_choice}" == "1" ]; then
+                                reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
+                            fi
+
+                            # 收集写入前的旧 handle 列表 (为后续完全替换做准备)
+                            local old_raw=$(nft -a list chain inet filter script_input 2>/dev/null | grep -E "\bdport $curr_port\b")
+                            local old_handles=$(echo "$old_raw" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+
+                            # 1. 插入新规则 (带失败捕获)
                             local add_failed=0
-                            
-                            # 1. 尝试插入新规则
                             case "${ip_choice}" in
                                 1)
                                     if [ -z "$custom_ips" ]; then
@@ -7746,11 +7801,14 @@ iptables_ssl() {
                                     done
                                     ;;
                             esac
-                            
-                            # 2. 判断是否添加成功并执行回滚/收尾
+
+                            # 2. 判断添加结果并彻底清理该端口的原旧 Handle
                             if [ "$add_failed" -eq 0 ]; then
-                                # 只有新规则全部添加成功，才删除旧 handle
-                                nft delete rule inet filter script_input handle "$curr_handle" 2>/dev/null
+                                # 只有全部新规则注入成功，才删掉该端口旧的所有 handle
+                                for h in $old_handles; do
+                                    nft delete rule inet filter script_input handle "$h" 2>/dev/null
+                                done
+
                                 save_nft_rules
                                 
                                 flush_port_conntrack "$curr_port"
@@ -7759,13 +7817,18 @@ iptables_ssl() {
                                 fi
                                 green "成功：已更新序号 [$sel_idx] 的规则！"
                             else
-                                red "错误：添加新规则失败！已终止操作，原规则(Handle: $curr_handle)被保留，防止断网。"
-                                # 这里可以加入清理刚才添加了一半的新规则的逻辑，但最重要的是保住了旧规则
+                                red "错误：添加新规则失败！原规则已被完全保留，防止网络阻断。"
                             fi
                         fi
                     else
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
                     fi
+                else
+                    red "错误：指令无效，请输入数字(修改) | ${red}d+数字${re}(删除) | 0(返回)"
+                fi
+            fi
+            sleep 1 && iptables_ssl ;;
+
                 3)
             yellow "正在开启拦截模式..."
             ensure_nft_env
