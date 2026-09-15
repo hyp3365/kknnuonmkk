@@ -7271,30 +7271,39 @@ EOF
         esac
     done
 }
-# 辅助函数：初始化 nftables 基础环境 (采用独立 Chain 架构)
+purge_port_rules() {
+    local target_p="$1"
+    [ -z "$target_p" ] && return
+
+    for chain in "script_input" "input"; do
+        local handles=$(nft -a list chain inet filter "$chain" 2>/dev/null | grep -E "\bdport $target_p\b|\bsport $target_p\b" | awk '{print $NF}')
+        for h in $handles; do
+            nft delete rule inet filter "$chain" handle "$h" 2>/dev/null
+        done
+    done
+}
+
+# 辅助函数：初始化 nftables 基础环境
 ensure_nft_env() {
     nft add table inet filter 2>/dev/null
     if ! nft list chain inet filter input &>/dev/null; then
         nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null
     fi
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "iif \"lo\" accept"; then
+    local dirty_handles=$(nft -a list chain inet filter input 2>/dev/null | grep -E 'dport|ScriptManaged' | awk '{print $NF}')
+    for h in $dirty_handles; do
+        nft delete rule inet filter input handle "$h" 2>/dev/null
+    done
+    if ! nft list chain inet filter input 2>/dev/null | grep -q "System-lo"; then
         nft insert rule inet filter input iif "lo" accept comment "System-lo" 2>/dev/null
     fi
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "established,related"; then
+    if ! nft list chain inet filter input 2>/dev/null | grep -q "System-State"; then
         nft insert rule inet filter input ct state established,related accept comment "System-State" 2>/dev/null
-    fi
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "ip protocol icmp"; then
-        nft insert rule inet filter input ip protocol icmp accept comment "System-ICMPv4" 2>/dev/null
-    fi
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "icmpv6 type"; then
-        nft insert rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept comment "System-ICMPv6" 2>/dev/null
     fi
     nft add chain inet filter script_input 2>/dev/null
     if ! nft list chain inet filter input 2>/dev/null | grep -q "jump script_input"; then
         nft add rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
     fi
 }
-
 
 # 辅助函数：自动安装 conntrack 
 ensure_conntrack_tool() {
@@ -7509,7 +7518,7 @@ iptables_ssl() {
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
-                1)
+                        1)
             read -p "请输入要开放的端口号: " o_port
             if [ -z "$o_port" ]; then
                 yellow "未输入端口号，操作已取消。"
@@ -7537,16 +7546,12 @@ iptables_ssl() {
                 local custom_ips=""
                 if [ "${ip_choice}" == "1" ]; then
                     read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
-                    # 简单校验 IP 输入是否为空
                     if [ -z "$custom_ips" ]; then
                         yellow "提示：未输入特定 IP，将自动退回到【允许所有 IP】模式。"
                     fi
                 fi
-
-                # 1. 尝试写入新规则（先不删旧规则，确保新规则合法）
+                purge_port_rules "$o_port"
                 local add_failed=0
-                local new_handles=()
-
                 case "${ip_choice}" in
                     1)
                         if [ -z "$custom_ips" ]; then
@@ -7582,41 +7587,25 @@ iptables_ssl() {
                         ;;
                 esac
 
-                # 2. 判断结果并精准清理旧规则
                 if [ "$add_failed" -eq 0 ]; then
-                    # 新规则写入成功后，再清理该端口原有的旧规则 (用 awk/grep 严格匹配 \bdport 端口号\b)
-                    local raw_lines=$(nft -a list chain inet filter script_input 2>/dev/null | grep -E "\bdport $o_port\b")
-                    local new_count=${#proto_list[@]}
-                    
-                    # 倒序清理掉旧 handle（保留刚插入的前 $new_count 条新规则）
-                    local all_handles=$(echo "$raw_lines" | grep -oE 'handle [0-9]+' | awk '{print $2}')
-                    local handle_arr=($all_handles)
-                    local total_h=${#handle_arr[@]}
-                    
-                    # 如果原有的 handle 数量大于新插入的数量，把旧的删掉
-                    if [ "$total_h" -gt "$new_count" ]; then
-                        for ((i=new_count; i<total_h; i++)); do
-                            nft delete rule inet filter script_input handle "${handle_arr[$i]}" 2>/dev/null
-                        done
-                    fi
-
                     save_nft_rules
                     flush_port_conntrack "$o_port"
                     
                     if [ "${ip_choice}" == "1" ] && [ -n "$custom_ips" ]; then
-                        green "成功：端口 $o_port (${proto_list[*]}) 已放行，仅允许 [$custom_ips] 连接"
+                        green "成功：已清理端口 $o_port 旧规则，并全新放行 [$custom_ips] (${proto_list[*]})"
                     elif [ "${ip_choice}" == "2" ]; then
-                        green "成功：端口 $o_port (${proto_list[*]}) 已放行，仅允许 IPv4"
+                        green "成功：已清理端口 $o_port 旧规则，并全新放行 IPv4 (${proto_list[*]})"
                     elif [ "${ip_choice}" == "3" ]; then
-                        green "成功：端口 $o_port (${proto_list[*]}) 已放行，仅允许 IPv6"
+                        green "成功：已清理端口 $o_port 旧规则，并全新放行 IPv6 (${proto_list[*]})"
                     else
-                        green "成功：端口 $o_port (${proto_list[*]}) 已放行，允许所有 IP 连接"
+                        green "成功：已清理端口 $o_port 旧规则，并全新放行所有 IP (${proto_list[*]})"
                     fi
                 else
                     red "错误：放行端口失败！请检查 IP 格式或 nftables 语法。"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
+
                 2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
@@ -7636,7 +7625,7 @@ iptables_ssl() {
                 local rule_ip=()
                 local rule_count=0
 
-                # 1. 逐条解析规则 (适配新的 meta nfproto 表达方式)
+                # 1. 逐条解析规则
                 while read -r line; do
                     [ -z "$line" ] && continue
                     
@@ -7677,22 +7666,19 @@ iptables_ssl() {
                 input_cmd=$(echo "$input_cmd" | xargs)
 
                 if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
-                    : # 返回主菜单
-                # 删除单条规则 (d+数字)
-                elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
-                    local sel_idx="${BASH_REMATCH[1]}"
-                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
-                        local target_handle="${rule_handles[$sel_idx]}"
-                        local target_port="${rule_port[$sel_idx]}"
-                        
-                        nft delete rule inet filter script_input handle "$target_handle" 2>/dev/null
-                        save_nft_rules
-                        flush_port_conntrack "$target_port"
-                        
-                        green "成功：已删除序号 [$sel_idx] (${rule_proto[$sel_idx]} 端口 $target_port) 的规则"
-                    else
-                        red "错误：找不到序号为 [$sel_idx] 的规则！"
-                    fi
+                    : 
+elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
+    local sel_idx="${BASH_REMATCH[1]}"
+    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+        local target_port="${rule_port[$sel_idx]}"
+        purge_port_rules "$target_port"
+        save_nft_rules
+        flush_port_conntrack "$target_port"
+        green "成功：已清理端口相关规则"
+    else
+        red "错误：找不到序号为 [$sel_idx] 的规则！"
+    fi
+
                 # 修改规则 (精准控制，防止旧 handle 残留)
                 elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
                     local sel_idx="$input_cmd"
