@@ -8665,7 +8665,7 @@ extract_fanout_socks() {
     sleep 1; warp_manage
 }
 
-# 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
+# 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟 + 支持 Reject / Direct)
 select_outbound_target() {
     echo ""
     green "正在检测已添加出站的连通性及延迟，请稍候 (最长5秒)..."
@@ -8723,8 +8723,17 @@ select_outbound_target() {
         ((i++))
     done
     rm -rf "$tmp_dir"
+
+    # === 追加固定选项：direct 和 reject ===
+    display_lines+=("  ${green}${i}.${re} ${skyblue}direct${re} (服务器 IP 直连)")
+    out_tags+=("direct")
+    ((i++))
+
+    display_lines+=("  ${green}${i}.${re} ${red}reject${re} (🚫 拦截 UDP 流量 / 强制降级 TCP)")
+    out_tags+=("reject")
+
     echo ""
-    green "请选择分流流量要走的出站线路:"
+    green "请选择分流流量要走的出站线路或动作:"
     for line in "${display_lines[@]}"; do
         echo -e "$line"
     done
@@ -8767,6 +8776,67 @@ select_inbound_target() {
         fi
     done
     return 0
+}
+add_udp_reject_rule() {
+    clear
+    echo ""
+    green "=== 请选择拦截 UDP 的目标范围 ==="
+    echo -e "  ${green}1.${re} ${skyblue}YouTube${re} (包含 youtube.com, googlevideo.com, ytimg.com, youtu.be)"
+    # echo -e "  ${green}2.${re} ${skyblue}预留选项2${re} (你可以自定义)"
+    # echo -e "  ${green}3.${re} ${skyblue}预留选项3${re} (你可以自定义)"
+    echo -e "  ${green}直接回车${re}: 代表拦截【全部域名】"
+    echo -e "  ${purple}或直接输入${re}: 自定义域名后缀 (多个用逗号隔开，如 twitch.tv,netflix.com)"
+    echo ""
+    reading "请输入选项编号或域名: " custom_doms
+    local dom_json=""
+    case "$custom_doms" in
+        1)
+            # 选项 1：YouTube 所有主要域名
+            dom_json='["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"]'
+            ;;
+        # 2)
+        #     # 选项 2 扩展模板（取消注释即可使用）
+        #     dom_json='["example1.com", "example2.com"]'
+        #     ;;
+        # 3)
+        #     # 选项 3 扩展模板（取消注释即可使用）
+        #     dom_json='["example3.com", "example4.com"]'
+        #     ;;
+        "")
+            # 直接回车：代表全部域名
+            dom_json=""
+            ;;
+        *)
+            # 输入了其他文本：解析为自定义域名（按逗号分隔）
+            dom_json=$(jq -n --arg input "$custom_doms" '$input | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+            ;;
+    esac
+    local new_rule
+    if [ -n "$dom_json" ] && [ "$dom_json" != "[]" ]; then
+        new_rule=$(jq -n --argjson doms "$dom_json" '{
+            inbound: ["tuic", "hysteria2"],
+            network: ["udp"],
+            domain_suffix: $doms,
+            action: "reject"
+        }')
+    else
+        new_rule=$(jq -n '{
+            inbound: ["tuic", "hysteria2"],
+            network: ["udp"],
+            action: "reject"
+        }')
+    fi
+    jq --argjson rule "$new_rule" '
+        .route.rules //= [] |
+        .route.rules = [$rule] + (.route.rules | map(select(
+            ( ((.inbound // []) | sort) == ["hysteria2", "tuic"] and .network == ["udp"] and .action == "reject" ) | not
+        )))
+    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+
+    restart_singbox
+    green "\n✅ UDP在访问网站时将使用TCP"
+    sleep 2
+    warp_manage
 }
 
 add_rule_menu() {
@@ -8823,26 +8893,36 @@ add_rule_menu() {
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
+    if [ "$selected_out" == "reject" ]; then
+        # 选中了 reject 动作，写入 action: reject 规则，并自动置顶
+        jq --arg tag "$rule_tag" --arg inb "$selected_inbound" '
+            .route.rules //= [] |
+            (
+                if $inb == "" then
+                    {"rule_set": [$tag], "network": ["udp"], "action": "reject"}
+                else
+                    {"inbound": [$inb], "rule_set": [$tag], "network": ["udp"], "action": "reject"}
+                end
+            ) as $new_r |
+            .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
+        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
+        restart_singbox
+        green "\n✅ 规则 '${rule_tag}' 已成功设置为：[ 🚫 拦截 UDP 强制 TCP ]！"
+        sleep 2; warp_manage
+        return
+    fi
+    # 选中常规出站线路 (wireguard-out / direct / socks5 等)
     jq --arg tag "$rule_tag" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
-            .route.rules |= map(
-                if .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then 
-                    .rule_set = (.rule_set + [$tag] | unique) 
-                else . end
-            )
+        if $inb == "" then
+            .route.rules += [{"rule_set": [$tag], "outbound": $out}]
         else
-            if $inb == "" then
-                .route.rules += [{"rule_set": [$tag], "outbound": $out}]
-            else
-                .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
-            end
+            .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
     restart_singbox
-    green "预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
+    green "\n预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
     sleep 2; warp_manage
 }
 
