@@ -7518,7 +7518,7 @@ iptables_ssl() {
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
-                        1)
+                  1)
             read -p "请输入要开放的端口号: " o_port
             if [ -z "$o_port" ]; then
                 yellow "未输入端口号，操作已取消。"
@@ -7536,20 +7536,33 @@ iptables_ssl() {
                     2) proto_list=("udp") ;;
                     *) proto_list=("tcp" "udp") ;;
                 esac
-
                 echo -e "\n请选择允许访问的 IP 模式:"
                 echo -e " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
                 echo -e " 2. 仅允许所有 IPv4 访问"
                 echo -e " 3. 仅允许所有 IPv6 访问"
                 read -p "请输入选择 [1-3] (默认不限制 IP): " ip_choice
-
                 local custom_ips=""
                 if [ "${ip_choice}" == "1" ]; then
                     read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
-                    if [ -z "$custom_ips" ]; then
-                        yellow "提示：未输入特定 IP，将自动退回到【允许所有 IP】模式。"
-                    fi
                 fi
+                nft add chain inet filter script_blocked 2>/dev/null
+                if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                    nft insert rule inet filter input jump script_blocked 2>/dev/null
+                fi
+                for proto in "${proto_list[@]}"; do
+                    while read -r h; do
+                        [ -z "$h" ] && continue
+                        nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                    done < <(
+                        nft -a list chain inet filter script_blocked 2>/dev/null |
+                        awk -v proto="$proto" -v port="$o_port" '
+                            $0 ~ proto " dport " port " drop" {
+                                for (i=1;i<=NF;i++)
+                                    if ($i=="handle") print $(i+1)
+                            }
+                        '
+                    )
+                done
                 purge_port_rules "$o_port"
                 local add_failed=0
                 case "${ip_choice}" in
@@ -7586,27 +7599,16 @@ iptables_ssl() {
                         done
                         ;;
                 esac
-
                 if [ "$add_failed" -eq 0 ]; then
                     save_nft_rules
                     flush_port_conntrack "$o_port"
-                    
-                    if [ "${ip_choice}" == "1" ] && [ -n "$custom_ips" ]; then
-                        green "成功：已清理端口 $o_port 旧规则，并全新放行 [$custom_ips] (${proto_list[*]})"
-                    elif [ "${ip_choice}" == "2" ]; then
-                        green "成功：已清理端口 $o_port 旧规则，并全新放行 IPv4 (${proto_list[*]})"
-                    elif [ "${ip_choice}" == "3" ]; then
-                        green "成功：已清理端口 $o_port 旧规则，并全新放行 IPv6 (${proto_list[*]})"
-                    else
-                        green "成功：已清理端口 $o_port 旧规则，并全新放行所有 IP (${proto_list[*]})"
-                    fi
+                    green "成功：端口 $o_port 已重新放行 (${proto_list[*]})"
                 else
                     red "错误：放行端口失败！请检查 IP 格式或 nftables 语法。"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-
-                2)
+          2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
             if [ -z "$raw_rules" ]; then
@@ -7618,25 +7620,18 @@ iptables_ssl() {
                 green "=== 当前防火墙端口规则列表 ==="
                 printf "${green}%-8s %-12s %-12s %-25s${re}\n" "序号" "端口号" "协议" "允许的 IP"
                 skyblue "------------------------------------------------------------"
-
                 local rule_handles=()
                 local rule_port=()
                 local rule_proto=()
                 local rule_ip=()
                 local rule_count=0
-
-                # 1. 逐条解析规则
                 while read -r line; do
                     [ -z "$line" ] && continue
-                    
                     local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
                     local p=$(echo "$line" | grep -oE 'dport [0-9]+' | awk '{print $2}')
-                    
                     [ -z "$h" ] || [ -z "$p" ] && continue
-
                     local proto="tcp"
                     if echo "$line" | grep -qw "udp"; then proto="udp"; fi
-                    
                     local ip_limit="所有 IP"
                     if echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
                         ip_limit="仅 IPv4"
@@ -7645,52 +7640,63 @@ iptables_ssl() {
                     elif echo "$line" | grep -q "saddr"; then
                         ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
                     fi
-
                     ((rule_count++))
                     rule_handles[$rule_count]="$h"
                     rule_port[$rule_count]="$p"
                     rule_proto[$rule_count]="$proto"
                     rule_ip[$rule_count]="$ip_limit"
                 done <<< "$raw_rules"
-
-                # 2. 打印规则列表
                 for ((i=1; i<=rule_count; i++)); do
                     printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
                 done
-
                 skyblue "------------------------------------------------------------"
                 green " [0] 返回主菜单"
                 echo -e "操作提示：输入${green}数字${re}(修改规则) | 输入 ${red}d+数字${re}(删除规则, 如 ${red}d1${re}) | 输入 ${green}0${re}(返回)"
                 reading "请输入指令: " input_cmd
-
                 input_cmd=$(echo "$input_cmd" | xargs)
-
                 if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
-                    : 
-elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
-    local sel_idx="${BASH_REMATCH[1]}"
-    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
-        local target_port="${rule_port[$sel_idx]}"
-        purge_port_rules "$target_port"
-        save_nft_rules
-        flush_port_conntrack "$target_port"
-        green "成功：已清理端口相关规则"
-    else
-        red "错误：找不到序号为 [$sel_idx] 的规则！"
-    fi
-
-                # 修改规则 (精准控制，防止旧 handle 残留)
+                    :
+                elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
+                    local sel_idx="${BASH_REMATCH[1]}"
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local target_port="${rule_port[$sel_idx]}"
+                        local target_proto="${rule_proto[$sel_idx]}"
+                        local target_handle="${rule_handles[$sel_idx]}"
+                        nft add chain inet filter script_blocked 2>/dev/null
+                        if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                            nft insert rule inet filter input jump script_blocked 2>/dev/null
+                        fi
+                        if [ -n "$target_handle" ]; then
+                            nft delete rule inet filter script_input handle "$target_handle" 2>/dev/null
+                        fi
+                        while read -r h; do
+                            [ -z "$h" ] && continue
+                            nft delete rule inet filter input handle "$h" 2>/dev/null
+                        done < <(
+                            nft -a list chain inet filter input 2>/dev/null |
+                            awk -v proto="$target_proto" -v port="$target_port" '
+                                $0 ~ proto " dport " port " accept" && $0 ~ /comment "ScriptManaged"/ {
+                                    for (i=1;i<=NF;i++)
+                                        if ($i=="handle") print $(i+1)
+                                }
+                            '
+                        )
+                        if ! nft list chain inet filter script_blocked 2>/dev/null | grep -qE "^.*$target_proto dport $target_port drop"; then
+                            nft add rule inet filter script_blocked "$target_proto" dport "$target_port" drop
+                        fi
+                        flush_port_conntrack "$target_port"
+                        save_nft_rules
+                        green "成功：已关闭 $target_proto/$target_port"
+                    else
+                        red "错误：找不到序号为 [$sel_idx] 的规则！"
+                    fi
                 elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
                     local sel_idx="$input_cmd"
                     if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
-                        local curr_handle="${rule_handles[$sel_idx]}"
                         local curr_port="${rule_port[$sel_idx]}"
-                        
                         green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / ${rule_proto[$sel_idx]}):"
-                        
                         reading "请输入新端口号 (直接回车保持 $curr_port): " new_port
                         [ -z "$new_port" ] && new_port="$curr_port"
-                        
                         if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
                             red "错误：无效的端口号！修改已取消。"
                         else
@@ -7699,30 +7705,25 @@ elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
                             green " 2. UDP"
                             green " 3. TCP + UDP (默认)"
                             reading "请输入选择 [1-3] (默认 3): " proto_choice
-
                             local proto_list=()
                             case "${proto_choice}" in
                                 1) proto_list=("tcp") ;;
                                 2) proto_list=("udp") ;;
                                 *) proto_list=("tcp" "udp") ;;
                             esac
-
                             green "\n请选择允许访问的 IP 模式:"
                             green " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
                             green " 2. 仅允许所有 IPv4 访问"
                             green " 3. 仅允许所有 IPv6 访问"
                             reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
-
                             local custom_ips=""
                             if [ "${ip_choice}" == "1" ]; then
                                 reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                             fi
-
-                            # 收集写入前的旧 handle 列表 (为后续完全替换做准备)
-                            local old_raw=$(nft -a list chain inet filter script_input 2>/dev/null | grep -E "\bdport $curr_port\b")
-                            local old_handles=$(echo "$old_raw" | grep -oE 'handle [0-9]+' | awk '{print $2}')
-
-                            # 1. 插入新规则 (带失败捕获)
+                            purge_port_rules "$curr_port"
+                            if [ "$curr_port" != "$new_port" ]; then
+                                purge_port_rules "$new_port"
+                            fi
                             local add_failed=0
                             case "${ip_choice}" in
                                 1)
@@ -7758,23 +7759,15 @@ elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
                                     done
                                     ;;
                             esac
-
-                            # 2. 判断添加结果并彻底清理该端口的原旧 Handle
                             if [ "$add_failed" -eq 0 ]; then
-                                # 只有全部新规则注入成功，才删掉该端口旧的所有 handle
-                                for h in $old_handles; do
-                                    nft delete rule inet filter script_input handle "$h" 2>/dev/null
-                                done
-
                                 save_nft_rules
-                                
                                 flush_port_conntrack "$curr_port"
                                 if [ "$curr_port" != "$new_port" ]; then
                                     flush_port_conntrack "$new_port"
                                 fi
-                                green "成功：已更新序号 [$sel_idx] 的规则！"
+                                green "成功：已清除旧规则，并更新序号 [$sel_idx] (端口 $new_port) 的规则！"
                             else
-                                red "错误：添加新规则失败！原规则已被完全保留，防止网络阻断。"
+                                red "错误：添加新规则失败！请检查系统设置。"
                             fi
                         fi
                     else
