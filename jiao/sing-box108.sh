@@ -2997,7 +2997,6 @@ EOF
     "rule_set": [
       {"tag":"gemini","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/gemini.srs"},
       {"tag":"openai","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs"},
-      {"tag":"tiktok","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/tiktok.srs"},
       {"tag":"google","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/google.srs"},
       {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs"},
       {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs"}
@@ -8665,11 +8664,10 @@ extract_fanout_socks() {
     sleep 1; warp_manage
 }
 
-# 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟 + 支持 Reject / Direct)
+# 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
 select_outbound_target() {
     echo ""
     green "正在检测已添加出站的连通性及延迟，请稍候 (最长5秒)..."
-    
     local out_tags=("wireguard-out")
     local display_lines=()
     display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (脚本 WARP 出站)")
@@ -8723,15 +8721,11 @@ select_outbound_target() {
         ((i++))
     done
     rm -rf "$tmp_dir"
-
-    # === 追加固定选项：direct 和 reject ===
     display_lines+=("  ${green}${i}.${re} ${skyblue}direct${re} (服务器 IP 直连)")
     out_tags+=("direct")
     ((i++))
-
-    display_lines+=("  ${green}${i}.${re} ${red}reject${re} (🚫 拦截 UDP 流量 / 强制降级 TCP)")
+    display_lines+=("  ${green}${i}.${re} ${red}reject${re} (🚫UDP流量从VPS到网站强制使用TCP )")
     out_tags+=("reject")
-
     echo ""
     green "请选择分流流量要走的出站线路或动作:"
     for line in "${display_lines[@]}"; do
@@ -8777,102 +8771,33 @@ select_inbound_target() {
     done
     return 0
 }
-add_udp_reject_rule() {
-    clear
-    echo ""
-    green "=== 请选择拦截 UDP 的目标范围 ==="
-    echo -e "  ${green}1.${re} ${skyblue}YouTube${re} (包含 youtube.com, googlevideo.com, ytimg.com, youtu.be)"
-    # echo -e "  ${green}2.${re} ${skyblue}预留选项2${re} (你可以自定义)"
-    # echo -e "  ${green}3.${re} ${skyblue}预留选项3${re} (你可以自定义)"
-    echo -e "  ${green}直接回车${re}: 代表拦截【全部域名】"
-    echo -e "  ${purple}或直接输入${re}: 自定义域名后缀 (多个用逗号隔开，如 twitch.tv,netflix.com)"
-    echo ""
-    reading "请输入选项编号或域名: " custom_doms
-    local dom_json=""
-    case "$custom_doms" in
-        1)
-            # 选项 1：YouTube 所有主要域名
-            dom_json='["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"]'
-            ;;
-        # 2)
-        #     # 选项 2 扩展模板（取消注释即可使用）
-        #     dom_json='["example1.com", "example2.com"]'
-        #     ;;
-        # 3)
-        #     # 选项 3 扩展模板（取消注释即可使用）
-        #     dom_json='["example3.com", "example4.com"]'
-        #     ;;
-        "")
-            # 直接回车：代表全部域名
-            dom_json=""
-            ;;
-        *)
-            # 输入了其他文本：解析为自定义域名（按逗号分隔）
-            dom_json=$(jq -n --arg input "$custom_doms" '$input | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
-            ;;
-    esac
-    local new_rule
-    if [ -n "$dom_json" ] && [ "$dom_json" != "[]" ]; then
-        new_rule=$(jq -n --argjson doms "$dom_json" '{
-            inbound: ["tuic", "hysteria2"],
-            network: ["udp"],
-            domain_suffix: $doms,
-            action: "reject"
-        }')
-    else
-        new_rule=$(jq -n '{
-            inbound: ["tuic", "hysteria2"],
-            network: ["udp"],
-            action: "reject"
-        }')
-    fi
-    jq --argjson rule "$new_rule" '
-        .route.rules //= [] |
-        .route.rules = [$rule] + (.route.rules | map(select(
-            ( ((.inbound // []) | sort) == ["hysteria2", "tuic"] and .network == ["udp"] and .action == "reject" ) | not
-        )))
-    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
-    restart_singbox
-    green "\n✅ UDP在访问网站时将使用TCP"
-    sleep 2
-    warp_manage
-}
 
 add_rule_menu() {
     clear
     green "选择要分流的服务或设置自定义域名:\n"
     green "1.  OpenAI"
-    green "2.  Claude"
-    green "3.  Gemini"
-    green "4.  Google"
-    green "5.  Tiktok"
-    green "6.  Twitter"
-    green "7.  YouTube"
-    green "8.  Netflix"
-    green "9.  Telegram"
+    green "2.  Gemini"
+    green "3.  Google"
+    green "4.  YouTube"
+    green "5.  Telegram"
     skyblue "-----------------------------"
-    green "10. ➕ 自定义分流"
+    green "6. ➕ 自定义分流"
     skyblue "-----------------------------"
-    green "11. 设置全局代理出站 (所有流量走指定代理)"
-    green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
+    green "7. 设置全局代理出站 (所有流量走指定代理)"
+    green "8. 恢复服务器原IP出站 (所有流量走服务器IP)"
     skyblue "-----------------------------"
     purple "0.  返回上级菜单"
     skyblue "-----------------------------"
     reading "请输入选择: " add_choice
     case "$add_choice" in
         1)  rule_tag="openai"   ;;
-        2)  rule_tag="claude"   ;;
-        3)  rule_tag="gemini"   ;;
-        4)  rule_tag="google"   ;;
-        5)  rule_tag="tiktok"   ;;
-        6)  rule_tag="twitter"  ;;
-        7)  rule_tag="youtube"  ;;
-        8)  rule_tag="netflix"  ;;
-        9)  rule_tag="telegram" ;;
-        10) add_custom_domain_rule; return ;;
-        11) set_global_outbound; return ;;
-        12) restore_direct_outbound; return ;;
+        2)  rule_tag="gemini"   ;;
+        3)  rule_tag="google"   ;;     
+        4)  rule_tag="youtube"  ;;      
+        5)  rule_tag="telegram" ;;
+        6) add_custom_domain_rule; return ;;
+        7) set_global_outbound; return ;;
+        8) restore_direct_outbound; return ;;
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
