@@ -7289,18 +7289,28 @@ ensure_nft_env() {
     if ! nft list chain inet filter input &>/dev/null; then
         nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null
     fi
-    local dirty_handles=$(nft -a list chain inet filter input 2>/dev/null | grep -E 'dport|ScriptManaged' | awk '{print $NF}')
+    local dirty_handles=""
+    dirty_handles=$(nft -a list chain inet filter input 2>/dev/null | awk '
+        /comment "ScriptManaged"/ {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    ')
     for h in $dirty_handles; do
         nft delete rule inet filter input handle "$h" 2>/dev/null
     done
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "System-lo"; then
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-lo"'; then
         nft insert rule inet filter input iif "lo" accept comment "System-lo" 2>/dev/null
     fi
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "System-State"; then
+    nft add chain inet filter script_blocked 2>/dev/null
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+        nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
+    fi
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-State"'; then
         nft insert rule inet filter input ct state established,related accept comment "System-State" 2>/dev/null
     fi
     nft add chain inet filter script_input 2>/dev/null
-    if ! nft list chain inet filter input 2>/dev/null | grep -q "jump script_input"; then
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_input'; then
         nft add rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
     fi
 }
@@ -7821,29 +7831,39 @@ iptables_ssl() {
                 3)
             yellow "正在开启拦截模式..."
             ensure_nft_env
+            nft add chain inet filter script_blocked 2>/dev/null
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
+            fi
             local ssh_ports=""
             if command -v sshd &>/dev/null; then
-                ssh_ports=$(sshd -T 2>/dev/null | grep -i '^port ' | awk '{print $2}')
+                ssh_ports=$(sshd -T 2>/dev/null | awk '$1=="port" && $2 ~ /^[0-9]+$/ {print $2}')
             fi
             if [ -z "$ssh_ports" ]; then
-                ssh_ports=$(grep -iE "^\s*Port\s+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | grep -E '^[0-9]+$')
+                ssh_ports=$(grep -iE "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | grep -E '^[0-9]+$')
             fi
             [ -z "$ssh_ports" ] && ssh_ports="22"
-
-            # 2. 精确清理 script_input 链中旧的 SSH 和 PortManager 自动规则 (彻底解决重复堆叠问题)
             local old_auto_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep -E 'comment "(SSH_Port|PortManager)"')
             while read -r line; do
                 [ -z "$line" ] && continue
                 local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
                 [ -n "$h" ] && nft delete rule inet filter script_input handle "$h" 2>/dev/null
             done <<< "$old_auto_rules"
-
-            # 3. 将 SSH 端口注入专属链 script_input
             for port in $ssh_ports; do
-                nft insert rule inet filter script_input tcp dport $port accept comment "SSH_Port" 2>/dev/null
+                while read -r h; do
+                    [ -z "$h" ] && continue
+                    nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                done < <(
+                    nft -a list chain inet filter script_blocked 2>/dev/null |
+                    awk -v port="$port" '
+                        $0 ~ "tcp dport " port " drop" {
+                            for (i=1;i<=NF;i++)
+                                if ($i=="handle") print $(i+1)
+                        }
+                    '
+                )
+                nft insert rule inet filter script_input tcp dport "$port" accept comment "SSH_Port" 2>/dev/null
             done
-
-            # 4. 将 PortManager 限速端口注入专属链 script_input
             for conf in /etc/port_manager/*.conf; do
                 [ -e "$conf" ] || continue
                 local pm_p=$(basename "$conf" .conf)
@@ -7852,22 +7872,16 @@ iptables_ssl() {
                     nft insert rule inet filter script_input udp dport $pm_p accept comment "PortManager" 2>/dev/null
                 fi
             done
-
-            # 5. 放行基础 ICMP (Ping 及 IPv6 邻居发现)，防止开启拦截后系统打不通/无法 Ping
-            if ! nft list chain inet filter input 2>/dev/null | grep -q "icmpv6 type"; then
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-ICMPv6"'; then
                 nft insert rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept comment "System-ICMPv6" 2>/dev/null
             fi
-            if ! nft list chain inet filter input 2>/dev/null | grep -q "ip protocol icmp"; then
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-ICMPv4"'; then
                 nft insert rule inet filter input ip protocol icmp accept comment "System-ICMPv4" 2>/dev/null
             fi
-
-            # 6. 安全切换默认策略为 drop
             nft chain inet filter input '{ policy drop; }' 2>/dev/null
             save_nft_rules
-
-            green "开启拦截成功！(已自动放行 SSH[端口: $ssh_ports] 及限速管控端口)" && sleep 1
+            green "开启拦截成功！(已自动放行 SSH[端口: $ssh_ports])" && sleep 1
             iptables_ssl ;;
-
         4)
             yellow "正在关闭拦截模式..."
             ensure_nft_env
