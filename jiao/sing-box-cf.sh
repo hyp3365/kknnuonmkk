@@ -3071,7 +3071,6 @@ EOF
     "rule_set": [
       {"tag":"gemini","type":"remote","format":"binary","url":"https://main.ssss.nyc.mn/gemini.srs"},
       {"tag":"openai","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs"},
-      {"tag":"tiktok","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/tiktok.srs"},
       {"tag":"google","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/google.srs"},
       {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs"},
       {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs"}
@@ -8696,7 +8695,6 @@ extract_fanout_socks() {
 select_outbound_target() {
     echo ""
     green "正在检测已添加出站的连通性及延迟，请稍候 (最长5秒)..."
-    
     local out_tags=("wireguard-out")
     local display_lines=()
     display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (脚本 WARP 出站)")
@@ -8743,14 +8741,20 @@ select_outbound_target() {
         local status_str=""
         if [ -f "$tmp_dir/$i.res" ]; then
             status_str=$(cat "$tmp_dir/$i.res")
-        fi        
+        fi
+        
         display_lines+=("  ${green}${i}.${re} ${skyblue}${tag}${re} ${status_str}")
         out_tags+=("$tag")
         ((i++))
     done
     rm -rf "$tmp_dir"
+    display_lines+=("  ${green}${i}.${re} ${skyblue}direct${re} (服务器 IP 直连)")
+    out_tags+=("direct")
+    ((i++))
+    display_lines+=("  ${green}${i}.${re} ${red}reject${re} (🚫UDP流量从VPS到网站强制使用TCP )")
+    out_tags+=("reject")
     echo ""
-    green "请选择分流流量要走的出站线路:"
+    green "请选择分流流量要走的出站线路或动作:"
     for line in "${display_lines[@]}"; do
         echo -e "$line"
     done
@@ -8794,64 +8798,33 @@ select_inbound_target() {
     done
     return 0
 }
-# udp流量在vps访问网站改成tcp流量
-add_udp_reject_rule() {
-    clear
-    echo ""
-    local new_rule=$(jq -n '{
-        inbound: ["tuic", "hysteria2"],
-        network: ["udp"],
-        action: "reject"
-    }')
-    jq --argjson rule "$new_rule" '
-        .route.rules //= [] |
-        .route.rules = [$rule] + (.route.rules | map(select(
-            ( ((.inbound // []) | sort) == ["hysteria2", "tuic"] and .network == ["udp"] ) | not
-        )))
-    ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
-    restart_singbox
-    green "\n✅ UDP在访问网站时将使用TCP"
-    sleep 2
-    warp_manage
-}
 
 add_rule_menu() {
     clear
     green "选择要分流的服务或设置自定义域名:\n"
     green "1.  OpenAI"
-    green "2.  Claude"
-    green "3.  Gemini"
-    green "4.  Google"
-    green "5.  Tiktok"
-    green "6.  Twitter"
-    green "7.  YouTube"
-    green "8.  Netflix"
-    green "9.  Telegram"
+    green "2.  Gemini"
+    green "3.  Google"
+    green "4.  YouTube"
+    green "5.  Telegram"
     skyblue "-----------------------------"
-    green "10. ➕ 自定义分流"
+    green "6. ➕ 自定义分流"
     skyblue "-----------------------------"
-    green "11. 设置全局代理出站 (所有流量走指定代理)"
-    green "12. 恢复服务器原IP出站 (所有流量走服务器IP)"
-	green "13. UDP流量在VPS到网站之间使用TCP访问"
+    green "7. 设置全局代理出站 (所有流量走指定代理)"
+    green "8. 恢复服务器原IP出站 (所有流量走服务器IP)"
     skyblue "-----------------------------"
     purple "0.  返回上级菜单"
     skyblue "-----------------------------"
     reading "请输入选择: " add_choice
     case "$add_choice" in
         1)  rule_tag="openai"   ;;
-        2)  rule_tag="claude"   ;;
-        3)  rule_tag="gemini"   ;;
-        4)  rule_tag="google"   ;;
-        5)  rule_tag="tiktok"   ;;
-        6)  rule_tag="twitter"  ;;
-        7)  rule_tag="youtube"  ;;
-        8)  rule_tag="netflix"  ;;
-        9)  rule_tag="telegram" ;;
-        10) add_custom_domain_rule; return ;;
-        11) set_global_outbound; return ;;
-        12) restore_direct_outbound; return ;;
-		13) add_udp_reject_rule; return ;;
+        2)  rule_tag="gemini"   ;;
+        3)  rule_tag="google"   ;;     
+        4)  rule_tag="youtube"  ;;      
+        5)  rule_tag="telegram" ;;
+        6) add_custom_domain_rule; return ;;
+        7) set_global_outbound; return ;;
+        8) restore_direct_outbound; return ;;
         0)  warp_manage; return ;;
         *)  red "无效选项"; sleep 1; add_rule_menu; return ;;
     esac
@@ -8872,26 +8845,36 @@ add_rule_menu() {
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
+    if [ "$selected_out" == "reject" ]; then
+        # 选中了 reject 动作，写入 action: reject 规则，并自动置顶
+        jq --arg tag "$rule_tag" --arg inb "$selected_inbound" '
+            .route.rules //= [] |
+            (
+                if $inb == "" then
+                    {"rule_set": [$tag], "network": ["udp"], "action": "reject"}
+                else
+                    {"inbound": [$inb], "rule_set": [$tag], "network": ["udp"], "action": "reject"}
+                end
+            ) as $new_r |
+            .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
+        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
+        restart_singbox
+        green "\n✅ 规则 '${rule_tag}' 已成功设置为：[ 🚫 拦截 UDP 强制 TCP ]！"
+        sleep 2; warp_manage
+        return
+    fi
+    # 选中常规出站线路 (wireguard-out / direct / socks5 等)
     jq --arg tag "$rule_tag" --arg out "$selected_out" --arg inb "$selected_inbound" '
         .route.rules //= [] |
-        if any(.route.rules[]; .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
-            .route.rules |= map(
-                if .outbound == $out and .rule_set != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb])) then 
-                    .rule_set = (.rule_set + [$tag] | unique) 
-                else . end
-            )
+        if $inb == "" then
+            .route.rules += [{"rule_set": [$tag], "outbound": $out}]
         else
-            if $inb == "" then
-                .route.rules += [{"rule_set": [$tag], "outbound": $out}]
-            else
-                .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
-            end
+            .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-
     restart_singbox
-    green "预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
+    green "\n预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
     sleep 2; warp_manage
 }
 
