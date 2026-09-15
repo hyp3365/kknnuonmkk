@@ -7273,29 +7273,28 @@ EOF
 }
 # 辅助函数：初始化 nftables 基础环境 (采用独立 Chain 架构)
 ensure_nft_env() {
-    # 1. 确保基础表和主链存在
     nft add table inet filter 2>/dev/null
     if ! nft list chain inet filter input &>/dev/null; then
         nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null
     fi
-
-    # 2. 确保本机回环和状态连接防断网规则在主链最前 (严格防重复)
     if ! nft list chain inet filter input 2>/dev/null | grep -q "iif \"lo\" accept"; then
         nft insert rule inet filter input iif "lo" accept comment "System-lo" 2>/dev/null
     fi
     if ! nft list chain inet filter input 2>/dev/null | grep -q "established,related"; then
         nft insert rule inet filter input ct state established,related accept comment "System-State" 2>/dev/null
     fi
-
-    # 3. 创建本脚本专属的管理链 (script_input)
+    if ! nft list chain inet filter input 2>/dev/null | grep -q "ip protocol icmp"; then
+        nft insert rule inet filter input ip protocol icmp accept comment "System-ICMPv4" 2>/dev/null
+    fi
+    if ! nft list chain inet filter input 2>/dev/null | grep -q "icmpv6 type"; then
+        nft insert rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept comment "System-ICMPv6" 2>/dev/null
+    fi
     nft add chain inet filter script_input 2>/dev/null
-
-    # 4. 将专属链挂载到主链上 (如果还没挂载的话)
     if ! nft list chain inet filter input 2>/dev/null | grep -q "jump script_input"; then
-        # 挂载到主链尾部，但在 policy 之前
         nft add rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
     fi
 }
+
 
 # 辅助函数：自动安装 conntrack 
 ensure_conntrack_tool() {
@@ -7362,7 +7361,7 @@ save_nft_rules() {
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
-    # 仅在配置完全丢失时才写入默认配置，不强行覆盖现有的 policy drop
+    
     if ! nft list table inet filter &>/dev/null; then
         cat > "$conf" << EOF
 flush ruleset
@@ -7371,6 +7370,8 @@ table inet filter {
         type filter hook input priority 0; policy accept;
         iif "lo" accept
         ct state established,related accept
+        ip protocol icmp accept
+        ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept
         jump script_input
     }
     chain script_input {
@@ -7387,12 +7388,18 @@ EOF
     fi
 }
 
+
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
-
 save_nft_rules() {
-    echo "flush ruleset" > /etc/nftables.conf
-    nft list ruleset 2>/dev/null | awk '/table inet port_manager/{p=1;next} /^table /{p=0} !p' >> /etc/nftables.conf
+    local conf="/etc/nftables.conf"
+    echo "flush ruleset" > "$conf"
+    nft list ruleset 2>/dev/null | awk '
+        BEGIN { skip=0 }
+        /^table inet port_manager/ { skip=1 }
+        /^table / && !/^table inet port_manager/ { skip=0 }
+        { if(!skip) print }
+    ' >> "$conf"
 }
 check_rule_files() {
     local conf="/etc/nftables.conf"
