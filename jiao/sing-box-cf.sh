@@ -7271,6 +7271,60 @@ EOF
         esac
     done
 }
+# 通用函数：确保 conntrack 工具已安装
+ensure_conntrack_tool() {
+    if ! command -v conntrack &>/dev/null; then
+        yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum install -y conntrack-tools &>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf install -y conntrack-tools &>/dev/null
+        elif command -v apk &>/dev/null; then
+            apk add conntrack-tools &>/dev/null
+        fi
+    fi
+}
+
+# 辅助函数：自动安装 conntrack
+ensure_conntrack_tool() {
+    if ! command -v conntrack &>/dev/null; then
+        yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum install -y conntrack-tools &>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf install -y conntrack-tools &>/dev/null
+        elif command -v apk &>/dev/null; then
+            apk add conntrack-tools &>/dev/null
+        fi
+    fi
+}
+
+# 辅助函数：双向彻底清理指定端口的连接缓存
+flush_port_conntrack() {
+    local target_p="$1"
+    [ -z "$target_p" ] && return  
+    ensure_conntrack_tool
+    if command -v conntrack &>/dev/null; then
+        # 1. 清理入站方向 (目的端口)
+        conntrack -D -p tcp --dport "$target_p" &>/dev/null
+        conntrack -D -p udp --dport "$target_p" &>/dev/null
+        # 2. 清理响应/出站方向 (源端口)
+        conntrack -D -p tcp --sport "$target_p" &>/dev/null
+        conntrack -D -p udp --sport "$target_p" &>/dev/null
+    fi
+}
+# 辅助函数：安全去重添加 nft 规则
+add_safe_rule() {
+    local rule_spec="$1"
+    if ! nft list chain inet filter input 2>/dev/null | grep -Fq "$rule_spec"; then
+        nft add rule inet filter input $rule_spec comment "$tag" 2>/dev/null
+    fi
+}
+
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
@@ -7423,39 +7477,13 @@ iptables_ssl() {
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
-                  1)
+                1)
             read -p "请输入要开放的端口号: " o_port
             if [ -z "$o_port" ]; then
                 yellow "未输入端口号，操作已取消。"
             elif ! [[ "$o_port" =~ ^[0-9]+$ ]] || [ "$o_port" -le 0 ] || [ "$o_port" -gt 65535 ]; then
                 red "错误：请输入有效的端口号 (1-65535)"
             else
-                # 辅助函数：自动安装 conntrack
-                local ensure_conntrack_tool
-                ensure_conntrack_tool() {
-                    if ! command -v conntrack &>/dev/null; then
-                        yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
-                        if command -v apt-get &>/dev/null; then
-                            apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
-                        elif command -v yum &>/dev/null; then
-                            yum install -y conntrack-tools &>/dev/null
-                        elif command -v dnf &>/dev/null; then
-                            dnf install -y conntrack-tools &>/dev/null
-                        elif command -v apk &>/dev/null; then
-                            apk add conntrack-tools &>/dev/null
-                        fi
-                    fi
-                }
-
-                # 辅助函数：安全去重添加 nft 规则
-                local add_safe_rule
-                add_safe_rule() {
-                    local rule_spec="$1"
-                    if ! nft list chain inet filter input 2>/dev/null | grep -Fq "$rule_spec"; then
-                        nft add rule inet filter input $rule_spec comment "$tag" 2>/dev/null
-                    fi
-                }
-
                 # 第二步：选择协议
                 echo -e "\n请选择放行协议:"
                 echo -e " 1. TCP"
@@ -7476,21 +7504,20 @@ iptables_ssl() {
                 echo -e " 3. 仅允许所有 IPv6 访问"
                 read -p "请输入选择 [1-3] (默认不限制 IP): " ip_choice
 
-                # 如果选择了特定 IP，获取输入
                 local custom_ips=""
                 if [ "${ip_choice}" == "1" ]; then
                     read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                 fi
 
-                # ==================== 所有用户输入完成，开始安全更新规则 ====================
+                # ==================== 所有输入获取完成，开始执行重写与切断 ====================
 
-                # 1. 查找并删除该端口原有旧规则
+                # 1. 查找并彻底删除该端口原有的所有旧规则 handle
                 local old_handles=$(nft -a list chain inet filter input 2>/dev/null | grep -E "dport $o_port([ ;]|$)" | awk '{for(i=1;i<=NF;i++) if($i=="handle") print $(i+1)}')
                 for h in $old_handles; do
                     nft delete rule inet filter input handle "$h" 2>/dev/null
                 done
 
-                # 2. 根据用户选择安全写入新规则
+                # 2. 写入新规则
                 case "${ip_choice}" in
                     1)
                         if [ -z "$custom_ips" ]; then
@@ -7503,10 +7530,8 @@ iptables_ssl() {
                             for proto in "${proto_list[@]}"; do
                                 for ip in $custom_ips; do
                                     if [[ "$ip" == *:* ]]; then
-                                        # IPv6 地址判断
                                         add_safe_rule "ip6 saddr $ip $proto dport $o_port accept"
                                     else
-                                        # IPv4 地址判断
                                         add_safe_rule "ip saddr $ip $proto dport $o_port accept"
                                     fi
                                 done
@@ -7534,44 +7559,14 @@ iptables_ssl() {
                         ;;
                 esac
 
-                # 3. 保存规则并强制清理连接缓存以立即生效
+                # 3. 保存防火墙规则并双向强切连接
                 save_nft_rules
-                ensure_conntrack_tool
-                if command -v conntrack &>/dev/null; then
-                    conntrack -D -p tcp --dport "$o_port" &>/dev/null
-                    conntrack -D -p udp --dport "$o_port" &>/dev/null
-                fi
+                flush_port_conntrack "$o_port"
             fi
             sleep 1 && iptables_ssl ;;
 
-          2)
+                2)
             clear
-            # 辅助函数：自动安装 conntrack
-            local ensure_conntrack_tool
-            ensure_conntrack_tool() {
-                if ! command -v conntrack &>/dev/null; then
-                    yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
-                    if command -v apt-get &>/dev/null; then
-                        apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
-                    elif command -v yum &>/dev/null; then
-                        yum install -y conntrack-tools &>/dev/null
-                    elif command -v dnf &>/dev/null; then
-                        dnf install -y conntrack-tools &>/dev/null
-                    elif command -v apk &>/dev/null; then
-                        apk add conntrack-tools &>/dev/null
-                    fi
-                fi
-            }
-
-            # 辅助函数：安全去重添加 nft 规则
-            local add_safe_rule
-            add_safe_rule() {
-                local rule_spec="$1"
-                if ! nft list chain inet filter input 2>/dev/null | grep -Fq "$rule_spec"; then
-                    nft add rule inet filter input $rule_spec comment "$tag" 2>/dev/null
-                fi
-            }
-
             # 获取所有放行规则
             local raw_rules=$(nft -a list chain inet filter input 2>/dev/null | grep 'dport')
             
@@ -7615,7 +7610,6 @@ iptables_ssl() {
                     for ((j=1; j<=group_count; j++)); do
                         if [ "${rule_port[$j]}" == "$p" ] && [ "${rule_ip[$j]}" == "$ip_limit" ]; then
                             found=1
-                            # 若协议不同，合并显示为 tcp/udp
                             if [ "${rule_proto[$j]}" != "$proto" ]; then
                                 rule_proto[$j]="tcp/udp"
                             fi
@@ -7634,7 +7628,7 @@ iptables_ssl() {
                     fi
                 done <<< "$raw_rules"
 
-                # 打印合并后的规则列表（全绿）
+                # 打印合并后的规则列表
                 for ((i=1; i<=group_count; i++)); do
                     printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
                 done
@@ -7644,7 +7638,6 @@ iptables_ssl() {
                 echo -e "操作提示：输入${green}数字${re}(修改规则) | 输入 ${red}d+数字${re}(删除规则, 如 ${red}d1${re}) | 输入 ${green}0${re}(返回)"
                 reading "请输入指令: " input_cmd
 
-                # 去除前后空格
                 input_cmd=$(echo "$input_cmd" | xargs)
 
                 if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
@@ -7661,12 +7654,8 @@ iptables_ssl() {
                         done
                         save_nft_rules
                         
-                        # 自动确保安装 conntrack 并强制清理连接缓存以立即生效
-                        ensure_conntrack_tool
-                        if command -v conntrack &>/dev/null; then
-                            conntrack -D -p tcp --dport "$target_port" &>/dev/null
-                            conntrack -D -p udp --dport "$target_port" &>/dev/null
-                        fi
+                        # 彻底切断连接
+                        flush_port_conntrack "$target_port"
                         
                         green "成功：已删除序号 [$sel_idx] (端口 $target_port) 的所有规则"
                     else
@@ -7708,20 +7697,17 @@ iptables_ssl() {
                             green " 3. 仅允许所有 IPv6 访问"
                             reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
 
-                            # 如果选择了特定 IP，先完成 IP 输入获取
                             local custom_ips=""
                             if [ "${ip_choice}" == "1" ]; then
                                 reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                             fi
 
-                            # ==================== 所有用户选择均已完成，开始执行删除与更新 ====================
+                            # ==================== 所有输入确认无误，开始删除旧规则与写入新规则 ====================
 
-                            # 1. 删除原组绑定的所有旧规则 handle
                             for h in ${rule_handles[$sel_idx]}; do
                                 nft delete rule inet filter input handle "$h" 2>/dev/null
                             done
 
-                            # 2. 写入新规则（带有去重防护）
                             case "${ip_choice}" in
                                 1)
                                     if [ -z "$custom_ips" ]; then
@@ -7758,15 +7744,10 @@ iptables_ssl() {
                             esac
                             save_nft_rules
                             
-                            # 3. 自动安装 conntrack 并强制断开旧/新端口连接缓存以立即生效
-                            ensure_conntrack_tool
-                            if command -v conntrack &>/dev/null; then
-                                conntrack -D -p tcp --dport "$curr_port" &>/dev/null
-                                conntrack -D -p udp --dport "$curr_port" &>/dev/null
-                                if [ "$curr_port" != "$new_port" ]; then
-                                    conntrack -D -p tcp --dport "$new_port" &>/dev/null
-                                    conntrack -D -p udp --dport "$new_port" &>/dev/null
-                                fi
+                            # 双向清除旧端口与新端口连接，实现瞬时切断
+                            flush_port_conntrack "$curr_port"
+                            if [ "$curr_port" != "$new_port" ]; then
+                                flush_port_conntrack "$new_port"
                             fi
 
                             green "成功：已更新序号 [$sel_idx] 的规则！"
