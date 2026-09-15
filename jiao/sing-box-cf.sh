@@ -7608,7 +7608,7 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-          2)
+                        2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
             if [ -z "$raw_rules" ]; then
@@ -7631,7 +7631,9 @@ iptables_ssl() {
                     local p=$(echo "$line" | grep -oE 'dport [0-9]+' | awk '{print $2}')
                     [ -z "$h" ] || [ -z "$p" ] && continue
                     local proto="tcp"
-                    if echo "$line" | grep -qw "udp"; then proto="udp"; fi
+                    if echo "$line" | grep -qw "udp"; then
+                        proto="udp"
+                    fi
                     local ip_limit="所有 IP"
                     if echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
                         ip_limit="仅 IPv4"
@@ -7681,12 +7683,29 @@ iptables_ssl() {
                                 }
                             '
                         )
-                        if ! nft list chain inet filter script_blocked 2>/dev/null | grep -qE "^.*$target_proto dport $target_port drop"; then
-                            nft add rule inet filter script_blocked "$target_proto" dport "$target_port" drop
+                        local remain_rule=0
+                        if nft list chain inet filter script_input 2>/dev/null |
+                            grep -qE '(^| )'"$target_proto"' dport '"$target_port"' .*accept.*comment "ScriptManaged"'; then
+                            remain_rule=1
+                        fi
+                        while read -r h; do
+                            [ -z "$h" ] && continue
+                            nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                        done < <(
+                            nft -a list chain inet filter script_blocked 2>/dev/null |
+                            awk -v proto="$target_proto" -v port="$target_port" '
+                                $0 ~ proto " dport " port " drop" {
+                                    for (i=1;i<=NF;i++)
+                                        if ($i=="handle") print $(i+1)
+                                }
+                            '
+                        )
+                        if [ "$remain_rule" -eq 0 ]; then
+                            nft add rule inet filter script_blocked "$target_proto" dport "$target_port" drop 2>/dev/null
                         fi
                         flush_port_conntrack "$target_port"
                         save_nft_rules
-                        green "成功：已关闭 $target_proto/$target_port"
+                        green "成功：已删除 $target_proto/$target_port 这条规则"
                     else
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
                     fi
@@ -7694,81 +7713,102 @@ iptables_ssl() {
                     local sel_idx="$input_cmd"
                     if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
                         local curr_port="${rule_port[$sel_idx]}"
-                        green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / ${rule_proto[$sel_idx]}):"
-                        reading "请输入新端口号 (直接回车保持 $curr_port): " new_port
-                        [ -z "$new_port" ] && new_port="$curr_port"
-                        if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
-                            red "错误：无效的端口号！修改已取消。"
-                        else
-                            green "\n请选择放行协议:"
-                            green " 1. TCP"
-                            green " 2. UDP"
-                            green " 3. TCP + UDP (默认)"
-                            reading "请输入选择 [1-3] (默认 3): " proto_choice
-                            local proto_list=()
-                            case "${proto_choice}" in
-                                1) proto_list=("tcp") ;;
-                                2) proto_list=("udp") ;;
-                                *) proto_list=("tcp" "udp") ;;
-                            esac
-                            green "\n请选择允许访问的 IP 模式:"
-                            green " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
-                            green " 2. 仅允许所有 IPv4 访问"
-                            green " 3. 仅允许所有 IPv6 访问"
-                            reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
-                            local custom_ips=""
-                            if [ "${ip_choice}" == "1" ]; then
-                                reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
-                            fi
-                            purge_port_rules "$curr_port"
-                            if [ "$curr_port" != "$new_port" ]; then
-                                purge_port_rules "$new_port"
-                            fi
-                            local add_failed=0
-                            case "${ip_choice}" in
-                                1)
-                                    if [ -z "$custom_ips" ]; then
-                                        for proto in "${proto_list[@]}"; do
-                                            add_safe_rule "$proto dport $new_port accept" || add_failed=1
+                        local curr_proto="${rule_proto[$sel_idx]}"
+                        green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / $curr_proto):"
+                        echo ""
+                        echo "请选择放行协议:"
+                        echo " 1. TCP"
+                        echo " 2. UDP"
+                        echo " 3. TCP + UDP (默认)"
+                        reading "请输入选择 [1-3] (默认 3): " proto_choice
+                        local proto_list=()
+                        case "${proto_choice}" in
+                            1) proto_list=("tcp") ;;
+                            2) proto_list=("udp") ;;
+                            *) proto_list=("tcp" "udp") ;;
+                        esac
+                        echo ""
+                        echo "请选择允许访问的 IP 模式:"
+                        echo " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
+                        echo " 2. 仅允许所有 IPv4 访问"
+                        echo " 3. 仅允许所有 IPv6 访问"
+                        reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+                        local custom_ips=""
+                        if [ "${ip_choice}" == "1" ]; then
+                            reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
+                        fi
+                        nft add chain inet filter script_blocked 2>/dev/null
+                        if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                            nft insert rule inet filter input jump script_blocked 2>/dev/null
+                        fi
+                        purge_port_rules "$curr_port"
+                        for proto in tcp udp; do
+                            while read -r h; do
+                                [ -z "$h" ] && continue
+                                nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                            done < <(
+                                nft -a list chain inet filter script_blocked 2>/dev/null |
+                                awk -v proto="$proto" -v port="$curr_port" '
+                                    $0 ~ proto " dport " port " drop" {
+                                        for (i=1;i<=NF;i++)
+                                            if ($i=="handle") print $(i+1)
+                                    }
+                                '
+                            )
+                        done
+                        local add_failed=0
+                        case "${ip_choice}" in
+                            1)
+                                if [ -z "$custom_ips" ]; then
+                                    for proto in "${proto_list[@]}"; do
+                                        add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                    done
+                                else
+                                    for proto in "${proto_list[@]}"; do
+                                        for ip in $custom_ips; do
+                                            if [[ "$ip" == *:* ]]; then
+                                                add_safe_rule "ip6 saddr $ip $proto dport $curr_port accept" || add_failed=1
+                                            else
+                                                add_safe_rule "ip saddr $ip $proto dport $curr_port accept" || add_failed=1
+                                            fi
                                         done
-                                    else
-                                        for proto in "${proto_list[@]}"; do
-                                            for ip in $custom_ips; do
-                                                if [[ "$ip" == *:* ]]; then
-                                                    add_safe_rule "ip6 saddr $ip $proto dport $new_port accept" || add_failed=1
-                                                else
-                                                    add_safe_rule "ip saddr $ip $proto dport $new_port accept" || add_failed=1
-                                                fi
-                                            done
-                                        done
-                                    fi
-                                    ;;
-                                2)
-                                    for proto in "${proto_list[@]}"; do
-                                        add_safe_rule "meta nfproto ipv4 $proto dport $new_port accept" || add_failed=1
                                     done
-                                    ;;
-                                3)
-                                    for proto in "${proto_list[@]}"; do
-                                        add_safe_rule "meta nfproto ipv6 $proto dport $new_port accept" || add_failed=1
-                                    done
-                                    ;;
-                                *)
-                                    for proto in "${proto_list[@]}"; do
-                                        add_safe_rule "$proto dport $new_port accept" || add_failed=1
-                                    done
-                                    ;;
-                            esac
-                            if [ "$add_failed" -eq 0 ]; then
-                                save_nft_rules
-                                flush_port_conntrack "$curr_port"
-                                if [ "$curr_port" != "$new_port" ]; then
-                                    flush_port_conntrack "$new_port"
                                 fi
-                                green "成功：已清除旧规则，并更新序号 [$sel_idx] (端口 $new_port) 的规则！"
-                            else
-                                red "错误：添加新规则失败！请检查系统设置。"
+                                ;;
+                            2)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "meta nfproto ipv4 $proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                            3)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "meta nfproto ipv6 $proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                            *)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                        esac
+                        if [ "$add_failed" -eq 0 ]; then
+                            local has_tcp=0
+                            local has_udp=0
+                            for proto in "${proto_list[@]}"; do
+                                [ "$proto" = "tcp" ] && has_tcp=1
+                                [ "$proto" = "udp" ] && has_udp=1
+                            done
+                            if [ "$has_tcp" -eq 0 ]; then
+                                nft add rule inet filter script_blocked tcp dport "$curr_port" drop 2>/dev/null
                             fi
+                            if [ "$has_udp" -eq 0 ]; then
+                                nft add rule inet filter script_blocked udp dport "$curr_port" drop 2>/dev/null
+                            fi
+                            save_nft_rules
+                            flush_port_conntrack "$curr_port"
+                            green "成功：已重新配置端口 $curr_port (${proto_list[*]})"
+                        else
+                            red "错误：添加新规则失败！请检查 IP 格式或 nftables 语法。"
                         fi
                     else
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
@@ -7778,12 +7818,9 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-
                 3)
             yellow "正在开启拦截模式..."
             ensure_nft_env
-
-            # 1. 多级退避精准获取 SSH 端口 (防止因子配置文件导致的端口读取失败锁死)
             local ssh_ports=""
             if command -v sshd &>/dev/null; then
                 ssh_ports=$(sshd -T 2>/dev/null | grep -i '^port ' | awk '{print $2}')
