@@ -7495,32 +7495,35 @@ iptables_ssl() {
             fi
             sleep 1 && iptables_ssl ;;
 
-          2)
+                 2)
+            clear
             # 获取所有放行规则
             local raw_rules=$(nft -a list chain inet filter input 2>/dev/null | grep 'dport')
             
             if [ -z "$raw_rules" ]; then
+                green "=== 当前防火墙端口规则列表 ==="
                 yellow "当前没有检测到任何已放行的端口规则。"
+                echo ""
+                reading "按回车键返回主菜单..." dummy_var
             else
-                echo -e "\n\033[0;33m=== 当前防火墙端口规则列表 ===\033[0m"
-                printf "%-8s %-12s %-10s %-25s\n" "序号" "端口号" "协议" "允许的 IP"
+                green "=== 当前防火墙端口规则列表 ==="
+                printf "${green}%-8s %-12s %-12s %-25s${re}\n" "序号" "端口号" "协议" "允许的 IP"
                 skyblue "------------------------------------------------------------"
 
-                local rule_handle=()
+                local rule_handles=()
                 local rule_port=()
                 local rule_proto=()
                 local rule_ip=()
-                local idx=1
+                local group_count=0
 
-                # 逐行解析规则明细
+                # 逐行解析规则并合并同端口规则
                 while read -r line; do
                     [ -z "$line" ] && continue
                     
                     local h=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="handle") print $(i+1)}')
                     local p=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};')
                     
-                    local proto="tcp/udp"
-                    if echo "$line" | grep -qw "tcp"; then proto="tcp"; fi
+                    local proto="tcp"
                     if echo "$line" | grep -qw "udp"; then proto="udp"; fi
                     
                     local ip_limit="所有 IP"
@@ -7532,57 +7535,79 @@ iptables_ssl() {
                         ip_limit=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="saddr") print $(i+1)}')
                     fi
 
-                    rule_handle[$idx]="$h"
-                    rule_port[$idx]="$p"
-                    rule_proto[$idx]="$proto"
-                    rule_ip[$idx]="$ip_limit"
+                    # 检查是否已存在 [同端口 + 同IP限制] 的规则组
+                    local found=0
+                    for ((j=1; j<=group_count; j++)); do
+                        if [ "${rule_port[$j]}" == "$p" ] && [ "${rule_ip[$j]}" == "$ip_limit" ]; then
+                            found=1
+                            # 若协议不同，合并显示为 tcp/udp
+                            if [ "${rule_proto[$j]}" != "$proto" ]; then
+                                rule_proto[$j]="tcp/udp"
+                            fi
+                            rule_handles[$j]="${rule_handles[$j]} $h"
+                            break
+                        fi
+                    done
 
-                    printf "%-8s %-12s %-10s %-25s\n" "[$idx]" "$p" "$proto" "$ip_limit"
-                    ((idx++))
+                    # 建立新规则组
+                    if [ $found -eq 0 ]; then
+                        ((group_count++))
+                        rule_port[$group_count]="$p"
+                        rule_proto[$group_count]="$proto"
+                        rule_ip[$group_count]="$ip_limit"
+                        rule_handles[$group_count]="$h"
+                    fi
                 done <<< "$raw_rules"
 
-                skyblue "------------------------------------------------------------"
-                echo -e "操作提示：输入数字修改规则 | 输入 d+数字 删除规则 (如 d1) | 回车/0 返回"
-                read -p "请输入指令: " input_cmd
+                # 打印合并后的规则列表（全绿）
+                for ((i=1; i<=group_count; i++)); do
+                    printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
+                done
 
-                # 清理前后空格
+                skyblue "------------------------------------------------------------"
+                green " [0] 返回主菜单"
+                echo -e "操作提示：输入${green}数字${re}(修改规则) | 输入 ${red}d+数字${re}(删除规则, 如 ${red}d1${re}) | 输入 ${green}0${re}(返回)"
+                reading "请输入指令: " input_cmd
+
+                # 去除前后空格
                 input_cmd=$(echo "$input_cmd" | xargs)
 
                 if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
                     : # 返回主菜单
-                # 匹配删除命令 (如 d1, d 1, D1)
+                # 匹配删除指令 (如 d1, d 1, D1)
                 elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
                     local sel_idx="${BASH_REMATCH[1]}"
-                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -lt "$idx" ]; then
-                        local target_handle="${rule_handle[$sel_idx]}"
-                        nft delete rule inet filter input handle "$target_handle" 2>/dev/null
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$group_count" ]; then
+                        # 批量删除该组端口对应的所有关联 handle
+                        for h in ${rule_handles[$sel_idx]}; do
+                            nft delete rule inet filter input handle "$h" 2>/dev/null
+                        done
                         save_nft_rules
-                        green "成功：已删除序号 [$sel_idx] (端口 ${rule_port[$sel_idx]}) 的规则"
+                        green "成功：已删除序号 [$sel_idx] (端口 ${rule_port[$sel_idx]}) 的所有规则"
                     else
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
                     fi
-                # 匹配纯数字修改命令 (如 1, 2)
+                # 匹配数字修改指令 (如 1, 2)
                 elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
                     local sel_idx="$input_cmd"
-                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -lt "$idx" ]; then
-                        local target_handle="${rule_handle[$sel_idx]}"
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$group_count" ]; then
                         local curr_port="${rule_port[$sel_idx]}"
                         
-                        echo -e "\n正在修改序号 [$sel_idx] 的规则 (当前端口: $curr_port):"
+                        green "\n正在修改序号 [$sel_idx] 的规则 (当前端口: $curr_port):"
                         
                         # Step 1: 修改端口号
-                        read -p "请输入新端口号 (直接回车保持 $curr_port): " new_port
+                        reading "请输入新端口号 (直接回车保持 $curr_port): " new_port
                         [ -z "$new_port" ] && new_port="$curr_port"
                         
                         if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
                             red "错误：无效的端口号！"
                         else
                             # Step 2: 选择协议
-                            echo -e "\n请选择放行协议:"
-                            echo -e " 1. TCP"
-                            echo -e " 2. UDP"
-                            echo -e " 3. TCP + UDP (默认)"
-                            read -p "请输入选择 [1-3] (默认 3): " proto_choice
+                            green "\n请选择放行协议:"
+                            green " 1. TCP"
+                            green " 2. UDP"
+                            green " 3. TCP + UDP (默认)"
+                            reading "请输入选择 [1-3] (默认 3): " proto_choice
 
                             local proto_list=()
                             case "${proto_choice}" in
@@ -7592,19 +7617,21 @@ iptables_ssl() {
                             esac
 
                             # Step 3: 选择 IP 限制模式
-                            echo -e "\n请选择允许访问的 IP 模式:"
-                            echo -e " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
-                            echo -e " 2. 仅允许所有 IPv4 访问"
-                            echo -e " 3. 仅允许所有 IPv6 访问"
-                            read -p "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+                            green "\n请选择允许访问的 IP 模式:"
+                            green " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
+                            green " 2. 仅允许所有 IPv4 访问"
+                            green " 3. 仅允许所有 IPv6 访问"
+                            reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
 
-                            # 删除原有旧规则句柄
-                            nft delete rule inet filter input handle "$target_handle" 2>/dev/null
+                            # 先把原组绑定的所有旧 handle 删除
+                            for h in ${rule_handles[$sel_idx]}; do
+                                nft delete rule inet filter input handle "$h" 2>/dev/null
+                            done
 
-                            # 应用新规则
+                            # 重新添加新规则
                             case "${ip_choice}" in
                                 1)
-                                    read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
+                                    reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                                     if [ -z "$custom_ips" ]; then
                                         for proto in "${proto_list[@]}"; do
                                             nft add rule inet filter input $proto dport $new_port accept comment "$tag" 2>/dev/null
@@ -7644,7 +7671,7 @@ iptables_ssl() {
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
                     fi
                 else
-                    red "错误：指令无效，请输入数字(修改) 或 d+数字(删除)"
+                    red "错误：指令无效，请输入数字(修改) | ${red}d+数字${re}(删除) | 0(返回)"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
