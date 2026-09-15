@@ -66,14 +66,8 @@ get_available_port() {
         if [ -n "${used_ports[$port]}" ]; then
             continue
         fi
-        if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
-            if port_is_used "$port" "udp"; then
-                continue
-            fi
-        else
-            if ss -tuln | grep -qE ":$port\b"; then
-                continue
-            fi
+        if port_is_used "$port" "$protocol"; then
+            continue
         fi
         used_ports[$port]=1
         echo "$port"
@@ -4924,42 +4918,55 @@ manage_nodes_menu() {
     case "$choice" in
     1)
         default_port=$xtls_reality
+        protocol="tcp"
         ;;
-	2)
+    2)
         default_port=$hy2_port
+        protocol="udp"
         ;;
     3)
         default_port=$tuic_port
+        protocol="udp"
         ;;
     4)
         default_port=$h2_reality
+        protocol="tcp"
         ;;
     5)
         default_port=$grpc_reality
+        protocol="tcp"
         ;;
     6)
         default_port=$anytls_port
+        protocol="tcp"
         ;;
     7)
         default_port=$anytls_reality_port
+        protocol="tcp"
         ;;
     8)
         default_port=$socks_port
+		protocol="tcp"
         ;;
     9)
         default_port=$http_port
+		protocol="tcp"
         ;;
     13)
         default_port=$xray_xhttp_reality
+        protocol="tcp"
         ;;
-	18)
+    18)
         default_port=$vless_tcp_tls
+        protocol="tcp"
         ;;
-	20)
+    20)
         default_port=60001
+        protocol="tcp"
         ;;
     21)
         default_port=60002
+        protocol="tcp"
         ;;
 esac
     while true; do
@@ -4969,15 +4976,9 @@ esac
         break
     fi
     if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
-    if ss -lun | grep -qE ":$custom_port\b"; then
-        red "该 UDP 端口已被占用，请重新输入！"
-        continue
-    fi
-else
-    if ss -tuln | grep -qE ":$custom_port\b"; then
-        red "该端口已被占用，请重新输入！"
-        continue
+        if port_is_used "$custom_port" "$protocol"; then
+    red "该 ${protocol^^} 端口已被占用，请重新输入！"
+    continue
     fi
     fi
         break
