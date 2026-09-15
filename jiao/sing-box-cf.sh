@@ -66,12 +66,12 @@ get_available_port() {
         if [ -n "${used_ports[$port]}" ]; then
             continue
         fi
-        if command -v ss >/dev/null 2>&1; then
-            if ss -tuln | grep -qE ":$port\b"; then
+        if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
+            if port_is_used "$port" "udp"; then
                 continue
             fi
-        elif command -v netstat >/dev/null 2>&1; then
-            if netstat -tuln | grep -qE ":$port\b"; then
+        else
+            if ss -tuln | grep -qE ":$port\b"; then
                 continue
             fi
         fi
@@ -79,6 +79,23 @@ get_available_port() {
         echo "$port"
         break
     done
+}
+port_is_used() {
+    local port="$1"
+    local protocol="$2"
+    if command -v ss >/dev/null 2>&1; then
+        if [ "$protocol" = "udp" ]; then
+            ss -H -lun | grep -qE "[:.]${port}([[:space:]]|$)"
+        else
+            ss -H -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        if [ "$protocol" = "udp" ]; then
+            netstat -lun | grep -qE "[:.]${port}([[:space:]]|$)"
+        else
+            netstat -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
+        fi
+    fi
 }
 
 # 自动检测并安装 nftables
@@ -4952,10 +4969,17 @@ esac
         break
     fi
     if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi
+        if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
+    if ss -lun | grep -qE ":$custom_port\b"; then
+        red "该 UDP 端口已被占用，请重新输入！"
+        continue
+    fi
+else
+    if ss -tuln | grep -qE ":$custom_port\b"; then
+        red "该端口已被占用，请重新输入！"
+        continue
+    fi
+    fi
         break
     else
         red "输入错误！请输入有效的端口号 (100-65535)。"
