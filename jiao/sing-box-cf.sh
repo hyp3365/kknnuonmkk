@@ -7271,60 +7271,73 @@ EOF
         esac
     done
 }
-# 通用函数：确保 conntrack 工具已安装
-ensure_conntrack_tool() {
-    if ! command -v conntrack &>/dev/null; then
-        yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
-        if command -v apt-get &>/dev/null; then
-            apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
-        elif command -v yum &>/dev/null; then
-            yum install -y conntrack-tools &>/dev/null
-        elif command -v dnf &>/dev/null; then
-            dnf install -y conntrack-tools &>/dev/null
-        elif command -v apk &>/dev/null; then
-            apk add conntrack-tools &>/dev/null
-        fi
+# 辅助函数：初始化 nftables 基础环境 (解决重启丢失、环境不存在的问题)
+ensure_nft_env() {
+    # 尝试确保表存在
+    nft add table inet filter 2>/dev/null
+    
+    # 尝试确保链存在 (type filter hook input priority 0)
+    if ! nft list chain inet filter input &>/dev/null; then
+        yellow "未检测到 inet filter input 链，正在自动创建基础防火墙架构..."
+        nft add chain inet filter input '{ type filter hook input priority 0; }' 2>/dev/null
+    fi
+
+    # 确保连接跟踪规则存在且在最前面 (防止强切或拦截时导致系统原本的 SSH/回包断开)
+    if ! nft list chain inet filter input 2>/dev/null | grep -q "established,related"; then
+        nft insert rule inet filter input ct state established,related accept comment "System-State" 2>/dev/null
     fi
 }
 
-# 辅助函数：自动安装 conntrack
+# 辅助函数：自动安装 conntrack 
 ensure_conntrack_tool() {
-    if ! command -v conntrack &>/dev/null; then
-        yellow "检测到未安装 conntrack，正在自动安装以保证规则立即生效..."
-        if command -v apt-get &>/dev/null; then
-            apt-get update -y &>/dev/null && apt-get install -y conntrack &>/dev/null
-        elif command -v yum &>/dev/null; then
-            yum install -y conntrack-tools &>/dev/null
-        elif command -v dnf &>/dev/null; then
-            dnf install -y conntrack-tools &>/dev/null
-        elif command -v apk &>/dev/null; then
-            apk add conntrack-tools &>/dev/null
-        fi
+    if command -v conntrack >/dev/null 2>&1; then
+        return 0
+    fi
+    yellow "检测到未安装 conntrack，正在自动安装..."
+
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y >/dev/null 2>&1 && apt-get install -y conntrack >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y conntrack-tools >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y conntrack-tools >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk add conntrack-tools >/dev/null 2>&1
+    else
+        red "无法自动安装 conntrack：未识别的包管理器，跳过连接清理阶段。"
+        return 1
+    fi
+
+    if command -v conntrack >/dev/null 2>&1; then
+        green "conntrack 安装成功。"
+        return 0
+    else
+        red "conntrack 安装失败，请检查网络或软件源！"
+        return 1
     fi
 }
-
-# 辅助函数：双向彻底清理指定端口的连接缓存
 flush_port_conntrack() {
     local target_p="$1"
-    [ -z "$target_p" ] && return  
-    ensure_conntrack_tool
-    if command -v conntrack &>/dev/null; then
-        # 1. 清理入站方向 (目的端口)
+    [ -z "$target_p" ] && return
+    if ensure_conntrack_tool; then
         conntrack -D -p tcp --dport "$target_p" &>/dev/null
         conntrack -D -p udp --dport "$target_p" &>/dev/null
-        # 2. 清理响应/出站方向 (源端口)
         conntrack -D -p tcp --sport "$target_p" &>/dev/null
         conntrack -D -p udp --sport "$target_p" &>/dev/null
     fi
 }
-# 辅助函数：安全去重添加 nft 规则
 add_safe_rule() {
     local rule_spec="$1"
+    [ -z "$rule_spec" ] && return 1
+    ensure_nft_env
     if ! nft list chain inet filter input 2>/dev/null | grep -Fq "$rule_spec"; then
-        nft add rule inet filter input $rule_spec comment "$tag" 2>/dev/null
+        if ! nft insert rule inet filter input $rule_spec comment "ScriptManaged"; then
+            red "添加 nft 规则失败，请检查语法或系统状态: $rule_spec"
+            return 1
+        fi
     fi
+    return 0
 }
-
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
@@ -7484,7 +7497,6 @@ iptables_ssl() {
             elif ! [[ "$o_port" =~ ^[0-9]+$ ]] || [ "$o_port" -le 0 ] || [ "$o_port" -gt 65535 ]; then
                 red "错误：请输入有效的端口号 (1-65535)"
             else
-                # 第二步：选择协议
                 echo -e "\n请选择放行协议:"
                 echo -e " 1. TCP"
                 echo -e " 2. UDP"
@@ -7497,7 +7509,6 @@ iptables_ssl() {
                     *) proto_list=("tcp" "udp") ;;
                 esac
 
-                # 第三步：选择 IP 限制模式
                 echo -e "\n请选择允许访问的 IP 模式:"
                 echo -e " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
                 echo -e " 2. 仅允许所有 IPv4 访问"
@@ -7509,19 +7520,18 @@ iptables_ssl() {
                     read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                 fi
 
-                # ==================== 所有输入获取完成，开始执行重写与切断 ====================
+                # 精确匹配并清理该端口旧规则
+                local raw_lines=$(nft -a list chain inet filter input 2>/dev/null | grep -E "dport $o_port([ ;]|$)")
+                while read -r line; do
+                    [ -z "$line" ] && continue
+                    local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+                    [ -n "$h" ] && nft delete rule inet filter input handle "$h" 2>/dev/null
+                done <<< "$raw_lines"
 
-                # 1. 查找并彻底删除该端口原有的所有旧规则 handle
-                local old_handles=$(nft -a list chain inet filter input 2>/dev/null | grep -E "dport $o_port([ ;]|$)" | awk '{for(i=1;i<=NF;i++) if($i=="handle") print $(i+1)}')
-                for h in $old_handles; do
-                    nft delete rule inet filter input handle "$h" 2>/dev/null
-                done
-
-                # 2. 写入新规则
+                # 写入新规则
                 case "${ip_choice}" in
                     1)
                         if [ -z "$custom_ips" ]; then
-                            yellow "未输入任何 IP，已自动调整为不限制 IP 访问。"
                             for proto in "${proto_list[@]}"; do
                                 add_safe_rule "$proto dport $o_port accept"
                             done
@@ -7559,7 +7569,6 @@ iptables_ssl() {
                         ;;
                 esac
 
-                # 3. 保存防火墙规则并双向强切连接
                 save_nft_rules
                 flush_port_conntrack "$o_port"
             fi
@@ -7567,7 +7576,6 @@ iptables_ssl() {
 
                 2)
             clear
-            # 获取所有放行规则
             local raw_rules=$(nft -a list chain inet filter input 2>/dev/null | grep 'dport')
             
             if [ -z "$raw_rules" ]; then
@@ -7584,15 +7592,17 @@ iptables_ssl() {
                 local rule_port=()
                 local rule_proto=()
                 local rule_ip=()
-                local group_count=0
+                local rule_count=0
 
-                # 逐行解析规则并合并同端口规则
+                # 逐条解析规则（不盲目打散/合并，保证每一条规则精准对应唯一的 handle）
                 while read -r line; do
                     [ -z "$line" ] && continue
                     
-                    local h=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="handle") print $(i+1)}')
-                    local p=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};')
+                    local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+                    local p=$(echo "$line" | grep -oE 'dport [0-9]+' | awk '{print $2}')
                     
+                    [ -z "$h" ] || [ -z "$p" ] && continue
+
                     local proto="tcp"
                     if echo "$line" | grep -qw "udp"; then proto="udp"; fi
                     
@@ -7602,34 +7612,18 @@ iptables_ssl() {
                     elif echo "$line" | grep -q "saddr ::/0"; then
                         ip_limit="仅 IPv6"
                     elif echo "$line" | grep -q "saddr"; then
-                        ip_limit=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="saddr") print $(i+1)}')
+                        ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
                     fi
 
-                    # 检查是否已存在 [同端口 + 同IP限制] 的规则组
-                    local found=0
-                    for ((j=1; j<=group_count; j++)); do
-                        if [ "${rule_port[$j]}" == "$p" ] && [ "${rule_ip[$j]}" == "$ip_limit" ]; then
-                            found=1
-                            if [ "${rule_proto[$j]}" != "$proto" ]; then
-                                rule_proto[$j]="tcp/udp"
-                            fi
-                            rule_handles[$j]="${rule_handles[$j]} $h"
-                            break
-                        fi
-                    done
-
-                    # 建立新规则组
-                    if [ $found -eq 0 ]; then
-                        ((group_count++))
-                        rule_port[$group_count]="$p"
-                        rule_proto[$group_count]="$proto"
-                        rule_ip[$group_count]="$ip_limit"
-                        rule_handles[$group_count]="$h"
-                    fi
+                    ((rule_count++))
+                    rule_handles[$rule_count]="$h"
+                    rule_port[$rule_count]="$p"
+                    rule_proto[$rule_count]="$proto"
+                    rule_ip[$rule_count]="$ip_limit"
                 done <<< "$raw_rules"
 
-                # 打印合并后的规则列表
-                for ((i=1; i<=group_count; i++)); do
+                # 打印独立规则列表
+                for ((i=1; i<=rule_count; i++)); do
                     printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
                 done
 
@@ -7642,41 +7636,39 @@ iptables_ssl() {
 
                 if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
                     : # 返回主菜单
-                # 匹配删除指令 (如 d1, d 1, D1)
+                # 删除单条规则 (例: d1 只删选中的那一条协议规则)
                 elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
                     local sel_idx="${BASH_REMATCH[1]}"
-                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$group_count" ]; then
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local target_handle="${rule_handles[$sel_idx]}"
                         local target_port="${rule_port[$sel_idx]}"
                         
-                        # 批量删除该组端口对应的所有关联 handle
-                        for h in ${rule_handles[$sel_idx]}; do
-                            nft delete rule inet filter input handle "$h" 2>/dev/null
-                        done
+                        # 只精准删除这一条 handle
+                        nft delete rule inet filter input handle "$target_handle" 2>/dev/null
                         save_nft_rules
                         
-                        # 彻底切断连接
+                        # 刷新缓存
                         flush_port_conntrack "$target_port"
                         
-                        green "成功：已删除序号 [$sel_idx] (端口 $target_port) 的所有规则"
+                        green "成功：已删除序号 [$sel_idx] (${rule_proto[$sel_idx]} 端口 $target_port) 的规则"
                     else
                         red "错误：找不到序号为 [$sel_idx] 的规则！"
                     fi
-                # 匹配数字修改指令 (如 1, 2)
+                # 修改单条规则
                 elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
                     local sel_idx="$input_cmd"
-                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$group_count" ]; then
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local curr_handle="${rule_handles[$sel_idx]}"
                         local curr_port="${rule_port[$sel_idx]}"
                         
-                        green "\n正在修改序号 [$sel_idx] 的规则 (当前端口: $curr_port):"
+                        green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / ${rule_proto[$sel_idx]}):"
                         
-                        # Step 1: 修改端口号
                         reading "请输入新端口号 (直接回车保持 $curr_port): " new_port
                         [ -z "$new_port" ] && new_port="$curr_port"
                         
                         if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 0 ] || [ "$new_port" -gt 65535 ]; then
-                            red "错误：无效的端口号！修改已被取消，原有规则保持不变。"
+                            red "错误：无效的端口号！修改已取消。"
                         else
-                            # Step 2: 选择协议
                             green "\n请选择放行协议:"
                             green " 1. TCP"
                             green " 2. UDP"
@@ -7690,7 +7682,6 @@ iptables_ssl() {
                                 *) proto_list=("tcp" "udp") ;;
                             esac
 
-                            # Step 3: 选择 IP 限制模式
                             green "\n请选择允许访问的 IP 模式:"
                             green " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
                             green " 2. 仅允许所有 IPv4 访问"
@@ -7702,12 +7693,10 @@ iptables_ssl() {
                                 reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
                             fi
 
-                            # ==================== 所有输入确认无误，开始删除旧规则与写入新规则 ====================
+                            # 1. 删掉旧 handle
+                            nft delete rule inet filter input handle "$curr_handle" 2>/dev/null
 
-                            for h in ${rule_handles[$sel_idx]}; do
-                                nft delete rule inet filter input handle "$h" 2>/dev/null
-                            done
-
+                            # 2. 插入新规则
                             case "${ip_choice}" in
                                 1)
                                     if [ -z "$custom_ips" ]; then
@@ -7744,7 +7733,6 @@ iptables_ssl() {
                             esac
                             save_nft_rules
                             
-                            # 双向清除旧端口与新端口连接，实现瞬时切断
                             flush_port_conntrack "$curr_port"
                             if [ "$curr_port" != "$new_port" ]; then
                                 flush_port_conntrack "$new_port"
@@ -7760,6 +7748,7 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
+
         3)
             yellow "正在开启拦截..."
             ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
