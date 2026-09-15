@@ -7081,14 +7081,110 @@ EOF
         esac
     done
 }
+purge_port_rules() {
+    local target_p="$1"
+    [ -z "$target_p" ] && return
 
-# Iptables简单管理
-ipt_msg() { echo -e "${1}${2}\033[0m"; }
+    for chain in "script_input" "input"; do
+        local handles=$(nft -a list chain inet filter "$chain" 2>/dev/null | grep -E "\bdport $target_p\b|\bsport $target_p\b" | awk '{print $NF}')
+        for h in $handles; do
+            nft delete rule inet filter "$chain" handle "$h" 2>/dev/null
+        done
+    done
+}
+
+# 辅助函数：初始化 nftables 基础环境
+ensure_nft_env() {
+    nft add table inet filter 2>/dev/null
+    if ! nft list chain inet filter input &>/dev/null; then
+        nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null
+    fi
+    local dirty_handles=""
+    dirty_handles=$(nft -a list chain inet filter input 2>/dev/null | awk '
+        /comment "ScriptManaged"/ {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    ')
+    for h in $dirty_handles; do
+        nft delete rule inet filter input handle "$h" 2>/dev/null
+    done
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-lo"'; then
+        nft insert rule inet filter input iif "lo" accept comment "System-lo" 2>/dev/null
+    fi
+    nft add chain inet filter script_blocked 2>/dev/null
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+        nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
+    fi
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-State"'; then
+        nft insert rule inet filter input ct state established,related accept comment "System-State" 2>/dev/null
+    fi
+    nft add chain inet filter script_input 2>/dev/null
+    if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_input'; then
+        nft add rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
+    fi
+}
+
+# 辅助函数：自动安装 conntrack 
+ensure_conntrack_tool() {
+    if command -v conntrack >/dev/null 2>&1; then return 0; fi
+    yellow "检测到未安装 conntrack，正在自动安装..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y >/dev/null 2>&1 && apt-get install -y conntrack >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y conntrack-tools >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y conntrack-tools >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk add conntrack-tools >/dev/null 2>&1
+    else
+        red "无法自动安装 conntrack：未识别的包管理器，跳过连接清理阶段。"
+        return 1
+    fi
+    if command -v conntrack >/dev/null 2>&1; then
+        green "conntrack 安装成功。"
+        return 0
+    else
+        red "conntrack 安装失败，请检查网络或软件源！"
+        return 1
+    fi
+}
+
+flush_port_conntrack() {
+    local target_p="$1"
+    [ -z "$target_p" ] && return
+    if ensure_conntrack_tool; then
+        conntrack -D -p tcp --dport "$target_p" &>/dev/null
+        conntrack -D -p udp --dport "$target_p" &>/dev/null
+        conntrack -D -p tcp --sport "$target_p" &>/dev/null
+        conntrack -D -p udp --sport "$target_p" &>/dev/null
+    fi
+}
+
+# 添加规则 (不再用文本去重，而是插入专属链，并在外层业务逻辑处理旧规则)
+add_safe_rule() {
+    local rule_spec="$1"
+    [ -z "$rule_spec" ] && return 1
+    ensure_nft_env
+    # 全部存入 script_input 链，保持主链干净
+    if ! nft insert rule inet filter script_input $rule_spec comment "ScriptManaged"; then
+        red "添加 nft 规则失败，请检查语法或系统状态: $rule_spec"
+        return 1
+    fi
+    return 0
+}
 
 save_nft_rules() {
-    echo "flush ruleset" > /etc/nftables.conf
-    nft list ruleset 2>/dev/null | awk '/table inet port_manager/{p=1;next} /^table /{p=0} !p' >> /etc/nftables.conf
+    local conf="/etc/nftables.conf"
+    echo "flush ruleset" > "$conf"
+    nft list ruleset 2>/dev/null | awk '
+        BEGIN { skip=0 }
+        /^table inet port_manager/ { skip=1 }
+        /^table / && !/^table inet port_manager/ { skip=0 }
+        { if(!skip) print }
+    ' >> "$conf"
 }
+
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
@@ -7101,6 +7197,11 @@ table inet filter {
         type filter hook input priority 0; policy accept;
         iif "lo" accept
         ct state established,related accept
+        ip protocol icmp accept
+        ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept
+        jump script_input
+    }
+    chain script_input {
     }
     chain forward {
         type filter hook forward priority 0; policy accept;
@@ -7113,6 +7214,10 @@ EOF
         nft -f "$conf" 2>/dev/null
     fi
 }
+
+
+# Iptables简单管理
+ipt_msg() { echo -e "${1}${2}\033[0m"; }
 iptables_ssl() {
     check_and_install_nftables
     clear
@@ -7142,8 +7247,14 @@ iptables_ssl() {
         mode_text="\033[0;37m未拦截\033[0m"
     fi
 	
-    local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
-    [ -z "$ssh_p" ] && ssh_p=22
+	local ssh_p=""
+    if command -v sshd &>/dev/null; then
+    ssh_p=$(sshd -T 2>/dev/null | awk '$1=="port" && $2 ~ /^[0-9]+$/ {print $2}')
+    fi
+    if [ -z "$ssh_p" ]; then
+    ssh_p=$(grep -iE "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '$2 ~ /^[0-9]+$/ {print $2}')
+    fi
+    [ -z "$ssh_p" ] && ssh_p="22"
 
     local nat_rules=$(nft list ruleset 2>/dev/null | awk '/dnat to/ {
         port=""; to="";
@@ -7175,14 +7286,14 @@ iptables_ssl() {
     ipt_msg "\033[0;33m" "已在防火墙放行的端口:"
     printf "%-13s %-19s %-15s\n" "端口号" "所属服务" "说明"   
 
-    local allowed_ports=""
+        local allowed_ports=""
     if command -v nft &> /dev/null; then
-        allowed_ports=$(nft list chain inet filter input 2>/dev/null | awk '/dport.*accept/ {
+        allowed_ports=$(nft list chain inet filter script_input 2>/dev/null | awk '/dport.*accept/ {
             for(i=1;i<=NF;i++) if($i=="dport") { print $(i+1); break; }
         }' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un)
         
         for port in $allowed_ports; do
-            local is_script=$(nft list chain inet filter input 2>/dev/null | grep -E "dport.*$port.*$tag")
+            local is_script=$(nft list chain inet filter script_input 2>/dev/null | grep -E "dport.*$port.*$tag")
             local note="系统/手动"
             [ -n "$is_script" ] && note="脚本放行"
             
@@ -7219,7 +7330,7 @@ iptables_ssl() {
     done
     skyblue "---------------------------"
     green "1. 开启端口"
-    green "2. 关闭端口"
+    green "2. 管理端口"
     green "3. 开启拦截"
     green "4. 关闭拦截"
     green "5. 安装更新"
@@ -7233,83 +7344,371 @@ iptables_ssl() {
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
     case "${ipt_choice}" in
-         1)
+                  1)
             read -p "请输入要开放的端口号: " o_port
             if [ -z "$o_port" ]; then
                 yellow "未输入端口号，操作已取消。"
-            elif [ "$o_port" -eq 0 ] 2>/dev/null; then
-                red "错误：端口号不能为 0"
+            elif ! [[ "$o_port" =~ ^[0-9]+$ ]] || [ "$o_port" -le 0 ] || [ "$o_port" -gt 65535 ]; then
+                red "错误：请输入有效的端口号 (1-65535)"
             else
-                if nft list chain inet filter input 2>/dev/null | grep -qw "$o_port"; then
-                    yellow "端口 $o_port 规则已存在，无需重复添加"
+                echo -e "\n请选择放行协议:"
+                echo -e " 1. TCP"
+                echo -e " 2. UDP"
+                echo -e " 3. TCP + UDP (默认)"
+                read -p "请输入选择 [1-3] (默认 3): " proto_choice
+                local proto_list=()
+                case "${proto_choice}" in
+                    1) proto_list=("tcp") ;;
+                    2) proto_list=("udp") ;;
+                    *) proto_list=("tcp" "udp") ;;
+                esac
+                echo -e "\n请选择允许访问的 IP 模式:"
+                echo -e " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
+                echo -e " 2. 仅允许所有 IPv4 访问"
+                echo -e " 3. 仅允许所有 IPv6 访问"
+                read -p "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+                local custom_ips=""
+                if [ "${ip_choice}" == "1" ]; then
+                    read -p "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
+                fi
+                nft add chain inet filter script_blocked 2>/dev/null
+                if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                    nft insert rule inet filter input jump script_blocked 2>/dev/null
+                fi
+                for proto in "${proto_list[@]}"; do
+                    while read -r h; do
+                        [ -z "$h" ] && continue
+                        nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                    done < <(
+                        nft -a list chain inet filter script_blocked 2>/dev/null |
+                        awk -v proto="$proto" -v port="$o_port" '
+                            $0 ~ proto " dport " port " drop" {
+                                for (i=1;i<=NF;i++)
+                                    if ($i=="handle") print $(i+1)
+                            }
+                        '
+                    )
+                done
+                purge_port_rules "$o_port"
+                local add_failed=0
+                case "${ip_choice}" in
+                    1)
+                        if [ -z "$custom_ips" ]; then
+                            for proto in "${proto_list[@]}"; do
+                                add_safe_rule "$proto dport $o_port accept" || add_failed=1
+                            done
+                        else
+                            for proto in "${proto_list[@]}"; do
+                                for ip in $custom_ips; do
+                                    if [[ "$ip" == *:* ]]; then
+                                        add_safe_rule "ip6 saddr $ip $proto dport $o_port accept" || add_failed=1
+                                    else
+                                        add_safe_rule "ip saddr $ip $proto dport $o_port accept" || add_failed=1
+                                    fi
+                                done
+                            done
+                        fi
+                        ;;
+                    2)
+                        for proto in "${proto_list[@]}"; do
+                            add_safe_rule "meta nfproto ipv4 $proto dport $o_port accept" || add_failed=1
+                        done
+                        ;;
+                    3)
+                        for proto in "${proto_list[@]}"; do
+                            add_safe_rule "meta nfproto ipv6 $proto dport $o_port accept" || add_failed=1
+                        done
+                        ;;
+                    *)
+                        for proto in "${proto_list[@]}"; do
+                            add_safe_rule "$proto dport $o_port accept" || add_failed=1
+                        done
+                        ;;
+                esac
+                if [ "$add_failed" -eq 0 ]; then
+                    save_nft_rules
+                    flush_port_conntrack "$o_port"
+                    green "成功：端口 $o_port 已重新放行 (${proto_list[*]})"
                 else
-                    read -p "请输入允许连接的IP(回车允许所有IP): " allow_ip
-if [ -n "$allow_ip" ]; then
-    nft add rule inet filter input ip saddr "$allow_ip" tcp dport $o_port accept comment "$tag" 2>/dev/null
-    nft add rule inet filter input ip saddr "$allow_ip" udp dport $o_port accept comment "$tag" 2>/dev/null
-    green "成功：端口 $o_port 已放行，仅允许 $allow_ip 连接"
-else
-    nft add rule inet filter input tcp dport $o_port accept comment "$tag" 2>/dev/null
-    nft add rule inet filter input udp dport $o_port accept comment "$tag" 2>/dev/null
-    green "成功：端口 $o_port 已放行，允许所有IP连接"
-fi
-save_nft_rules
+                    red "错误：放行端口失败！请检查 IP 格式或 nftables 语法。"
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-            
-        2)
-            read -p "请输入要关闭端口号: " c_port
-            if [ -z "$c_port" ]; then
-                yellow "未输入端口号，操作取消"
-            elif [ "$c_port" -eq 0 ] 2>/dev/null; then
-                red "错误：端口号不能为 0"
+                        2)
+            clear
+            local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
+            if [ -z "$raw_rules" ]; then
+                green "=== 当前防火墙端口规则列表 ==="
+                yellow "当前没有检测到任何已放行的端口规则。"
+                echo ""
+                reading "按回车键返回主菜单..." dummy_var
             else
-                for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$c_port" '$0~"dport "p {print $NF}'); do
-                    nft delete rule inet filter input handle $handle 2>/dev/null
+                green "=== 当前防火墙端口规则列表 ==="
+                printf "${green}%-8s %-12s %-12s %-25s${re}\n" "序号" "端口号" "协议" "允许的 IP"
+                skyblue "------------------------------------------------------------"
+                local rule_handles=()
+                local rule_port=()
+                local rule_proto=()
+                local rule_ip=()
+                local rule_count=0
+                while read -r line; do
+                    [ -z "$line" ] && continue
+                    local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+                    local p=$(echo "$line" | grep -oE 'dport [0-9]+' | awk '{print $2}')
+                    [ -z "$h" ] || [ -z "$p" ] && continue
+                    local proto="tcp"
+                    if echo "$line" | grep -qw "udp"; then
+                        proto="udp"
+                    fi
+                    local ip_limit="所有 IP"
+                    if echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
+                        ip_limit="仅 IPv4"
+                    elif echo "$line" | grep -q "meta nfproto ipv6" || echo "$line" | grep -q "saddr ::/0"; then
+                        ip_limit="仅 IPv6"
+                    elif echo "$line" | grep -q "saddr"; then
+                        ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
+                    fi
+                    ((rule_count++))
+                    rule_handles[$rule_count]="$h"
+                    rule_port[$rule_count]="$p"
+                    rule_proto[$rule_count]="$proto"
+                    rule_ip[$rule_count]="$ip_limit"
+                done <<< "$raw_rules"
+                for ((i=1; i<=rule_count; i++)); do
+                    printf "${green}%-8s %-12s %-12s %-25s${re}\n" "[$i]" "${rule_port[$i]}" "${rule_proto[$i]}" "${rule_ip[$i]}"
                 done
-                save_nft_rules
-                green "清理完成：端口 $c_port 已关闭"
+                skyblue "------------------------------------------------------------"
+                green " [0] 返回主菜单"
+                echo -e "操作提示：输入${green}数字${re}(修改规则) | 输入 ${red}d+数字${re}(删除规则, 如 ${red}d1${re}) | 输入 ${green}0${re}(返回)"
+                reading "请输入指令: " input_cmd
+                input_cmd=$(echo "$input_cmd" | xargs)
+                if [ -z "$input_cmd" ] || [ "$input_cmd" == "0" ]; then
+                    :
+                elif [[ "$input_cmd" =~ ^[dD]\ *([0-9]+)$ ]]; then
+                    local sel_idx="${BASH_REMATCH[1]}"
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local target_port="${rule_port[$sel_idx]}"
+                        local target_proto="${rule_proto[$sel_idx]}"
+                        local target_handle="${rule_handles[$sel_idx]}"
+                        nft add chain inet filter script_blocked 2>/dev/null
+                        if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                            nft insert rule inet filter input jump script_blocked 2>/dev/null
+                        fi
+                        if [ -n "$target_handle" ]; then
+                            nft delete rule inet filter script_input handle "$target_handle" 2>/dev/null
+                        fi
+                        while read -r h; do
+                            [ -z "$h" ] && continue
+                            nft delete rule inet filter input handle "$h" 2>/dev/null
+                        done < <(
+                            nft -a list chain inet filter input 2>/dev/null |
+                            awk -v proto="$target_proto" -v port="$target_port" '
+                                $0 ~ proto " dport " port " accept" && $0 ~ /comment "ScriptManaged"/ {
+                                    for (i=1;i<=NF;i++)
+                                        if ($i=="handle") print $(i+1)
+                                }
+                            '
+                        )
+                        local remain_rule=0
+                        if nft list chain inet filter script_input 2>/dev/null |
+                            grep -qE '(^| )'"$target_proto"' dport '"$target_port"' .*accept.*comment "ScriptManaged"'; then
+                            remain_rule=1
+                        fi
+                        while read -r h; do
+                            [ -z "$h" ] && continue
+                            nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                        done < <(
+                            nft -a list chain inet filter script_blocked 2>/dev/null |
+                            awk -v proto="$target_proto" -v port="$target_port" '
+                                $0 ~ proto " dport " port " drop" {
+                                    for (i=1;i<=NF;i++)
+                                        if ($i=="handle") print $(i+1)
+                                }
+                            '
+                        )
+                        if [ "$remain_rule" -eq 0 ]; then
+                            nft add rule inet filter script_blocked "$target_proto" dport "$target_port" drop 2>/dev/null
+                        fi
+                        flush_port_conntrack "$target_port"
+                        save_nft_rules
+                        green "成功：已删除 $target_proto/$target_port 这条规则"
+                    else
+                        red "错误：找不到序号为 [$sel_idx] 的规则！"
+                    fi
+                elif [[ "$input_cmd" =~ ^[0-9]+$ ]]; then
+                    local sel_idx="$input_cmd"
+                    if [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "$rule_count" ]; then
+                        local curr_port="${rule_port[$sel_idx]}"
+                        local curr_proto="${rule_proto[$sel_idx]}"
+                        green "\n正在修改序号 [$sel_idx] 的规则 (当前: 端口 $curr_port / $curr_proto):"
+                        echo ""
+                        echo "请选择放行协议:"
+                        echo " 1. TCP"
+                        echo " 2. UDP"
+                        echo " 3. TCP + UDP (默认)"
+                        reading "请输入选择 [1-3] (默认 3): " proto_choice
+                        local proto_list=()
+                        case "${proto_choice}" in
+                            1) proto_list=("tcp") ;;
+                            2) proto_list=("udp") ;;
+                            *) proto_list=("tcp" "udp") ;;
+                        esac
+                        echo ""
+                        echo "请选择允许访问的 IP 模式:"
+                        echo " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
+                        echo " 2. 仅允许所有 IPv4 访问"
+                        echo " 3. 仅允许所有 IPv6 访问"
+                        reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+                        local custom_ips=""
+                        if [ "${ip_choice}" == "1" ]; then
+                            reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
+                        fi
+                        nft add chain inet filter script_blocked 2>/dev/null
+                        if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                            nft insert rule inet filter input jump script_blocked 2>/dev/null
+                        fi
+                        purge_port_rules "$curr_port"
+                        for proto in tcp udp; do
+                            while read -r h; do
+                                [ -z "$h" ] && continue
+                                nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                            done < <(
+                                nft -a list chain inet filter script_blocked 2>/dev/null |
+                                awk -v proto="$proto" -v port="$curr_port" '
+                                    $0 ~ proto " dport " port " drop" {
+                                        for (i=1;i<=NF;i++)
+                                            if ($i=="handle") print $(i+1)
+                                    }
+                                '
+                            )
+                        done
+                        local add_failed=0
+                        case "${ip_choice}" in
+                            1)
+                                if [ -z "$custom_ips" ]; then
+                                    for proto in "${proto_list[@]}"; do
+                                        add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                    done
+                                else
+                                    for proto in "${proto_list[@]}"; do
+                                        for ip in $custom_ips; do
+                                            if [[ "$ip" == *:* ]]; then
+                                                add_safe_rule "ip6 saddr $ip $proto dport $curr_port accept" || add_failed=1
+                                            else
+                                                add_safe_rule "ip saddr $ip $proto dport $curr_port accept" || add_failed=1
+                                            fi
+                                        done
+                                    done
+                                fi
+                                ;;
+                            2)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "meta nfproto ipv4 $proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                            3)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "meta nfproto ipv6 $proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                            *)
+                                for proto in "${proto_list[@]}"; do
+                                    add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
+                        esac
+                        if [ "$add_failed" -eq 0 ]; then
+                            local has_tcp=0
+                            local has_udp=0
+                            for proto in "${proto_list[@]}"; do
+                                [ "$proto" = "tcp" ] && has_tcp=1
+                                [ "$proto" = "udp" ] && has_udp=1
+                            done
+                            if [ "$has_tcp" -eq 0 ]; then
+                                nft add rule inet filter script_blocked tcp dport "$curr_port" drop 2>/dev/null
+                            fi
+                            if [ "$has_udp" -eq 0 ]; then
+                                nft add rule inet filter script_blocked udp dport "$curr_port" drop 2>/dev/null
+                            fi
+                            save_nft_rules
+                            flush_port_conntrack "$curr_port"
+                            green "成功：已重新配置端口 $curr_port (${proto_list[*]})"
+                        else
+                            red "错误：添加新规则失败！请检查 IP 格式或 nftables 语法。"
+                        fi
+                    else
+                        red "错误：找不到序号为 [$sel_idx] 的规则！"
+                    fi
+                else
+                    red "错误：指令无效，请输入数字(修改) | ${red}d+数字${re}(删除) | 0(返回)"
+                fi
             fi
             sleep 1 && iptables_ssl ;;
-
-        3)
-            yellow "正在开启拦截..."
-            ssh_ports=$(grep -E "^Port\s+" /etc/ssh/sshd_config | awk '{print $2}')
-            [ -z "$ssh_ports" ] && ssh_ports=22
-            
-            # 基础放行规则
-            nft add rule inet filter input iif "lo" accept 2>/dev/null
-            nft add rule inet filter input ct state established,related accept 2>/dev/null
-            nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept 2>/dev/null
-            
-            # 放行 SSH 端口
+                3)
+            yellow "正在开启拦截模式..."
+            ensure_nft_env
+            nft add chain inet filter script_blocked 2>/dev/null
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
+                nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
+            fi
+            local ssh_ports=""
+            if command -v sshd &>/dev/null; then
+                ssh_ports=$(sshd -T 2>/dev/null | awk '$1=="port" && $2 ~ /^[0-9]+$/ {print $2}')
+            fi
+            if [ -z "$ssh_ports" ]; then
+                ssh_ports=$(grep -iE "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | grep -E '^[0-9]+$')
+            fi
+            [ -z "$ssh_ports" ] && ssh_ports="22"
+            local old_auto_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep -E 'comment "(SSH_Port|PortManager)"')
+            while read -r line; do
+                [ -z "$line" ] && continue
+                local h=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+                [ -n "$h" ] && nft delete rule inet filter script_input handle "$h" 2>/dev/null
+            done <<< "$old_auto_rules"
             for port in $ssh_ports; do
-                nft add rule inet filter input tcp dport $port accept comment "SSH_Port" 2>/dev/null
+                while read -r h; do
+                    [ -z "$h" ] && continue
+                    nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+                done < <(
+                    nft -a list chain inet filter script_blocked 2>/dev/null |
+                    awk -v port="$port" '
+                        $0 ~ "tcp dport " port " drop" {
+                            for (i=1;i<=NF;i++)
+                                if ($i=="handle") print $(i+1)
+                        }
+                    '
+                )
+                nft insert rule inet filter script_input tcp dport "$port" accept comment "SSH_Port" 2>/dev/null
             done
-            
             for conf in /etc/port_manager/*.conf; do
                 [ -e "$conf" ] || continue
                 local pm_p=$(basename "$conf" .conf)
                 if [ -n "$pm_p" ] && [ "$pm_p" -gt 0 ] 2>/dev/null; then
-                    nft add rule inet filter input tcp dport $pm_p accept comment "PortManager" 2>/dev/null
-                    nft add rule inet filter input udp dport $pm_p accept comment "PortManager" 2>/dev/null
+                    nft insert rule inet filter script_input tcp dport $pm_p accept comment "PortManager" 2>/dev/null
+                    nft insert rule inet filter script_input udp dport $pm_p accept comment "PortManager" 2>/dev/null
                 fi
             done
-            
-            nft 'add chain inet filter input { type filter hook input priority 0; policy drop; }' 2>/dev/null
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-ICMPv6"'; then
+                nft insert rule inet filter input ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept comment "System-ICMPv6" 2>/dev/null
+            fi
+            if ! nft list chain inet filter input 2>/dev/null | grep -q 'comment "System-ICMPv4"'; then
+                nft insert rule inet filter input ip protocol icmp accept comment "System-ICMPv4" 2>/dev/null
+            fi
+            nft chain inet filter input '{ policy drop; }' 2>/dev/null
             save_nft_rules
-            
-            green "开启拦截成功 (已自动放行 SSH 及限速管控端口)" && sleep 1
+            green "开启拦截成功！(已自动放行 SSH[端口: $ssh_ports])" && sleep 1
             iptables_ssl ;;
-            
-         4)
-            yellow "正在关闭拦截..."
-            nft 'add chain inet filter input { type filter hook input priority 0; policy accept; }' 2>/dev/null
+        4)
+            yellow "正在关闭拦截模式..."
+            ensure_nft_env
+
+            # 切换默认策略为 accept
+            nft chain inet filter input '{ policy accept; }' 2>/dev/null
             save_nft_rules
-            green "已关闭拦截 (默认放行所有)" && sleep 1
+
+            green "已关闭拦截 (默认放行所有入站流量)" && sleep 1
             iptables_ssl ;;
-            
+
         5)
             yellow "正在配置环境..."
             [[ $EUID -ne 0 ]] && red "请使用 root 用户运行此脚本！" && exit 1      
