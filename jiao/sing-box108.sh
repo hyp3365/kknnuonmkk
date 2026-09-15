@@ -5041,11 +5041,11 @@ manage_nodes_menu() {
         ;;
     8)
         default_port=$socks_port
-		protocol="tcp"
+        protocol="tcp"
         ;;
     9)
         default_port=$http_port
-		protocol="tcp"
+        protocol="tcp"
         ;;
     13)
         default_port=$xray_xhttp_reality
@@ -5064,7 +5064,7 @@ manage_nodes_menu() {
         protocol="tcp"
         ;;
 esac
-    while true; do
+while true; do
     read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
     if [ -z "$custom_port" ]; then
         custom_port=$default_port
@@ -5072,10 +5072,9 @@ esac
     fi
     if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
         if port_is_used "$custom_port" "$protocol"; then
-    red "该 ${protocol^^} 端口已被占用，请重新输入！"
-    continue
-    fi
-    fi
+            red "该 ${protocol^^} 端口已被占用，请重新输入！"
+            continue
+        fi
         break
     else
         red "输入错误！请输入有效的端口号 (100-65535)。"
