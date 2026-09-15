@@ -7437,8 +7437,14 @@ iptables_ssl() {
         mode_text="\033[0;37m未拦截\033[0m"
     fi
 	
-    local ssh_p=$(grep -E "^Port\s+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
-    [ -z "$ssh_p" ] && ssh_p=22
+	local ssh_p=""
+    if command -v sshd &>/dev/null; then
+    ssh_p=$(sshd -T 2>/dev/null | awk '$1=="port" && $2 ~ /^[0-9]+$/ {print $2}')
+    fi
+    if [ -z "$ssh_p" ]; then
+    ssh_p=$(grep -iE "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '$2 ~ /^[0-9]+$/ {print $2}')
+    fi
+    [ -z "$ssh_p" ] && ssh_p="22"
 
     local nat_rules=$(nft list ruleset 2>/dev/null | awk '/dnat to/ {
         port=""; to="";
