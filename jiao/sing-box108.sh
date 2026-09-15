@@ -66,19 +66,30 @@ get_available_port() {
         if [ -n "${used_ports[$port]}" ]; then
             continue
         fi
-        if command -v ss >/dev/null 2>&1; then
-            if ss -tuln | grep -qE ":$port\b"; then
-                continue
-            fi
-        elif command -v netstat >/dev/null 2>&1; then
-            if netstat -tuln | grep -qE ":$port\b"; then
-                continue
-            fi
+        if port_is_used "$port" "$protocol"; then
+            continue
         fi
         used_ports[$port]=1
         echo "$port"
         break
     done
+}
+port_is_used() {
+    local port="$1"
+    local protocol="$2"
+    if command -v ss >/dev/null 2>&1; then
+        if [ "$protocol" = "udp" ]; then
+            ss -H -lun | grep -qE "[:.]${port}([[:space:]]|$)"
+        else
+            ss -H -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        if [ "$protocol" = "udp" ]; then
+            netstat -lun | grep -qE "[:.]${port}([[:space:]]|$)"
+        else
+            netstat -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
+        fi
+    fi
 }
 
 # 自动检测并安装 nftables
@@ -5002,42 +5013,55 @@ manage_nodes_menu() {
     case "$choice" in
     1)
         default_port=$xtls_reality
+        protocol="tcp"
         ;;
-	2)
+    2)
         default_port=$hy2_port
+        protocol="udp"
         ;;
     3)
         default_port=$tuic_port
+        protocol="udp"
         ;;
     4)
         default_port=$h2_reality
+        protocol="tcp"
         ;;
     5)
         default_port=$grpc_reality
+        protocol="tcp"
         ;;
     6)
         default_port=$anytls_port
+        protocol="tcp"
         ;;
     7)
         default_port=$anytls_reality_port
+        protocol="tcp"
         ;;
     8)
         default_port=$socks_port
+		protocol="tcp"
         ;;
     9)
         default_port=$http_port
+		protocol="tcp"
         ;;
-    12)
+    13)
         default_port=$xray_xhttp_reality
+        protocol="tcp"
         ;;
-	17)
+    18)
         default_port=$vless_tcp_tls
-        ;;
-	19)
-        default_port=60001
+        protocol="tcp"
         ;;
     20)
+        default_port=60001
+        protocol="tcp"
+        ;;
+    21)
         default_port=60002
+        protocol="tcp"
         ;;
 esac
     while true; do
@@ -5047,10 +5071,11 @@ esac
         break
     fi
     if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi
+        if port_is_used "$custom_port" "$protocol"; then
+    red "该 ${protocol^^} 端口已被占用，请重新输入！"
+    continue
+    fi
+    fi
         break
     else
         red "输入错误！请输入有效的端口号 (100-65535)。"
