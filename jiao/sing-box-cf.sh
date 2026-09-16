@@ -7376,7 +7376,7 @@ flush_port_conntrack() {
     fi
 }
 
-# 添加规则 (不再用文本去重，而是插入专属链，并在外层业务逻辑处理旧规则)
+# 添加规则
 add_safe_rule() {
     local rule_spec="$1"
     [ -z "$rule_spec" ] && return 1
@@ -7389,34 +7389,25 @@ add_safe_rule() {
     return 0
 }
 
-save_nft_rules() {
-    local conf="/etc/nftables.conf"
-    echo "flush ruleset" > "$conf"
-    nft list ruleset 2>/dev/null | awk '
-        BEGIN { skip=0 }
-        /^table inet port_manager/ { skip=1 }
-        /^table / && !/^table inet port_manager/ { skip=0 }
-        { if(!skip) print }
-    ' >> "$conf"
-}
-
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
-    
     if ! nft list table inet filter &>/dev/null; then
         cat > "$conf" << EOF
 flush ruleset
 table inet filter {
-    chain input {
-        type filter hook input priority 0; policy accept;
-        iif "lo" accept
-        ct state established,related accept
-        ip protocol icmp accept
-        ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept
-        jump script_input
+    chain script_blocked {
     }
     chain script_input {
+    }
+    chain input {
+        type filter hook input priority 0; policy accept;
+        iif "lo" accept comment "System-lo"
+        ct state established,related accept comment "System-State"
+        ip protocol icmp accept comment "System-ICMPv4"
+        ip6 nexthdr icmpv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, echo-request } accept comment "System-ICMPv6"
+        jump script_blocked comment "Jump-to-Blocked"
+        jump script_input comment "Jump-to-Script"
     }
     chain forward {
         type filter hook forward priority 0; policy accept;
@@ -7430,6 +7421,28 @@ EOF
     fi
 }
 
+save_nft_rules() {
+    local conf="/etc/nftables.conf"
+    local tmp_conf="/etc/nftables.conf.tmp"
+    local rules_content
+    rules_content=$(nft list ruleset 2>/dev/null | awk '
+        BEGIN { skip=0 }
+        /^table inet port_manager/ { skip=1 }
+        /^table / && !/^table inet port_manager/ { skip=0 }
+        { if(!skip) print }
+    ')
+    if [ -z "$rules_content" ]; then
+        return 1
+    fi
+    echo "flush ruleset" > "$tmp_conf"
+    echo "$rules_content" >> "$tmp_conf"
+    if nft -c -f "$tmp_conf" &>/dev/null; then
+        mv "$tmp_conf" "$conf"
+    else
+        rm -f "$tmp_conf"
+        return 1
+    fi
+}
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
