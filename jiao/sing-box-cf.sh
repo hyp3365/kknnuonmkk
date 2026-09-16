@@ -7815,10 +7815,11 @@ nft -f "$NFT_FILE" || {
 }
 date '+%Y-%m-%d %H:%M:%S' > "/etc/sing-box/cdn-ip-last-update"
 log "CDN IP 更新成功"
+EOF
+    chmod +x "$CDN_UPDATE_SCRIPT"
+}
 install_cdn_auto_update() {
     mkdir -p /etc/sing-box
-
-    cp /etc/sing-box/cdn-ip-update /etc/sing-box/cdn-ip-update 2>/dev/null || true
 
     cat > /etc/systemd/system/cdn-ip-update.service <<'EOF'
 [Unit]
@@ -7846,7 +7847,6 @@ EOF
 
     systemctl daemon-reload
 }
-
 cdn_auto_update_enable() {
     mkdir -p /etc/sing-box
 
