@@ -7458,6 +7458,547 @@ save_nft_rules() {
     fi
 }
 
+# ============================================================
+# CDN IP 管理
+# Cloudflare / Gcore / AWS CloudFront Origin Facing
+# ============================================================
+
+CDN_DIR="/etc/sing-box"
+CDN_UPDATE_SCRIPT="$CDN_DIR/cdn-ip-update"
+CDN_AUTO_FILE="$CDN_DIR/cdn-ip-auto"
+CDN_SYSTEMD_SERVICE="/etc/systemd/system/cdn-ip-update.service"
+CDN_SYSTEMD_TIMER="/etc/systemd/system/cdn-ip-update.timer"
+
+ensure_cdn_sets() {
+    ensure_nft_env
+
+    nft list set inet filter cf_ipv4 >/dev/null 2>&1 || \
+        nft add set inet filter cf_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
+
+    nft list set inet filter cf_ipv6 >/dev/null 2>&1 || \
+        nft add set inet filter cf_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
+
+    nft list set inet filter gcore_ipv4 >/dev/null 2>&1 || \
+        nft add set inet filter gcore_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
+
+    nft list set inet filter gcore_ipv6 >/dev/null 2>&1 || \
+        nft add set inet filter gcore_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
+
+    nft list set inet filter aws_ipv4 >/dev/null 2>&1 || \
+        nft add set inet filter aws_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
+
+    nft list set inet filter aws_ipv6 >/dev/null 2>&1 || \
+        nft add set inet filter aws_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
+}
+
+install_cdn_update_script() {
+    mkdir -p "$CDN_DIR"
+
+    cat > "$CDN_UPDATE_SCRIPT" <<'EOF'
+#!/bin/bash
+
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+NFT_FAMILY="inet"
+NFT_TABLE="filter"
+
+TMP_DIR=""
+
+cleanup() {
+    [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"
+}
+
+trap cleanup EXIT
+
+log() {
+    echo "[CDN] $*"
+}
+
+error() {
+    echo "[CDN] ERROR: $*" >&2
+}
+
+command -v nft >/dev/null 2>&1 || {
+    error "未找到 nft"
+    exit 1
+}
+
+command -v curl >/dev/null 2>&1 || {
+    error "未找到 curl"
+    exit 1
+}
+
+command -v python3 >/dev/null 2>&1 || {
+    error "未找到 python3"
+    exit 1
+}
+
+ensure_set() {
+    local name="$1"
+    local type="$2"
+
+    nft list set "$NFT_FAMILY" "$NFT_TABLE" "$name" >/dev/null 2>&1 && return 0
+
+    nft add set "$NFT_FAMILY" "$NFT_TABLE" "$name" \
+        "{ type $type; flags interval; }" >/dev/null 2>&1
+}
+
+ensure_sets() {
+    ensure_set "cf_ipv4" "ipv4_addr" || return 1
+    ensure_set "cf_ipv6" "ipv6_addr" || return 1
+    ensure_set "gcore_ipv4" "ipv4_addr" || return 1
+    ensure_set "gcore_ipv6" "ipv6_addr" || return 1
+    ensure_set "aws_ipv4" "ipv4_addr" || return 1
+    ensure_set "aws_ipv6" "ipv6_addr" || return 1
+}
+
+TMP_DIR=$(mktemp -d /tmp/cdn-ip-update.XXXXXX) || exit 1
+
+mkdir -p "$TMP_DIR"
+
+log "下载 Cloudflare IPv4..."
+
+curl -4 -fsSL \
+    --connect-timeout 15 \
+    --max-time 60 \
+    "https://www.cloudflare.com/ips-v4" \
+    -o "$TMP_DIR/cf_ipv4" || {
+        error "Cloudflare IPv4 下载失败"
+        exit 1
+    }
+
+log "下载 Cloudflare IPv6..."
+
+curl -6 -fsSL \
+    --connect-timeout 15 \
+    --max-time 60 \
+    "https://www.cloudflare.com/ips-v6" \
+    -o "$TMP_DIR/cf_ipv6" || {
+        error "Cloudflare IPv6 下载失败"
+        exit 1
+    }
+
+log "下载 Gcore CDN IP..."
+
+curl -fsSL \
+    --connect-timeout 15 \
+    --max-time 60 \
+    "https://api.gcore.com/cdn/public-ip-list" \
+    -o "$TMP_DIR/gcore.json" || {
+        error "Gcore CDN IP 下载失败"
+        exit 1
+    }
+
+python3 - "$TMP_DIR/gcore.json" "$TMP_DIR/gcore_ipv4" "$TMP_DIR/gcore_ipv6" <<'PY'
+import json
+import sys
+import ipaddress
+
+src = sys.argv[1]
+out4 = sys.argv[2]
+out6 = sys.argv[3]
+
+with open(src, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+ipv4 = []
+ipv6 = []
+
+for value in data.get("addresses", []):
+    try:
+        net = ipaddress.ip_network(value, strict=False)
+        if net.version == 4:
+            ipv4.append(str(net))
+    except Exception:
+        pass
+
+for value in data.get("addresses_v6", []):
+    try:
+        net = ipaddress.ip_network(value, strict=False)
+        if net.version == 6:
+            ipv6.append(str(net))
+    except Exception:
+        pass
+
+ipv4 = sorted(set(ipv4), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
+ipv6 = sorted(set(ipv6), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
+
+with open(out4, "w", encoding="utf-8") as f:
+    f.write("\n".join(ipv4))
+    if ipv4:
+        f.write("\n")
+
+with open(out6, "w", encoding="utf-8") as f:
+    f.write("\n".join(ipv6))
+    if ipv6:
+        f.write("\n")
+
+if not ipv4:
+    sys.exit(2)
+
+if not ipv6:
+    sys.exit(3)
+PY
+
+[ $? -ne 0 ] && {
+    error "Gcore CDN IP 数据解析失败"
+    exit 1
+}
+
+log "下载 AWS IP ranges..."
+
+curl -fsSL \
+    --connect-timeout 15 \
+    --max-time 120 \
+    "https://ip-ranges.amazonaws.com/ip-ranges.json" \
+    -o "$TMP_DIR/aws.json" || {
+        error "AWS IP ranges 下载失败"
+        exit 1
+    }
+
+python3 - "$TMP_DIR/aws.json" "$TMP_DIR/aws_ipv4" "$TMP_DIR/aws_ipv6" <<'PY'
+import json
+import sys
+import ipaddress
+
+src = sys.argv[1]
+out4 = sys.argv[2]
+out6 = sys.argv[3]
+
+with open(src, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+ipv4 = []
+ipv6 = []
+
+for item in data.get("prefixes", []):
+    if item.get("service") != "CLOUDFRONT_ORIGIN_FACING":
+        continue
+
+    value = item.get("ip_prefix")
+    if value:
+        try:
+            net = ipaddress.ip_network(value, strict=False)
+            if net.version == 4:
+                ipv4.append(str(net))
+        except Exception:
+            pass
+
+for item in data.get("ipv6_prefixes", []):
+    if item.get("service") != "CLOUDFRONT_ORIGIN_FACING":
+        continue
+
+    value = item.get("ipv6_prefix")
+    if value:
+        try:
+            net = ipaddress.ip_network(value, strict=False)
+            if net.version == 6:
+                ipv6.append(str(net))
+        except Exception:
+            pass
+
+ipv4 = sorted(set(ipv4), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
+ipv6 = sorted(set(ipv6), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
+
+with open(out4, "w", encoding="utf-8") as f:
+    f.write("\n".join(ipv4))
+    if ipv4:
+        f.write("\n")
+
+with open(out6, "w", encoding="utf-8") as f:
+    f.write("\n".join(ipv6))
+    if ipv6:
+        f.write("\n")
+
+if not ipv4:
+    sys.exit(2)
+
+if not ipv6:
+    sys.exit(3)
+PY
+
+[ $? -ne 0 ] && {
+    error "AWS CloudFront Origin Facing IP 数据解析失败"
+    exit 1
+}
+
+validate_file() {
+    local file="$1"
+    local family="$2"
+
+    [ -s "$file" ] || return 1
+
+    if [ "$family" = "ipv4" ]; then
+        grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' "$file" || return 1
+    else
+        grep -Eq '^[0-9A-Fa-f:]+/[0-9]+$' "$file" || return 1
+    fi
+
+    return 0
+}
+
+validate_file "$TMP_DIR/cf_ipv4" ipv4 || {
+    error "Cloudflare IPv4 数据验证失败"
+    exit 1
+}
+
+validate_file "$TMP_DIR/cf_ipv6" ipv6 || {
+    error "Cloudflare IPv6 数据验证失败"
+    exit 1
+}
+
+validate_file "$TMP_DIR/gcore_ipv4" ipv4 || {
+    error "Gcore IPv4 数据验证失败"
+    exit 1
+}
+
+validate_file "$TMP_DIR/gcore_ipv6" ipv6 || {
+    error "Gcore IPv6 数据验证失败"
+    exit 1
+}
+
+validate_file "$TMP_DIR/aws_ipv4" ipv4 || {
+    error "AWS CloudFront IPv4 数据验证失败"
+    exit 1
+}
+
+validate_file "$TMP_DIR/aws_ipv6" ipv6 || {
+    error "AWS CloudFront IPv6 数据验证失败"
+    exit 1
+}
+
+ensure_sets || {
+    error "创建 nftables CDN set 失败"
+    exit 1
+}
+
+CF4=$(wc -l < "$TMP_DIR/cf_ipv4")
+CF6=$(wc -l < "$TMP_DIR/cf_ipv6")
+GC4=$(wc -l < "$TMP_DIR/gcore_ipv4")
+GC6=$(wc -l < "$TMP_DIR/gcore_ipv6")
+AWS4=$(wc -l < "$TMP_DIR/aws_ipv4")
+AWS6=$(wc -l < "$TMP_DIR/aws_ipv6")
+
+log "Cloudflare IPv4: $CF4"
+log "Cloudflare IPv6: $CF6"
+log "Gcore IPv4:      $GC4"
+log "Gcore IPv6:      $GC6"
+log "AWS CloudFront v4: $AWS4"
+log "AWS CloudFront v6: $AWS6"
+
+NFT_FILE="$TMP_DIR/update.nft"
+
+cat > "$NFT_FILE" <<EOF
+flush set inet filter cf_ipv4
+add element inet filter cf_ipv4 { $(paste -sd, "$TMP_DIR/cf_ipv4") }
+
+flush set inet filter cf_ipv6
+add element inet filter cf_ipv6 { $(paste -sd, "$TMP_DIR/cf_ipv6") }
+
+flush set inet filter gcore_ipv4
+add element inet filter gcore_ipv4 { $(paste -sd, "$TMP_DIR/gcore_ipv4") }
+
+flush set inet filter gcore_ipv6
+add element inet filter gcore_ipv6 { $(paste -sd, "$TMP_DIR/gcore_ipv6") }
+
+flush set inet filter aws_ipv4
+add element inet filter aws_ipv4 { $(paste -sd, "$TMP_DIR/aws_ipv4") }
+
+flush set inet filter aws_ipv6
+add element inet filter aws_ipv6 { $(paste -sd, "$TMP_DIR/aws_ipv6") }
+EOF
+log "原子更新 nftables CDN IP..."
+nft -f "$NFT_FILE" || {
+    error "nftables 更新失败"
+    error "原有 CDN IP 未被主动清空"
+    exit 1
+}
+date '+%Y-%m-%d %H:%M:%S' > "/etc/sing-box/cdn-ip-last-update"
+log "CDN IP 更新成功"
+install_cdn_auto_update() {
+    mkdir -p /etc/sing-box
+
+    cp /etc/sing-box/cdn-ip-update /etc/sing-box/cdn-ip-update 2>/dev/null || true
+
+    cat > /etc/systemd/system/cdn-ip-update.service <<'EOF'
+[Unit]
+Description=CDN IP whitelist update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/etc/sing-box/cdn-ip-update
+EOF
+
+    cat > /etc/systemd/system/cdn-ip-update.timer <<'EOF'
+[Unit]
+Description=Automatic CDN IP whitelist update
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=24h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+}
+
+cdn_auto_update_enable() {
+    mkdir -p /etc/sing-box
+
+    install_cdn_auto_update
+
+    echo "1" > /etc/sing-box/cdn-ip-auto
+
+    systemctl enable --now cdn-ip-update.timer >/dev/null 2>&1
+
+    green "CDN IP 自动更新已开启"
+    echo "更新周期：每 24 小时"
+}
+
+cdn_auto_update_disable() {
+    echo "0" > /etc/sing-box/cdn-ip-auto
+
+    systemctl disable --now cdn-ip-update.timer >/dev/null 2>&1
+
+    yellow "CDN IP 自动更新已关闭"
+}
+
+cdn_auto_update_toggle() {
+    if [ -f /etc/sing-box/cdn-ip-auto ] &&
+       [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
+        cdn_auto_update_disable
+    else
+        cdn_auto_update_enable
+    fi
+}
+
+cdn_ip_status() {
+    echo ""
+    echo "========================================"
+    echo "           CDN IP 当前状态"
+    echo "========================================"
+    echo ""
+
+    local n
+
+    n=$(nft list set inet filter cf_ipv4 2>/dev/null |
+        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "Cloudflare IPv4       : $n"
+
+    n=$(nft list set inet filter cf_ipv6 2>/dev/null |
+        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "Cloudflare IPv6       : $n"
+
+    n=$(nft list set inet filter gcore_ipv4 2>/dev/null |
+        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "Gcore IPv4            : $n"
+
+    n=$(nft list set inet filter gcore_ipv6 2>/dev/null |
+        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "Gcore IPv6            : $n"
+
+    n=$(nft list set inet filter aws_ipv4 2>/dev/null |
+        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "AWS CloudFront IPv4   : $n"
+
+    n=$(nft list set inet filter aws_ipv6 2>/dev/null |
+        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
+        sort -u | wc -l)
+    echo "AWS CloudFront IPv6   : $n"
+
+    echo ""
+
+    if [ -f /etc/sing-box/cdn-ip-auto ] &&
+       [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
+        green "自动更新：已开启"
+    else
+        yellow "自动更新：已关闭"
+    fi
+
+    if [ -f /etc/sing-box/cdn-ip-last-update ]; then
+        echo "最后更新：$(cat /etc/sing-box/cdn-ip-last-update)"
+    else
+        echo "最后更新：从未更新"
+    fi
+
+    echo ""
+}
+
+cdn_ip_manager() {
+    mkdir -p /etc/sing-box
+
+    ensure_cdn_sets
+
+    while true; do
+        clear
+
+        echo "========================================"
+        echo "             CDN IP 管理"
+        echo "========================================"
+        echo ""
+
+        if [ -f /etc/sing-box/cdn-ip-auto ] &&
+           [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
+            echo "自动更新：已开启"
+        else
+            echo "自动更新：已关闭"
+        fi
+
+        echo ""
+
+        if [ -f /etc/sing-box/cdn-ip-last-update ]; then
+            echo "最后更新：$(cat /etc/sing-box/cdn-ip-last-update)"
+        else
+            echo "最后更新：从未更新"
+        fi
+
+        echo ""
+        echo " 1. 手动更新 CDN IP"
+        echo " 2. 开启/关闭自动更新"
+        echo " 3. 查看 CDN IP 数量"
+        echo " 4. 返回"
+        echo ""
+
+        reading "请选择: " cdn_menu
+
+        case "$cdn_menu" in
+            1)
+                clear
+                /etc/sing-box/cdn-ip-update
+                echo ""
+                read -r -p "按 Enter 返回..."
+                ;;
+            2)
+                cdn_auto_update_toggle
+                echo ""
+                read -r -p "按 Enter 返回..."
+                ;;
+            3)
+                clear
+                cdn_ip_status
+                read -r -p "按 Enter 返回..."
+                ;;
+            4)
+                return
+                ;;
+            *)
+                red "无效选择"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 iptables_ssl() {
@@ -7796,11 +8337,11 @@ iptables_ssl() {
                             *) proto_list=("tcp" "udp") ;;
                         esac
                         echo ""
-                        echo "请选择允许访问的 IP 模式:"
                         echo " 1. 特定 IP 访问 (支持输入多个，空格分隔)"
                         echo " 2. 仅允许所有 IPv4 访问"
                         echo " 3. 仅允许所有 IPv6 访问"
-                        reading "请输入选择 [1-3] (默认不限制 IP): " ip_choice
+                        echo " 4. 仅允许 CDN IP 访问"
+                        reading "请输入选择 [1-4] (默认不限制 IP): " ip_choice
                         local custom_ips=""
                         if [ "${ip_choice}" == "1" ]; then
                             reading "请输入允许连接的 IP (多个 IP 请用空格分隔): " custom_ips
@@ -7853,9 +8394,38 @@ iptables_ssl() {
                                     add_safe_rule "meta nfproto ipv6 $proto dport $curr_port accept" || add_failed=1
                                 done
                                 ;;
-                            *)
+						    4)
+                                echo ""
+                                echo "请选择 CDN 来源（可多选）："
+                                echo ""
+                                echo " 1. Cloudflare"
+                                echo " 2. Gcore"
+                                echo " 3. AWS"
+                                echo ""
+                                reading "请输入选择（可输入多个数字，直接回车默认全部）: " cdn_choice
+                                cdn_choice=$(echo "$cdn_choice" | xargs)
+                                [ -z "$cdn_choice" ] && cdn_choice="1 2 3"
                                 for proto in "${proto_list[@]}"; do
-                                    add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                    for cdn in $cdn_choice; do
+                                        case "$cdn" in
+                                            1)
+                                                add_safe_rule "ip saddr @cf_ipv4 $proto dport $curr_port accept" || add_failed=1
+                                                add_safe_rule "ip6 saddr @cf_ipv6 $proto dport $curr_port accept" || add_failed=1
+                                                ;;
+                                            2)
+                                                add_safe_rule "ip saddr @gcore_ipv4 $proto dport $curr_port accept" || add_failed=1
+                                                add_safe_rule "ip6 saddr @gcore_ipv6 $proto dport $curr_port accept" || add_failed=1
+                                                ;;
+                                            3)
+                                                add_safe_rule "ip saddr @aws_ipv4 $proto dport $curr_port accept" || add_failed=1
+                                                add_safe_rule "ip6 saddr @aws_ipv6 $proto dport $curr_port accept" || add_failed=1
+                                                ;;
+                                            *)
+                                                red "错误：CDN 选择无效：$cdn"
+                                                add_failed=1
+                                                ;;
+                                        esac
+                                    done
                                 done
                                 ;;
                         esac
@@ -8690,6 +9260,7 @@ manage_singbox() {
     green "4. Tunnel 隧道连接 IP：自动"
     green "5. Tunnel 隧道连接 IP：仅IPv4"
     green "6. Tunnel 隧道连接 IP：仅IPv6"
+	green "7. CDN IP同步管理"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -8718,6 +9289,9 @@ manage_singbox() {
     mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
     restart_singbox
     green "隧道连接 IP 已切换为：仅IPv6"
+    ;;
+7)
+    cdn_ip_manager
     ;;
         0) menu ;;
         *) red "无效的选项！" && sleep 1 && manage_singbox;;
