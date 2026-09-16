@@ -7462,87 +7462,63 @@ save_nft_rules() {
 # CDN IP 管理
 # Cloudflare / Gcore / AWS CloudFront Origin Facing
 # ============================================================
-
 CDN_DIR="/etc/sing-box"
 CDN_UPDATE_SCRIPT="$CDN_DIR/cdn-ip-update"
 CDN_AUTO_FILE="$CDN_DIR/cdn-ip-auto"
 CDN_SYSTEMD_SERVICE="/etc/systemd/system/cdn-ip-update.service"
 CDN_SYSTEMD_TIMER="/etc/systemd/system/cdn-ip-update.timer"
-
 ensure_cdn_sets() {
     ensure_nft_env
-
     nft list set inet filter cf_ipv4 >/dev/null 2>&1 || \
         nft add set inet filter cf_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
-
     nft list set inet filter cf_ipv6 >/dev/null 2>&1 || \
         nft add set inet filter cf_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
-
     nft list set inet filter gcore_ipv4 >/dev/null 2>&1 || \
         nft add set inet filter gcore_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
-
     nft list set inet filter gcore_ipv6 >/dev/null 2>&1 || \
         nft add set inet filter gcore_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
-
     nft list set inet filter aws_ipv4 >/dev/null 2>&1 || \
         nft add set inet filter aws_ipv4 '{ type ipv4_addr; flags interval; }' 2>/dev/null
-
     nft list set inet filter aws_ipv6 >/dev/null 2>&1 || \
         nft add set inet filter aws_ipv6 '{ type ipv6_addr; flags interval; }' 2>/dev/null
 }
-
 install_cdn_update_script() {
     mkdir -p "$CDN_DIR"
-
     cat > "$CDN_UPDATE_SCRIPT" <<'EOF'
 #!/bin/bash
-
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
 NFT_FAMILY="inet"
 NFT_TABLE="filter"
-
 TMP_DIR=""
-
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"
 }
-
 trap cleanup EXIT
-
 log() {
     echo "[CDN] $*"
 }
-
 error() {
     echo "[CDN] ERROR: $*" >&2
 }
-
 command -v nft >/dev/null 2>&1 || {
     error "未找到 nft"
     exit 1
 }
-
 command -v curl >/dev/null 2>&1 || {
     error "未找到 curl"
     exit 1
 }
-
 command -v python3 >/dev/null 2>&1 || {
     error "未找到 python3"
     exit 1
 }
-
 ensure_set() {
     local name="$1"
     local type="$2"
-
     nft list set "$NFT_FAMILY" "$NFT_TABLE" "$name" >/dev/null 2>&1 && return 0
-
     nft add set "$NFT_FAMILY" "$NFT_TABLE" "$name" \
         "{ type $type; flags interval; }" >/dev/null 2>&1
 }
-
 ensure_sets() {
     ensure_set "cf_ipv4" "ipv4_addr" || return 1
     ensure_set "cf_ipv6" "ipv6_addr" || return 1
@@ -7551,13 +7527,9 @@ ensure_sets() {
     ensure_set "aws_ipv4" "ipv4_addr" || return 1
     ensure_set "aws_ipv6" "ipv6_addr" || return 1
 }
-
 TMP_DIR=$(mktemp -d /tmp/cdn-ip-update.XXXXXX) || exit 1
-
 mkdir -p "$TMP_DIR"
-
 log "下载 Cloudflare IPv4..."
-
 curl -4 -fsSL \
     --connect-timeout 15 \
     --max-time 60 \
@@ -7566,9 +7538,7 @@ curl -4 -fsSL \
         error "Cloudflare IPv4 下载失败"
         exit 1
     }
-
 log "下载 Cloudflare IPv6..."
-
 curl -6 -fsSL \
     --connect-timeout 15 \
     --max-time 60 \
@@ -7577,9 +7547,7 @@ curl -6 -fsSL \
         error "Cloudflare IPv6 下载失败"
         exit 1
     }
-
 log "下载 Gcore CDN IP..."
-
 curl -fsSL \
     --connect-timeout 15 \
     --max-time 60 \
@@ -7588,22 +7556,17 @@ curl -fsSL \
         error "Gcore CDN IP 下载失败"
         exit 1
     }
-
 python3 - "$TMP_DIR/gcore.json" "$TMP_DIR/gcore_ipv4" "$TMP_DIR/gcore_ipv6" <<'PY'
 import json
 import sys
 import ipaddress
-
 src = sys.argv[1]
 out4 = sys.argv[2]
 out6 = sys.argv[3]
-
 with open(src, "r", encoding="utf-8") as f:
     data = json.load(f)
-
 ipv4 = []
 ipv6 = []
-
 for value in data.get("addresses", []):
     try:
         net = ipaddress.ip_network(value, strict=False)
@@ -7611,7 +7574,6 @@ for value in data.get("addresses", []):
             ipv4.append(str(net))
     except Exception:
         pass
-
 for value in data.get("addresses_v6", []):
     try:
         net = ipaddress.ip_network(value, strict=False)
@@ -7619,34 +7581,26 @@ for value in data.get("addresses_v6", []):
             ipv6.append(str(net))
     except Exception:
         pass
-
 ipv4 = sorted(set(ipv4), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
 ipv6 = sorted(set(ipv6), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
-
 with open(out4, "w", encoding="utf-8") as f:
     f.write("\n".join(ipv4))
     if ipv4:
         f.write("\n")
-
 with open(out6, "w", encoding="utf-8") as f:
     f.write("\n".join(ipv6))
     if ipv6:
         f.write("\n")
-
 if not ipv4:
     sys.exit(2)
-
 if not ipv6:
     sys.exit(3)
 PY
-
 [ $? -ne 0 ] && {
     error "Gcore CDN IP 数据解析失败"
     exit 1
 }
-
 log "下载 AWS IP ranges..."
-
 curl -fsSL \
     --connect-timeout 15 \
     --max-time 120 \
@@ -7655,26 +7609,20 @@ curl -fsSL \
         error "AWS IP ranges 下载失败"
         exit 1
     }
-
 python3 - "$TMP_DIR/aws.json" "$TMP_DIR/aws_ipv4" "$TMP_DIR/aws_ipv6" <<'PY'
 import json
 import sys
 import ipaddress
-
 src = sys.argv[1]
 out4 = sys.argv[2]
 out6 = sys.argv[3]
-
 with open(src, "r", encoding="utf-8") as f:
     data = json.load(f)
-
 ipv4 = []
 ipv6 = []
-
 for item in data.get("prefixes", []):
     if item.get("service") != "CLOUDFRONT_ORIGIN_FACING":
         continue
-
     value = item.get("ip_prefix")
     if value:
         try:
@@ -7683,11 +7631,9 @@ for item in data.get("prefixes", []):
                 ipv4.append(str(net))
         except Exception:
             pass
-
 for item in data.get("ipv6_prefixes", []):
     if item.get("service") != "CLOUDFRONT_ORIGIN_FACING":
         continue
-
     value = item.get("ipv6_prefix")
     if value:
         try:
@@ -7696,118 +7642,92 @@ for item in data.get("ipv6_prefixes", []):
                 ipv6.append(str(net))
         except Exception:
             pass
-
 ipv4 = sorted(set(ipv4), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
 ipv6 = sorted(set(ipv6), key=lambda x: (int(ipaddress.ip_network(x).network_address), ipaddress.ip_network(x).prefixlen))
-
 with open(out4, "w", encoding="utf-8") as f:
     f.write("\n".join(ipv4))
     if ipv4:
         f.write("\n")
-
 with open(out6, "w", encoding="utf-8") as f:
     f.write("\n".join(ipv6))
     if ipv6:
         f.write("\n")
-
 if not ipv4:
     sys.exit(2)
-
 if not ipv6:
     sys.exit(3)
 PY
-
 [ $? -ne 0 ] && {
     error "AWS CloudFront Origin Facing IP 数据解析失败"
     exit 1
 }
-
 validate_file() {
     local file="$1"
     local family="$2"
-
     [ -s "$file" ] || return 1
-
     if [ "$family" = "ipv4" ]; then
         grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' "$file" || return 1
     else
         grep -Eq '^[0-9A-Fa-f:]+/[0-9]+$' "$file" || return 1
     fi
-
     return 0
 }
-
 validate_file "$TMP_DIR/cf_ipv4" ipv4 || {
     error "Cloudflare IPv4 数据验证失败"
     exit 1
 }
-
 validate_file "$TMP_DIR/cf_ipv6" ipv6 || {
     error "Cloudflare IPv6 数据验证失败"
     exit 1
 }
-
 validate_file "$TMP_DIR/gcore_ipv4" ipv4 || {
     error "Gcore IPv4 数据验证失败"
     exit 1
 }
-
 validate_file "$TMP_DIR/gcore_ipv6" ipv6 || {
     error "Gcore IPv6 数据验证失败"
     exit 1
 }
-
 validate_file "$TMP_DIR/aws_ipv4" ipv4 || {
     error "AWS CloudFront IPv4 数据验证失败"
     exit 1
 }
-
 validate_file "$TMP_DIR/aws_ipv6" ipv6 || {
     error "AWS CloudFront IPv6 数据验证失败"
     exit 1
 }
-
 ensure_sets || {
     error "创建 nftables CDN set 失败"
     exit 1
 }
-
 CF4=$(wc -l < "$TMP_DIR/cf_ipv4")
 CF6=$(wc -l < "$TMP_DIR/cf_ipv6")
 GC4=$(wc -l < "$TMP_DIR/gcore_ipv4")
 GC6=$(wc -l < "$TMP_DIR/gcore_ipv6")
 AWS4=$(wc -l < "$TMP_DIR/aws_ipv4")
 AWS6=$(wc -l < "$TMP_DIR/aws_ipv6")
-
 log "Cloudflare IPv4: $CF4"
 log "Cloudflare IPv6: $CF6"
 log "Gcore IPv4:      $GC4"
 log "Gcore IPv6:      $GC6"
 log "AWS CloudFront v4: $AWS4"
 log "AWS CloudFront v6: $AWS6"
-
 NFT_FILE="$TMP_DIR/update.nft"
-
-cat > "$NFT_FILE" <<EOF
+cat > "$NFT_FILE" <<NFT_EOF
 flush set inet filter cf_ipv4
 add element inet filter cf_ipv4 { $(paste -sd, "$TMP_DIR/cf_ipv4") }
-
 flush set inet filter cf_ipv6
 add element inet filter cf_ipv6 { $(paste -sd, "$TMP_DIR/cf_ipv6") }
-
 flush set inet filter gcore_ipv4
 add element inet filter gcore_ipv4 { $(paste -sd, "$TMP_DIR/gcore_ipv4") }
-
 flush set inet filter gcore_ipv6
 add element inet filter gcore_ipv6 { $(paste -sd, "$TMP_DIR/gcore_ipv6") }
-
 flush set inet filter aws_ipv4
 add element inet filter aws_ipv4 { $(paste -sd, "$TMP_DIR/aws_ipv4") }
-
 flush set inet filter aws_ipv6
 add element inet filter aws_ipv6 { $(paste -sd, "$TMP_DIR/aws_ipv6") }
 NFT_EOF
-log "原子更新 nftables CDN IP..."
+log "更新 nftables CDN IP..."
 nft -f "$NFT_FILE" || {
     error "nftables 更新失败"
     error "原有 CDN IP 未被主动清空"
