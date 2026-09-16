@@ -8283,6 +8283,31 @@ if [ "${ip_choice}" == "1" ]; then
 fi
 local cdn_choice=""
 if [ "${ip_choice}" == "4" ]; then
+    local cdn_set_count=0
+    for cdn_set in cf_ipv4 cf_ipv6 gcore_ipv4 gcore_ipv6 aws_ipv4 aws_ipv6; do
+        local set_count=0
+        set_count=$(nft list set inet filter "$cdn_set" 2>/dev/null |
+            awk '/elements = \{/{flag=1; next} flag{gsub(/[{},;]/,""); for(i=1;i<=NF;i++) if($i!="") count++} END{print count+0}')
+        cdn_set_count=$((cdn_set_count + set_count))
+    done
+    if [ "$cdn_set_count" -eq 0 ]; then
+        yellow "检测到 CDN IP 尚未同步，正在打开 CDN IP 管理..."
+        sleep 1
+        cdn_ip_manager
+        cdn_set_count=0
+        for cdn_set in cf_ipv4 cf_ipv6 gcore_ipv4 gcore_ipv6 aws_ipv4 aws_ipv6; do
+            local set_count=0
+            set_count=$(nft list set inet filter "$cdn_set" 2>/dev/null |
+                awk '/elements = \{/{flag=1; next} flag{gsub(/[{},;]/,""); for(i=1;i<=NF;i++) if($i!="") count++} END{print count+0}')
+            cdn_set_count=$((cdn_set_count + set_count))
+        done
+        if [ "$cdn_set_count" -eq 0 ]; then
+            red "CDN IP 尚未同步，已取消本次 CDN 规则修改。"
+            sleep 1
+            iptables_ssl
+            return
+        fi
+    fi
     echo ""
     echo "请选择 CDN 来源（可多选）："
     echo ""
