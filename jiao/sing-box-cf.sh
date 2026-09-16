@@ -8163,9 +8163,9 @@ iptables_ssl() {
                     elif echo "$line" | grep -q "saddr @gcore_ipv6"; then
                     ip_limit="Gcore IPv6"
                     elif echo "$line" | grep -q "saddr @aws_ipv4"; then
-                    ip_limit="AWS CloudFront IPv4"
+                    ip_limit="CloudFront IPv4"
                     elif echo "$line" | grep -q "saddr @aws_ipv6"; then
-                    ip_limit="AWS CloudFront IPv6"
+                    ip_limit="CloudFront IPv6"
                     elif echo "$line" | grep -q "saddr @cf_ipv4"; then
                     ip_limit="Cloudflare IPv4"
                     elif echo "$line" | grep -q "saddr @cf_ipv6"; then
@@ -8349,42 +8349,24 @@ local add_failed=0
                                 done
                                 ;;
 						    4)
-    echo ""
-    echo "请选择 CDN 来源（可多选）："
-    echo ""
-    echo " 1. Cloudflare"
-    echo " 2. Gcore"
-    echo " 3. AWS"
-    echo ""
-    reading "请输入选择（可输入多个数字，例如 13，直接回车默认全部）: " cdn_choice
-    cdn_choice=$(echo "$cdn_choice" | tr -d '[:space:]')
-    [ -z "$cdn_choice" ] && cdn_choice="123"
-    case "$cdn_choice" in
-        *[!123]*)
-            red "错误：CDN 选择无效，只能输入 1、2、3，例如 13 或 123"
-            add_failed=1
-            ;;
-        *)
-            for proto in "${proto_list[@]}"; do
-                for cdn in $(echo "$cdn_choice" | grep -o .); do
-                    case "$cdn" in
-                        1)
-                            add_safe_rule "ip saddr @cf_ipv4 $proto dport $curr_port accept" || add_failed=1
-                            add_safe_rule "ip6 saddr @cf_ipv6 $proto dport $curr_port accept" || add_failed=1
-                            ;;
-                        2)
-                            add_safe_rule "ip saddr @gcore_ipv4 $proto dport $curr_port accept" || add_failed=1
-                            add_safe_rule "ip6 saddr @gcore_ipv6 $proto dport $curr_port accept" || add_failed=1
-                            ;;
-                        3)
-                            add_safe_rule "ip saddr @aws_ipv4 $proto dport $curr_port accept" || add_failed=1
-                            add_safe_rule "ip6 saddr @aws_ipv6 $proto dport $curr_port accept" || add_failed=1
-                            ;;
-                    esac
-                done
-            done
-            ;;
-    esac
+    for proto in "${proto_list[@]}"; do
+        for cdn in $(echo "$cdn_choice" | grep -o .); do
+            case "$cdn" in
+                1)
+                    add_safe_rule "ip saddr @cf_ipv4 $proto dport $curr_port accept" || add_failed=1
+                    add_safe_rule "ip6 saddr @cf_ipv6 $proto dport $curr_port accept" || add_failed=1
+                    ;;
+                2)
+                    add_safe_rule "ip saddr @gcore_ipv4 $proto dport $curr_port accept" || add_failed=1
+                    add_safe_rule "ip6 saddr @gcore_ipv6 $proto dport $curr_port accept" || add_failed=1
+                    ;;
+                3)
+                    add_safe_rule "ip saddr @aws_ipv4 $proto dport $curr_port accept" || add_failed=1
+                    add_safe_rule "ip6 saddr @aws_ipv6 $proto dport $curr_port accept" || add_failed=1
+                    ;;
+            esac
+        done
+    done
     ;;
                         esac
                         if [ "$add_failed" -eq 0 ]; then
