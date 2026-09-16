@@ -7936,26 +7936,23 @@ cdn_ip_status() {
 
 cdn_ip_manager() {
     mkdir -p /etc/sing-box
-
     ensure_cdn_sets
-
+    if [ ! -x "$CDN_UPDATE_SCRIPT" ]; then
+        install_cdn_update_script
+    fi
     while true; do
         clear
-
         echo "========================================"
         echo "             CDN IP 管理"
         echo "========================================"
         echo ""
-
         if [ -f /etc/sing-box/cdn-ip-auto ] &&
            [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
             echo "自动更新：已开启"
         else
             echo "自动更新：已关闭"
         fi
-
         echo ""
-
         if [ -f /etc/sing-box/cdn-ip-last-update ]; then
             echo "最后更新：$(cat /etc/sing-box/cdn-ip-last-update)"
         else
@@ -7973,11 +7970,20 @@ cdn_ip_manager() {
 
         case "$cdn_menu" in
             1)
-                clear
-                /etc/sing-box/cdn-ip-update
-                echo ""
-                read -r -p "按 Enter 返回..."
-                ;;
+    clear
+    if [ ! -x "$CDN_UPDATE_SCRIPT" ]; then
+        echo "正在初始化 CDN IP 更新程序..."
+        install_cdn_update_script || {
+            red "CDN IP 更新程序创建失败"
+            echo ""
+            read -r -p "按 Enter 返回..."
+            continue
+        }
+    fi
+    "$CDN_UPDATE_SCRIPT"
+    echo ""
+    read -r -p "按 Enter 返回..."
+    ;;
             2)
                 cdn_auto_update_toggle
                 echo ""
