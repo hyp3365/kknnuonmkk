@@ -8158,12 +8158,24 @@ iptables_ssl() {
                         proto="udp"
                     fi
                     local ip_limit="所有 IP"
-                    if echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
-                        ip_limit="仅 IPv4"
+                    if echo "$line" | grep -q "saddr @gcore_ipv4"; then
+                    ip_limit="Gcore IPv4"
+                    elif echo "$line" | grep -q "saddr @gcore_ipv6"; then
+                    ip_limit="Gcore IPv6"
+                    elif echo "$line" | grep -q "saddr @aws_ipv4"; then
+                    ip_limit="AWS CloudFront IPv4"
+                    elif echo "$line" | grep -q "saddr @aws_ipv6"; then
+                    ip_limit="AWS CloudFront IPv6"
+                    elif echo "$line" | grep -q "saddr @cf_ipv4"; then
+                    ip_limit="Cloudflare IPv4"
+                    elif echo "$line" | grep -q "saddr @cf_ipv6"; then
+                    ip_limit="Cloudflare IPv6"
+                    elif echo "$line" | grep -q "meta nfproto ipv4" || echo "$line" | grep -q "saddr 0.0.0.0/0"; then
+                    ip_limit="仅 IPv4"
                     elif echo "$line" | grep -q "meta nfproto ipv6" || echo "$line" | grep -q "saddr ::/0"; then
-                        ip_limit="仅 IPv6"
+                    ip_limit="仅 IPv6"
                     elif echo "$line" | grep -q "saddr"; then
-                        ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
+                    ip_limit=$(echo "$line" | grep -oE 'saddr [0-9a-fA-F:./]+' | awk '{print $2}')
                     fi
                     ((rule_count++))
                     rule_handles[$rule_count]="$h"
