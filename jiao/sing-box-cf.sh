@@ -7779,7 +7779,6 @@ cdn_auto_update_enable() {
     green "CDN IP 自动更新已开启"
     echo "更新周期：每 24 小时"
 }
-
 cdn_auto_update_disable() {
     echo "0" > /etc/sing-box/cdn-ip-auto
 
@@ -7787,7 +7786,6 @@ cdn_auto_update_disable() {
 
     yellow "CDN IP 自动更新已关闭"
 }
-
 cdn_auto_update_toggle() {
     if [ -f /etc/sing-box/cdn-ip-auto ] &&
        [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
@@ -7796,16 +7794,13 @@ cdn_auto_update_toggle() {
         cdn_auto_update_enable
     fi
 }
-
 cdn_ip_status() {
     echo ""
     echo "========================================"
     echo "           CDN IP 当前状态"
     echo "========================================"
     echo ""
-
     local n
-
     n=$(nft list set inet filter cf_ipv4 2>/dev/null |
         grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
         sort -u | wc -l)
@@ -7837,14 +7832,12 @@ cdn_ip_status() {
     echo "AWS CloudFront IPv6   : $n"
 
     echo ""
-
     if [ -f /etc/sing-box/cdn-ip-auto ] &&
        [ "$(cat /etc/sing-box/cdn-ip-auto 2>/dev/null)" = "1" ]; then
         green "自动更新：已开启"
     else
         yellow "自动更新：已关闭"
     fi
-
     if [ -f /etc/sing-box/cdn-ip-last-update ]; then
         echo "最后更新：$(cat /etc/sing-box/cdn-ip-last-update)"
     else
@@ -7883,7 +7876,7 @@ cdn_ip_manager() {
         echo " 1. 手动更新 CDN IP"
         echo " 2. 开启/关闭自动更新"
         echo " 3. 查看 CDN IP 数量"
-        echo " 4. 返回"
+        echo " 0. 返回"
         echo ""
 
         reading "请选择: " cdn_menu
@@ -7914,7 +7907,7 @@ cdn_ip_manager() {
                 cdn_ip_status
                 read -r -p "按 Enter 返回..."
                 ;;
-            4)
+            0)
                 return
                 ;;
             *)
