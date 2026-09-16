@@ -7806,7 +7806,7 @@ add element inet filter aws_ipv4 { $(paste -sd, "$TMP_DIR/aws_ipv4") }
 
 flush set inet filter aws_ipv6
 add element inet filter aws_ipv6 { $(paste -sd, "$TMP_DIR/aws_ipv6") }
-EOF
+NFT_EOF
 log "原子更新 nftables CDN IP..."
 nft -f "$NFT_FILE" || {
     error "nftables 更新失败"
