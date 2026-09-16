@@ -7364,6 +7364,20 @@ ensure_conntrack_tool() {
         return 1
     fi
 }
+# 辅助函数：确保 6in4 的 IPv4 Protocol 41 入站规则存在
+ensure_he_protocol41() {
+    ensure_nft_env
+    if nft list chain inet filter input 2>/dev/null | grep -Eq 'ip protocol (41|ipv6) accept'; then
+        return 0
+    fi
+    if nft list chain inet filter script_input 2>/dev/null | grep -Eq 'ip protocol (41|ipv6) accept'; then
+        return 0
+    fi
+    if nft add rule inet filter script_input ip protocol 41 accept comment "HE-6in4" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 flush_port_conntrack() {
     local target_p="$1"
@@ -7875,6 +7889,7 @@ iptables_ssl() {
                 3)
             yellow "正在开启拦截模式..."
             ensure_nft_env
+		    ensure_he_protocol41
             nft add chain inet filter script_blocked 2>/dev/null
             if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
                 nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
@@ -7923,6 +7938,7 @@ iptables_ssl() {
                 nft insert rule inet filter input ip protocol icmp accept comment "System-ICMPv4" 2>/dev/null
             fi
             nft chain inet filter input '{ policy drop; }' 2>/dev/null
+            ensure_he_protocol41
             save_nft_rules
             green "开启拦截成功！(已自动放行 SSH[端口: $ssh_ports])" && sleep 1
             iptables_ssl ;;
@@ -7962,14 +7978,19 @@ iptables_ssl() {
             sleep 1 && iptables_ssl ;;
             
         7)
-            yellow "正在重载并激活防火墙与流量限制规则..."
-            systemctl enable nftables >/dev/null 2>&1
+            yellow "正在重载并激活防火墙与流量限制规则..."  
+			systemctl enable nftables >/dev/null 2>&1
             systemctl start nftables >/dev/null 2>&1
             if [ -f "/etc/nftables.conf" ]; then
-                nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 防火墙规则已重载。"
+               nft -f /etc/nftables.conf && green " (/etc/nftables.conf) 防火墙规则已重载。"
+            fi
+            if ensure_he_protocol41; then
+               save_nft_rules
+            else
+            red "警告：HE Protocol 41 放行规则添加失败！"
             fi
             if [ -f "/usr/local/bin/port_menu.sh" ]; then
-                systemctl restart port_manager >/dev/null 2>&1 && green " (port_manager) 流量限制服务已同步重启。"
+              systemctl restart port_manager >/dev/null 2>&1 && green " (port_manager) 流量限制服务已同步重启。"
             fi
             green "重载操作执行完毕。"
             sleep 1 && iptables_ssl ;;
