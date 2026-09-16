@@ -9304,7 +9304,6 @@ add_rule_menu() {
     green "\n预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
     sleep 2; warp_manage
 }
-
 add_custom_domain_rule() {
     echo ""
     green "=== 添加自定义域名分流 ==="
@@ -9316,7 +9315,41 @@ add_custom_domain_rule() {
     if ! select_outbound_target; then
         sleep 1; add_rule_menu; return
     fi
-    
+    if [ "$selected_out" == "reject" ]; then
+        if [ -z "$custom_input" ]; then
+            jq --arg inb "$selected_inbound" '
+                .route.rules //= [] |
+                (
+                    if $inb == "" then
+                        {"network": ["udp"], "action": "reject"}
+                    else
+                        {"inbound": [$inb], "network": ["udp"], "action": "reject"}
+                    end
+                ) as $new_r |
+                .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
+            ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+            custom_input="所有流量 (全局)"
+        else
+            local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
+            jq --argjson doms "$dom_json" --arg inb "$selected_inbound" '
+                .route.rules //= [] |
+                (
+                    if $inb == "" then
+                        {"domain_suffix": $doms, "network": ["udp"], "action": "reject"}
+                    else
+                        {"inbound": [$inb], "domain_suffix": $doms, "network": ["udp"], "action": "reject"}
+                    end
+                ) as $new_r |
+                .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
+            ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
+        fi
+        restart_singbox
+        green "\n✅ 规则 [ $custom_input ] 已成功设置为：[ 🚫 拦截 UDP 强制 TCP ]！"
+        echo -e "   - 生效节点: [ ${skyblue}${selected_inbound_name}${re} ]"
+        sleep 2
+        warp_manage
+        return
+    fi
     if [ -z "$custom_input" ]; then
         jq --arg out "$selected_out" --arg inb "$selected_inbound" '
             .route.rules //= [] |
@@ -9325,12 +9358,10 @@ add_custom_domain_rule() {
             else
                 .route.rules += [{"inbound": [$inb], "outbound": $out}]
             end
-        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-        
+        ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"       
         custom_input="所有流量 (全局)"
     else
-        local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')
-        
+        local dom_json=$(echo "$custom_input" | tr ',' ' ' | jq -R 'split(" ") | map(select(length > 0))')       
         jq --argjson doms "$dom_json" --arg out "$selected_out" --arg inb "$selected_inbound" '
             .route.rules //= [] |
             if any(.route.rules[]; .outbound == $out and .domain_suffix != null and (($inb == "" and (has("inbound") | not)) or ($inb != "" and .inbound == [$inb]))) then
@@ -9348,7 +9379,6 @@ add_custom_domain_rule() {
             end
         ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
     fi
-
     restart_singbox
     green "\n✅ 规则 [ $custom_input ] 已成功添加！"
     echo -e "   - 生效节点: [ ${skyblue}${selected_inbound_name}${re} ]"
@@ -9356,7 +9386,6 @@ add_custom_domain_rule() {
     sleep 2
     warp_manage
 }
-
 
 # 设置全局代理出站
 set_global_outbound() {
