@@ -7733,6 +7733,9 @@ nft -f "$NFT_FILE" || {
     error "原有 CDN IP 未被主动清空"
     exit 1
 }
+printf 'CF4=%s\nCF6=%s\nGC4=%s\nGC6=%s\nAWS4=%s\nAWS6=%s\n' \
+    "$CF4" "$CF6" "$GC4" "$GC6" "$AWS4" "$AWS6" \
+    > /etc/sing-box/cdn-ip-counts
 date '+%Y-%m-%d %H:%M:%S' > "/etc/sing-box/cdn-ip-last-update"
 log "CDN IP 更新成功"
 EOF
@@ -7740,7 +7743,6 @@ EOF
 }
 install_cdn_auto_update() {
     mkdir -p /etc/sing-box
-
     cat > /etc/systemd/system/cdn-ip-update.service <<'EOF'
 [Unit]
 Description=CDN IP whitelist update
@@ -7800,36 +7802,28 @@ cdn_ip_status() {
     echo "           CDN IP 当前状态"
     echo "========================================"
     echo ""
-    local n
-    n=$(nft list set inet filter cf_ipv4 2>/dev/null |
-        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "Cloudflare IPv4       : $n"
+    local CF4=0 CF6=0 GC4=0 GC6=0 AWS4=0 AWS6=0
+    local count_file="/etc/sing-box/cdn-ip-counts"
 
-    n=$(nft list set inet filter cf_ipv6 2>/dev/null |
-        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "Cloudflare IPv6       : $n"
+    if [ -f "$count_file" ]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                CF4) CF4="$value" ;;
+                CF6) CF6="$value" ;;
+                GC4) GC4="$value" ;;
+                GC6) GC6="$value" ;;
+                AWS4) AWS4="$value" ;;
+                AWS6) AWS6="$value" ;;
+            esac
+        done < "$count_file"
+    fi
 
-    n=$(nft list set inet filter gcore_ipv4 2>/dev/null |
-        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "Gcore IPv4            : $n"
-
-    n=$(nft list set inet filter gcore_ipv6 2>/dev/null |
-        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "Gcore IPv6            : $n"
-
-    n=$(nft list set inet filter aws_ipv4 2>/dev/null |
-        grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "AWS CloudFront IPv4   : $n"
-
-    n=$(nft list set inet filter aws_ipv6 2>/dev/null |
-        grep -oE '[0-9A-Fa-f:]+/[0-9]+' |
-        sort -u | wc -l)
-    echo "AWS CloudFront IPv6   : $n"
+    echo "Cloudflare IPv4       : $CF4"
+    echo "Cloudflare IPv6       : $CF6"
+    echo "Gcore IPv4            : $GC4"
+    echo "Gcore IPv6            : $GC6"
+    echo "AWS CloudFront IPv4   : $AWS4"
+    echo "AWS CloudFront IPv6   : $AWS6"
 
     echo ""
     if [ -f /etc/sing-box/cdn-ip-auto ] &&
@@ -7838,6 +7832,7 @@ cdn_ip_status() {
     else
         yellow "自动更新：已关闭"
     fi
+
     if [ -f /etc/sing-box/cdn-ip-last-update ]; then
         echo "最后更新：$(cat /etc/sing-box/cdn-ip-last-update)"
     else
