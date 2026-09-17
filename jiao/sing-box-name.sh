@@ -1094,23 +1094,26 @@ echo -e "  ${red}5)${re} 删除用户"
         read -rp "$(green "请选择: ")" choice
 
         case "$choice" in
-            1)
-                backup_file "$CONF_DIR/$file"
-                modify_auth "$file" "$tag" "$type" "$user"
-                ;;
-            2)
-                set_limit "$tag" "$user"
-                ;;
-            3)
-                show_connections "$file" "$tag" "$type" "$port" "$user"
-                ;;
-            4)
-                delete_user "$file" "$tag" "$user"
-                return
-                ;;
-            0)
-                return
-                ;;
+    1)
+        backup_file "$CONF_DIR/$file"
+        modify_auth "$file" "$tag" "$type" "$user"
+        ;;
+    2)
+        set_limit "$tag" "$user"
+        ;;
+    3)
+        show_user_traffic "$user"
+        ;;
+    4)
+        show_connections "$file" "$tag" "$type" "$port" "$user"
+        ;;
+    5)
+        delete_user "$file" "$tag" "$user"
+        return
+        ;;
+    0)
+        return
+        ;;
             *)
                 red "无效选择"
                 sleep 1
