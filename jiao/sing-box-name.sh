@@ -619,9 +619,31 @@ def initialize_periods(state):
             u["period_start"] = None
             u["period_end"] = None
     return changed
+def get_api_secret():
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        for service in cfg.get("services", []):
+            if not isinstance(service, dict):
+                continue
+            if service.get("type") != "api":
+                continue
+            if int(service.get("listen_port", 0) or 0) != GRPC_PORT:
+                continue
+            secret = service.get("secret")
+            if secret:
+                return str(secret)
+        log(f"config.json中找不到API服务 secret: {CONFIG_FILE}")
+    except Exception as e:
+        log(f"读取API secret失败: {e}")
+    return None
 def grpc_stream():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
+        time.sleep(RECONNECT_INTERVAL)
+        return
+    api_secret = get_api_secret()
+    if not api_secret:
         time.sleep(RECONNECT_INTERVAL)
         return
     url = f"http://{GRPC_HOST}:{GRPC_PORT}"
@@ -629,7 +651,7 @@ def grpc_stream():
         GRPCURL,
         "-plaintext",
         "-H",
-        f"Authorization: Bearer {API_SECRET}",
+        f"Authorization: Bearer {api_secret}",
         "-d",
         '{"interval":0}',
         url,
@@ -677,7 +699,7 @@ def grpc_stream():
             try:
                 proc.kill()
             except Exception:
-                pass
+                pass                
 def signal_handler(signum, frame):
     global running
     running = False
@@ -908,7 +930,66 @@ for inbound in data.get("inbounds", []):
         break
 PY
 }
-
+stop_traffic_service() {
+    echo "正在停止流量统计服务..."
+    systemctl stop "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
+    echo "流量统计服务已停止"
+    pause
+}
+reset_traffic_script() {
+    clear
+    echo "========================================"
+    echo "        重置流量统计脚本"
+    echo "========================================"
+    echo
+    echo "此操作将删除流量统计模块创建的全部文件："
+    echo
+    echo "  $TRAFFIC_DIR"
+    echo "  $LIMIT_DIR"
+    echo "  $BACKUP_DIR"
+    echo "  $TRAFFIC_SCRIPT"
+    echo "  /etc/systemd/system/$TRAFFIC_SERVICE"
+    echo
+    echo "不会删除 sing-box 配置文件。"
+    echo "不会删除 /etc/sing-box/conf/ 下的配置。"
+    echo "不会删除 sing-box 程序。"
+    echo
+    read -r -p "确认重置并重新安装？输入 YES 确认: " confirm
+    if [ "$confirm" != "YES" ]; then
+        echo "已取消"
+        pause
+        return
+    fi
+    echo
+    echo "正在停止流量统计服务..."
+    systemctl stop "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
+    systemctl disable "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
+    echo "正在删除流量统计模块..."
+    rm -rf "$TRAFFIC_DIR"
+    rm -rf "$LIMIT_DIR"
+    rm -rf "$BACKUP_DIR"
+    rm -f "$TRAFFIC_SCRIPT"
+    rm -f "/etc/systemd/system/$TRAFFIC_SERVICE"
+    systemctl daemon-reload
+    rm -f "$CONFIG_LOCK"
+    echo "正在重新创建流量统计模块..."
+    init_traffic
+    init_traffic_service
+    echo
+    if systemctl is-active --quiet "$TRAFFIC_SERVICE"; then
+        echo "========================================"
+        echo "重置并重新安装完成"
+        echo "流量统计服务：运行中"
+        echo "========================================"
+    else
+        echo "========================================"
+        echo "重置完成，但流量统计服务启动失败"
+        echo "========================================"
+        echo
+        systemctl status "$TRAFFIC_SERVICE" --no-pager -l 2>/dev/null || true
+    fi
+    pause
+}
 node_menu() {
     local file="$1"
     local tag="$2"
@@ -2023,6 +2104,9 @@ main_menu() {
     cleanup_backups
     while true; do
         title "sing-box 用户管理"
+        echo -e "  ${cyan}a)${re} 停止流量统计"
+        echo -e "  ${cyan}b)${re} 重置流量统计脚本"
+        echo
         mapfile -t NODES < <(list_nodes)
         if [ "${#NODES[@]}" -eq 0 ]; then
             yellow "没有找到包含 users[] 的入站节点。"
@@ -2043,10 +2127,22 @@ main_menu() {
         echo -e "  ${yellow}0)${re} 退出"
         echo
         read -rp "$(green "请选择节点: ")" choice
-        if [ "$choice" = "0" ]; then
-            clear
-            exit 0
-        fi
+        case "$choice" in
+            a|A)
+                systemctl stop "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
+                green "流量统计服务已停止"
+                pause
+                continue
+                ;;
+            b|B)
+                reset_traffic_script
+                continue
+                ;;
+            0)
+                clear
+                exit 0
+                ;;
+        esac
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#NODES[@]}" ]; then
             local index=$((choice-1))
             IFS=$'\t' read -r file tag type count port <<< "${NODES[$index]}"
