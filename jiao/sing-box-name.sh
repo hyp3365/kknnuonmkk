@@ -1192,45 +1192,75 @@ show_limit() {
         echo -e "${skyblue}流量限制:${re} 未设置"
         return
     fi
-    "$PYTHON" - "$lf" <<'PY'
+    "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 from datetime import datetime
-
+lf = sys.argv[1]
+state_file = sys.argv[2]
 try:
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
+    with open(lf, "r", encoding="utf-8") as f:
         d = json.load(f)
-
-    if not d.get("enabled"):
-        print("已关闭")
-        raise SystemExit
-
-    value = d.get("limit_value", 0)
-    unit = d.get("limit_unit", "GB")
-    period = d.get("period", "none")
-
-    if float(value).is_integer():
-        value = int(value)
-
-    period_name = {
-        "day": "每天重置",
-        "month": "每月重置",
-        "none": "不重置"
-    }.get(period, "未设置")
-
-    print(f"流量：{value} {unit}")
-    print(f"周期：{period_name}")
-
-    if d.get("disabled_by_limit"):
-        print("状态：已达到流量限制，用户已禁用")
-    else:
-        print("状态：正常")
-
-    if d.get("period_end"):
-        print(f"周期结束：{d['period_end']}")
-
 except Exception:
     print("未设置")
+    raise SystemExit
+if not d.get("enabled"):
+    print("已关闭")
+    raise SystemExit
+value = d.get("limit_value")
+unit = d.get("limit_unit")
+if value is not None and unit:
+    if float(value).is_integer():
+        limit_text = f"{int(value)} {unit}"
+    else:
+        limit_text = f"{value} {unit}"
+else:
+    limit_text = "未知"
+period = d.get("period", "none")
+period_text = {
+    "day": "每天重置",
+    "month": "每月重置",
+    "none": "不重置"
+}.get(period, "不重置")
+user = d.get("user")
+try:
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+except Exception:
+    state = {}
+u = state.get("users", {}).get(user, {})
+if period in ("day", "month"):
+    used = int(u.get("period_total", 0) or 0)
+else:
+    used = int(u.get("total", 0) or 0)
+limit_bytes = int(d.get("limit_bytes", 0) or 0)
+def fmt(n):
+    n = float(n)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    i = 0
+    while n >= 1024 and i < len(units)-1:
+        n /= 1024
+        i += 1
+    if i == 0:
+        return f"{int(n)} {units[i]}"
+    return f"{n:.2f} {units[i]}"
+print(f"已设置：{limit_text}")
+print(f"时间周期：{period_text}")
+print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
+if limit_bytes > used:
+    print(f"剩余流量：{fmt(limit_bytes-used)}")
+else:
+    print("剩余流量：0 B")
+if d.get("period_end"):
+    try:
+        dt = datetime.fromisoformat(d["period_end"])
+        print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception:
+        pass
+if d.get("disabled_by_limit"):
+    print("状态：已达到流量限制，用户已停用")
+else:
+    print("状态：正常")
 PY
 }
 
@@ -1239,44 +1269,20 @@ set_limit() {
     local user="$2"
     local lf
     lf="$(get_limit_file "$tag" "$user")"
-    title "设置流量"
+    title "流量限制"
     show_limit "$tag" "$user"
     echo
-    echo -e "${skyblue}支持格式:${re}"
-    echo "  2       = 2GB"
-    echo "  100MB   = 100MB"
-    echo "  1GB     = 1GB"
-    echo "  100.5GB = 100.5GB"
-    echo "  0       = 关闭流量限制"
+    echo -e "${skyblue}支持:${re}"
+    echo -e "  2       = 2GB"
+    echo -e "  100MB   = 100MB"
+    echo -e "  1GB     = 1GB"
+    echo -e "  0       = 关闭流量限制"
     echo
     local input
     read -rp "$(green "请输入流量限制: ")" input
     input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
     if [ "$input" = "0" ]; then
-        "$PYTHON" - "$lf" <<'PY'
-import sys
-import json
-import os
-fn = sys.argv[1]
-old = {}
-if os.path.exists(fn):
-    try:
-        with open(fn, "r", encoding="utf-8") as f:
-            old = json.load(f)
-    except:
-        pass
-old["limit_value"] = 0
-old["limit_unit"] = "GB"
-old["limit_bytes"] = 0
-old["enabled"] = False
-old["disabled_by_limit"] = False
-with open(fn, "w", encoding="utf-8") as f:
-    json.dump(old, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-os.chmod(fn, 0o600)
-PY
-        green "流量限制已关闭"
-        pause
+        disable_limit "$tag" "$user"
         return
     fi
     local number
@@ -1316,7 +1322,7 @@ if os.path.exists(fn):
     try:
         with open(fn, "r", encoding="utf-8") as f:
             old = json.load(f)
-    except:
+    except Exception:
         pass
 data = {
     "inbound_tag": tag,
@@ -1328,10 +1334,10 @@ data = {
     "period_start": old.get("period_start"),
     "period_end": old.get("period_end"),
     "enabled": True,
-    "disabled_by_limit": False
+    "disabled_by_limit": old.get("disabled_by_limit", False),
+    "saved_user": old.get("saved_user"),
+    "config_file": old.get("config_file")
 }
-if "disabled_user" in old:
-    data["disabled_user"] = old["disabled_user"]
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -1343,11 +1349,55 @@ PY
         return
     fi
     green "流量限制已设置：${number}${unit}"
-    if [ "$unit" = "GB" ]; then
-        echo -e "${skyblue}限制字节:${re} $(awk "BEGIN {printf \"%.0f\", $number * 1024 * 1024 * 1024}") B"
-    else
-        echo -e "${skyblue}限制字节:${re} $(awk "BEGIN {printf \"%.0f\", $number * 1024 * 1024}") B"
+    echo
+    echo "当前时间周期："
+    case "$( "$PYTHON" - "$lf" <<'PY'
+import sys,json
+try:
+    with open(sys.argv[1],encoding="utf-8") as f:
+        print(json.load(f).get("period","none"))
+except:
+    print("none")
+PY
+)" in
+        day) echo "每天重置" ;;
+        month) echo "每月重置" ;;
+        *) echo "不重置" ;;
+    esac
+    pause
+}
+
+disable_limit() {
+    local tag="$1"
+    local user="$2"
+    local lf
+    lf="$(get_limit_file "$tag" "$user")"
+    if [ ! -f "$lf" ]; then
+        yellow "当前没有设置流量限制"
+        pause
+        return
     fi
+    "$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+import os
+fn = sys.argv[1]
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+data["enabled"] = False
+data["limit_value"] = 0
+data["limit_unit"] = "GB"
+data["limit_bytes"] = 0
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+os.chmod(fn, 0o600)
+PY
+    green "流量限制已关闭"
+    echo "如果用户之前因达到额度被停用，流量服务会自动恢复该用户。"
     pause
 }
 
@@ -1356,7 +1406,7 @@ set_limit_period() {
     local user="$2"
     local lf
     lf="$(get_limit_file "$tag" "$user")"
-    title "设置时间"
+    title "设置时间周期"
     if [ ! -f "$lf" ]; then
         red "请先设置流量限制"
         pause
@@ -1377,70 +1427,69 @@ set_limit_period() {
         0) return ;;
         *) red "无效选择"; pause; return ;;
     esac
-    "$PYTHON" - "$lf" "$period" <<'PY'
+    "$PYTHON" - "$lf" "$period" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 import os
 from datetime import datetime, timedelta
-
 fn = sys.argv[1]
 period = sys.argv[2]
-
+state_file = sys.argv[3]
 try:
     with open(fn, "r", encoding="utf-8") as f:
         data = json.load(f)
-except:
+except Exception:
     data = {}
-
+user = data.get("user")
 now = datetime.now().astimezone()
-
-def get_period(now, period):
-    if period == "day":
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-        return start, end
-    if period == "month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if start.month == 12:
-            end = start.replace(
-                year=start.year + 1,
-                month=1
-            )
-        else:
-            end = start.replace(
-                month=start.month + 1
-            )
-        return start, end
-    return None, None
-
-start, end = get_period(now, period)
-
+if period == "day":
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+elif period == "month":
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1, day=1)
+    else:
+        end = start.replace(month=start.month + 1, day=1)
+else:
+    start = None
+    end = None
 data["period"] = period
 data["period_start"] = start.isoformat() if start else None
 data["period_end"] = end.isoformat() if end else None
-data["enabled"] = bool(data.get("limit_bytes", 0))
-data["disabled_by_limit"] = False
-
+data["enabled"] = True
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(fn, 0o600)
+if user:
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:
+        state = {"users": {}, "connections": {}}
+    u = state.setdefault("users", {}).setdefault(user, {})
+    u["period_uplink"] = 0
+    u["period_downlink"] = 0
+    u["period_total"] = 0
+    u["period_start"] = start.isoformat() if start else None
+    u["period_end"] = end.isoformat() if end else None
+    tmp = state_file + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, state_file)
 PY
     case "$period" in
-        day)
-            green "时间周期已设置：每天重置"
-            ;;
-        month)
-            green "时间周期已设置：每月重置"
-            ;;
-        none)
-            green "时间周期已设置：不重置"
-            ;;
+        day) green "时间周期已设置：每天重置" ;;
+        month) green "时间周期已设置：每月重置" ;;
+        none) green "时间周期已设置：不重置" ;;
     esac
+    echo
+    echo "本次设置会从当前时间重新计算本周期流量。"
     pause
 }
-
 modify_auth() {
     local file="$1"
     local tag="$2"
@@ -1871,44 +1920,14 @@ PY
                 pause
                 ;;
             4)
-                local lf
-                lf="$(get_limit_file "$tag" "$user")"
-                if [ -f "$lf" ]; then
-                    "$PYTHON" - "$lf" <<'PY'
-import sys
-import json
-import os
-
-fn = sys.argv[1]
-
-try:
-    with open(fn, "r", encoding="utf-8") as f:
-        d = json.load(f)
-except:
-    d = {}
-
-d["enabled"] = False
-d["disabled_by_limit"] = False
-
-with open(fn, "w", encoding="utf-8") as f:
-    json.dump(d, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-
-os.chmod(fn, 0o600)
-PY
-                    green "流量限制已关闭"
-                    pause
-                else
-                    yellow "当前没有流量限制"
-                    pause
-                fi
+                disable_limit "$tag" "$user"
                 ;;
             0)
                 break
                 ;;
             *)
                 red "无效选择"
-                sleep 1
+                pause
                 ;;
         esac
     done
