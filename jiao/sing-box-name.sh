@@ -1055,6 +1055,25 @@ PY
 
         echo -e "${skyblue}流量限制:${re} "
         show_limit "$tag" "$user"
+        echo -e "${skyblue}流量统计:${re}"
+if [ -f "$TRAFFIC_STATE" ]; then
+    local traffic
+    traffic="$(get_user_traffic "$user")"
+
+    local uplink
+    local downlink
+    local total
+    local connections
+
+    read -r uplink downlink total connections <<< "$traffic"
+
+    echo "  上传:   $(format_bytes "$uplink")"
+    echo "  下载:   $(format_bytes "$downlink")"
+    echo "  总流量: $(format_bytes "$total")"
+    echo "  连接数: $connections"
+else
+    echo "  未统计"
+fi
 
         echo
         echo -e "  ${green}1)${re} 修改 $(
