@@ -2152,6 +2152,137 @@ cert_manager() {
         esac
     done
 }
+# IP 证书申请模式
+run_ip_ssl_task() {
+    domain=""
+    cert_file=""
+    key_file=""
+    manage_packages "install" "curl" "socat" "cron" "psmisc"
+    mkdir -p "$HOME/.acme.sh"
+    local acme_cmd="$HOME/.acme.sh/acme.sh"
+    if [[ ! -f "$acme_cmd" ]]; then
+        skyblue "正在安装 acme.sh..."
+        curl -fsSL "https://get.acme.sh" | sh -s email="cert_${RANDOM}@gmail.com" >/dev/null 2>&1
+        if [[ ! -f "$acme_cmd" ]]; then
+            manage_packages "install" "git"
+            rm -rf "$HOME/acme_git_tmp"
+            git clone "https://github.com/acmesh-official/acme.sh.git" "$HOME/acme_git_tmp" >/dev/null 2>&1
+            if [[ -d "$HOME/acme_git_tmp" ]]; then
+                (
+                    cd "$HOME/acme_git_tmp" &&
+                    ./acme.sh --install -m "cert_${RANDOM}@gmail.com"
+                ) >/dev/null 2>&1
+                rm -rf "$HOME/acme_git_tmp"
+            fi
+        fi
+    fi
+    if [[ ! -f "$acme_cmd" ]]; then
+        red "错误：acme.sh 安装失败！"
+        return 1
+    fi
+    "$acme_cmd" --set-default-ca --server letsencrypt >/dev/null 2>&1
+    local release_80="/root/release_80.sh"
+    local restore_80="/root/restore_80.sh"
+    cat > "$release_80" <<'EOF'
+#!/bin/bash
+for i in $(lsof -t -i:80 2>/dev/null | sort -u); do
+    kill -9 "$i" 2>/dev/null
+done
+EOF
+    chmod +x "$release_80"
+    cat > "$restore_80" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+    chmod +x "$restore_80"
+    local -a ip_sources=()
+    local local_ipv4
+    local local_ipv6
+    local_ipv4=$(curl -4 -fsSL --max-time 8 https://icanhazip.com 2>/dev/null | tr -d '[:space:]')
+    local_ipv6=$(curl -6 -fsSL --max-time 8 https://icanhazip.com 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$local_ipv4" ]]; then
+        ip_sources+=("本机IP|$local_ipv4")
+    fi
+    if [[ -n "$local_ipv6" ]]; then
+        ip_sources+=("本机IP|$local_ipv6")
+    fi
+    local list_file
+    local tunnel_name
+    local tunnel_ip
+    for list_file in /etc/tunnel64/*.list; do
+        [[ -f "$list_file" ]] || continue
+        tunnel_name=$(basename "$list_file")
+        tunnel_name="${tunnel_name%%-*}"
+        while IFS= read -r tunnel_ip || [[ -n "$tunnel_ip" ]]; do
+            tunnel_ip=$(echo "$tunnel_ip" | xargs)
+            [[ -z "$tunnel_ip" ]] && continue
+            [[ "$tunnel_ip" =~ ^# ]] && continue
+            ip_sources+=("${tunnel_name} IP|${tunnel_ip}")
+        done < "$list_file"
+    done
+    if [[ ${#ip_sources[@]} -eq 0 ]]; then
+        red "没有检测到任何 IP！"
+        return 1
+    fi
+    skyblue "检测到以下 IP："
+    local item
+    local source
+    local ip
+    for item in "${ip_sources[@]}"; do
+        source="${item%%|*}"
+        ip="${item#*|}"
+        green "${source}: ${ip}"
+    done
+    echo
+    local save_path
+    for item in "${ip_sources[@]}"; do
+        source="${item%%|*}"
+        ip="${item#*|}"
+        save_path="/root/cert/${ip}"
+        mkdir -p "$save_path"
+        skyblue "正在申请 ${source} ${ip} 的 IP 证书..."
+        if ! "$acme_cmd" \
+            --issue \
+            -d "$ip" \
+            --standalone \
+            --httpport 80 \
+            -k ec-256 \
+            --server letsencrypt \
+            --cert-profile shortlived \
+            --days 3 \
+            --force \
+            --pre-hook "$release_80" \
+            --post-hook "$restore_80"
+        then
+            red "${source}: ${ip} 证书申请失败！"
+            continue
+        fi
+        if ! "$acme_cmd" \
+            --installcert \
+            -d "$ip" \
+            --key-file "${save_path}/privkey.pem" \
+            --fullchain-file "${save_path}/fullchain.pem" \
+            --ecc
+        then
+            red "${source}: ${ip} 证书安装失败！"
+            continue
+        fi
+        if [[ ! -f "${save_path}/fullchain.pem" || ! -f "${save_path}/privkey.pem" ]]; then
+            red "${source}: ${ip} 证书文件生成失败！"
+            continue
+        fi
+        chmod 600 "${save_path}/privkey.pem"
+        domain="$ip"
+        cert_file="${save_path}/fullchain.pem"
+        key_file="${save_path}/privkey.pem"
+        green "${source}: ${ip}"
+        green "证书: ${cert_file}"
+        green "私钥: ${key_file}"
+        echo
+    done
+    "$acme_cmd" --upgrade --auto-upgrade >/dev/null 2>&1
+    return 0
+}
 # 80 端口申请模式
 run_ssl_task() {
     local request_domain="$1"
@@ -2755,6 +2886,7 @@ fi
     echo " 1) 80 端口申请"
     echo " 2) Cloudflare Global API Key)"
     echo -e " ${red}3) Cloudflare API Token(推荐)${re}"
+	echo " 4) 申请ip证书"
     skyblue "=============================================="
     local ssl_choice
     reading "请输入选择 [1-3]（默认 3）: " ssl_choice
@@ -2791,6 +2923,12 @@ fi
         fi
         if ! issue_cf_dns_cert; then
             red "Cloudflare API Token 方式申请证书失败。"
+            return 1
+        fi
+        ;;
+	4)
+        if ! run_ip_ssl_task; then
+            red "IP 证书申请失败。"
             return 1
         fi
         ;;
