@@ -2748,9 +2748,13 @@ check_and_issue_ssl() {
             cert_file="${cert_paths[$sel_idx]}/fullchain.pem"
             key_file="${cert_paths[$sel_idx]}/privkey.pem"
             green "已选择并使用域名 ${domain} 的现有证书。"
-local check_dns
-reading "是否检查 DNS 解析记录？(y/回车跳过): " check_dns
-if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
+    local check_dns
+    if [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$domain" == *:* ]]; then
+       check_dns="n"
+    else
+       reading "是否检查 DNS 解析记录？(y/回车跳过): " check_dns
+    fi
+    if [[ "$check_dns" == "y" || "$check_dns" == "Y" ]]; then
     echo
     skyblue "请选择 Cloudflare 认证方式："
     echo " 1) API Token（推荐）"
