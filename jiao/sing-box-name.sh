@@ -714,286 +714,168 @@ show_connections() {
     local type="$3"
     local port="$4"
     local user="$5"
-
-    title "用户节点连接"
-
-    echo -e "${skyblue}用户:${re} $user"
-    echo -e "${skyblue}节点:${re} $tag"
-    echo -e "${skyblue}协议:${re} $type"
-    echo -e "${skyblue}端口:${re} ${port:-未知}"
-    echo
-
-    if [ -z "$file" ] || [ -z "$tag" ] || [ -z "$type" ] || [ -z "$user" ]; then
-        red "用户参数异常"
-        echo
-        echo "file = [$file]"
-        echo "tag  = [$tag]"
-        echo "type = [$type]"
-        echo "port = [$port]"
-        echo "user = [$user]"
-        pause
-        return
-    fi
-
-    local config_file="$CONF_DIR/$file"
-
-    if [ ! -f "$config_file" ]; then
-        red "配置文件不存在:"
-        echo "$config_file"
-        pause
-        return
-    fi
-
-    local user_json
-    user_json="$(get_user_json "$file" "$tag" "$user")"
-
-    if [ -z "$user_json" ]; then
-        red "无法找到当前用户"
-        echo
-        echo "配置文件: $config_file"
-        echo "节点: $tag"
-        echo "用户: $user"
-        pause
-        return
-    fi
-
+    local user_json=""
     local auth=""
     local password=""
-
+    if [[ -z "$file" || -z "$tag" || -z "$type" || -z "$user" ]]; then
+        red "参数错误"
+        read -rp "按回车继续..."
+        return
+    fi
+    user_json="$(get_user_json "$file" "$tag" "$user")"
+    if [[ -z "$user_json" || "$user_json" == "null" ]]; then
+        red "无法找到用户：$user"
+        read -rp "按回车继续..."
+        return
+    fi
     case "$type" in
-        hysteria2|hysteria)
-            auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys
-import json
-d=json.loads(sys.argv[1])
-print(d.get("password",""))
-PY
-)"
+        hysteria2|hy2|hysteria)
+            auth="$(printf '%s' "$user_json" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("password",""))')"
             ;;
-
-        vmess|vless)
-    auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
-d=json.loads(sys.argv[1])
-print(d.get("uuid",""))
-PY
-)"
-    ;;
-tuic)
-    auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
-d=json.loads(sys.argv[1])
-print(d.get("uuid",""))
-PY
-)"
-    password="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
-d=json.loads(sys.argv[1])
-print(d.get("password",""))
-PY
-)"
-    ;;
-
-        trojan|anytls|shadowtls|shadowsocks)
-            auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys
-import json
-d=json.loads(sys.argv[1])
-print(d.get("password",""))
-PY
-)"
+        vless|vmess)
+            auth="$(printf '%s' "$user_json" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("uuid",""))')"
+            ;;
+        tuic)
+            auth="$(printf '%s' "$user_json" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("uuid",""))')"
+            password="$(printf '%s' "$user_json" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("password",""))')"
+            ;;
+        trojan)
+            auth="$(printf '%s' "$user_json" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("password",""))')"
+            ;;
+        *)
+            red "暂不支持协议：$type"
+            read -rp "按回车继续..."
+            return
             ;;
     esac
-
-    if [ -z "$auth" ]; then
-        red "无法获取当前用户 UUID/密码"
-        pause
+    if [[ -z "$auth" ]]; then
+        red "无法获取用户认证信息"
+        read -rp "按回车继续..."
         return
     fi
-
-    if [ ! -f "/etc/sing-box/url.txt" ]; then
+    if [[ "$type" == "tuic" && -z "$password" ]]; then
+        red "无法获取 TUIC 用户密码"
+        read -rp "按回车继续..."
+        return
+    fi
+    if [[ ! -f "/etc/sing-box/url.txt" ]]; then
         red "未找到 /etc/sing-box/url.txt"
-        pause
+        read -rp "按回车继续..."
         return
     fi
-
-    echo -e "${green}节点连接:${re}"
     echo
-
+    skyblue "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    green "用户连接信息"
+    echo "用户: $user"
+    echo "节点: $tag"
+    echo "协议: $type"
+    echo "端口: $port"
+    skyblue "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     "$PYTHON" - "$type" "$auth" "$password" "/etc/sing-box/url.txt" <<'PY'
 import sys
-import base64
 import json
+import base64
 import urllib.parse
-
 typ = sys.argv[1].lower()
 auth = sys.argv[2]
 password = sys.argv[3]
 url_file = sys.argv[4]
-
-with open(url_file, "r", encoding="utf-8", errors="ignore") as f:
-    lines = [x.strip() for x in f if x.strip()]
-
+def b64decode_urlsafe(s):
+    s = s.strip()
+    s += "=" * (-len(s) % 4)
+    s = s.replace("-", "+").replace("_", "/")
+    return base64.b64decode(s).decode("utf-8")
+def b64encode_urlsafe(s):
+    return base64.b64encode(s.encode("utf-8")).decode("ascii").rstrip("=")
+try:
+    with open(url_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+except Exception as e:
+    print("读取 url.txt 失败:", e)
+    sys.exit(1)
 found = False
-
-for line in lines:
+for raw in lines:
+    line = raw.strip()
+    if not line:
+        continue
     try:
         low = line.lower()
-
-        # Hysteria2
-        if typ == "hysteria2":
-            if not low.startswith(("hysteria2://", "hy2://")):
+        if typ in ("hysteria2", "hy2"):
+            if not low.startswith("hysteria2://") and not low.startswith("hy2://"):
                 continue
-
-            scheme, rest = line.split("://", 1)
-
+            scheme_end = line.find("://")
+            scheme = line[:scheme_end]
+            rest = line[scheme_end + 3:]
             if "@" not in rest:
                 continue
-
             _, suffix = rest.split("@", 1)
-
-            print(
-                scheme + "://" +
-                urllib.parse.quote(auth, safe="") +
-                "@" + suffix
-            )
-
+            print(scheme + "://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
             found = True
             continue
-
-        # VLESS
-        if typ == "vless":
-            if not low.startswith("vless://"):
-                continue
-
-            rest = line[len("vless://"):]
-
-            if "@" not in rest:
-                continue
-
-            _, suffix = rest.split("@", 1)
-
-            print(
-                "vless://" +
-                urllib.parse.quote(auth, safe="") +
-                "@" + suffix
-            )
-
-            found = True
-            continue
-
-        # Trojan
-        if typ == "trojan":
-            if not low.startswith("trojan://"):
-                continue
-
-            rest = line[len("trojan://"):]
-
-            if "@" not in rest:
-                continue
-
-            _, suffix = rest.split("@", 1)
-
-            print(
-                "trojan://" +
-                urllib.parse.quote(auth, safe="") +
-                "@" + suffix
-            )
-
-            found = True
-            continue
-
-        # Hysteria
         if typ == "hysteria":
             if not low.startswith("hysteria://"):
                 continue
-
             rest = line[len("hysteria://"):]
-
             if "@" not in rest:
                 continue
-
             _, suffix = rest.split("@", 1)
-
-            print(
-                "hysteria://" +
-                urllib.parse.quote(auth, safe="") +
-                "@" + suffix
-            )
-
+            print("hysteria://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
             found = True
             continue
-
-        # TUIC
-if typ == "tuic":
-    if not low.startswith("tuic://"):
-        continue
-
-    rest = line[len("tuic://"):]
-
-    if "@" not in rest:
-        continue
-
-    _, suffix = rest.split("@", 1)
-
-    new_auth = (
-        urllib.parse.quote(auth, safe="") +
-        ":" +
-        urllib.parse.quote(password, safe="")
-    )
-
-    print("tuic://" + new_auth + "@" + suffix)
-
-    found = True
-    continue
-
-        # VMess
+        if typ == "vless":
+            if not low.startswith("vless://"):
+                continue
+            rest = line[len("vless://"):]
+            if "@" not in rest:
+                continue
+            _, suffix = rest.split("@", 1)
+            print("vless://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+            continue
+        if typ == "trojan":
+            if not low.startswith("trojan://"):
+                continue
+            rest = line[len("trojan://"):]
+            if "@" not in rest:
+                continue
+            _, suffix = rest.split("@", 1)
+            print("trojan://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+            continue
+        if typ == "tuic":
+            if not low.startswith("tuic://"):
+                continue
+            rest = line[len("tuic://"):]
+            if "@" not in rest:
+                continue
+            _, suffix = rest.split("@", 1)
+            new_auth = (
+                urllib.parse.quote(auth, safe="") +
+                ":" +
+                urllib.parse.quote(password, safe="")
+            )
+            print("tuic://" + new_auth + "@" + suffix)
+            found = True
+            continue
         if typ == "vmess":
             if not low.startswith("vmess://"):
                 continue
-
             encoded = line[len("vmess://"):].strip()
-
-            # URL-safe Base64 转标准 Base64
-            encoded = encoded.replace("-", "+").replace("_", "/")
-            encoded += "=" * ((4 - len(encoded) % 4) % 4)
-
-            try:
-                raw = base64.b64decode(encoded)
-                obj = json.loads(raw.decode("utf-8"))
-            except Exception:
-                continue
-
-            if not isinstance(obj, dict):
-                continue
-
-            if "id" not in obj:
-                continue
-
-            # 只修改 VMess UUID
+            decoded = b64decode_urlsafe(encoded)
+            obj = json.loads(decoded)
             obj["id"] = auth
-
-            new_raw = json.dumps(
-                obj,
-                ensure_ascii=False,
-                separators=(",", ":")
-            ).encode("utf-8")
-
-            new_encoded = base64.b64encode(new_raw).decode("utf-8")
-
-            print("vmess://" + new_encoded)
-
+            new_json = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+            print("vmess://" + b64encode_urlsafe(new_json))
             found = True
             continue
-
-    except Exception:
-        continue
-
+    except Exception as e:
+        print("处理连接失败:", e)
 if not found:
-    print("__NO_MATCH__")
+    print("url.txt 中没有找到对应协议的连接链接。")
 PY
-    echo  
-    pause
+    echo
+    skyblue "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    read -rp "按回车继续..."
 }
 
 user_menu() {
