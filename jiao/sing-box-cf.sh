@@ -3030,51 +3030,47 @@ allow_port() {
     local has_ufw=0
     local has_firewalld=0
     local has_nft=0
-
     command_exists ufw && has_ufw=1
     command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
     command_exists nft && has_nft=1
-
-    # 出站和基础规则
     [ "$has_ufw" -eq 1 ] && ufw --force default allow outgoing >/dev/null 2>&1
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --zone=public --set-target=ACCEPT >/dev/null 2>&1
-    
-    # 初始化 nftables 原生基础表和链（如果不存在）
     if [ "$has_nft" -eq 1 ]; then
         if ! nft list table inet filter &>/dev/null; then
             nft add table inet filter
+        fi
+        if ! nft list chain inet filter input &>/dev/null; then
             nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }'
+        fi
+        if ! nft list chain inet filter forward &>/dev/null; then
             nft add chain inet filter forward '{ type filter hook forward priority 0; policy accept; }'
+        fi
+        if ! nft list chain inet filter output &>/dev/null; then
             nft add chain inet filter output '{ type filter hook output priority 0; policy accept; }'
         fi
-        # 放行本地回环和 ICMP (Ping)
+        if ! nft list chain inet filter script_input &>/dev/null; then
+            nft add chain inet filter script_input
+        fi
+        if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_input'; then
+            nft insert rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
+        fi
         nft add rule inet filter input iif "lo" accept 2>/dev/null
         nft add rule inet filter input ip protocol icmp accept 2>/dev/null
         nft add rule inet filter input ip6 nexthdr icmpv6 accept 2>/dev/null
     fi
-
-    # 入站规则处理
     for rule in "$@"; do
         local port=${rule%/*}
         local proto=${rule#*/}
-        # 如果传入的参数没有包含协议(例如直接传入 80 而不是 80/tcp)，则默认使用 tcp
         [ "$port" == "$proto" ] && proto="tcp"
-
         [ "$has_ufw" -eq 1 ] && ufw allow in ${port}/${proto} >/dev/null 2>&1
         [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --add-port=${port}/${proto} >/dev/null 2>&1
-        
-        # 原生 nftables 内存规则写入 (inet 自动双栈生效)
         if [ "$has_nft" -eq 1 ]; then
-            # 避免重复添加规则
-            if ! nft list chain inet filter input 2>/dev/null | grep -qw "$proto dport $port"; then
-                nft add rule inet filter input $proto dport $port accept comment "ScriptManaged" 2>/dev/null
+            if ! nft list chain inet filter script_input 2>/dev/null | grep -qw "$proto dport $port"; then
+                nft add rule inet filter script_input $proto dport $port accept comment "ScriptManaged" 2>/dev/null
             fi
         fi
     done
-
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
-
-    # 规则持久化：直接导出当前原生规则覆盖配置文件
     if [ "$has_nft" -eq 1 ]; then
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
