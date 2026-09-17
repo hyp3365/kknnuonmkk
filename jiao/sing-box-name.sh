@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+export LANG=en_US.UTF-8
 BASE_DIR="/etc/sing-box"
 CONF_DIR="$BASE_DIR/conf"
 DATA_DIR="$BASE_DIR/user_manager"
@@ -7,32 +7,42 @@ BACKUP_DIR="$DATA_DIR/backups"
 SINGBOX="$BASE_DIR/sing-box"
 SERVICE="sing-box"
 PYTHON="$(command -v python3 2>/dev/null || true)"
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 mkdir -p "$DATA_DIR" "$BACKUP_DIR"
 chmod 700 "$DATA_DIR" "$BACKUP_DIR"
-clear
-echo "========================================"
-echo "        sing-box 用户管理"
-echo "========================================"
 if [ ! -d "$CONF_DIR" ]; then
-    echo
-    echo "错误：找不到 sing-box 配置目录："
-    echo "$CONF_DIR"
+    red "错误：找不到 sing-box 配置目录：$CONF_DIR"
     exit 1
 fi
 if [ ! -x "$SINGBOX" ]; then
-    echo
-    echo "错误：找不到 sing-box："
-    echo "$SINGBOX"
+    red "错误：找不到 sing-box：$SINGBOX"
     exit 1
 fi
 if [ -z "$PYTHON" ]; then
-    echo
-    echo "错误：VPS 没有安装 python3。"
+    red "错误：VPS 没有安装 python3。"
     exit 1
 fi
 pause() {
     echo
     read -rp "按回车继续..." _
+}
+title() {
+    clear
+    echo -e "${green}╔════════════════════════════════════════╗${re}"
+    echo -e "${green}║${re}          ${skyblue}sing-box 用户管理${re}          ${green}║${re}"
+    echo -e "${green}╚════════════════════════════════════════╝${re}"
+    echo
 }
 scan_nodes() {
     "$PYTHON" - "$CONF_DIR" <<'PY'
@@ -63,26 +73,26 @@ PY
 }
 select_node() {
     NODE_LINES=()
+    echo -e "${green}┌────────────────────────────────────────┐${re}"
+    echo -e "${green}│${re}              ${skyblue}选择节点${re}              ${green}│${re}"
+    echo -e "${green}└────────────────────────────────────────┘${re}"
     echo
-    echo "========================================"
-    echo "              选择节点"
-    echo "========================================"
     local n=1
     while IFS=$'\t' read -r file index tag type count; do
         [ -z "${file:-}" ] && continue
         NODE_LINES[$n]="$file"$'\t'"$index"$'\t'"$tag"$'\t'"$type"$'\t'"$count"
-        printf "%2d. %-25s %-15s 用户:%s\n" "$n" "$tag" "$type" "$count"
+        printf " ${yellow}%2d${re}) ${skyblue}%-25s${re} ${purple}%-15s${re} ${green}用户:%s${re}\n" "$n" "$tag" "$type" "$count"
         ((n++))
     done < <(scan_nodes)
     if [ "$n" -eq 1 ]; then
         echo
-        echo "没有找到带 users[] 的入站节点。"
+        red "没有找到带 users[] 的入站节点。"
         return 1
     fi
     echo
-    read -rp "请输入节点编号: " choice
+    reading "请输入节点编号: " choice
     if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -ge "$n" ]; then
-        echo "选择无效。"
+        red "选择无效。"
         return 1
     fi
     IFS=$'\t' read -r SELECT_FILE SELECT_INDEX SELECT_TAG SELECT_TYPE SELECT_COUNT <<< "${NODE_LINES[$choice]}"
@@ -126,13 +136,6 @@ import secrets
 import string
 chars = string.ascii_letters + string.digits
 print("".join(secrets.choice(chars) for _ in range(32)))
-PY
-}
-generate_ss_password() {
-    "$PYTHON" - <<'PY'
-import secrets
-import base64
-print(base64.b64encode(secrets.token_bytes(24)).decode())
 PY
 }
 backup_file() {
@@ -199,8 +202,6 @@ elif typ == "hysteria":
         user["auth"] = auth1
 elif typ == "hysteria-realm":
     user["token"] = auth1
-    if "max_realms" in existing:
-        user["max_realms"] = existing.get("max_realms", 0)
 else:
     raise SystemExit("不支持的协议")
 users.append(user)
@@ -209,32 +210,15 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 }
-show_user_result() {
-    echo
-    echo "========================================"
-    echo "              用户信息"
-    echo "========================================"
-    echo "节点     : $SELECT_TAG"
-    echo "协议     : $SELECT_TYPE"
-    echo "用户名   : $NEW_NAME"
-    if [ -n "${AUTH1:-}" ]; then
-        echo "认证信息 : $AUTH1"
-    fi
-    if [ -n "${AUTH2:-}" ]; then
-        echo "密码     : $AUTH2"
-    fi
-    echo "配置文件 : $SELECT_FILE"
-    echo "========================================"
-}
 reload_after_check() {
     echo
-    echo "正在检查 sing-box 配置..."
+    echo -e "${skyblue}正在检查 sing-box 配置...${re}"
     if ! "$SINGBOX" check -C "$CONF_DIR"; then
         return 1
     fi
-    echo "配置检查通过。"
+    green "配置检查通过。"
     echo
-    echo "正在重新加载 sing-box..."
+    echo -e "${skyblue}正在重新加载 sing-box...${re}"
     if ! systemctl reload "$SERVICE"; then
         return 1
     fi
@@ -247,12 +231,12 @@ reload_after_check() {
 restore_backup() {
     local backup="$1"
     local target="$2"
-    echo
-    echo "正在恢复原配置..."
+    yellow "正在恢复原配置..."
     cp -a "$backup" "$target"
-    echo "原配置已恢复。"
+    green "原配置已恢复。"
 }
 add_user() {
+    title
     if ! select_node; then
         pause
         return
@@ -261,86 +245,94 @@ add_user() {
     AUTH1=""
     AUTH2=""
     echo
-    echo "========================================"
-    echo "              新增用户"
-    echo "========================================"
-    echo "节点：$SELECT_TAG"
-    echo "协议：$SELECT_TYPE"
-    echo "用户名：$NEW_NAME"
+    echo -e "${green}┌────────────────────────────────────────┐${re}"
+    echo -e "${green}│${re}              ${skyblue}新增用户${re}              ${green}│${re}"
+    echo -e "${green}└────────────────────────────────────────┘${re}"
+    echo
+    echo -e " ${yellow}节点${re}   : ${skyblue}$SELECT_TAG${re}"
+    echo -e " ${yellow}协议${re}   : ${purple}$SELECT_TYPE${re}"
+    echo -e " ${yellow}用户名${re} : ${green}$NEW_NAME${re}"
     echo
     case "$SELECT_TYPE" in
-        hysteria2|trojan|anytls|shadowtls|shadowsocks|naive|socks|http|mixed)
-            read -rp "密码（直接回车自动生成）: " AUTH1
+        hysteria2)
+            echo -e "${skyblue}Hysteria2 用户密码使用 UUID 格式。${re}"
+            read -rp "UUID（直接回车自动生成）: " AUTH1
+            [ -n "$AUTH1" ] || AUTH1="$(generate_uuid)"
+            ;;
+        trojan|anytls|shadowtls|shadowsocks|naive|socks|http|mixed)
+            reading "密码（直接回车自动生成）: " AUTH1
             [ -n "$AUTH1" ] || AUTH1="$(generate_password)"
             ;;
         vmess|vless)
-            read -rp "UUID（直接回车自动生成）: " AUTH1
+            reading "UUID（直接回车自动生成）: " AUTH1
             [ -n "$AUTH1" ] || AUTH1="$(generate_uuid)"
             ;;
         tuic)
-            read -rp "UUID（直接回车自动生成）: " AUTH1
+            reading "UUID（直接回车自动生成）: " AUTH1
             [ -n "$AUTH1" ] || AUTH1="$(generate_uuid)"
-            read -rp "密码（直接回车自动生成）: " AUTH2
+            reading "密码（直接回车自动生成）: " AUTH2
             [ -n "$AUTH2" ] || AUTH2="$(generate_password)"
             ;;
         hysteria)
-            read -rp "认证密码（直接回车自动生成）: " AUTH1
+            reading "认证密码（直接回车自动生成）: " AUTH1
             [ -n "$AUTH1" ] || AUTH1="$(generate_password)"
             ;;
         hysteria-realm)
-            read -rp "Token（直接回车自动生成）: " AUTH1
+            reading "Token（直接回车自动生成）: " AUTH1
             [ -n "$AUTH1" ] || AUTH1="$(generate_password)"
             ;;
         *)
-            echo
-            echo "当前协议暂未支持新增用户：$SELECT_TYPE"
+            red "当前协议暂未支持新增用户：$SELECT_TYPE"
             pause
             return
             ;;
     esac
     echo
-    echo "========================================"
-    echo "即将添加"
-    echo "========================================"
-    echo "节点     : $SELECT_TAG"
-    echo "协议     : $SELECT_TYPE"
-    echo "用户名   : $NEW_NAME"
-    echo "认证信息 : $AUTH1"
-    [ -n "$AUTH2" ] && echo "密码     : $AUTH2"
-    echo "========================================"
+    echo -e "${green}┌────────────────────────────────────────┐${re}"
+    echo -e "${green}│${re}              ${skyblue}用户信息${re}              ${green}│${re}"
+    echo -e "${green}└────────────────────────────────────────┘${re}"
     echo
-    read -rp "确认添加？[y/N]: " confirm
+    echo -e " ${yellow}节点${re}     : $SELECT_TAG"
+    echo -e " ${yellow}协议${re}     : $SELECT_TYPE"
+    echo -e " ${yellow}用户名${re}   : ${green}$NEW_NAME${re}"
+    echo -e " ${yellow}认证信息${re} : ${green}$AUTH1${re}"
+    [ -n "$AUTH2" ] && echo -e " ${yellow}密码${re}     : ${green}$AUTH2${re}"
+    echo
+    reading "确认添加？[y/N]: " confirm
     [[ "$confirm" =~ ^[Yy]$ ]] || {
-        echo "已取消。"
+        yellow "已取消。"
         pause
         return
     }
     local backup
     backup="$(backup_file "$SELECT_FILE")"
     echo
-    echo "备份：$backup"
+    echo -e "${skyblue}备份：${re}$backup"
     if ! add_user_json; then
-        echo
-        echo "修改失败。"
+        red "修改失败。"
         restore_backup "$backup" "$SELECT_FILE"
         pause
         return
     fi
     if ! reload_after_check; then
-        echo
-        echo "sing-box 检查或 reload 失败。"
+        red "sing-box 检查或 reload 失败。"
         restore_backup "$backup" "$SELECT_FILE"
         "$SINGBOX" check -C "$CONF_DIR" >/dev/null 2>&1 || true
         systemctl reload "$SERVICE" >/dev/null 2>&1 || true
-        echo "已恢复原配置。"
         pause
         return
     fi
     echo
-    echo "========================================"
-    echo "          用户添加成功"
-    echo "========================================"
-    show_user_result
+    echo -e "${green}╔════════════════════════════════════════╗${re}"
+    echo -e "${green}║${re}          ${green}✓ 用户添加成功${re}          ${green}║${re}"
+    echo -e "${green}╚════════════════════════════════════════╝${re}"
+    echo
+    echo -e " ${yellow}节点${re}     : $SELECT_TAG"
+    echo -e " ${yellow}协议${re}     : $SELECT_TYPE"
+    echo -e " ${yellow}用户名${re}   : ${green}$NEW_NAME${re}"
+    echo -e " ${yellow}认证信息${re} : ${green}$AUTH1${re}"
+    [ -n "$AUTH2" ] && echo -e " ${yellow}密码${re}     : ${green}$AUTH2${re}"
+    echo
     pause
 }
 list_users() {
@@ -354,58 +346,62 @@ with open(path, "r", encoding="utf-8") as f:
 inbound = data["inbounds"][index]
 users = inbound.get("users", [])
 print()
-print("========================================")
-print("              用户列表")
-print("========================================")
 if not users:
     print("暂无用户")
 else:
     for i, user in enumerate(users, 1):
-        print(f"{i}. {user.get('name', user.get('username', '(无用户名)'))}")
+        name = user.get("name") or user.get("username") or "(无用户名)"
+        print(f"{i}. {name}")
         if "uuid" in user:
-            print(f"   UUID     : {user['uuid']}")
+            print(f"   UUID      : {user['uuid']}")
         if "username" in user:
-            print(f"   Username : {user['username']}")
+            print(f"   Username  : {user['username']}")
         if "password" in user:
-            print(f"   Password : {user['password']}")
+            print(f"   Password  : {user['password']}")
         if "auth_str" in user:
-            print(f"   Auth     : {user['auth_str']}")
+            print(f"   Auth      : {user['auth_str']}")
         if "auth" in user:
-            print(f"   Auth     : {user['auth']}")
+            print(f"   Auth      : {user['auth']}")
         if "token" in user:
-            print(f"   Token    : {user['token']}")
+            print(f"   Token     : {user['token']}")
         if "flow" in user:
-            print(f"   Flow     : {user['flow']}")
-print("========================================")
+            print(f"   Flow      : {user['flow']}")
 PY
 }
 view_users() {
+    title
     if ! select_node; then
         pause
         return
     fi
     echo
-    echo "节点：$SELECT_TAG"
-    echo "协议：$SELECT_TYPE"
-    echo "配置：$SELECT_FILE"
+    echo -e "${green}┌────────────────────────────────────────┐${re}"
+    echo -e "${green}│${re}              ${skyblue}用户列表${re}              ${green}│${re}"
+    echo -e "${green}└────────────────────────────────────────┘${re}"
+    echo
+    echo -e " ${yellow}节点${re} : ${skyblue}$SELECT_TAG${re}"
+    echo -e " ${yellow}协议${re} : ${purple}$SELECT_TYPE${re}"
+    echo
     list_users
     pause
 }
 delete_user() {
+    title
     if ! select_node; then
         pause
         return
     fi
     USER_LINES=()
     echo
-    echo "========================================"
-    echo "              删除用户"
-    echo "========================================"
+    echo -e "${green}┌────────────────────────────────────────┐${re}"
+    echo -e "${green}│${re}              ${red}删除用户${re}              ${green}│${re}"
+    echo -e "${green}└────────────────────────────────────────┘${re}"
+    echo
     local n=1
     while IFS=$'\t' read -r index name; do
         [ -z "${index:-}" ] && continue
         USER_LINES[$n]="$index"$'\t'"$name"
-        printf "%2d. %s\n" "$n" "$name"
+        printf " ${yellow}%2d${re}) ${skyblue}%s${re}\n" "$n" "$name"
         ((n++))
     done < <("$PYTHON" - "$SELECT_FILE" "$SELECT_INDEX" <<'PY'
 import json
@@ -421,33 +417,33 @@ for i, user in enumerate(users):
 PY
 )
     if [ "$n" -eq 1 ]; then
-        echo
-        echo "该节点没有用户。"
+        yellow "该节点没有用户。"
         pause
         return
     fi
     echo
-    read -rp "请输入用户编号: " choice
+    reading "请输入用户编号: " choice
     if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -ge "$n" ]; then
-        echo "选择无效。"
+        red "选择无效。"
         pause
         return
     fi
     IFS=$'\t' read -r USER_INDEX USER_NAME <<< "${USER_LINES[$choice]}"
     echo
-    echo "节点：$SELECT_TAG"
-    echo "用户：$USER_NAME"
+    echo -e " ${yellow}节点${re} : $SELECT_TAG"
+    echo -e " ${yellow}用户${re} : ${red}$USER_NAME${re}"
     echo
-    read -rp "确认删除？输入 DELETE 确认: " confirm
+    echo -e "${red}警告：删除后该用户将立即失效。${re}"
+    reading "输入 DELETE 确认删除: " confirm
     if [ "$confirm" != "DELETE" ]; then
-        echo "已取消。"
+        yellow "已取消。"
         pause
         return
     fi
     local backup
     backup="$(backup_file "$SELECT_FILE")"
     echo
-    echo "备份：$backup"
+    echo -e "${skyblue}备份：${re}$backup"
     if ! "$PYTHON" - "$SELECT_FILE" "$SELECT_INDEX" "$USER_INDEX" <<'PY'
 import json
 import sys
@@ -468,40 +464,38 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
     then
-        echo "删除失败。"
+        red "删除失败。"
         restore_backup "$backup" "$SELECT_FILE"
         pause
         return
     fi
     if ! reload_after_check; then
-        echo
-        echo "sing-box 检查或 reload 失败。"
+        red "sing-box 检查或 reload 失败。"
         restore_backup "$backup" "$SELECT_FILE"
         "$SINGBOX" check -C "$CONF_DIR" >/dev/null 2>&1 || true
         systemctl reload "$SERVICE" >/dev/null 2>&1 || true
-        echo "已恢复原配置。"
         pause
         return
     fi
     echo
-    echo "========================================"
-    echo "用户删除成功：$USER_NAME"
-    echo "========================================"
+    echo -e "${green}╔════════════════════════════════════════╗${re}"
+    echo -e "${green}║${re}          ${green}✓ 用户删除成功${re}          ${green}║${re}"
+    echo -e "${green}╚════════════════════════════════════════╝${re}"
+    echo
+    echo -e " ${yellow}节点${re} : $SELECT_TAG"
+    echo -e " ${yellow}用户${re} : ${red}$USER_NAME${re}"
+    echo
     pause
 }
 main_menu() {
     while true; do
-        clear
-        echo "========================================"
-        echo "          sing-box 用户管理"
-        echo "========================================"
+        title
+        echo -e "${green}  1${re}) ${skyblue}新增用户${re}"
+        echo -e "${green}  2${re}) ${red}删除用户${re}"
+        echo -e "${green}  3${re}) ${yellow}查看用户${re}"
+        echo -e "${green}  0${re}) 退出"
         echo
-        echo "1. 新增用户"
-        echo "2. 删除用户"
-        echo "3. 查看用户"
-        echo "0. 退出"
-        echo
-        read -rp "请选择: " choice
+        reading "请选择: " choice
         case "$choice" in
             1)
                 add_user
@@ -517,12 +511,10 @@ main_menu() {
                 exit 0
                 ;;
             *)
-                echo "无效选择。"
+                red "无效选择。"
                 sleep 1
                 ;;
         esac
     done
 }
 main_menu
-
-
