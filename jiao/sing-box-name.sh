@@ -912,9 +912,11 @@ set_limit() {
     title "流量限制"
     show_limit "$tag" "$user"
     echo
-    echo -e "${skyblue}支持单位:${re} MB / GB"
-    echo -e "${yellow}例如:${re} 100MB、500MB、1GB、2GB"
-    echo -e "${yellow}输入 0 表示取消限制${re}"
+    echo -e "${skyblue}支持:${re}"
+    echo -e "  2       = 2GB"
+    echo -e "  100MB   = 100MB"
+    echo -e "  1GB     = 1GB"
+    echo -e "  0       = 关闭流量限制"
     echo
     local input
     read -rp "$(green "请输入流量限制: ")" input
@@ -924,71 +926,78 @@ set_limit() {
 import sys
 import json
 import os
-
 fn = sys.argv[1]
-
 data = {
-    "limit_gb": 0,
-    "limit_mb": 0,
-    "enabled": False
+    "limit_value": 0,
+    "limit_unit": "GB",
+    "limit_bytes": 0,
+    "period": "none",
+    "enabled": False,
+    "disabled_by_limit": False
 }
-
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(fn, 0o600)
 PY
-        green "流量限制已取消"
+        green "流量限制已关闭"
         pause
         return
     fi
-    if ! [[ "$input" =~ ^[0-9]+([.][0-9]+)?(MB|GB)$ ]]; then
-        red "格式错误，请输入例如：100MB、500MB、1GB、2GB"
-        pause
-        return
-    fi
-    local number="${input%MB}"
-    local unit="MB"
-    if [[ "$input" == *GB ]]; then
+    local number
+    local unit
+    if [[ "$input" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        number="$input"
+        unit="GB"
+    elif [[ "$input" =~ ^[0-9]+([.][0-9]+)?MB$ ]]; then
+        number="${input%MB}"
+        unit="MB"
+    elif [[ "$input" =~ ^[0-9]+([.][0-9]+)?GB$ ]]; then
         number="${input%GB}"
         unit="GB"
+    else
+        red "格式错误"
+        echo "例如：2、100MB、1GB、500MB"
+        pause
+        return
     fi
     if ! "$PYTHON" - "$number" "$unit" "$lf" "$tag" "$user" <<'PY'
 import sys
 import json
 import os
-
 number = float(sys.argv[1])
 unit = sys.argv[2]
 fn = sys.argv[3]
 tag = sys.argv[4]
 user = sys.argv[5]
-
 if number <= 0:
     raise SystemExit("限制必须大于 0")
-
 if unit == "GB":
-    limit_gb = number
-    limit_mb = number * 1024
+    limit_bytes = int(number * 1024 * 1024 * 1024)
 else:
-    limit_mb = number
-    limit_gb = number / 1024
-
+    limit_bytes = int(number * 1024 * 1024)
+old = {}
+if os.path.exists(fn):
+    try:
+        with open(fn, "r", encoding="utf-8") as f:
+            old = json.load(f)
+    except:
+        pass
 data = {
     "inbound_tag": tag,
     "user": user,
-    "limit_gb": limit_gb,
-    "limit_mb": limit_mb,
     "limit_value": number,
     "limit_unit": unit,
-    "enabled": True
+    "limit_bytes": limit_bytes,
+    "period": old.get("period", "none"),
+    "period_start": old.get("period_start"),
+    "period_end": old.get("period_end"),
+    "enabled": True,
+    "disabled_by_limit": False
 }
-
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(fn, 0o600)
 PY
     then
@@ -996,14 +1005,76 @@ PY
         pause
         return
     fi
-    green "流量限制已设置为 ${number}${unit}"
-    echo -e "${skyblue}换算:${re} ${number}${unit}"
-    if [ "$unit" = "GB" ]; then
-        echo -e "${skyblue}约等于:${re} ${number} GB / $(awk "BEGIN {printf \"%.0f\", $number * 1024}") MB"
-    else
-        echo -e "${skyblue}约等于:${re} ${number} MB / $(awk "BEGIN {printf \"%.6f\", $number / 1024}") GB"
+    green "流量限制已设置：${number}${unit}"
+    pause
+}
+
+set_limit_period() {
+    local tag="$1"
+    local user="$2"
+    local lf
+    lf="$(get_limit_file "$tag" "$user")"
+    title "设置时间周期"
+    if [ ! -f "$lf" ]; then
+        red "请先设置流量限制"
+        pause
+        return
     fi
-    yellow "注意：当前版本只保存限制值，尚未自动达到额度后停用用户。"
+    echo "1) 每天重置"
+    echo "2) 每月重置"
+    echo "3) 不重置"
+    echo "0) 返回"
+    echo
+    local choice
+    read -rp "$(green "请选择: ")" choice
+    local period=""
+    case "$choice" in
+        1) period="day" ;;
+        2) period="month" ;;
+        3) period="none" ;;
+        0) return ;;
+        *) red "无效选择"; pause; return ;;
+    esac
+    "$PYTHON" - "$lf" "$period" <<'PY'
+import sys
+import json
+import os
+from datetime import datetime, timezone, timedelta
+fn = sys.argv[1]
+period = sys.argv[2]
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except:
+    data = {}
+now = datetime.now(timezone.utc)
+if period == "day":
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+elif period == "month":
+    if now.month == 12:
+        end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+else:
+    start = None
+    end = None
+data["period"] = period
+data["period_start"] = start.isoformat() if start else None
+data["period_end"] = end.isoformat() if end else None
+data["enabled"] = True
+data["disabled_by_limit"] = False
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+os.chmod(fn, 0o600)
+PY
+    case "$period" in
+        day) green "时间周期已设置：每天重置" ;;
+        month) green "时间周期已设置：每月重置" ;;
+        none) green "时间周期已设置：不重置" ;;
+    esac
     pause
 }
 
@@ -1414,8 +1485,41 @@ PY
                 modify_auth "$file" "$tag" "$type" "$user"
                 ;;
             2)
+    while true; do
+        title "流量限制"
+        show_limit "$tag" "$user"
+        echo
+        echo "1) 设置流量"
+        echo "2) 设置时间"
+        echo "3) 查看限制状态"
+        echo "4) 关闭流量限制"
+        echo "0) 返回"
+        echo
+        read -rp "$(green "请选择: ")" limit_choice
+        case "$limit_choice" in
+            1)
                 set_limit "$tag" "$user"
                 ;;
+            2)
+                set_limit_period "$tag" "$user"
+                ;;
+            3)
+                show_limit "$tag" "$user"
+                pause
+                ;;
+            4)
+                set_limit "$tag" "$user"
+                ;;
+            0)
+                break
+                ;;
+            *)
+                red "无效选择"
+                pause
+                ;;
+        esac
+    done
+    ;;
             3)
                 show_user_traffic "$user"
                 ;;
