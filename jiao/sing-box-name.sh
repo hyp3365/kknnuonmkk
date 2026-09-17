@@ -27,10 +27,6 @@ SINGBOX="$BASE_DIR/sing-box"
 SERVICE="sing-box"
 PYTHON="$(command -v python3 2>/dev/null || true)"
 
-TRAFFIC_DIR="$DATA_DIR/traffic"
-TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
-
-
 init_traffic() {
     mkdir -p "$TRAFFIC_DIR"
     if [ ! -f "$TRAFFIC_STATE" ]; then
@@ -345,18 +341,34 @@ PY
     fi
 }
 
+init_traffic_service() {
+    local service_file="/etc/systemd/system/singbox-traffic.service"
+    cat > "$service_file" <<EOF
+[Unit]
+Description=sing-box User Traffic Statistics
+After=sing-box.service
+Wants=sing-box.service
+
+[Service]
+Type=simple
+ExecStart=$PYTHON $TRAFFIC_SCRIPT
+Restart=always
+RestartSec=3
+User=root
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    chmod 644 "$service_file"
+    systemctl daemon-reload
+    systemctl enable singbox-traffic.service >/dev/null 2>&1
+    systemctl restart singbox-traffic.service >/dev/null 2>&1
+}
 
 mkdir -p "$DATA_DIR" "$BACKUP_DIR" "$LIMIT_DIR"
 init_traffic
-
-if [ ! -f "$TRAFFIC_STATE" ]; then
-    cat > "$TRAFFIC_STATE" <<'EOF'
-{
-  "users": {},
-  "connections": {}
-}
-EOF
-fi
+init_traffic_service
 
 if [ ! -x "$SINGBOX" ]; then
     red "错误：未找到 $SINGBOX"
