@@ -7344,29 +7344,36 @@ fail2ban_manage() {
         echo "========== Fail2ban 管理 =========="
         if ! command -v fail2ban-client >/dev/null 2>&1; then
             red "Fail2ban 未安装"
-            read -p "是否安装 Fail2ban? [Y/n]: " yn
+            read -r -p "是否安装 Fail2ban? [Y/n]: " yn
             yn=${yn:-Y}
             if [[ "$yn" =~ ^[Yy]$ ]]; then
-                if command -v apt >/dev/null 2>&1; then
-                    apt update && apt install -y fail2ban
-                elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
-                    # CentOS/RHEL 需要 EPEL 源
-                    yum install -y epel-release 2>/dev/null
-                    yum install -y fail2ban 2>/dev/null || dnf install -y fail2ban
+                if command -v apt-get >/dev/null 2>&1; then
+                    apt-get update && apt-get install -y fail2ban nftables
+                elif command -v dnf >/dev/null 2>&1; then
+                    dnf install -y fail2ban nftables
+                elif command -v yum >/dev/null 2>&1; then
+                    yum install -y epel-release 2>/dev/null || true
+                    yum install -y fail2ban nftables
                 elif command -v apk >/dev/null 2>&1; then
-                    apk add fail2ban
+                    apk add fail2ban nftables
                 else
                     red "不支持的系统"
                     return
                 fi
-                systemctl enable fail2ban 2>/dev/null || rc-update add fail2ban default 2>/dev/null
+                if ! command -v fail2ban-client >/dev/null 2>&1; then
+                    red "Fail2ban 安装失败"
+                    read -r -p "按回车继续..."
+                    continue
+                fi
                 green "Fail2ban 安装完成"
             else
                 return
             fi
         fi
         echo ""
-        if systemctl is-active fail2ban >/dev/null 2>&1; then
+        if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet fail2ban; then
+            green "Fail2ban 状态: 运行中"
+        elif command -v rc-service >/dev/null 2>&1 && rc-service fail2ban status >/dev/null 2>&1; then
             green "Fail2ban 状态: 运行中"
         else
             red "Fail2ban 状态: 未运行"
@@ -7381,15 +7388,15 @@ fail2ban_manage() {
         case "$fb_choice" in
         1)
             echo "----------------------------------------"
-            jail_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $4}')
-            jail_list=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d: -f2)
+            jail_count=$(fail2ban-client status 2>/dev/null | awk -F': ' '/Number of jail/{print $2; exit}')
+            jail_list=$(fail2ban-client status 2>/dev/null | awk -F': ' '/Jail list/{print $2; exit}')
             echo "|- 监控项数量：${jail_count:-0}"
             echo "\`- 监控列表：${jail_list:-无}"
             echo "----------------------------------------"
-            read -p "按回车继续..."
+            read -r -p "按回车继续..."
             ;;
         2)
-            read -p "请输入要查看的监控项名称（默认 sshd）： " jail_name
+            read -r -p "请输入要查看的监控项名称（默认 sshd）： " jail_name
             jail_name=${jail_name:-sshd}
             echo "----------------------------------------"
             fail2ban-client status "$jail_name" 2>/dev/null | sed \
@@ -7398,46 +7405,128 @@ fail2ban_manage() {
                 -e "s/|- Actions/|- 动作/g" \
                 -e "s/\`- Banned IP list/\`- 已封禁 IP 列表/g"
             echo "----------------------------------------"
-            read -p "按回车继续..."
+            read -r -p "按回车继续..."
             ;;
-           3)
-            ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | tail -n1)
-            [ -z "$ssh_port" ] && ssh_port=22
-            if command -v apt >/dev/null 2>&1; then
-                apt install -y python3-systemd >/dev/null 2>&1
-            elif command -v yum >/dev/null 2>&1; then
-                yum install -y python3-systemd >/dev/null 2>&1
+        3)
+            echo "----------------------------------------"
+            if ! command -v nft >/dev/null 2>&1; then
+                if command -v apt-get >/dev/null 2>&1; then
+                    apt-get update && apt-get install -y nftables
+                elif command -v dnf >/dev/null 2>&1; then
+                    dnf install -y nftables
+                elif command -v yum >/dev/null 2>&1; then
+                    yum install -y nftables
+                elif command -v apk >/dev/null 2>&1; then
+                    apk add nftables
+                fi
             fi
-            cat > /etc/fail2ban/jail.local <<EOF
-[DEFAULT]
-findtime = 10m
-maxretry = 3
-bantime = 7d
-
+            if ! command -v nft >/dev/null 2>&1; then
+                red "未找到 nft 命令，无法配置 Fail2ban nftables 防护"
+                read -r -p "按回车继续..."
+                continue
+            fi
+            sshd_bin=$(command -v sshd 2>/dev/null)
+            if [ -z "$sshd_bin" ]; then
+                red "未找到 sshd，无法准确检测 SSH 端口"
+                read -r -p "按回车继续..."
+                continue
+            fi
+            ssh_cfg_ports=$("$sshd_bin" -T 2>/dev/null | awk '$1=="port" && $2 ~ /^[0-9]+$/ {print $2}' | sort -n -u | paste -sd, -)
+            ssh_listen_ports=$(ss -lntpH 2>/dev/null | awk '/sshd/ {x=$4; sub(/^.*:/,"",x); if (x ~ /^[0-9]+$/) print x}' | sort -n -u | paste -sd, -)
+            if [ -n "$ssh_listen_ports" ]; then
+                ssh_port=$(printf '%s\n' "$ssh_listen_ports" | tr ',' '\n' | while read -r p; do
+                    case ",${ssh_cfg_ports}," in
+                        *",${p},"*) echo "$p" ;;
+                    esac
+                done | sort -n -u | paste -sd, -)
+            else
+                ssh_port="$ssh_cfg_ports"
+            fi
+            [ -z "$ssh_port" ] && ssh_port=22
+            ssh_cfg_display=${ssh_cfg_ports:-未知}
+            ssh_listen_display=${ssh_listen_ports:-未检测到}
+            if command -v journalctl >/dev/null 2>&1; then
+                if ! python3 -c 'import systemd.journal' >/dev/null 2>&1; then
+                    if command -v apt-get >/dev/null 2>&1; then
+                        apt-get install -y python3-systemd >/dev/null 2>&1 || true
+                    elif command -v dnf >/dev/null 2>&1; then
+                        dnf install -y python3-systemd >/dev/null 2>&1 || true
+                    elif command -v yum >/dev/null 2>&1; then
+                        yum install -y python3-systemd >/dev/null 2>&1 || true
+                    fi
+                fi
+            fi
+            backend="auto"
+            if command -v journalctl >/dev/null 2>&1 && python3 -c 'import systemd.journal' >/dev/null 2>&1; then
+                backend="systemd"
+            fi
+            mkdir -p /etc/fail2ban/jail.d
+            cat > /etc/fail2ban/jail.d/99-script-sshd-nftables.local <<EOF2
 [sshd]
 enabled = true
 port = $ssh_port
 filter = sshd
-backend = systemd
-EOF
-
-            systemctl enable fail2ban 2>/dev/null
-            systemctl restart fail2ban 2>/dev/null
+backend = $backend
+findtime = 10m
+maxretry = 3
+bantime = 7d
+action = nftables-multiport[name=sshd, port="%(port)s", protocol="%(protocol)s", blocktype=drop]
+EOF2
+            if ! fail2ban-client -t >/dev/null 2>&1; then
+                red "Fail2ban 配置检查失败，未重启服务"
+                fail2ban-client -t 2>&1
+                echo "----------------------------------------"
+                read -r -p "按回车继续..."
+                continue
+            fi
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl enable fail2ban >/dev/null 2>&1 || true
+                if ! systemctl restart fail2ban; then
+                    red "Fail2ban 启动失败"
+                    journalctl -u fail2ban -n 30 --no-pager 2>/dev/null
+                    read -r -p "按回车继续..."
+                    continue
+                fi
+            elif command -v rc-update >/dev/null 2>&1; then
+                rc-update add fail2ban default >/dev/null 2>&1 || true
+                if ! rc-service fail2ban restart; then
+                    red "Fail2ban 启动失败"
+                    rc-service fail2ban status 2>&1
+                    read -r -p "按回车继续..."
+                    continue
+                fi
+            else
+                red "未找到 systemctl/rc-service，无法管理 Fail2ban 服务"
+                read -r -p "按回车继续..."
+                continue
+            fi
             sleep 2
-            if systemctl is-active fail2ban >/dev/null 2>&1; then
+            if (command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet fail2ban) || (command -v rc-service >/dev/null 2>&1 && rc-service fail2ban status >/dev/null 2>&1); then
                 green "Fail2ban 已启动"
-                green "SSH防护端口: $ssh_port"
+                green "SSH 防护端口: $ssh_port"
+                green "sshd 配置端口: $ssh_cfg_display"
+                green "sshd 实际监听端口: $ssh_listen_display"
+                green "后端: $backend"
                 green "规则: 10分钟失败3次，封禁7天"
+                green "封禁方式: nftables / drop"
+                echo ""
+                echo "Fail2ban nftables 状态:"
+                nft list table inet f2b-table 2>/dev/null || true
             else
                 red "Fail2ban 启动失败"
-                journalctl -u fail2ban -n 20 --no-pager
+                journalctl -u fail2ban -n 30 --no-pager 2>/dev/null || true
             fi
-            read -p "按回车继续..."
+            echo "----------------------------------------"
+            read -r -p "按回车继续..."
             ;;
         4)
-            systemctl stop fail2ban 2>/dev/null
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl stop fail2ban 2>/dev/null || true
+            elif command -v rc-service >/dev/null 2>&1; then
+                rc-service fail2ban stop 2>/dev/null || true
+            fi
             red "Fail2ban 已停止"
-            read -p "按回车继续..."
+            read -r -p "按回车继续..."
             ;;
         0)
             break
@@ -7594,9 +7683,19 @@ save_nft_rules() {
     local rules_content
     rules_content=$(nft list ruleset 2>/dev/null | awk '
         BEGIN { skip=0 }
-        /^table inet port_manager/ { skip=1 }
-        /^table / && !/^table inet port_manager/ { skip=0 }
-        { if(!skip) print }
+        /^table inet port_manager/ { skip=1; next }
+        /^table inet f2b-/ { skip=1; next }
+        /^table ip f2b-/ { skip=1; next }
+        /^table ip6 f2b-/ { skip=1; next }
+        /^table / {
+            if ($0 !~ /^table inet port_manager/ &&
+                $0 !~ /^table inet f2b-/ &&
+                $0 !~ /^table ip f2b-/ &&
+                $0 !~ /^table ip6 f2b-/) {
+                skip=0
+            }
+        }
+        !skip { print }
     ')
     if [ -z "$rules_content" ]; then
         return 1
