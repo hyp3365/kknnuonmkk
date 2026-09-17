@@ -49,11 +49,9 @@ JSON
 #!/usr/bin/env python3
 import json
 import os
-import sys
+import subprocess
 import time
 import signal
-import socket
-import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -71,12 +69,10 @@ SERVICE = "sing-box"
 GRPC_HOST = "127.0.0.1"
 GRPC_PORT = 9093
 GRPCURL = "/tmp/grpcurl"
-API_SECRET = "Wiy5ULBThVo6cbHyd8JyghSW"
-SAVE_INTERVAL = 15
+CONFIG_FILE = CONF_DIR / "config.json"
+SAVE_INTERVAL = 5
 RECONNECT_INTERVAL = 3
 running = True
-last_save = 0
-last_limit_check = 0
 def log(msg):
     try:
         TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -109,13 +105,6 @@ def load_json(path, default):
         return default
 def save_state(state):
     atomic_write_json(STATE_FILE, state, 0o600)
-def parse_dt(value):
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except Exception:
-        return None
 def period_window(period, now=None):
     if now is None:
         now = datetime.now().astimezone()
@@ -151,23 +140,9 @@ def find_user(tag, username):
         for inbound in cfg.get("inbounds", []):
             if inbound.get("tag") != tag:
                 continue
-            users = inbound.get("users", [])
-            for idx, user in enumerate(users):
+            for user in inbound.get("users", []):
                 if user.get("name") == username:
-                    return fn, idx, user
-    return None, None, None
-def find_user_in_file(fn, tag, username):
-    try:
-        with open(fn, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-    except Exception:
-        return None, None
-    for idx, inbound in enumerate(cfg.get("inbounds", [])):
-        if inbound.get("tag") != tag:
-            continue
-        for user in inbound.get("users", []):
-            if user.get("name") == username:
-                return cfg, idx
+                    return fn, user
     return None, None
 def backup_config(fn, reason):
     try:
@@ -222,8 +197,6 @@ def reload_singbox():
     except Exception as e:
         log(f"reload/restart异常: {e}")
         return False
-def write_config(fn, cfg):
-    atomic_write_json(fn, cfg, 0o600)
 def acquire_lock():
     try:
         import fcntl
@@ -243,27 +216,26 @@ def disable_user(limit_data):
     if lock is None:
         return False
     try:
-        fn, idx, user = find_user(tag, username)
+        fn, user = find_user(tag, username)
         if fn is None:
             saved = limit_data.get("saved_user")
             if saved:
-                limit_data["config_file"] = limit_data.get("config_file") or ""
                 return True
             log(f"达到流量限制，但找不到用户: {tag}/{username}")
             return False
         cfg = load_json(fn, None)
         if not isinstance(cfg, dict):
             return False
-        target_inbound = None
+        target = None
         for inbound in cfg.get("inbounds", []):
             if inbound.get("tag") == tag:
-                target_inbound = inbound
+                target = inbound
                 break
-        if target_inbound is None:
+        if target is None:
             return False
         saved_user = None
         new_users = []
-        for u in target_inbound.get("users", []):
+        for u in target.get("users", []):
             if u.get("name") == username:
                 saved_user = u
             else:
@@ -273,18 +245,20 @@ def disable_user(limit_data):
         backup = backup_config(fn, "quota-disable")
         if backup is None:
             return False
-        target_inbound["users"] = new_users
-        write_config(fn, cfg)
+        target["users"] = new_users
+        atomic_write_json(fn, cfg, 0o600)
         if not check_config():
             try:
-                os.replace(backup, fn)
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
             except Exception:
                 pass
-            log(f"达到流量限制后配置检查失败，已尝试恢复: {tag}/{username}")
+            log(f"达到流量限制后配置检查失败，已恢复: {tag}/{username}")
             return False
         if not reload_singbox():
             try:
-                os.replace(backup, fn)
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
             except Exception:
                 pass
             reload_singbox()
@@ -314,15 +288,12 @@ def restore_user(limit_data):
     try:
         fn = None
         config_file = limit_data.get("config_file")
-        if config_file:
-            p = Path(config_file)
-            if p.exists():
-                fn = p
+        if config_file and Path(config_file).exists():
+            fn = Path(config_file)
         if fn is None:
-            fn, _, _ = find_user(tag, username)
+            fn, _ = find_user(tag, username)
         if fn is None:
-            files = config_files()
-            for candidate in files:
+            for candidate in config_files():
                 cfg = load_json(candidate, {})
                 for inbound in cfg.get("inbounds", []):
                     if inbound.get("tag") == tag:
@@ -351,17 +322,19 @@ def restore_user(limit_data):
         if backup is None:
             return False
         target.setdefault("users", []).append(saved_user)
-        write_config(fn, cfg)
+        atomic_write_json(fn, cfg, 0o600)
         if not check_config():
             try:
-                os.replace(backup, fn)
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
             except Exception:
                 pass
             log(f"恢复用户时配置检查失败: {tag}/{username}")
             return False
         if not reload_singbox():
             try:
-                os.replace(backup, fn)
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
             except Exception:
                 pass
             reload_singbox()
@@ -379,58 +352,210 @@ def restore_user(limit_data):
         lock.close()
 def update_limit_file(fn, data):
     atomic_write_json(fn, data, 0o600)
+def ensure_user(state, username):
+    if not username:
+        return None
+    users = state.setdefault("users", {})
+    if username not in users:
+        users[username] = {
+            "uplink": 0,
+            "downlink": 0,
+            "total": 0,
+            "connections": 0,
+            "period_uplink": 0,
+            "period_downlink": 0,
+            "period_total": 0,
+            "period_start": None,
+            "period_end": None
+        }
+    else:
+        u = users[username]
+        u.setdefault("uplink", 0)
+        u.setdefault("downlink", 0)
+        u.setdefault("total", 0)
+        u.setdefault("connections", 0)
+        u.setdefault("period_uplink", 0)
+        u.setdefault("period_downlink", 0)
+        u.setdefault("period_total", 0)
+        u.setdefault("period_start", None)
+        u.setdefault("period_end", None)
+    return users[username]
+def add_traffic(state, username, uplink=0, downlink=0):
+    if not username:
+        return
+    uplink = max(0, int(uplink or 0))
+    downlink = max(0, int(downlink or 0))
+    if uplink == 0 and downlink == 0:
+        return
+    u = ensure_user(state, username)
+    u["uplink"] = int(u.get("uplink", 0)) + uplink
+    u["downlink"] = int(u.get("downlink", 0)) + downlink
+    u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
+    u["period_uplink"] = int(u.get("period_uplink", 0)) + uplink
+    u["period_downlink"] = int(u.get("period_downlink", 0)) + downlink
+    u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
+def process_new(state, event):
+    connection = event.get("connection") or {}
+    conn_id = event.get("id") or connection.get("id")
+    if not conn_id:
+        return False
+    conn_id = str(conn_id)
+    user = connection.get("user")
+    if not user:
+        return False
+    connections = state.setdefault("connections", {})
+    if conn_id in connections:
+        return False
+    uplink_total = int(connection.get("uplinkTotal") or 0)
+    downlink_total = int(connection.get("downlinkTotal") or 0)
+    connections[conn_id] = {
+        "user": user,
+        "uplink_total": uplink_total,
+        "downlink_total": downlink_total,
+        "created_at": connection.get("createdAt", "")
+    }
+    stats = ensure_user(state, user)
+    stats["connections"] = int(stats.get("connections", 0)) + 1
+    if uplink_total or downlink_total:
+        add_traffic(state, user, uplink_total, downlink_total)
+    return True
+def process_update(state, event):
+    conn_id = event.get("id")
+    if not conn_id:
+        return False
+    conn_id = str(conn_id)
+    connections = state.setdefault("connections", {})
+    conn = connections.get(conn_id)
+    connection = event.get("connection") or {}
+    if conn is None:
+        user = connection.get("user")
+        if not user:
+            return False
+        conn = {
+            "user": user,
+            "uplink_total": 0,
+            "downlink_total": 0,
+            "created_at": connection.get("createdAt", "")
+        }
+        connections[conn_id] = conn
+        stats = ensure_user(state, user)
+        stats["connections"] = int(stats.get("connections", 0)) + 1
+        initial_uplink = int(connection.get("uplinkTotal") or 0)
+        initial_downlink = int(connection.get("downlinkTotal") or 0)
+        if initial_uplink or initial_downlink:
+            add_traffic(state, user, initial_uplink, initial_downlink)
+        conn["uplink_total"] = initial_uplink
+        conn["downlink_total"] = initial_downlink
+    user = conn["user"]
+    uplink_delta = int(event.get("uplinkDelta") or 0)
+    downlink_delta = int(event.get("downlinkDelta") or 0)
+    if uplink_delta or downlink_delta:
+        add_traffic(state, user, uplink_delta, downlink_delta)
+        conn["uplink_total"] += max(0, uplink_delta)
+        conn["downlink_total"] += max(0, downlink_delta)
+    final_uplink = connection.get("uplinkTotal")
+    final_downlink = connection.get("downlinkTotal")
+    if final_uplink is not None:
+        final_uplink = int(final_uplink)
+        if final_uplink > conn["uplink_total"]:
+            delta = final_uplink - conn["uplink_total"]
+            add_traffic(state, user, uplink=delta)
+            conn["uplink_total"] = final_uplink
+    if final_downlink is not None:
+        final_downlink = int(final_downlink)
+        if final_downlink > conn["downlink_total"]:
+            delta = final_downlink - conn["downlink_total"]
+            add_traffic(state, user, downlink=delta)
+            conn["downlink_total"] = final_downlink
+    return bool(uplink_delta or downlink_delta or connection)
+def process_closed(state, event):
+    conn_id = event.get("id")
+    if not conn_id:
+        return False
+    conn_id = str(conn_id)
+    connections = state.setdefault("connections", {})
+    conn = connections.get(conn_id)
+    if conn is None:
+        return False
+    connection = event.get("connection") or {}
+    user = conn["user"]
+    final_uplink = int(connection.get("uplinkTotal") or conn["uplink_total"])
+    final_downlink = int(connection.get("downlinkTotal") or conn["downlink_total"])
+    extra_uplink = max(0, final_uplink - conn["uplink_total"])
+    extra_downlink = max(0, final_downlink - conn["downlink_total"])
+    if extra_uplink or extra_downlink:
+        add_traffic(state, user, extra_uplink, extra_downlink)
+    stats = ensure_user(state, user)
+    if int(stats.get("connections", 0)) > 0:
+        stats["connections"] -= 1
+    del connections[conn_id]
+    return True
+def process_event(state, event):
+    if not isinstance(event, dict):
+        return False
+    event_type = event.get("type", "")
+    if event_type == "CONNECTION_EVENT_NEW":
+        return process_new(state, event)
+    if event_type == "CONNECTION_EVENT_UPDATE":
+        return process_update(state, event)
+    if event_type == "CONNECTION_EVENT_CLOSED":
+        return process_closed(state, event)
+    if "connection" in event and event.get("id"):
+        return process_new(state, event)
+    return False
 def sync_periods(state):
-    changed_state = False
+    changed = False
+    now = datetime.now().astimezone()
     for lf in limit_files():
         data = load_json(lf, {})
         if not isinstance(data, dict):
             continue
-        if not data.get("enabled"):
-            if data.get("disabled_by_limit"):
-                if restore_user(data):
-                    data["disabled_by_limit"] = False
-                    update_limit_file(lf, data)
+        username = data.get("user")
+        if not username:
             continue
         period = data.get("period", "none")
-        if period not in ("day", "month"):
-            continue
-        now = datetime.now().astimezone()
-        start, end = period_window(period, now)
-        current_start = data.get("period_start")
-        if current_start != start.isoformat():
-            if data.get("disabled_by_limit"):
-                if not restore_user(data):
-                    log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{data.get('user')}")
-                    continue
-            username = data.get("user")
-            u = state.setdefault("users", {}).setdefault(username, {})
-            u["period_uplink"] = 0
-            u["period_downlink"] = 0
-            u["period_total"] = 0
-            u["period_start"] = start.isoformat()
-            u["period_end"] = end.isoformat()
-            data["period_start"] = start.isoformat()
-            data["period_end"] = end.isoformat()
-            data["disabled_by_limit"] = False
-            update_limit_file(lf, data)
-            changed_state = True
-            log(f"用户周期已重置: {data.get('inbound_tag')}/{username} {period}")
-        else:
-            username = data.get("user")
-            u = state.setdefault("users", {}).setdefault(username, {})
-            if u.get("period_start") != start.isoformat():
+        u = ensure_user(state, username)
+        if period in ("day", "month"):
+            start, end = period_window(period, now)
+            start_iso = start.isoformat()
+            end_iso = end.isoformat()
+            old_start = data.get("period_start")
+            if old_start != start_iso:
+                if data.get("disabled_by_limit"):
+                    if not restore_user(data):
+                        log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
+                        continue
                 u["period_uplink"] = 0
                 u["period_downlink"] = 0
                 u["period_total"] = 0
-                u["period_start"] = start.isoformat()
-                u["period_end"] = end.isoformat()
-                changed_state = True
-    return changed_state
+                u["period_start"] = start_iso
+                u["period_end"] = end_iso
+                data["period_start"] = start_iso
+                data["period_end"] = end_iso
+                data["disabled_by_limit"] = False
+                update_limit_file(lf, data)
+                changed = True
+                log(f"用户周期已重置: {data.get('inbound_tag')}/{username} {period}")
+            elif u.get("period_start") != start_iso:
+                u["period_uplink"] = 0
+                u["period_downlink"] = 0
+                u["period_total"] = 0
+                u["period_start"] = start_iso
+                u["period_end"] = end_iso
+                changed = True
+        else:
+            if u.get("period_start") is not None or u.get("period_end") is not None:
+                u["period_start"] = None
+                u["period_end"] = None
+                changed = True
+    return changed
 def check_limits(state):
-    changed = False
     for lf in limit_files():
         data = load_json(lf, {})
         if not isinstance(data, dict):
+            continue
+        username = data.get("user")
+        if not username:
             continue
         if not data.get("enabled"):
             if data.get("disabled_by_limit"):
@@ -438,10 +563,12 @@ def check_limits(state):
                     data["disabled_by_limit"] = False
                     update_limit_file(lf, data)
             continue
-        limit_bytes = int(data.get("limit_bytes", 0) or 0)
+        try:
+            limit_bytes = int(data.get("limit_bytes", 0) or 0)
+        except Exception:
+            limit_bytes = 0
         if limit_bytes <= 0:
             continue
-        username = data.get("user")
         u = state.get("users", {}).get(username, {})
         period = data.get("period", "none")
         if period in ("day", "month"):
@@ -449,128 +576,49 @@ def check_limits(state):
         else:
             used = int(u.get("total", 0) or 0)
         if data.get("disabled_by_limit"):
-            if used < limit_bytes:
-                if restore_user(data):
-                    data["disabled_by_limit"] = False
-                    update_limit_file(lf, data)
-                    log(f"用户流量低于新限制，已恢复: {data.get('inbound_tag')}/{username}")
             continue
         if used >= limit_bytes:
             if disable_user(data):
-                data["disabled_by_limit"] = True
                 update_limit_file(lf, data)
-    return changed
-def ensure_period_fields(state):
-    changed = False
-    for username, u in state.setdefault("users", {}).items():
-        if "period_uplink" not in u:
-            u["period_uplink"] = 0
-            changed = True
-        if "period_downlink" not in u:
-            u["period_downlink"] = 0
-            changed = True
-        if "period_total" not in u:
-            u["period_total"] = 0
-            changed = True
-        if "period_start" not in u:
-            u["period_start"] = None
-            changed = True
-        if "period_end" not in u:
-            u["period_end"] = None
-            changed = True
-    return changed
-def add_traffic(state, username, uplink, downlink):
-    if not username:
-        return
-    u = state.setdefault("users", {}).setdefault(username, {})
-    u["uplink"] = int(u.get("uplink", 0) or 0) + int(uplink or 0)
-    u["downlink"] = int(u.get("downlink", 0) or 0) + int(downlink or 0)
-    u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
-    u["connections"] = int(u.get("connections", 0) or 0)
-    u["period_uplink"] = int(u.get("period_uplink", 0) or 0) + int(uplink or 0)
-    u["period_downlink"] = int(u.get("period_downlink", 0) or 0) + int(downlink or 0)
-    u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
-def update_connection(state, cid, username, uplink, downlink):
-    conns = state.setdefault("connections", {})
-    c = conns.setdefault(cid, {
-        "user": username,
-        "uplink": 0,
-        "downlink": 0
-    })
-    old_up = int(c.get("uplink", 0) or 0)
-    old_down = int(c.get("downlink", 0) or 0)
-    new_up = int(uplink or 0)
-    new_down = int(downlink or 0)
-    delta_up = max(0, new_up - old_up)
-    delta_down = max(0, new_down - old_down)
-    c["user"] = username or c.get("user")
-    c["uplink"] = max(old_up, new_up)
-    c["downlink"] = max(old_down, new_down)
-    add_traffic(state, c.get("user"), delta_up, delta_down)
-def close_connection(state, cid, username, uplink, downlink):
-    update_connection(state, cid, username, uplink, downlink)
-    conns = state.setdefault("connections", {})
-    conns.pop(cid, None)
 def update_connection_count(state):
     counts = {}
-    for c in state.get("connections", {}).values():
-        u = c.get("user")
-        if u:
-            counts[u] = counts.get(u, 0) + 1
+    for conn in state.get("connections", {}).values():
+        user = conn.get("user")
+        if user:
+            counts[user] = counts.get(user, 0) + 1
     for username, data in state.setdefault("users", {}).items():
         data["connections"] = counts.get(username, 0)
-def parse_event(event, state):
-    if not isinstance(event, dict):
-        return
-    typ = event.get("type") or event.get("event_type") or event.get("event")
-    connection = event.get("connection") or event.get("conn") or {}
-    if not isinstance(connection, dict):
-        connection = {}
-    cid = (
-        str(connection.get("id") or connection.get("connection_id") or
-            event.get("id") or event.get("connection_id") or "")
-    )
-    if not cid:
-        return
-    username = (
-        connection.get("user") or connection.get("username") or
-        connection.get("user_name") or event.get("user") or
-        event.get("username") or ""
-    )
-    uplink = (
-        connection.get("uplink") or connection.get("upload") or
-        connection.get("sent") or event.get("uplink") or
-        event.get("upload") or 0
-    )
-    downlink = (
-        connection.get("downlink") or connection.get("download") or
-        connection.get("received") or event.get("downlink") or
-        event.get("download") or 0
-    )
-    try:
-        uplink = int(uplink or 0)
-    except Exception:
-        uplink = 0
-    try:
-        downlink = int(downlink or 0)
-    except Exception:
-        downlink = 0
-    typ_s = str(typ or "").upper()
-    if "NEW" in typ_s:
-        state.setdefault("connections", {})[cid] = {
-            "user": username,
-            "uplink": uplink,
-            "downlink": downlink
-        }
-        u = state.setdefault("users", {}).setdefault(username, {})
-        u["connections"] = int(u.get("connections", 0) or 0) + 1
-    elif "UPDATE" in typ_s:
-        update_connection(state, cid, username, uplink, downlink)
-    elif "CLOSED" in typ_s or "CLOSE" in typ_s:
-        close_connection(state, cid, username, uplink, downlink)
-    else:
-        if cid in state.setdefault("connections", {}):
-            update_connection(state, cid, username, uplink, downlink)
+def initialize_periods(state):
+    changed = False
+    now = datetime.now().astimezone()
+    for lf in limit_files():
+        data = load_json(lf, {})
+        if not isinstance(data, dict):
+            continue
+        username = data.get("user")
+        if not username:
+            continue
+        period = data.get("period", "none")
+        u = ensure_user(state, username)
+        if period in ("day", "month"):
+            start, end = period_window(period, now)
+            start_iso = start.isoformat()
+            end_iso = end.isoformat()
+            if data.get("period_start") != start_iso:
+                data["period_start"] = start_iso
+                data["period_end"] = end_iso
+                update_limit_file(lf, data)
+            if u.get("period_start") != start_iso:
+                u["period_start"] = start_iso
+                u["period_end"] = end_iso
+                u["period_uplink"] = 0
+                u["period_downlink"] = 0
+                u["period_total"] = 0
+                changed = True
+        else:
+            u["period_start"] = None
+            u["period_end"] = None
+    return changed
 def grpc_stream():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
@@ -580,8 +628,10 @@ def grpc_stream():
     cmd = [
         GRPCURL,
         "-plaintext",
-        "-H", f"Authorization: Bearer {API_SECRET}",
-        "-d", '{"interval":0}',
+        "-H",
+        f"Authorization: Bearer {API_SECRET}",
+        "-d",
+        '{"interval":0}',
         url,
         "daemon.StartedService/SubscribeConnections"
     ]
@@ -610,6 +660,12 @@ def grpc_stream():
             except Exception:
                 continue
             yield event
+        try:
+            err = proc.stderr.read()
+            if err:
+                log("grpcurl stderr: " + err[-3000:])
+        except Exception:
+            pass
     finally:
         try:
             proc.terminate()
@@ -628,7 +684,6 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 def main():
-    global last_save, last_limit_check
     TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
     LIMIT_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -637,25 +692,27 @@ def main():
         state = {"users": {}, "connections": {}}
     state.setdefault("users", {})
     state.setdefault("connections", {})
-    if ensure_period_fields(state):
-        save_state(state)
+    initialize_periods(state)
+    update_connection_count(state)
+    save_state(state)
     log("singbox traffic collector started")
+    last_save = time.monotonic()
+    last_limit_check = time.monotonic()
     while running:
         try:
-            if sync_periods(state):
-                save_state(state)
+            sync_periods(state)
             check_limits(state)
             update_connection_count(state)
             save_state(state)
-            last_save = time.time()
-            last_limit_check = time.time()
+            last_save = time.monotonic()
+            last_limit_check = time.monotonic()
             for event in grpc_stream():
                 if not running:
                     break
-                parse_event(event, state)
+                process_event(state, event)
                 update_connection_count(state)
-                now = time.time()
-                if now - last_limit_check >= SAVE_INTERVAL:
+                now = time.monotonic()
+                if now - last_save >= SAVE_INTERVAL:
                     sync_periods(state)
                     check_limits(state)
                     update_connection_count(state)
@@ -1937,8 +1994,9 @@ PY
     done
     ;;
             3)
-                show_user_traffic "$user"
-                ;;
+    show_user_traffic_inline "$user"
+    pause
+    ;;
             4)
                 show_connections "$file" "$tag" "$type" "$port" "$user"
                 ;;
