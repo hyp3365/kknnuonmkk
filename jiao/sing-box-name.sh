@@ -1077,15 +1077,16 @@ fi
 
         echo
         echo -e "  ${green}1)${re} 修改 $(
-            case "$type" in
-                vmess|vless|tuic) echo "UUID";;
-                *) echo "密码";;
-            esac
-        )"
+    case "$type" in
+        vmess|vless|tuic) echo "UUID";;
+        *) echo "密码";;
+    esac
+)"
 
-        echo -e "  ${green}2)${re} 流量限制"
-        echo -e "  ${green}3)${re} 查看节点连接"
-        echo -e "  ${red}4)${re} 删除用户"
+echo -e "  ${green}2)${re} 流量限制"
+echo -e "  ${green}3)${re} 流量统计"
+echo -e "  ${green}4)${re} 查看节点连接"
+echo -e "  ${red}5)${re} 删除用户"
         echo
         echo -e "  ${yellow}0)${re} 返回"
         echo
