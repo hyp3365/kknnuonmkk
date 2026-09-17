@@ -1176,10 +1176,14 @@ show_user_traffic_inline() {
     local downlink
     local total
     local connections
-    read -r uplink downlink total connections <<< "$traffic"
+    local period_uplink
+    local period_downlink
+    local period_total
+    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
     echo -e "上传 $(format_bytes "$uplink")"
     echo -e "下载 $(format_bytes "$downlink")"
     echo -e "总计 $(format_bytes "$total")"
+    echo -e "本周期 $(format_bytes "$period_total")"
     echo -e "连接 $connections"
 }
 
