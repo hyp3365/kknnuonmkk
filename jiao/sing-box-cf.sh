@@ -8191,6 +8191,133 @@ cdn_ip_manager() {
         esac
     done
 }
+#vps秘钥登录
+setup_ssh_key_only() {
+    clear
+    echo "========================================"
+    echo "       VPS SSH 密钥一键重置"
+    echo "========================================"
+    echo ""
+    if [ "$(id -u)" != "0" ]; then
+        echo "错误：请使用 root 执行"
+        return 1
+    fi
+    if ! command -v ssh-keygen >/dev/null 2>&1; then
+        echo "正在安装 openssh-client..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y openssh-client >/dev/null 2>&1 || {
+                echo "错误：ssh-keygen 安装失败"
+                return 1
+            }
+        else
+            echo "错误：仅支持 Debian / Ubuntu"
+            return 1
+        fi
+    fi
+    local ssh_dir="/root/.ssh"
+    local key_file="$ssh_dir/id_ed25519"
+    local pub_file="$key_file.pub"
+    local auth_file="$ssh_dir/authorized_keys"
+    local config_dir="/etc/ssh/sshd_config.d"
+    local config_file="$config_dir/99-key-only.conf"
+    local backup_dir="/root/ssh-config-backup"
+    local timestamp
+    timestamp="$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$ssh_dir" "$config_dir" "$backup_dir"
+    chmod 700 "$ssh_dir"
+    echo "[1/6] 生成全新的 ED25519 密钥对..."
+    if [ -f "$key_file" ]; then
+        mv -f "$key_file" "$key_file.bak.$timestamp"
+    fi
+    if [ -f "$pub_file" ]; then
+        mv -f "$pub_file" "$pub_file.bak.$timestamp"
+    fi
+    if ! ssh-keygen -t ed25519 -f "$key_file" -N "" -C "root@$(hostname)-$timestamp" >/dev/null 2>&1; then
+        echo "错误：密钥生成失败"
+        return 1
+    fi
+    chmod 600 "$key_file"
+    chmod 644 "$pub_file"
+    echo "[2/6] 使用新公钥重置 authorized_keys..."
+    local public_key
+    public_key="$(cat "$pub_file")"
+    printf '%s\n' "$public_key" > "$auth_file"
+    chmod 600 "$auth_file"
+    if ! grep -qxF "$public_key" "$auth_file"; then
+        echo "错误：新公钥写入失败"
+        return 1
+    fi
+    echo "[3/6] 备份 SSH 配置..."
+    cp -a /etc/ssh/sshd_config "$backup_dir/sshd_config.$timestamp"
+    echo "[4/6] 配置 SSH 仅允许密钥登录..."
+    cat > "$config_file" <<'EOF'
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+EOF
+    echo "[5/6] 检查 SSH 配置..."
+    if ! sshd -t 2>/dev/null; then
+        echo "错误：SSH 配置检查失败"
+        rm -f "$config_file"
+        return 1
+    fi
+    echo "SSH 配置检查通过"
+    echo "[6/6] 重新加载 SSH..."
+    local ssh_service=""
+    if systemctl list-unit-files 2>/dev/null | grep -q '^ssh.service'; then
+        ssh_service="ssh"
+    elif systemctl list-unit-files 2>/dev/null | grep -q '^sshd.service'; then
+        ssh_service="sshd"
+    fi
+    if [ -n "$ssh_service" ]; then
+        if ! systemctl reload "$ssh_service" 2>/dev/null; then
+            echo "reload 失败，尝试 restart..."
+            if ! systemctl restart "$ssh_service" 2>/dev/null; then
+                echo "错误：SSH 服务重启失败"
+                return 1
+            fi
+        fi
+    elif command -v rc-service >/dev/null 2>&1; then
+        if ! rc-service sshd reload 2>/dev/null; then
+            echo "错误：SSH 服务 reload 失败"
+            return 1
+        fi
+    else
+        echo "错误：无法找到 SSH 服务"
+        return 1
+    fi
+    echo ""
+    echo "========================================"
+    echo "       SSH 密钥重置完成"
+    echo "========================================"
+    echo ""
+    echo "当前认证状态："
+    sshd -T 2>/dev/null | grep -Ei 'pubkeyauthentication|passwordauthentication|kbdinteractiveauthentication'
+    echo ""
+    echo "新密钥指纹："
+    ssh-keygen -lf "$pub_file"
+    echo ""
+    echo "========================================"
+    echo "          ★★★ 新私钥 ★★★"
+    echo "========================================"
+    echo ""
+    cat "$key_file"
+    echo ""
+    echo "========================================"
+    echo "        ★★★ 复制完整私钥 ★★★"
+    echo "========================================"
+    echo ""
+    echo "新公钥："
+    echo "$public_key"
+    echo ""
+    echo "密码登录：已关闭"
+    echo "密钥登录：已启用"
+    echo "旧 authorized_keys：已替换"
+    echo ""
+    echo "下一次再次执行此函数 = 再次生成全新密钥"
+    echo ""
+}
 
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
@@ -8315,7 +8442,8 @@ iptables_ssl() {
     red   "8. 端口流量网速设置"
     green "9. 清理未运行端口"
 	green "10. 修改SSH连接端口"	
-	green "11. fail2ban"	
+	green "11. VPS开启秘钥登录"	
+	green "12. fail2ban"	
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
@@ -9347,7 +9475,8 @@ SRVEOF
         sleep 3 && iptables_ssl
     fi
     ;;
-		11) fail2ban_manage ;;
+	    11) setup_ssh_key_only ;;
+		12) fail2ban_manage ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
