@@ -7683,18 +7683,9 @@ save_nft_rules() {
     local rules_content
     rules_content=$(nft list ruleset 2>/dev/null | awk '
         BEGIN { skip=0 }
-        /^table inet port_manager/ { skip=1; next }
-        /^table inet f2b-/ { skip=1; next }
-        /^table ip f2b-/ { skip=1; next }
-        /^table ip6 f2b-/ { skip=1; next }
-        /^table / {
-            if ($0 !~ /^table inet port_manager/ &&
-                $0 !~ /^table inet f2b-/ &&
-                $0 !~ /^table ip f2b-/ &&
-                $0 !~ /^table ip6 f2b-/) {
-                skip=0
-            }
-        }
+        /^table inet port_manager$/ { skip=1; next }
+        /^table inet f2b-table$/ { skip=1; next }
+        /^table / { skip=0 }
         !skip { print }
     ')
     if [ -z "$rules_content" ]; then
