@@ -709,11 +709,11 @@ PY
 }
 
 show_connections() {
-    local tag="$1"
-    local type="$2"
-    local port="$3"
-    local user="$4"
-    local file="$CURRENT_FILE"
+    local file="$1"
+    local tag="$2"
+    local type="$3"
+    local port="$4"
+    local user="$5"
     title "用户节点连接"
     echo -e "${skyblue}用户:${re} $user"
     echo -e "${skyblue}节点:${re} $tag"
@@ -770,91 +770,111 @@ import sys
 import base64
 import json
 import urllib.parse
+
 typ = sys.argv[1].lower()
 auth = sys.argv[2]
 fn = sys.argv[3]
-with open(fn,"r",encoding="utf-8",errors="ignore") as f:
-    lines=[x.strip() for x in f if x.strip()]
-found=False
+
+with open(fn, "r", encoding="utf-8", errors="ignore") as f:
+    lines = [x.strip() for x in f if x.strip()]
+
+found = False
+
 for line in lines:
     try:
-        low=line.lower()
-        if typ=="hysteria2":
-            if not low.startswith(("hysteria2://","hy2://")):
+        low = line.lower()
+
+        if typ == "hysteria2":
+            if not low.startswith(("hysteria2://", "hy2://")):
                 continue
-            scheme,rest=line.split("://",1)
+            scheme, rest = line.split("://", 1)
             if "@" not in rest:
                 continue
-            _,suffix=rest.split("@",1)
-            print(scheme+"://"+urllib.parse.quote(auth,safe="")+ "@"+suffix)
-            found=True
-        elif typ=="vless":
+            _, suffix = rest.split("@", 1)
+            print(scheme + "://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+
+        elif typ == "vless":
             if not low.startswith("vless://"):
                 continue
-            rest=line[8:]
+            rest = line[8:]
             if "@" not in rest:
                 continue
-            _,suffix=rest.split("@",1)
-            print("vless://"+urllib.parse.quote(auth,safe="")+"@"+suffix)
-            found=True
-        elif typ=="trojan":
+            _, suffix = rest.split("@", 1)
+            print("vless://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+
+        elif typ == "trojan":
             if not low.startswith("trojan://"):
                 continue
-            rest=line[9:]
+            rest = line[9:]
             if "@" not in rest:
                 continue
-            _,suffix=rest.split("@",1)
-            print("trojan://"+urllib.parse.quote(auth,safe="")+"@"+suffix)
-            found=True
-        elif typ=="hysteria":
+            _, suffix = rest.split("@", 1)
+            print("trojan://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+
+        elif typ == "hysteria":
             if not low.startswith("hysteria://"):
                 continue
-            rest=line[11:]
+            rest = line[11:]
             if "@" not in rest:
                 continue
-            _,suffix=rest.split("@",1)
-            print("hysteria://"+urllib.parse.quote(auth,safe="")+"@"+suffix)
-            found=True
-        elif typ=="tuic":
+            _, suffix = rest.split("@", 1)
+            print("hysteria://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
+            found = True
+
+        elif typ == "tuic":
             if not low.startswith("tuic://"):
                 continue
-            rest=line[7:]
+            rest = line[7:]
             if "@" not in rest:
                 continue
-            old_auth,suffix=rest.split("@",1)
+            old_auth, suffix = rest.split("@", 1)
             if ":" in old_auth:
-                _,old_password=old_auth.split(":",1)
-                new_auth=auth+":"+old_password
+                _, old_password = old_auth.split(":", 1)
+                new_auth = auth + ":" + old_password
             else:
-                new_auth=auth
-            print("tuic://"+new_auth+"@"+suffix)
-            found=True
-        elif typ=="vmess":
+                new_auth = auth
+            print("tuic://" + new_auth + "@" + suffix)
+            found = True
+
+        elif typ == "vmess":
             if not low.startswith("vmess://"):
                 continue
-            encoded=line[8:].strip()
-            encoded=encoded.replace("-","+").replace("_","/")
-            encoded += "="*((4-len(encoded)%4)%4)
+
+            encoded = line[8:].strip()
+            encoded = encoded.replace("-", "+").replace("_", "/")
+            encoded += "=" * ((4 - len(encoded) % 4) % 4)
+
             try:
-                raw=base64.b64decode(encoded)
-                obj=json.loads(raw.decode("utf-8"))
+                raw = base64.b64decode(encoded)
+                obj = json.loads(raw.decode("utf-8"))
             except Exception:
                 continue
-            if not isinstance(obj,dict):
+
+            if not isinstance(obj, dict):
                 continue
+
             if "id" not in obj:
                 continue
-            obj["id"]=auth
-            new_raw=json.dumps(
+
+            obj["id"] = auth
+
+            new_raw = json.dumps(
                 obj,
                 ensure_ascii=False,
-                separators=(",",":")
+                separators=(",", ":")
             ).encode("utf-8")
-            new_encoded=base64.b64encode(new_raw).decode("utf-8")
-            print("vmess://"+new_encoded)
-            found=True
+
+            new_encoded = base64.b64encode(new_raw).decode("utf-8")
+
+            print("vmess://" + new_encoded)
+            found = True
+
     except Exception:
         continue
+
 if not found:
     print("__NO_MATCH__")
 PY
