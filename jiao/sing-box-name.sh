@@ -19,11 +19,344 @@ CONF_DIR="$BASE_DIR/conf"
 DATA_DIR="$BASE_DIR/user_manager"
 BACKUP_DIR="$DATA_DIR/backups"
 LIMIT_DIR="$DATA_DIR/limits"
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_SCRIPT="$TRAFFIC_DIR/singbox_traffic.py"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+TRAFFIC_LOG="$TRAFFIC_DIR/traffic.log"
 SINGBOX="$BASE_DIR/sing-box"
 SERVICE="sing-box"
 PYTHON="$(command -v python3 2>/dev/null || true)"
 
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+
+
+init_traffic() {
+    mkdir -p "$TRAFFIC_DIR"
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        cat > "$TRAFFIC_STATE" <<'EOF'
+{
+  "users": {},
+  "connections": {}
+}
+EOF
+        chmod 600 "$TRAFFIC_STATE"
+    fi
+    if [ ! -f "$TRAFFIC_SCRIPT" ]; then
+        cat > "$TRAFFIC_SCRIPT" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+
+BASE_DIR = Path("/etc/sing-box")
+TRAFFIC_DIR = BASE_DIR / "user_manager" / "traffic"
+STATE_FILE = TRAFFIC_DIR / "state.json"
+LOG_FILE = TRAFFIC_DIR / "traffic.log"
+GRPCURL = "/tmp/grpcurl"
+API_ADDR = "127.0.0.1:9093"
+API_SECRET = "Wiy5ULBThVo6cbHyd8JyghSW"
+SAVE_INTERVAL = 15
+RECONNECT_INTERVAL = 3
+
+TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
+
+def log_error(message):
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    except Exception:
+        pass
+
+def load_state():
+    if not STATE_FILE.exists():
+        return {"users": {}, "connections": {}}
+    try:
+        with STATE_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("invalid state")
+        if not isinstance(data.get("users"), dict):
+            data["users"] = {}
+        if not isinstance(data.get("connections"), dict):
+            data["connections"] = {}
+        return data
+    except Exception as e:
+        log_error(f"load_state error: {e}")
+        return {"users": {}, "connections": {}}
+
+def save_state(state):
+    tmp_file = STATE_FILE.with_suffix(".tmp")
+    try:
+        with tmp_file.open("w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, STATE_FILE)
+    except Exception as e:
+        try:
+            tmp_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        log_error(f"save_state error: {e}")
+
+def ensure_user(state, user):
+    if not user:
+        return None
+    stats = state["users"].get(user)
+    if stats is None:
+        stats = {
+            "uplink": 0,
+            "downlink": 0,
+            "total": 0,
+            "connections": 0
+        }
+        state["users"][user] = stats
+    return stats
+
+def add_traffic(state, user, uplink=0, downlink=0):
+    if not user:
+        return
+    uplink = int(uplink or 0)
+    downlink = int(downlink or 0)
+    if uplink <= 0 and downlink <= 0:
+        return
+    stats = ensure_user(state, user)
+    if uplink > 0:
+        stats["uplink"] += uplink
+    if downlink > 0:
+        stats["downlink"] += downlink
+    stats["total"] += uplink + downlink
+
+def get_totals(connection):
+    return (
+        int(connection.get("uplinkTotal") or 0),
+        int(connection.get("downlinkTotal") or 0)
+    )
+
+def process_new(state, event):
+    connection = event.get("connection") or {}
+    conn_id = event.get("id") or connection.get("id")
+    user = connection.get("user")
+    if not conn_id or not user:
+        return False
+    connections = state["connections"]
+    if conn_id in connections:
+        return False
+    uplink, downlink = get_totals(connection)
+    connections[conn_id] = {
+        "user": user,
+        "uplink_total": uplink,
+        "downlink_total": downlink,
+        "created_at": connection.get("createdAt", "")
+    }
+    stats = ensure_user(state, user)
+    stats["connections"] += 1
+    if uplink or downlink:
+        add_traffic(state, user, uplink, downlink)
+    return True
+
+def process_update(state, event):
+    conn_id = event.get("id")
+    if not conn_id:
+        return False
+    connections = state["connections"]
+    conn = connections.get(conn_id)
+    connection = event.get("connection") or {}
+    if conn is None:
+        user = connection.get("user")
+        if not user:
+            return False
+        conn = {
+            "user": user,
+            "uplink_total": 0,
+            "downlink_total": 0,
+            "created_at": connection.get("createdAt", "")
+        }
+        connections[conn_id] = conn
+        stats = ensure_user(state, user)
+        stats["connections"] += 1
+        initial_uplink, initial_downlink = get_totals(connection)
+        if initial_uplink or initial_downlink:
+            add_traffic(state, user, initial_uplink, initial_downlink)
+            conn["uplink_total"] = initial_uplink
+            conn["downlink_total"] = initial_downlink
+    user = conn["user"]
+    changed = False
+    uplink_delta = int(event.get("uplinkDelta") or 0)
+    downlink_delta = int(event.get("downlinkDelta") or 0)
+    if uplink_delta > 0 or downlink_delta > 0:
+        add_traffic(state, user, uplink_delta, downlink_delta)
+        conn["uplink_total"] += max(uplink_delta, 0)
+        conn["downlink_total"] += max(downlink_delta, 0)
+        changed = True
+    final_uplink = connection.get("uplinkTotal")
+    if final_uplink is not None:
+        final_uplink = int(final_uplink)
+        if final_uplink > conn["uplink_total"]:
+            delta = final_uplink - conn["uplink_total"]
+            add_traffic(state, user, uplink=delta)
+            conn["uplink_total"] = final_uplink
+            changed = True
+    final_downlink = connection.get("downlinkTotal")
+    if final_downlink is not None:
+        final_downlink = int(final_downlink)
+        if final_downlink > conn["downlink_total"]:
+            delta = final_downlink - conn["downlink_total"]
+            add_traffic(state, user, downlink=delta)
+            conn["downlink_total"] = final_downlink
+            changed = True
+    return changed
+
+def process_closed(state, event):
+    conn_id = event.get("id")
+    if not conn_id:
+        return False
+    connections = state["connections"]
+    conn = connections.get(conn_id)
+    if conn is None:
+        return False
+    connection = event.get("connection") or {}
+    user = conn["user"]
+    final_uplink = connection.get("uplinkTotal")
+    final_downlink = connection.get("downlinkTotal")
+    if final_uplink is None:
+        final_uplink = conn["uplink_total"]
+    else:
+        final_uplink = int(final_uplink)
+    if final_downlink is None:
+        final_downlink = conn["downlink_total"]
+    else:
+        final_downlink = int(final_downlink)
+    extra_uplink = max(final_uplink - conn["uplink_total"], 0)
+    extra_downlink = max(final_downlink - conn["downlink_total"], 0)
+    if extra_uplink or extra_downlink:
+        add_traffic(state, user, extra_uplink, extra_downlink)
+    stats = ensure_user(state, user)
+    if stats["connections"] > 0:
+        stats["connections"] -= 1
+    del connections[conn_id]
+    return True
+
+def process_event(state, event):
+    event_type = event.get("type", "")
+    if event_type == "CONNECTION_EVENT_NEW":
+        return process_new(state, event)
+    if event_type == "CONNECTION_EVENT_UPDATE":
+        return process_update(state, event)
+    if event_type == "CONNECTION_EVENT_CLOSED":
+        return process_closed(state, event)
+    if "connection" in event and event.get("id"):
+        return process_new(state, event)
+    return False
+
+def extract_json_objects(buffer):
+    decoder = json.JSONDecoder()
+    position = 0
+    objects = []
+    length = len(buffer)
+    while position < length:
+        while position < length and buffer[position].isspace():
+            position += 1
+        if position >= length:
+            break
+        try:
+            obj, end = decoder.raw_decode(buffer, position)
+        except json.JSONDecodeError:
+            break
+        objects.append(obj)
+        position = end
+    return buffer[position:], objects
+
+def run_stream(state):
+    command = [
+        GRPCURL,
+        "-plaintext",
+        "-H",
+        f"Authorization: Bearer {API_SECRET}",
+        "-d",
+        '{"interval":0}',
+        API_ADDR,
+        "daemon.StartedService/SubscribeConnections"
+    ]
+    buffer = ""
+    dirty = False
+    last_save = time.monotonic()
+    process = None
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
+            buffer += line
+            buffer, objects = extract_json_objects(buffer)
+            for obj in objects:
+                events = obj.get("events")
+                if not events:
+                    continue
+                for event in events:
+                    if process_event(state, event):
+                        dirty = True
+            now = time.monotonic()
+            if dirty and now - last_save >= SAVE_INTERVAL:
+                save_state(state)
+                dirty = False
+                last_save = now
+        if dirty:
+            save_state(state)
+    except Exception as e:
+        log_error(f"stream error: {e}")
+    finally:
+        if process is not None:
+            try:
+                process.kill()
+            except Exception:
+                pass
+            try:
+                process.wait(timeout=2)
+            except Exception:
+                pass
+
+def main():
+    state = load_state()
+    while True:
+        try:
+            run_stream(state)
+        except KeyboardInterrupt:
+            save_state(state)
+            break
+        except Exception as e:
+            log_error(f"main error: {e}")
+        time.sleep(RECONNECT_INTERVAL)
+
+if __name__ == "__main__":
+    main()
+PY
+        chmod +x "$TRAFFIC_SCRIPT"
+    fi
+}
+
+
 mkdir -p "$DATA_DIR" "$BACKUP_DIR" "$LIMIT_DIR"
+init_traffic
+
+if [ ! -f "$TRAFFIC_STATE" ]; then
+    cat > "$TRAFFIC_STATE" <<'EOF'
+{
+  "users": {},
+  "connections": {}
+}
+EOF
+fi
 
 if [ ! -x "$SINGBOX" ]; then
     red "错误：未找到 $SINGBOX"
