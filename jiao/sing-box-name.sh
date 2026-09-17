@@ -646,7 +646,7 @@ def grpc_stream():
     if not api_secret:
         time.sleep(RECONNECT_INTERVAL)
         return
-    url = f"http://{GRPC_HOST}:{GRPC_PORT}"
+    url = f"{GRPC_HOST}:{GRPC_PORT}"
     cmd = [
         GRPCURL,
         "-plaintext",
