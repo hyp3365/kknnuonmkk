@@ -758,6 +758,7 @@ show_connections() {
     fi
 
     local auth=""
+    local password=""
 
     case "$type" in
         hysteria2|hysteria)
@@ -770,15 +771,28 @@ PY
 )"
             ;;
 
-        vmess|vless|tuic)
-            auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys
-import json
+        vmess|vless)
+    auth="$("$PYTHON" - "$user_json" <<'PY'
+import sys,json
 d=json.loads(sys.argv[1])
 print(d.get("uuid",""))
 PY
 )"
-            ;;
+    ;;
+tuic)
+    auth="$("$PYTHON" - "$user_json" <<'PY'
+import sys,json
+d=json.loads(sys.argv[1])
+print(d.get("uuid",""))
+PY
+)"
+    password="$("$PYTHON" - "$user_json" <<'PY'
+import sys,json
+d=json.loads(sys.argv[1])
+print(d.get("password",""))
+PY
+)"
+    ;;
 
         trojan|anytls|shadowtls|shadowsocks)
             auth="$("$PYTHON" - "$user_json" <<'PY'
@@ -806,7 +820,7 @@ PY
     echo -e "${green}节点连接:${re}"
     echo
 
-    "$PYTHON" - "$type" "$auth" "/etc/sing-box/url.txt" <<'PY'
+    "$PYTHON" - "$type" "$auth" "$password" "/etc/sing-box/url.txt" <<'PY'
 import sys
 import base64
 import json
@@ -814,7 +828,8 @@ import urllib.parse
 
 typ = sys.argv[1].lower()
 auth = sys.argv[2]
-url_file = sys.argv[3]
+password = sys.argv[3]
+url_file = sys.argv[4]
 
 with open(url_file, "r", encoding="utf-8", errors="ignore") as f:
     lines = [x.strip() for x in f if x.strip()]
@@ -910,27 +925,27 @@ for line in lines:
             continue
 
         # TUIC
-        if typ == "tuic":
-            if not low.startswith("tuic://"):
-                continue
+if typ == "tuic":
+    if not low.startswith("tuic://"):
+        continue
 
-            rest = line[len("tuic://"):]
+    rest = line[len("tuic://"):]
 
-            if "@" not in rest:
-                continue
+    if "@" not in rest:
+        continue
 
-            old_auth, suffix = rest.split("@", 1)
+    _, suffix = rest.split("@", 1)
 
-            if ":" in old_auth:
-                _, old_password = old_auth.split(":", 1)
-                new_auth = auth + ":" + old_password
-            else:
-                new_auth = auth
+    new_auth = (
+        urllib.parse.quote(auth, safe="") +
+        ":" +
+        urllib.parse.quote(password, safe="")
+    )
 
-            print("tuic://" + new_auth + "@" + suffix)
+    print("tuic://" + new_auth + "@" + suffix)
 
-            found = True
-            continue
+    found = True
+    continue
 
         # VMess
         if typ == "vmess":
@@ -977,12 +992,7 @@ for line in lines:
 if not found:
     print("__NO_MATCH__")
 PY
-
-    echo
-
-    yellow "连接信息来自 /etc/sing-box/url.txt"
-    yellow "不会修改 url.txt 原文件。"
-
+    echo  
     pause
 }
 
