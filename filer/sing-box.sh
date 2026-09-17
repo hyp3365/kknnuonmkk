@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.24 (2026.08.30)'
+VERSION='v1.3.25 (2026.09.16)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -22,7 +22,7 @@ NODE_TAG=("xtls-reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "
 CONSECUTIVE_PORTS=${#PROTOCOL_LIST[@]}
 CDN_DOMAIN=("skk.moe" "ip.sb" "time.is" "cfip.xxxxxxxx.tk" "bestcf.top" "cdn.2020111.xyz" "xn--b6gac.eu.org" "cf.090227.xyz")
 SUBSCRIBE_TEMPLATE="https://raw.githubusercontent.com/fscarmen/client_template/main"
-DEFAULT_NEWEST_VERSION='1.14.0-beta.17'
+DEFAULT_NEWEST_VERSION='1.15.0-alpha.4'
 FINGER_PRINT='chrome'
 STEP_NUM=0      # 当前步骤编号（安装流程中动态递增）
 TOTAL_STEPS=''  # 总步骤数（协议确定后动态计算）
@@ -40,8 +40,8 @@ mkdir -p "$TEMP_DIR"
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. Add no-TUN environment support; 2. Fix Alpine OpenRC service stop error"
-C[1]="1. 新增无 TUN 环境支持; 2. 修复 Alpine OpenRC 服务停止误报"
+E[1]="Add Hysteria2 ignore_client_bandwidth toggle in [sb -d], default off"
+C[1]="[sb -d] 新增 Hysteria2 ignore_client_bandwidth 开关，新安装默认关闭"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -412,6 +412,14 @@ E[185]="New WARP endpoint:\n IPv6: \${ADDRESS6}\n Private Key: \${PRIVATE_KEY}\n
 C[185]="新 WARP 端点:\n IPv6: \${ADDRESS6}\n Private Key: \${PRIVATE_KEY}\n Reserved: [\${R1}, \${R2}, \${R3}]"
 E[186]="Hysteria2 Realm and port hopping cannot be used together (choose one). Realm is for NAT VPS without public inbound access. If you enable Realm, port hopping will be skipped."
 C[186]="Hysteria2 Realm 与端口跳跃不能同时使用（二选一）。Realm 适用于没有公网入站的 NAT 机器；启用 Realm 后将跳过端口跳跃。"
+E[187]="Hysteria2 force clients to use the BBR CC -> the declared up/down, i.e. Hysteria CC (\"ignore_client_bandwidth\": false)"
+C[187]="Hysteria2 强制客户端使用 BBR 拥塞控制 -> 声明的 up/down，即 Hysteria CC (\"ignore_client_bandwidth\": false)"
+E[188]="Hysteria2 the declared up/down, i.e. Hysteria CC (default) -> force clients to use the BBR CC (\"ignore_client_bandwidth\": true)"
+C[188]="Hysteria2 声明的 up/down，即 Hysteria CC（默认）-> 强制客户端使用 BBR 拥塞控制 (\"ignore_client_bandwidth\": true)"
+E[189]="Enabled. ignore_client_bandwidth: true -> commands clients to use the BBR CC instead of Hysteria CC (up_mbps/down_mbps not set). Client subscriptions no longer include up/down."
+C[189]="已启用。ignore_client_bandwidth: true —— 命令客户端使用 BBR 拥塞控制而非 Hysteria CC（未设置 up/down）。客户端订阅不再包含 up/down。"
+E[190]="Disabled. When up_mbps/down_mbps are set, clients are denied to use the BBR CC"
+C[190]="已关闭。当设置 up/down 时，禁止客户端使用 BBR 拥塞控制"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -754,6 +762,21 @@ change_config() {
   if ls ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json >/dev/null 2>&1; then
     local HY2_LINE=''
     [ -s ${WORK_DIR}/subscribe/proxies ] && HY2_LINE=$(grep 'type: hysteria2' ${WORK_DIR}/subscribe/proxies)
+    # 读取服务端 ignore_client_bandwidth 当前值：true 时服务端忽略客户端带宽、双端使用 BBR，订阅不再下发 up/down
+    local HY2_CONF_NOW=$(ls ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null | sed -n '1p')
+    local HY2_IGNORE_NOW=false
+    [ -s "$HY2_CONF_NOW" ] && HY2_IGNORE_NOW=$(jq_exec -r '.inbounds[]? | select(.type == "hysteria2") | .ignore_client_bandwidth // false' "$HY2_CONF_NOW" 2>/dev/null)
+    if [ "$HY2_IGNORE_NOW" = 'true' ]; then
+      IS_HY2_IGNORE=is_hy2_ignore
+      MENU_IDX+=(187)
+    else
+      unset IS_HY2_IGNORE
+      MENU_IDX+=(188)
+    fi
+    MENU_KEY+=(hy2cc) && MENU_VAL+=("")
+
+    # 服务端已忽略客户端带宽时，订阅不含 up/down，带宽修改项无意义，隐藏
+    if [ "$IS_HY2_IGNORE" != 'is_hy2_ignore' ]; then
     if [[ "$HY2_LINE" =~ up:[[:space:]]*\"([0-9]+)[[:space:]]*Mbps\".*down:[[:space:]]*\"([0-9]+)[[:space:]]*Mbps\" ]]; then
       HY2_UP_NOW="${BASH_REMATCH[1]}"
       HY2_DOWN_NOW="${BASH_REMATCH[2]}"
@@ -765,6 +788,7 @@ change_config() {
     HY2_DOWN_NOW=${HY2_DOWN_NOW:-1000}
 
     MENU_IDX+=(140) && MENU_KEY+=(hy2bw) && MENU_VAL+=("${HY2_UP_NOW}/${HY2_DOWN_NOW}")
+    fi
 
     if grep -q 'realm-opts' <<< "$HY2_LINE"; then
       local HY2_REALM_ACTION="$(text 63)"
@@ -837,6 +861,38 @@ change_config() {
     [ -s ${WORK_DIR}/subscribe/proxies ] && sed -i -E "s/(up: \")([0-9]+)( Mbps\")/\1${HY2_UP}\3/g; s/(down: \")([0-9]+)( Mbps\")/\1${HY2_DOWN}\3/g" ${WORK_DIR}/subscribe/proxies
     hint " $(text 112) "
     export_list
+    return
+  elif [ "$KEY" = "hy2cc" ]; then
+    # 切换 Hysteria2 服务端 ignore_client_bandwidth：true = 忽略客户端带宽、双端 BBR，订阅不含 up/down
+    local HY2_CONF_NOW=$(ls ${WORK_DIR}/conf/*_${NODE_TAG[1]}_inbounds.json 2>/dev/null | sed -n '1p')
+    if [ -s "$HY2_CONF_NOW" ]; then
+      local TMP_FILE="${HY2_CONF_NOW}.tmp"
+      local HY2_IGNORE_NOW=$(jq_exec -r '.inbounds[]? | select(.type == "hysteria2") | .ignore_client_bandwidth // false' "$HY2_CONF_NOW" 2>/dev/null)
+      if [ "$HY2_IGNORE_NOW" = 'true' ]; then
+        # 已开启 -> 关闭：订阅将重新包含 up/down，复用 hy2bw 的输入文案询问
+        local HY2_UP HY2_DOWN
+        while true; do
+          reading " $(text 141) " HY2_UP
+          [[ "$HY2_UP" =~ ^[1-9][0-9]*$ ]] && break
+          warning " $(text 143) "
+        done
+        while true; do
+          reading " $(text 142) " HY2_DOWN
+          [[ "$HY2_DOWN" =~ ^[1-9][0-9]*$ ]] && break
+          warning " $(text 143) "
+        done
+        jq_exec '.inbounds |= map(if .type == "hysteria2" then .ignore_client_bandwidth = false else . end)' "$HY2_CONF_NOW" > "$TMP_FILE" && mv "$TMP_FILE" "$HY2_CONF_NOW"
+        unset IS_HY2_IGNORE
+        hint " $(text 190) "
+      else
+        # 已关闭 -> 开启：服务端忽略客户端带宽，客户端订阅不再下发 up/down
+        jq_exec '.inbounds |= map(if .type == "hysteria2" then .ignore_client_bandwidth = true else . end)' "$HY2_CONF_NOW" > "$TMP_FILE" && mv "$TMP_FILE" "$HY2_CONF_NOW"
+        IS_HY2_IGNORE=is_hy2_ignore
+        hint " $(text 189) "
+      fi
+      cmd_systemctl reload sing-box
+      export_list
+    fi
     return
   elif [ "$KEY" = "hy2realm" ]; then
     # 添加 / 删除 Hysteria2 Realm；菜单已明确显示开启/关闭动作，这里不再二次确认 Realm 本身
@@ -4331,6 +4387,10 @@ EOF
     [ "$IS_HOPPING" = 'is_hopping' ] && add_port_hopping_nat $PORT_HOPPING_START $PORT_HOPPING_END $PORT_HYSTERIA2
     NODE_NAME[12]=${NODE_NAME[12]:-"$NODE_NAME_CONFIRM"} && UUID[12]=${UUID[12]:-"$UUID_CONFIRM"}
     HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
+    # 保留已开启的 ignore_client_bandwidth，避免重装/改协议被模板冲回默认
+    local HY2_IGNORE_GEN=false
+    [ -s ${WORK_DIR}/conf/12_${NODE_TAG[1]}_inbounds.json ] && HY2_IGNORE_GEN=$(jq_exec -r '.inbounds[]? | select(.type == "hysteria2") | .ignore_client_bandwidth // false' ${WORK_DIR}/conf/12_${NODE_TAG[1]}_inbounds.json 2>/dev/null)
+    [ "$HY2_IGNORE_GEN" = 'true' ] || HY2_IGNORE_GEN=false
     local HY2_REALM_CONFIG=""
     if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
       HY2_REALM_CONFIG=$(cat <<EOF_REALM
@@ -4362,7 +4422,7 @@ EOF_REALM
                     "password":"${UUID[12]}"
                 }
             ],
-            "ignore_client_bandwidth":false${HY2_REALM_CONFIG},
+            "ignore_client_bandwidth":${HY2_IGNORE_GEN}${HY2_REALM_CONFIG},
             "tls":{
                 "enabled":true,
                 "alpn":[
@@ -4970,7 +5030,7 @@ EOF
 
 # 获取原有各协议的参数，先清空所有的 key-value
 fetch_nodes_value() {
-  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 HY2_REALM_ID IS_HY2_REALM IS_HY2_WARP PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN CDN_PORT PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS PORT_NAIVE SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
+  unset NODE_NAME PORT_XTLS_REALITY UUID TLS_SERVER REALITY_PRIVATE REALITY_PUBLIC PORT_HYSTERIA2 HY2_REALM_ID IS_HY2_REALM IS_HY2_IGNORE IS_HY2_WARP PORT_TUIC TUIC_PASSWORD TUIC_CONGESTION_CONTROL PORT_SHADOWTLS SHADOWTLS_PASSWORD SHADOWSOCKS_METHOD PORT_SHADOWSOCKS PORT_TROJAN TROJAN_PASSWORD PORT_VMESS_WS VMESS_WS_PATH WS_SERVER_IP WS_SERVER_IP_SHOW VMESS_HOST_DOMAIN CDN CDN_PORT PORT_VLESS_WS VLESS_WS_PATH VLESS_HOST_DOMAIN PORT_H2_REALITY PORT_GRPC_REALITY ARGO_DOMAIN PORT_ANYTLS PORT_NAIVE SELF_SIGNED_FINGERPRINT_SHA256 SELF_SIGNED_FINGERPRINT_BASE64
 
   # 获取公共数据
   ls ${WORK_DIR}/conf/*-ws*inbounds.json >/dev/null 2>&1 && SERVER_IP=$(awk -F '"' '/"WS_SERVER_IP_SHOW"/{print $4; exit}' ${WORK_DIR}/conf/*-ws*inbounds.json) || SERVER_IP=$([ -s ${WORK_DIR}/list ] && grep -A1 '"tag"' ${WORK_DIR}/list | sed -E '/-ws(-tls)*",$/{N;d}' | awk -F '"' '/"server"/{count++; if (count == 1) {print $4; exit}}')
@@ -5013,6 +5073,11 @@ fetch_nodes_value() {
     UUID[12]=$(awk -F '"' '/"password"[[:space:]]*:/ {count++; if (count == 1) {print $4; exit}}' <<< "$JSON")
     HY2_UP=${HY2_UP:-"$([ -s $WORK_DIR/list ] && sed -n '/type: hysteria2/ s/.*,[ ]*up:[ ]*"\([0-9]\+\)[ ]*Mbps.*/\1/gp' $WORK_DIR/list)"}
     HY2_DOWN=${HY2_DOWN:-"$([ -s $WORK_DIR/list ] && sed -n '/type: hysteria2/ s/.*,[ ]*down:[ ]*"\([0-9]\+\)[ ]*Mbps.*/\1/gp' $WORK_DIR/list)"}
+    if grep -q '"ignore_client_bandwidth"[[:space:]]*:[[:space:]]*true' <<< "$JSON"; then
+      IS_HY2_IGNORE=is_hy2_ignore
+    else
+      unset IS_HY2_IGNORE
+    fi
     if grep -q '"realm"[[:space:]]*:' <<< "$JSON"; then
       IS_HY2_REALM=is_hy2_realm
       HY2_REALM_ID=$(awk -F '"' '/"realm_id"[[:space:]]*:/{print $4; exit}' <<< "$JSON")
@@ -5236,12 +5301,15 @@ export_list() {
     [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]] && local CLASH_HOPPING=" ports: ${PORT_HOPPING_START}-${PORT_HOPPING_END}, hop-interval: 30,"
     local HY2_UP=${HY2_UP:-200}
     local HY2_DOWN=${HY2_DOWN:-1000}
+    # 服务端忽略客户端带宽（BBR）时，各客户端订阅均不包含 up/down
+    local HY2_CLASH_BW=" up: \"${HY2_UP} Mbps\", down: \"${HY2_DOWN} Mbps\","
+    [ "$IS_HY2_IGNORE" = 'is_hy2_ignore' ] && HY2_CLASH_BW=""
     local CLASH_REALM_OPTS=""
     if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
       HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
       CLASH_REALM_OPTS=", realm-opts: {enable: true, server-url: \"https://realm.hy2.io\", token: public, realm-id: \"${HY2_REALM_ID}\", stun-servers: [turn.cloudflare.com:3478, stun.nextcloud.com:3478, stun.sip.us:3478, global.stun.twilio.com:3478]}"
     fi
-    local CLASH_HYSTERIA2="- {name: \"${NODE_NAME[12]} ${NODE_TAG[1]}\", type: hysteria2, server: ${SERVER_IP}, port: ${PORT_HYSTERIA2},${CLASH_HOPPING} up: \"${HY2_UP} Mbps\", down: \"${HY2_DOWN} Mbps\", password: ${UUID[12]}, sni: ${TLS_SERVER}, skip-cert-verify: false, fingerprint: ${SELF_SIGNED_FINGERPRINT_SHA256}${CLASH_REALM_OPTS}}" &&
+    local CLASH_HYSTERIA2="- {name: \"${NODE_NAME[12]} ${NODE_TAG[1]}\", type: hysteria2, server: ${SERVER_IP}, port: ${PORT_HYSTERIA2},${CLASH_HOPPING}${HY2_CLASH_BW} password: ${UUID[12]}, sni: ${TLS_SERVER}, skip-cert-verify: false, fingerprint: ${SELF_SIGNED_FINGERPRINT_SHA256}${CLASH_REALM_OPTS}}" &&
     local CLASH_SUBSCRIBE+="
   $CLASH_HYSTERIA2
 "
@@ -5349,7 +5417,8 @@ export_list() {
 vless://$(echo -n "auto:${UUID[11]}@${SERVER_IP_2}:${PORT_XTLS_REALITY}" | base64 -w0)?remarks=${NODE_NAME[11]// /%20}%20${NODE_TAG[0]}&tls=1&peer=${TLS_SERVER}&${VISION_OR_MUX_SHADOWROCKET}&pbk=${REALITY_PUBLIC[11]}
 "
   if [ -n "$PORT_HYSTERIA2" ]; then
-    local SHADOWROCKET_PARAMS="peer=${TLS_SERVER}&hpkp=${SELF_SIGNED_FINGERPRINT_SHA256}&obfs=none&upmbps=${HY2_UP}&downmbps=${HY2_DOWN}"
+    local SHADOWROCKET_PARAMS="peer=${TLS_SERVER}&hpkp=${SELF_SIGNED_FINGERPRINT_SHA256}&obfs=none"
+    [ "$IS_HY2_IGNORE" != 'is_hy2_ignore' ] && SHADOWROCKET_PARAMS+="&upmbps=${HY2_UP}&downmbps=${HY2_DOWN}"
     [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]] && SHADOWROCKET_PARAMS+="&keepalive=30&mport=${PORT_HYSTERIA2},${PORT_HOPPING_START}-${PORT_HOPPING_END}"
     local SHADOWROCKET_SUBSCRIBE+="
 hysteria2://${UUID[12]}@${SERVER_IP_1}:${PORT_HYSTERIA2}?${SHADOWROCKET_PARAMS}#${NODE_NAME[12]// /%20}%20${NODE_TAG[1]}
@@ -5432,12 +5501,15 @@ http3://$(echo -n "${UUID[22]}:${UUID[22]}@${SERVER_IP_2}:${PORT_NAIVE}" | base6
 vless://${UUID[11]}@${SERVER_IP_1}:${PORT_XTLS_REALITY}?encryption=none${VISION_FLOW}&security=reality&sni=${TLS_SERVER}&fp=${FINGER_PRINT}&pbk=${REALITY_PUBLIC[11]}&type=tcp&headerType=none#${NODE_NAME[11]// /%20}%20${NODE_TAG[0]}"
 
   if [ -n "$PORT_HYSTERIA2" ]; then
-    [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]] && local HOPPING_PARAMS=",\"Ports\":\"${PORT_HOPPING_START}-${PORT_HOPPING_END}\",\"HopInterval\":\"30s\""
-    local REALM_PARAMS=""
-    [ "$IS_HY2_REALM" = 'is_hy2_realm' ] && REALM_PARAMS="\"Hy2RealmUrl\":\"realm://public@realm.hy2.io:443/${UUID[12]}?stun=stun.nextcloud.com:3478&stun=stun.sip.us:3478&stun=turn.cloudflare.com:3478&stun=global.stun.twilio.com:3478\","
+    # 各可选项统一以逗号结尾拼接，最后去除多余尾逗号，避免 BBR 模式下产生空字段/孤立逗号
+    local V2RAYN_HY2_EXTRA=""
+    [ "$IS_HY2_REALM" = 'is_hy2_realm' ] && V2RAYN_HY2_EXTRA+="\"Hy2RealmUrl\":\"realm://public@realm.hy2.io:443/${UUID[12]}?stun=stun.nextcloud.com:3478&stun=stun.sip.us:3478&stun=turn.cloudflare.com:3478&stun=global.stun.twilio.com:3478\","
+    [ "$IS_HY2_IGNORE" != 'is_hy2_ignore' ] && V2RAYN_HY2_EXTRA+="\"UpMbps\":${HY2_UP:-200},\"DownMbps\":${HY2_DOWN:-1000},"
+    [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]] && V2RAYN_HY2_EXTRA+="\"Ports\":\"${PORT_HOPPING_START}-${PORT_HOPPING_END}\",\"HopInterval\":\"30s\","
+    V2RAYN_HY2_EXTRA=${V2RAYN_HY2_EXTRA%,}
     local V2RAYN_SUBSCRIBE+="
 ----------------------------
-v2rayn://hysteria2/$(echo -n "{\"ConfigType\":7,\"ConfigVersion\":4,\"Remarks\":\"${NODE_NAME[12]} ${NODE_TAG[1]}\",\"Address\":\"${SERVER_IP}\",\"Port\":${PORT_HYSTERIA2},\"Password\":\"${UUID[12]}\",\"StreamSecurity\":\"tls\",\"AllowInsecure\":\"false\",\"Sni\":\"${TLS_SERVER}\",\"Cert\":\"${CERT_URL_2}\",\"ProtoExtraObj\":{"${REALM_PARAMS}"\"UpMbps\":${HY2_UP:-200},\"DownMbps\":${HY2_DOWN:-1000}${HOPPING_PARAMS}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+v2rayn://hysteria2/$(echo -n "{\"ConfigType\":7,\"ConfigVersion\":4,\"Remarks\":\"${NODE_NAME[12]} ${NODE_TAG[1]}\",\"Address\":\"${SERVER_IP}\",\"Port\":${PORT_HYSTERIA2},\"Password\":\"${UUID[12]}\",\"StreamSecurity\":\"tls\",\"AllowInsecure\":\"false\",\"Sni\":\"${TLS_SERVER}\",\"Cert\":\"${CERT_URL_2}\",\"ProtoExtraObj\":{${V2RAYN_HY2_EXTRA}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
   fi
 
   [ -n "$PORT_TUIC" ] && local V2RAYN_SUBSCRIBE+="
@@ -5565,7 +5637,9 @@ v2rayn://naive/$(echo -n "{\"ConfigType\":12,\"CoreType\":24,\"ConfigVersion\":4
 vless://${UUID[11]}@${SERVER_IP_1}:${PORT_XTLS_REALITY}?security=reality&sni=${TLS_SERVER}&fp=${FINGER_PRINT}&pbk=${REALITY_PUBLIC[11]}&type=tcp${VISION_FLOW}&encryption=none#${NODE_NAME[11]// /%20}%20${NODE_TAG[0]}"
 
   if [ -n "$PORT_HYSTERIA2" ]; then
-    local THRONE_PARAMS="allowInsecure=false&alpn&security=tls&sni=${TLS_SERVER}&upmbps=${HY2_UP}&downmbps=${HY2_DOWN}&security=tls&tls_certificate=${CERT_URL_1}"
+    local THRONE_PARAMS="allowInsecure=false&alpn&security=tls&sni=${TLS_SERVER}"
+    [ "$IS_HY2_IGNORE" != 'is_hy2_ignore' ] && THRONE_PARAMS+="&upmbps=${HY2_UP}&downmbps=${HY2_DOWN}"
+    THRONE_PARAMS+="&security=tls&tls_certificate=${CERT_URL_1}"
     if [[ -n "$PORT_HOPPING_START" && -n "$PORT_HOPPING_END" ]]; then
       THRONE_PARAMS+="&mport=${PORT_HOPPING_START}-${PORT_HOPPING_END}&hop_interval=30s"
     fi
@@ -5657,7 +5731,9 @@ naive+quic://${UUID[22]}:${UUID[22]}@${SERVER_IP_1}:${PORT_NAIVE}?congestion_con
   local NODE_REPLACE+="\"${NODE_NAME[11]} ${NODE_TAG[0]}\","
 
   if [ -n "$PORT_HYSTERIA2" ]; then
-    local HYSTERIA2_CONFIG=" { \"type\": \"hysteria2\", \"tag\": \"${NODE_NAME[12]} ${NODE_TAG[1]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_HYSTERIA2}, \"up_mbps\": ${HY2_UP}, \"down_mbps\": ${HY2_DOWN}, \"password\": \"${UUID[12]}\", \"tls\": { \"enabled\": true, \"server_name\": \"${TLS_SERVER}\", \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"alpn\": [ \"h3\" ] }"
+    local HYSTERIA2_CONFIG=" { \"type\": \"hysteria2\", \"tag\": \"${NODE_NAME[12]} ${NODE_TAG[1]}\", \"server\": \"${SERVER_IP}\", \"server_port\": ${PORT_HYSTERIA2},"
+    [ "$IS_HY2_IGNORE" != 'is_hy2_ignore' ] && HYSTERIA2_CONFIG+=" \"up_mbps\": ${HY2_UP}, \"down_mbps\": ${HY2_DOWN},"
+    HYSTERIA2_CONFIG+=" \"password\": \"${UUID[12]}\", \"tls\": { \"enabled\": true, \"server_name\": \"${TLS_SERVER}\", \"certificate_public_key_sha256\": [\"$SELF_SIGNED_FINGERPRINT_BASE64\"], \"alpn\": [ \"h3\" ] }"
     if [ "$IS_HY2_REALM" = 'is_hy2_realm' ]; then
       HY2_REALM_ID="${HY2_REALM_ID:-${UUID[12]}}"
       HYSTERIA2_CONFIG+=", \"realm\": { \"server_url\": \"https://realm.hy2.io\", \"token\": \"public\", \"realm_id\": \"${HY2_REALM_ID}\", \"stun_servers\": [ \"turn.cloudflare.com:3478\", \"stun.nextcloud.com:3478\", \"stun.sip.us:3478\", \"global.stun.twilio.com:3478\" ] }"
