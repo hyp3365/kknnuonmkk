@@ -448,6 +448,140 @@ get_limit_file() {
     echo "$LIMIT_DIR/${tag}__${user}.json"
 }
 
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+
+format_bytes() {
+    local bytes="${1:-0}"
+
+    "$PYTHON" - "$bytes" <<'PY'
+import sys
+
+try:
+    n = int(float(sys.argv[1]))
+except:
+    n = 0
+
+units = ["B", "KB", "MB", "GB", "TB", "PB"]
+
+i = 0
+v = float(n)
+
+while v >= 1024 and i < len(units) - 1:
+    v /= 1024
+    i += 1
+
+if i == 0:
+    print(f"{int(v)} {units[i]}")
+elif v >= 100:
+    print(f"{v:.0f} {units[i]}")
+elif v >= 10:
+    print(f"{v:.1f} {units[i]}")
+else:
+    print(f"{v:.2f} {units[i]}")
+PY
+}
+
+get_user_traffic() {
+    local user="$1"
+
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        echo "0 0 0 0"
+        return
+    fi
+
+    "$PYTHON" - "$TRAFFIC_STATE" "$user" <<'PY'
+import sys
+import json
+
+fn = sys.argv[1]
+user = sys.argv[2]
+
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except:
+    print("0 0 0 0")
+    raise SystemExit
+
+d = data.get("users", {}).get(user, {})
+
+uplink = int(d.get("uplink", 0) or 0)
+downlink = int(d.get("downlink", 0) or 0)
+total = int(d.get("total", uplink + downlink) or 0)
+connections = int(d.get("connections", 0) or 0)
+
+print(uplink, downlink, total, connections)
+PY
+}
+
+show_user_traffic() {
+    local user="$1"
+
+    title "流量统计"
+
+    echo -e "${skyblue}用户:${re} $user"
+    echo
+
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        red "未找到流量统计文件："
+        echo "$TRAFFIC_STATE"
+        pause
+        return
+    fi
+
+    local traffic
+    traffic="$(get_user_traffic "$user")"
+
+    local uplink
+    local downlink
+    local total
+    local connections
+
+    read -r uplink downlink total connections <<< "$traffic"
+
+    echo -e "${skyblue}上传:${re}   $(format_bytes "$uplink")"
+    echo -e "${skyblue}下载:${re}   $(format_bytes "$downlink")"
+    echo -e "${skyblue}总流量:${re} $(format_bytes "$total")"
+    echo -e "${skyblue}连接数:${re} $connections"
+
+    echo
+    echo -e "${skyblue}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${re}"
+
+    echo -e "${skyblue}原始数据:${re}"
+    echo "上传     : $uplink B"
+    echo "下载     : $downlink B"
+    echo "总流量   : $total B"
+    echo "连接数   : $connections"
+
+    echo
+    pause
+}
+
+show_user_traffic_inline() {
+    local user="$1"
+
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        echo -e "${yellow}未统计${re}"
+        return
+    fi
+
+    local traffic
+    traffic="$(get_user_traffic "$user")"
+
+    local uplink
+    local downlink
+    local total
+    local connections
+
+    read -r uplink downlink total connections <<< "$traffic"
+
+    echo -e "上传 $(format_bytes "$uplink")"
+    echo -e "下载 $(format_bytes "$downlink")"
+    echo -e "总计 $(format_bytes "$total")"
+    echo -e "连接 $connections"
+}
+
 show_limit() {
     local tag="$1"
     local user="$2"
