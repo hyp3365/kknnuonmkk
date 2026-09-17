@@ -1924,20 +1924,24 @@ PY
         show_limit "$tag" "$user"
         echo -e "${skyblue}流量统计:${re}"
         if [ -f "$TRAFFIC_STATE" ]; then
-            local traffic
-            traffic="$(get_user_traffic "$user")"
-            local uplink
-            local downlink
-            local total
-            local connections
-            read -r uplink downlink total connections <<< "$traffic"
-            echo "  上传:   $(format_bytes "$uplink")"
-            echo "  下载:   $(format_bytes "$downlink")"
-            echo "  总流量: $(format_bytes "$total")"
-            echo "  连接数: $connections"
-        else
-            echo "  未统计"
-        fi
+    local traffic
+    traffic="$(get_user_traffic "$user")"
+    local uplink
+    local downlink
+    local total
+    local connections
+    local period_uplink
+    local period_downlink
+    local period_total
+    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+    echo "  上传:   $(format_bytes "$uplink")"
+    echo "  下载:   $(format_bytes "$downlink")"
+    echo "  总流量: $(format_bytes "$total")"
+    echo "  本周期: $(format_bytes "$period_total")"
+    echo "  连接数: $connections"
+else
+    echo "  未统计"
+fi
         echo
         echo -e "  ${green}1)${re} 修改 $(
             case "$type" in
