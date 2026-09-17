@@ -714,57 +714,98 @@ show_connections() {
     local type="$3"
     local port="$4"
     local user="$5"
+
     title "用户节点连接"
+
     echo -e "${skyblue}用户:${re} $user"
     echo -e "${skyblue}节点:${re} $tag"
     echo -e "${skyblue}协议:${re} $type"
+    echo -e "${skyblue}端口:${re} ${port:-未知}"
     echo
-    local user_json
-    user_json="$(get_user_json "$file" "$tag" "$user")"
-    if [ -z "$user_json" ]; then
-        red "无法获取用户信息"
+
+    if [ -z "$file" ] || [ -z "$tag" ] || [ -z "$type" ] || [ -z "$user" ]; then
+        red "用户参数异常"
+        echo
+        echo "file = [$file]"
+        echo "tag  = [$tag]"
+        echo "type = [$type]"
+        echo "port = [$port]"
+        echo "user = [$user]"
         pause
         return
     fi
+
+    local config_file="$CONF_DIR/$file"
+
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在:"
+        echo "$config_file"
+        pause
+        return
+    fi
+
+    local user_json
+    user_json="$(get_user_json "$file" "$tag" "$user")"
+
+    if [ -z "$user_json" ]; then
+        red "无法找到当前用户"
+        echo
+        echo "配置文件: $config_file"
+        echo "节点: $tag"
+        echo "用户: $user"
+        pause
+        return
+    fi
+
     local auth=""
+
     case "$type" in
         hysteria2|hysteria)
             auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
+import sys
+import json
 d=json.loads(sys.argv[1])
 print(d.get("password",""))
 PY
 )"
             ;;
+
         vmess|vless|tuic)
             auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
+import sys
+import json
 d=json.loads(sys.argv[1])
 print(d.get("uuid",""))
 PY
 )"
             ;;
+
         trojan|anytls|shadowtls|shadowsocks)
             auth="$("$PYTHON" - "$user_json" <<'PY'
-import sys,json
+import sys
+import json
 d=json.loads(sys.argv[1])
 print(d.get("password",""))
 PY
 )"
             ;;
     esac
+
     if [ -z "$auth" ]; then
-        red "无法获取当前用户的 UUID/密码"
+        red "无法获取当前用户 UUID/密码"
         pause
         return
     fi
+
     if [ ! -f "/etc/sing-box/url.txt" ]; then
         red "未找到 /etc/sing-box/url.txt"
         pause
         return
     fi
+
     echo -e "${green}节点连接:${re}"
     echo
+
     "$PYTHON" - "$type" "$auth" "/etc/sing-box/url.txt" <<'PY'
 import sys
 import base64
@@ -773,9 +814,9 @@ import urllib.parse
 
 typ = sys.argv[1].lower()
 auth = sys.argv[2]
-fn = sys.argv[3]
+url_file = sys.argv[3]
 
-with open(fn, "r", encoding="utf-8", errors="ignore") as f:
+with open(url_file, "r", encoding="utf-8", errors="ignore") as f:
     lines = [x.strip() for x in f if x.strip()]
 
 found = False
@@ -784,66 +825,121 @@ for line in lines:
     try:
         low = line.lower()
 
+        # Hysteria2
         if typ == "hysteria2":
             if not low.startswith(("hysteria2://", "hy2://")):
                 continue
+
             scheme, rest = line.split("://", 1)
+
             if "@" not in rest:
                 continue
-            _, suffix = rest.split("@", 1)
-            print(scheme + "://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
-            found = True
 
-        elif typ == "vless":
+            _, suffix = rest.split("@", 1)
+
+            print(
+                scheme + "://" +
+                urllib.parse.quote(auth, safe="") +
+                "@" + suffix
+            )
+
+            found = True
+            continue
+
+        # VLESS
+        if typ == "vless":
             if not low.startswith("vless://"):
                 continue
-            rest = line[8:]
+
+            rest = line[len("vless://"):]
+
             if "@" not in rest:
                 continue
-            _, suffix = rest.split("@", 1)
-            print("vless://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
-            found = True
 
-        elif typ == "trojan":
+            _, suffix = rest.split("@", 1)
+
+            print(
+                "vless://" +
+                urllib.parse.quote(auth, safe="") +
+                "@" + suffix
+            )
+
+            found = True
+            continue
+
+        # Trojan
+        if typ == "trojan":
             if not low.startswith("trojan://"):
                 continue
-            rest = line[9:]
+
+            rest = line[len("trojan://"):]
+
             if "@" not in rest:
                 continue
-            _, suffix = rest.split("@", 1)
-            print("trojan://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
-            found = True
 
-        elif typ == "hysteria":
+            _, suffix = rest.split("@", 1)
+
+            print(
+                "trojan://" +
+                urllib.parse.quote(auth, safe="") +
+                "@" + suffix
+            )
+
+            found = True
+            continue
+
+        # Hysteria
+        if typ == "hysteria":
             if not low.startswith("hysteria://"):
                 continue
-            rest = line[11:]
+
+            rest = line[len("hysteria://"):]
+
             if "@" not in rest:
                 continue
-            _, suffix = rest.split("@", 1)
-            print("hysteria://" + urllib.parse.quote(auth, safe="") + "@" + suffix)
-            found = True
 
-        elif typ == "tuic":
+            _, suffix = rest.split("@", 1)
+
+            print(
+                "hysteria://" +
+                urllib.parse.quote(auth, safe="") +
+                "@" + suffix
+            )
+
+            found = True
+            continue
+
+        # TUIC
+        if typ == "tuic":
             if not low.startswith("tuic://"):
                 continue
-            rest = line[7:]
+
+            rest = line[len("tuic://"):]
+
             if "@" not in rest:
                 continue
+
             old_auth, suffix = rest.split("@", 1)
+
             if ":" in old_auth:
                 _, old_password = old_auth.split(":", 1)
                 new_auth = auth + ":" + old_password
             else:
                 new_auth = auth
-            print("tuic://" + new_auth + "@" + suffix)
-            found = True
 
-        elif typ == "vmess":
+            print("tuic://" + new_auth + "@" + suffix)
+
+            found = True
+            continue
+
+        # VMess
+        if typ == "vmess":
             if not low.startswith("vmess://"):
                 continue
 
-            encoded = line[8:].strip()
+            encoded = line[len("vmess://"):].strip()
+
+            # URL-safe Base64 转标准 Base64
             encoded = encoded.replace("-", "+").replace("_", "/")
             encoded += "=" * ((4 - len(encoded) % 4) % 4)
 
@@ -859,6 +955,7 @@ for line in lines:
             if "id" not in obj:
                 continue
 
+            # 只修改 VMess UUID
             obj["id"] = auth
 
             new_raw = json.dumps(
@@ -870,7 +967,9 @@ for line in lines:
             new_encoded = base64.b64encode(new_raw).decode("utf-8")
 
             print("vmess://" + new_encoded)
+
             found = True
+            continue
 
     except Exception:
         continue
@@ -878,9 +977,12 @@ for line in lines:
 if not found:
     print("__NO_MATCH__")
 PY
+
     echo
+
     yellow "连接信息来自 /etc/sing-box/url.txt"
-    yellow "原文件不会被修改。"
+    yellow "不会修改 url.txt 原文件。"
+
     pause
 }
 
@@ -954,7 +1056,7 @@ PY
                 set_limit "$tag" "$user"
                 ;;
             3)
-                show_connections "$tag" "$type" "$port"
+                show_connections "$file" "$tag" "$type" "$port" "$user"
                 ;;
             4)
                 delete_user "$file" "$tag" "$user"
