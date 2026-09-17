@@ -7460,6 +7460,42 @@ fail2ban_manage() {
             if command -v journalctl >/dev/null 2>&1 && python3 -c 'import systemd.journal' >/dev/null 2>&1; then
                 backend="systemd"
             fi
+            current_findtime=$(grep -hE '^[[:space:]]*findtime[[:space:]]*=' /etc/fail2ban/jail.d/*.local /etc/fail2ban/jail.local 2>/dev/null | tail -1 | sed -E 's/.*=[[:space:]]*//' | tr -d ' ')
+            current_maxretry=$(grep -hE '^[[:space:]]*maxretry[[:space:]]*=' /etc/fail2ban/jail.d/*.local /etc/fail2ban/jail.local 2>/dev/null | tail -1 | sed -E 's/.*=[[:space:]]*//' | tr -d ' ')
+            current_bantime=$(grep -hE '^[[:space:]]*bantime[[:space:]]=' /etc/fail2ban/jail.d/*.local /etc/fail2ban/jail.local 2>/dev/null | tail -1 | sed -E 's/.*=[[:space:]]*//' | tr -d ' ')
+            current_findtime=${current_findtime:-10m}
+            current_maxretry=${current_maxretry:-3}
+            current_bantime=${current_bantime:-7d}
+            current_findtime_num=$(printf '%s' "$current_findtime" | sed -E 's/[^0-9].*//')
+            current_bantime_num=$(printf '%s' "$current_bantime" | sed -E 's/[^0-9].*//')
+            current_findtime_num=${current_findtime_num:-10}
+            current_bantime_num=${current_bantime_num:-7}
+            while true; do
+                read -r -p "统计时间（分钟，当前 ${current_findtime_num}）： " findtime_input
+                findtime_input=${findtime_input:-$current_findtime_num}
+                if [[ "$findtime_input" =~ ^[1-9][0-9]*$ ]]; then
+                    break
+                fi
+                red "请输入大于 0 的整数"
+            done
+            while true; do
+                read -r -p "失败次数（当前 ${current_maxretry}）： " maxretry_input
+                maxretry_input=${maxretry_input:-$current_maxretry}
+                if [[ "$maxretry_input" =~ ^[1-9][0-9]*$ ]]; then
+                    break
+                fi
+                red "请输入大于 0 的整数"
+            done
+            while true; do
+                read -r -p "封禁天数（当前 ${current_bantime_num}）： " bantime_input
+                bantime_input=${bantime_input:-$current_bantime_num}
+                if [[ "$bantime_input" =~ ^[1-9][0-9]*$ ]]; then
+                    break
+                fi
+                red "请输入大于 0 的整数"
+            done
+            findtime="${findtime_input}m"
+            bantime="${bantime_input}d"
             mkdir -p /etc/fail2ban/jail.d
             cat > /etc/fail2ban/jail.d/99-script-sshd-nftables.local <<EOF2
 [sshd]
@@ -7467,9 +7503,9 @@ enabled = true
 port = $ssh_port
 filter = sshd
 backend = $backend
-findtime = 10m
-maxretry = 3
-bantime = 7d
+findtime = $findtime
+maxretry = $maxretry_input
+bantime = $bantime
 action = nftables-multiport[name=sshd, port="%(port)s", protocol="%(protocol)s", blocktype=drop]
 EOF2
             if ! fail2ban-client -t >/dev/null 2>&1; then
@@ -7507,7 +7543,7 @@ EOF2
                 green "sshd 配置端口: $ssh_cfg_display"
                 green "sshd 实际监听端口: $ssh_listen_display"
                 green "后端: $backend"
-                green "规则: 10分钟失败3次，封禁7天"
+                green "规则: ${findtime_input}分钟失败${maxretry_input}次，封禁${bantime_input}天"
                 green "封禁方式: nftables / drop"
                 echo ""
                 echo "Fail2ban nftables 状态:"
