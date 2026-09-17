@@ -2224,62 +2224,77 @@ EOF
         red "没有检测到任何 IP！"
         return 1
     fi
+    echo
     skyblue "检测到以下 IP："
+    echo
+    local i
     local item
     local source
     local ip
-    for item in "${ip_sources[@]}"; do
+    for i in "${!ip_sources[@]}"; do
+        item="${ip_sources[$i]}"
         source="${item%%|*}"
         ip="${item#*|}"
-        green "${source}: ${ip}"
+        echo " $((i + 1))) ${source}: ${ip}"
     done
     echo
-    local save_path
-    for item in "${ip_sources[@]}"; do
-        source="${item%%|*}"
-        ip="${item#*|}"
-        save_path="/root/cert/${ip}"
-        mkdir -p "$save_path"
-        skyblue "正在申请 ${source} ${ip} 的 IP 证书..."
-        if ! "$acme_cmd" \
-            --issue \
-            -d "$ip" \
-            --standalone \
-            --httpport 80 \
-            -k ec-256 \
-            --server letsencrypt \
-            --cert-profile shortlived \
-            --days 3 \
-            --force \
-            --pre-hook "$release_80" \
-            --post-hook "$restore_80"
-        then
-            red "${source}: ${ip} 证书申请失败！"
-            continue
-        fi
-        if ! "$acme_cmd" \
-            --installcert \
-            -d "$ip" \
-            --key-file "${save_path}/privkey.pem" \
-            --fullchain-file "${save_path}/fullchain.pem" \
-            --ecc
-        then
-            red "${source}: ${ip} 证书安装失败！"
-            continue
-        fi
-        if [[ ! -f "${save_path}/fullchain.pem" || ! -f "${save_path}/privkey.pem" ]]; then
-            red "${source}: ${ip} 证书文件生成失败！"
-            continue
-        fi
-        chmod 600 "${save_path}/privkey.pem"
-        domain="$ip"
-        cert_file="${save_path}/fullchain.pem"
-        key_file="${save_path}/privkey.pem"
-        green "${source}: ${ip}"
-        green "证书: ${cert_file}"
-        green "私钥: ${key_file}"
-        echo
-    done
+    local ip_choice
+    reading "请选择要申请证书的 IP [1-${#ip_sources[@]}]: " ip_choice
+    if ! [[ "$ip_choice" =~ ^[0-9]+$ ]]; then
+        red "无效选择！"
+        return 1
+    fi
+    if (( ip_choice < 1 || ip_choice > ${#ip_sources[@]} )); then
+        red "无效选择！"
+        return 1
+    fi
+    item="${ip_sources[$((ip_choice - 1))]}"
+    source="${item%%|*}"
+    ip="${item#*|}"
+    echo
+    skyblue "已选择：${source}: ${ip}"
+    local save_path="/root/cert/${ip}"
+    mkdir -p "$save_path"
+    skyblue "正在为 ${source} ${ip} 申请 IP 证书..."
+    if ! "$acme_cmd" \
+        --issue \
+        -d "$ip" \
+        --standalone \
+        --httpport 80 \
+        -k ec-256 \
+        --server letsencrypt \
+        --cert-profile shortlived \
+        --days 3 \
+        --force \
+        --pre-hook "$release_80" \
+        --post-hook "$restore_80"
+    then
+        red "${source}: ${ip} 证书申请失败！"
+        return 1
+    fi
+    if ! "$acme_cmd" \
+        --installcert \
+        -d "$ip" \
+        --key-file "${save_path}/privkey.pem" \
+        --fullchain-file "${save_path}/fullchain.pem" \
+        --ecc
+    then
+        red "${source}: ${ip} 证书安装失败！"
+        return 1
+    fi
+    if [[ ! -f "${save_path}/fullchain.pem" || ! -f "${save_path}/privkey.pem" ]]; then
+        red "${source}: ${ip} 证书文件生成失败！"
+        return 1
+    fi
+    chmod 600 "${save_path}/privkey.pem"
+    domain="$ip"
+    cert_file="${save_path}/fullchain.pem"
+    key_file="${save_path}/privkey.pem"
+    echo
+    green "申请成功！"
+    green "${source}: ${domain}"
+    green "证书: ${cert_file}"
+    green "私钥: ${key_file}"
     "$acme_cmd" --upgrade --auto-upgrade >/dev/null 2>&1
     return 0
 }
