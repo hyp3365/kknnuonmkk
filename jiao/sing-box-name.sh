@@ -1937,23 +1937,6 @@ PY
     done
     ;;
             3)
-                show_limit "$tag" "$user"
-                pause
-                ;;
-            4)
-                set_limit "$tag" "$user"
-                ;;
-            0)
-                break
-                ;;
-            *)
-                red "无效选择"
-                pause
-                ;;
-        esac
-    done
-    ;;
-            3)
                 show_user_traffic "$user"
                 ;;
             4)
