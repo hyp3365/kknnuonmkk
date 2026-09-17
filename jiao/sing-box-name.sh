@@ -902,38 +902,98 @@ set_limit() {
     title "流量限制"
     show_limit "$tag" "$user"
     echo
-    read -rp "$(green "请输入流量限制 GB，输入 0 表示取消: ")" gb
-    if ! [[ "$gb" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-        red "请输入正确的数字"
-        pause
-        return
-    fi
-    "$PYTHON" - "$lf" "$tag" "$user" "$gb" <<'PY'
+    echo -e "${skyblue}支持单位:${re} MB / GB"
+    echo -e "${yellow}例如:${re} 100MB、500MB、1GB、2GB"
+    echo -e "${yellow}输入 0 表示取消限制${re}"
+    echo
+    local input
+    read -rp "$(green "请输入流量限制: ")" input
+    input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
+    if [ "$input" = "0" ]; then
+        "$PYTHON" - "$lf" <<'PY'
 import sys
 import json
+import os
 
-fn, tag, user, gb = sys.argv[1:]
-gb = float(gb)
+fn = sys.argv[1]
+
 data = {
-    "inbound_tag": tag,
-    "user": user,
-    "limit_gb": gb,
-    "enabled": gb > 0
+    "limit_gb": 0,
+    "limit_mb": 0,
+    "enabled": False
 }
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
+
+os.chmod(fn, 0o600)
 PY
-    if "$PYTHON" - "$gb" <<'PY'
+        green "流量限制已取消"
+        pause
+        return
+    fi
+    if ! [[ "$input" =~ ^[0-9]+([.][0-9]+)?(MB|GB)$ ]]; then
+        red "格式错误，请输入例如：100MB、500MB、1GB、2GB"
+        pause
+        return
+    fi
+    local number="${input%MB}"
+    local unit="MB"
+    if [[ "$input" == *GB ]]; then
+        number="${input%GB}"
+        unit="GB"
+    fi
+    if ! "$PYTHON" - "$number" "$unit" "$lf" "$tag" "$user" <<'PY'
 import sys
-print(float(sys.argv[1]) == 0)
+import json
+import os
+
+number = float(sys.argv[1])
+unit = sys.argv[2]
+fn = sys.argv[3]
+tag = sys.argv[4]
+user = sys.argv[5]
+
+if number <= 0:
+    raise SystemExit("限制必须大于 0")
+
+if unit == "GB":
+    limit_gb = number
+    limit_mb = number * 1024
+else:
+    limit_mb = number
+    limit_gb = number / 1024
+
+data = {
+    "inbound_tag": tag,
+    "user": user,
+    "limit_gb": limit_gb,
+    "limit_mb": limit_mb,
+    "limit_value": number,
+    "limit_unit": unit,
+    "enabled": True
+}
+
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+os.chmod(fn, 0o600)
 PY
     then
-        green "流量限制已取消"
-    else
-        green "流量限制已设置为 ${gb} GB"
-        yellow "注意：当前版本只保存限制值，自动达到额度后停用将在下一阶段接入。"
+        red "流量限制保存失败"
+        pause
+        return
     fi
+    green "流量限制已设置为 ${number}${unit}"
+    echo -e "${skyblue}换算:${re} ${number}${unit}"
+    if [ "$unit" = "GB" ]; then
+        echo -e "${skyblue}约等于:${re} ${number} GB / $(awk "BEGIN {printf \"%.0f\", $number * 1024}") MB"
+    else
+        echo -e "${skyblue}约等于:${re} ${number} MB / $(awk "BEGIN {printf \"%.6f\", $number / 1024}") GB"
+    fi
+    yellow "注意：当前版本只保存限制值，尚未自动达到额度后停用用户。"
     pause
 }
 
