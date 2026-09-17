@@ -885,10 +885,20 @@ import json
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         d = json.load(f)
-    if d.get("enabled"):
-        print("已设置：{} GB".format(d.get("limit_gb", 0)))
-    else:
+    if not d.get("enabled"):
         print("已关闭")
+        raise SystemExit
+    value = d.get("limit_value")
+    unit = d.get("limit_unit")
+    if value is not None and unit:
+        if float(value).is_integer():
+            value = int(value)
+        print(f"已设置：{value} {unit}")
+    else:
+        gb = float(d.get("limit_gb", 0) or 0)
+        if gb.is_integer():
+            gb = int(gb)
+        print(f"已设置：{gb} GB")
 except:
     print("未设置")
 PY
