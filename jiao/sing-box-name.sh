@@ -27,360 +27,707 @@ SINGBOX="$BASE_DIR/sing-box"
 SERVICE="sing-box"
 TRAFFIC_SERVICE="singbox-traffic.service"
 PYTHON="$(command -v python3 2>/dev/null || true)"
+CONFIG_LOCK="$DATA_DIR/.config.lock"
+TRAFFIC_SCRIPT_CHANGED=0
 
 init_traffic() {
-    mkdir -p "$TRAFFIC_DIR"
+    TRAFFIC_SCRIPT_CHANGED=0
+    mkdir -p "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
+    chmod 700 "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
     if [ ! -f "$TRAFFIC_STATE" ]; then
-        cat > "$TRAFFIC_STATE" <<'EOF'
+        cat > "$TRAFFIC_STATE" <<'JSON'
 {
   "users": {},
   "connections": {}
 }
-EOF
+JSON
+        chmod 600 "$TRAFFIC_STATE"
     fi
-    chmod 600 "$TRAFFIC_STATE"
-    touch "$TRAFFIC_LOG"
-    chmod 600 "$TRAFFIC_LOG"
-    if [ ! -f "$TRAFFIC_SCRIPT" ]; then
-        cat > "$TRAFFIC_SCRIPT" <<'PY'
+    local tmp_script
+    tmp_script="$(mktemp)"
+    cat > "$tmp_script" <<'PY'
 #!/usr/bin/env python3
 import json
 import os
-import subprocess
+import sys
 import time
+import signal
+import socket
+import subprocess
+import tempfile
 from pathlib import Path
-
+from datetime import datetime, timedelta
 BASE_DIR = Path("/etc/sing-box")
-TRAFFIC_DIR = BASE_DIR / "user_manager" / "traffic"
+CONF_DIR = BASE_DIR / "conf"
+DATA_DIR = BASE_DIR / "user_manager"
+LIMIT_DIR = DATA_DIR / "limits"
+TRAFFIC_DIR = DATA_DIR / "traffic"
 STATE_FILE = TRAFFIC_DIR / "state.json"
 LOG_FILE = TRAFFIC_DIR / "traffic.log"
+BACKUP_DIR = DATA_DIR / "backups"
+LOCK_FILE = DATA_DIR / ".config.lock"
+SINGBOX = BASE_DIR / "sing-box"
+SERVICE = "sing-box"
+GRPC_HOST = "127.0.0.1"
+GRPC_PORT = 9093
 GRPCURL = "/tmp/grpcurl"
-API_ADDR = "127.0.0.1:9093"
 API_SECRET = "Wiy5ULBThVo6cbHyd8JyghSW"
 SAVE_INTERVAL = 15
 RECONNECT_INTERVAL = 3
-
-TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
-
-def log_error(message):
+running = True
+last_save = 0
+last_limit_check = 0
+def log(msg):
     try:
-        with LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+        TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(datetime.now().astimezone().isoformat() + " " + str(msg) + "\n")
     except Exception:
         pass
-
-def load_state():
-    if not STATE_FILE.exists():
-        return {"users": {}, "connections": {}}
+def atomic_write_json(path, data, mode=0o600):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
     try:
-        with STATE_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            raise ValueError("invalid state")
-        if not isinstance(data.get("users"), dict):
-            data["users"] = {}
-        if not isinstance(data.get("connections"), dict):
-            data["connections"] = {}
-        return data
-    except Exception as e:
-        log_error(f"load_state error: {e}")
-        return {"users": {}, "connections": {}}
-
-def save_state(state):
-    tmp_file = STATE_FILE.with_suffix(".tmp")
-    try:
-        with tmp_file.open("w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
             f.flush()
             os.fsync(f.fileno())
-        os.chmod(tmp_file, 0o600)
-        os.replace(tmp_file, STATE_FILE)
-    except Exception as e:
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
         try:
-            tmp_file.unlink(missing_ok=True)
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+def load_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+def save_state(state):
+    atomic_write_json(STATE_FILE, state, 0o600)
+def parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+def period_window(period, now=None):
+    if now is None:
+        now = datetime.now().astimezone()
+    if period == "day":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return start, end
+    if period == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start.month == 12:
+            end = start.replace(year=start.year + 1, month=1, day=1)
+        else:
+            end = start.replace(month=start.month + 1, day=1)
+        return start, end
+    return None, None
+def limit_files():
+    try:
+        return sorted(LIMIT_DIR.glob("*.json"))
+    except Exception:
+        return []
+def config_files():
+    try:
+        return sorted(CONF_DIR.glob("*.json"))
+    except Exception:
+        return []
+def find_user(tag, username):
+    for fn in config_files():
+        try:
+            with open(fn, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") != tag:
+                continue
+            users = inbound.get("users", [])
+            for idx, user in enumerate(users):
+                if user.get("name") == username:
+                    return fn, idx, user
+    return None, None, None
+def find_user_in_file(fn, tag, username):
+    try:
+        with open(fn, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        return None, None
+    for idx, inbound in enumerate(cfg.get("inbounds", [])):
+        if inbound.get("tag") != tag:
+            continue
+        for user in inbound.get("users", []):
+            if user.get("name") == username:
+                return cfg, idx
+    return None, None
+def backup_config(fn, reason):
+    try:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
+        target = BACKUP_DIR / f"{fn.stem}__{reason}__{stamp}.json"
+        with open(fn, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+        os.chmod(target, 0o600)
+        return target
+    except Exception as e:
+        log(f"备份配置失败 {fn}: {e}")
+        return None
+def check_config():
+    try:
+        r = subprocess.run(
+            [str(SINGBOX), "check", "-C", str(CONF_DIR)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30
+        )
+        if r.returncode != 0:
+            log("sing-box check失败: " + r.stdout[-3000:])
+            return False
+        return True
+    except Exception as e:
+        log(f"sing-box check异常: {e}")
+        return False
+def reload_singbox():
+    try:
+        r = subprocess.run(
+            ["systemctl", "reload", SERVICE],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30
+        )
+        if r.returncode == 0:
+            return True
+        r = subprocess.run(
+            ["systemctl", "restart", SERVICE],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=60
+        )
+        if r.returncode != 0:
+            log("sing-box restart失败: " + r.stdout[-3000:])
+            return False
+        return True
+    except Exception as e:
+        log(f"reload/restart异常: {e}")
+        return False
+def write_config(fn, cfg):
+    atomic_write_json(fn, cfg, 0o600)
+def acquire_lock():
+    try:
+        import fcntl
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fp = open(LOCK_FILE, "w")
+        fcntl.flock(fp.fileno(), fcntl.LOCK_EX)
+        return fp
+    except Exception as e:
+        log(f"获取配置锁失败: {e}")
+        return None
+def disable_user(limit_data):
+    tag = limit_data.get("inbound_tag")
+    username = limit_data.get("user")
+    if not tag or not username:
+        return False
+    lock = acquire_lock()
+    if lock is None:
+        return False
+    try:
+        fn, idx, user = find_user(tag, username)
+        if fn is None:
+            saved = limit_data.get("saved_user")
+            if saved:
+                limit_data["config_file"] = limit_data.get("config_file") or ""
+                return True
+            log(f"达到流量限制，但找不到用户: {tag}/{username}")
+            return False
+        cfg = load_json(fn, None)
+        if not isinstance(cfg, dict):
+            return False
+        target_inbound = None
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") == tag:
+                target_inbound = inbound
+                break
+        if target_inbound is None:
+            return False
+        saved_user = None
+        new_users = []
+        for u in target_inbound.get("users", []):
+            if u.get("name") == username:
+                saved_user = u
+            else:
+                new_users.append(u)
+        if saved_user is None:
+            return False
+        backup = backup_config(fn, "quota-disable")
+        if backup is None:
+            return False
+        target_inbound["users"] = new_users
+        write_config(fn, cfg)
+        if not check_config():
+            try:
+                os.replace(backup, fn)
+            except Exception:
+                pass
+            log(f"达到流量限制后配置检查失败，已尝试恢复: {tag}/{username}")
+            return False
+        if not reload_singbox():
+            try:
+                os.replace(backup, fn)
+            except Exception:
+                pass
+            reload_singbox()
+            log(f"达到流量限制后sing-box重载失败: {tag}/{username}")
+            return False
+        limit_data["saved_user"] = saved_user
+        limit_data["config_file"] = str(fn)
+        limit_data["disabled_by_limit"] = True
+        log(f"用户已因流量达到限制而停用: {tag}/{username}")
+        return True
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         except Exception:
             pass
-        log_error(f"save_state error: {e}")
-
-def ensure_user(state, user):
-    if not user:
-        return None
-    stats = state["users"].get(user)
-    if stats is None:
-        stats = {
-            "uplink": 0,
-            "downlink": 0,
-            "total": 0,
-            "connections": 0
-        }
-        state["users"][user] = stats
-    return stats
-
-def add_traffic(state, user, uplink=0, downlink=0):
-    if not user:
-        return
-    uplink = int(uplink or 0)
-    downlink = int(downlink or 0)
-    if uplink <= 0 and downlink <= 0:
-        return
-    stats = ensure_user(state, user)
-    if uplink > 0:
-        stats["uplink"] += uplink
-    if downlink > 0:
-        stats["downlink"] += downlink
-    stats["total"] += uplink + downlink
-
-def get_totals(connection):
-    return (
-        int(connection.get("uplinkTotal") or 0),
-        int(connection.get("downlinkTotal") or 0)
-    )
-
-def process_new(state, event):
-    connection = event.get("connection") or {}
-    conn_id = event.get("id") or connection.get("id")
-    user = connection.get("user")
-    if not conn_id or not user:
+        lock.close()
+def restore_user(limit_data):
+    tag = limit_data.get("inbound_tag")
+    username = limit_data.get("user")
+    saved_user = limit_data.get("saved_user")
+    if not tag or not username or not isinstance(saved_user, dict):
         return False
-    connections = state["connections"]
-    if conn_id in connections:
+    lock = acquire_lock()
+    if lock is None:
         return False
-    uplink, downlink = get_totals(connection)
-    connections[conn_id] = {
-        "user": user,
-        "uplink_total": uplink,
-        "downlink_total": downlink,
-        "created_at": connection.get("createdAt", "")
-    }
-    stats = ensure_user(state, user)
-    stats["connections"] += 1
-    if uplink or downlink:
-        add_traffic(state, user, uplink, downlink)
-    return True
-
-def process_update(state, event):
-    conn_id = event.get("id")
-    if not conn_id:
-        return False
-    connections = state["connections"]
-    conn = connections.get(conn_id)
-    connection = event.get("connection") or {}
-    if conn is None:
-        user = connection.get("user")
-        if not user:
+    try:
+        fn = None
+        config_file = limit_data.get("config_file")
+        if config_file:
+            p = Path(config_file)
+            if p.exists():
+                fn = p
+        if fn is None:
+            fn, _, _ = find_user(tag, username)
+        if fn is None:
+            files = config_files()
+            for candidate in files:
+                cfg = load_json(candidate, {})
+                for inbound in cfg.get("inbounds", []):
+                    if inbound.get("tag") == tag:
+                        fn = candidate
+                        break
+                if fn:
+                    break
+        if fn is None:
+            log(f"周期重置需要恢复用户，但找不到inbound: {tag}/{username}")
             return False
-        conn = {
-            "user": user,
-            "uplink_total": 0,
-            "downlink_total": 0,
-            "created_at": connection.get("createdAt", "")
-        }
-        connections[conn_id] = conn
-        stats = ensure_user(state, user)
-        stats["connections"] += 1
-        initial_uplink, initial_downlink = get_totals(connection)
-        if initial_uplink or initial_downlink:
-            add_traffic(state, user, initial_uplink, initial_downlink)
-            conn["uplink_total"] = initial_uplink
-            conn["downlink_total"] = initial_downlink
-    user = conn["user"]
+        cfg = load_json(fn, None)
+        if not isinstance(cfg, dict):
+            return False
+        target = None
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") == tag:
+                target = inbound
+                break
+        if target is None:
+            return False
+        for u in target.get("users", []):
+            if u.get("name") == username:
+                limit_data["config_file"] = str(fn)
+                return True
+        backup = backup_config(fn, "quota-restore")
+        if backup is None:
+            return False
+        target.setdefault("users", []).append(saved_user)
+        write_config(fn, cfg)
+        if not check_config():
+            try:
+                os.replace(backup, fn)
+            except Exception:
+                pass
+            log(f"恢复用户时配置检查失败: {tag}/{username}")
+            return False
+        if not reload_singbox():
+            try:
+                os.replace(backup, fn)
+            except Exception:
+                pass
+            reload_singbox()
+            log(f"恢复用户时sing-box重载失败: {tag}/{username}")
+            return False
+        limit_data["config_file"] = str(fn)
+        log(f"用户已恢复: {tag}/{username}")
+        return True
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock.close()
+def update_limit_file(fn, data):
+    atomic_write_json(fn, data, 0o600)
+def sync_periods(state):
+    changed_state = False
+    for lf in limit_files():
+        data = load_json(lf, {})
+        if not isinstance(data, dict):
+            continue
+        if not data.get("enabled"):
+            if data.get("disabled_by_limit"):
+                if restore_user(data):
+                    data["disabled_by_limit"] = False
+                    update_limit_file(lf, data)
+            continue
+        period = data.get("period", "none")
+        if period not in ("day", "month"):
+            continue
+        now = datetime.now().astimezone()
+        start, end = period_window(period, now)
+        current_start = data.get("period_start")
+        if current_start != start.isoformat():
+            if data.get("disabled_by_limit"):
+                if not restore_user(data):
+                    log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{data.get('user')}")
+                    continue
+            username = data.get("user")
+            u = state.setdefault("users", {}).setdefault(username, {})
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start.isoformat()
+            u["period_end"] = end.isoformat()
+            data["period_start"] = start.isoformat()
+            data["period_end"] = end.isoformat()
+            data["disabled_by_limit"] = False
+            update_limit_file(lf, data)
+            changed_state = True
+            log(f"用户周期已重置: {data.get('inbound_tag')}/{username} {period}")
+        else:
+            username = data.get("user")
+            u = state.setdefault("users", {}).setdefault(username, {})
+            if u.get("period_start") != start.isoformat():
+                u["period_uplink"] = 0
+                u["period_downlink"] = 0
+                u["period_total"] = 0
+                u["period_start"] = start.isoformat()
+                u["period_end"] = end.isoformat()
+                changed_state = True
+    return changed_state
+def check_limits(state):
     changed = False
-    uplink_delta = int(event.get("uplinkDelta") or 0)
-    downlink_delta = int(event.get("downlinkDelta") or 0)
-    if uplink_delta > 0 or downlink_delta > 0:
-        add_traffic(state, user, uplink_delta, downlink_delta)
-        conn["uplink_total"] += max(uplink_delta, 0)
-        conn["downlink_total"] += max(downlink_delta, 0)
-        changed = True
-    final_uplink = connection.get("uplinkTotal")
-    if final_uplink is not None:
-        final_uplink = int(final_uplink)
-        if final_uplink > conn["uplink_total"]:
-            delta = final_uplink - conn["uplink_total"]
-            add_traffic(state, user, uplink=delta)
-            conn["uplink_total"] = final_uplink
+    for lf in limit_files():
+        data = load_json(lf, {})
+        if not isinstance(data, dict):
+            continue
+        if not data.get("enabled"):
+            if data.get("disabled_by_limit"):
+                if restore_user(data):
+                    data["disabled_by_limit"] = False
+                    update_limit_file(lf, data)
+            continue
+        limit_bytes = int(data.get("limit_bytes", 0) or 0)
+        if limit_bytes <= 0:
+            continue
+        username = data.get("user")
+        u = state.get("users", {}).get(username, {})
+        period = data.get("period", "none")
+        if period in ("day", "month"):
+            used = int(u.get("period_total", 0) or 0)
+        else:
+            used = int(u.get("total", 0) or 0)
+        if data.get("disabled_by_limit"):
+            if used < limit_bytes:
+                if restore_user(data):
+                    data["disabled_by_limit"] = False
+                    update_limit_file(lf, data)
+                    log(f"用户流量低于新限制，已恢复: {data.get('inbound_tag')}/{username}")
+            continue
+        if used >= limit_bytes:
+            if disable_user(data):
+                data["disabled_by_limit"] = True
+                update_limit_file(lf, data)
+    return changed
+def ensure_period_fields(state):
+    changed = False
+    for username, u in state.setdefault("users", {}).items():
+        if "period_uplink" not in u:
+            u["period_uplink"] = 0
             changed = True
-    final_downlink = connection.get("downlinkTotal")
-    if final_downlink is not None:
-        final_downlink = int(final_downlink)
-        if final_downlink > conn["downlink_total"]:
-            delta = final_downlink - conn["downlink_total"]
-            add_traffic(state, user, downlink=delta)
-            conn["downlink_total"] = final_downlink
+        if "period_downlink" not in u:
+            u["period_downlink"] = 0
+            changed = True
+        if "period_total" not in u:
+            u["period_total"] = 0
+            changed = True
+        if "period_start" not in u:
+            u["period_start"] = None
+            changed = True
+        if "period_end" not in u:
+            u["period_end"] = None
             changed = True
     return changed
-
-def process_closed(state, event):
-    conn_id = event.get("id")
-    if not conn_id:
-        return False
-    connections = state["connections"]
-    conn = connections.get(conn_id)
-    if conn is None:
-        return False
-    connection = event.get("connection") or {}
-    user = conn["user"]
-    final_uplink = connection.get("uplinkTotal")
-    final_downlink = connection.get("downlinkTotal")
-    if final_uplink is None:
-        final_uplink = conn["uplink_total"]
+def add_traffic(state, username, uplink, downlink):
+    if not username:
+        return
+    u = state.setdefault("users", {}).setdefault(username, {})
+    u["uplink"] = int(u.get("uplink", 0) or 0) + int(uplink or 0)
+    u["downlink"] = int(u.get("downlink", 0) or 0) + int(downlink or 0)
+    u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
+    u["connections"] = int(u.get("connections", 0) or 0)
+    u["period_uplink"] = int(u.get("period_uplink", 0) or 0) + int(uplink or 0)
+    u["period_downlink"] = int(u.get("period_downlink", 0) or 0) + int(downlink or 0)
+    u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
+def update_connection(state, cid, username, uplink, downlink):
+    conns = state.setdefault("connections", {})
+    c = conns.setdefault(cid, {
+        "user": username,
+        "uplink": 0,
+        "downlink": 0
+    })
+    old_up = int(c.get("uplink", 0) or 0)
+    old_down = int(c.get("downlink", 0) or 0)
+    new_up = int(uplink or 0)
+    new_down = int(downlink or 0)
+    delta_up = max(0, new_up - old_up)
+    delta_down = max(0, new_down - old_down)
+    c["user"] = username or c.get("user")
+    c["uplink"] = max(old_up, new_up)
+    c["downlink"] = max(old_down, new_down)
+    add_traffic(state, c.get("user"), delta_up, delta_down)
+def close_connection(state, cid, username, uplink, downlink):
+    update_connection(state, cid, username, uplink, downlink)
+    conns = state.setdefault("connections", {})
+    conns.pop(cid, None)
+def update_connection_count(state):
+    counts = {}
+    for c in state.get("connections", {}).values():
+        u = c.get("user")
+        if u:
+            counts[u] = counts.get(u, 0) + 1
+    for username, data in state.setdefault("users", {}).items():
+        data["connections"] = counts.get(username, 0)
+def parse_event(event, state):
+    if not isinstance(event, dict):
+        return
+    typ = event.get("type") or event.get("event_type") or event.get("event")
+    connection = event.get("connection") or event.get("conn") or {}
+    if not isinstance(connection, dict):
+        connection = {}
+    cid = (
+        str(connection.get("id") or connection.get("connection_id") or
+            event.get("id") or event.get("connection_id") or "")
+    )
+    if not cid:
+        return
+    username = (
+        connection.get("user") or connection.get("username") or
+        connection.get("user_name") or event.get("user") or
+        event.get("username") or ""
+    )
+    uplink = (
+        connection.get("uplink") or connection.get("upload") or
+        connection.get("sent") or event.get("uplink") or
+        event.get("upload") or 0
+    )
+    downlink = (
+        connection.get("downlink") or connection.get("download") or
+        connection.get("received") or event.get("downlink") or
+        event.get("download") or 0
+    )
+    try:
+        uplink = int(uplink or 0)
+    except Exception:
+        uplink = 0
+    try:
+        downlink = int(downlink or 0)
+    except Exception:
+        downlink = 0
+    typ_s = str(typ or "").upper()
+    if "NEW" in typ_s:
+        state.setdefault("connections", {})[cid] = {
+            "user": username,
+            "uplink": uplink,
+            "downlink": downlink
+        }
+        u = state.setdefault("users", {}).setdefault(username, {})
+        u["connections"] = int(u.get("connections", 0) or 0) + 1
+    elif "UPDATE" in typ_s:
+        update_connection(state, cid, username, uplink, downlink)
+    elif "CLOSED" in typ_s or "CLOSE" in typ_s:
+        close_connection(state, cid, username, uplink, downlink)
     else:
-        final_uplink = int(final_uplink)
-    if final_downlink is None:
-        final_downlink = conn["downlink_total"]
-    else:
-        final_downlink = int(final_downlink)
-    extra_uplink = max(final_uplink - conn["uplink_total"], 0)
-    extra_downlink = max(final_downlink - conn["downlink_total"], 0)
-    if extra_uplink or extra_downlink:
-        add_traffic(state, user, extra_uplink, extra_downlink)
-    stats = ensure_user(state, user)
-    if stats["connections"] > 0:
-        stats["connections"] -= 1
-    del connections[conn_id]
-    return True
-
-def process_event(state, event):
-    event_type = event.get("type", "")
-    if event_type == "CONNECTION_EVENT_NEW":
-        return process_new(state, event)
-    if event_type == "CONNECTION_EVENT_UPDATE":
-        return process_update(state, event)
-    if event_type == "CONNECTION_EVENT_CLOSED":
-        return process_closed(state, event)
-    if "connection" in event and event.get("id"):
-        return process_new(state, event)
-    return False
-
-def extract_json_objects(buffer):
-    decoder = json.JSONDecoder()
-    position = 0
-    objects = []
-    length = len(buffer)
-    while position < length:
-        while position < length and buffer[position].isspace():
-            position += 1
-        if position >= length:
-            break
-        try:
-            obj, end = decoder.raw_decode(buffer, position)
-        except json.JSONDecodeError:
-            break
-        objects.append(obj)
-        position = end
-    return buffer[position:], objects
-
-def run_stream(state):
-    command = [
+        if cid in state.setdefault("connections", {}):
+            update_connection(state, cid, username, uplink, downlink)
+def grpc_stream():
+    if not os.path.exists(GRPCURL):
+        log(f"找不到grpcurl: {GRPCURL}")
+        time.sleep(RECONNECT_INTERVAL)
+        return
+    url = f"http://{GRPC_HOST}:{GRPC_PORT}"
+    cmd = [
         GRPCURL,
         "-plaintext",
-        "-H",
-        f"Authorization: Bearer {API_SECRET}",
-        "-d",
-        '{"interval":0}',
-        API_ADDR,
+        "-H", f"Authorization: Bearer {API_SECRET}",
+        "-d", '{"interval":0}',
+        url,
         "daemon.StartedService/SubscribeConnections"
     ]
-    buffer = ""
-    dirty = False
-    last_save = time.monotonic()
-    process = None
     try:
-        process = subprocess.Popen(
-            command,
+        proc = subprocess.Popen(
+            cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1
         )
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                break
-            buffer += line
-            buffer, objects = extract_json_objects(buffer)
-            for obj in objects:
-                events = obj.get("events")
-                if not events:
-                    continue
-                for event in events:
-                    if process_event(state, event):
-                        dirty = True
-            now = time.monotonic()
-            if dirty and now - last_save >= SAVE_INTERVAL:
-                save_state(state)
-                dirty = False
-                last_save = now
-        if dirty:
-            save_state(state)
     except Exception as e:
-        log_error(f"stream error: {e}")
-    finally:
-        if process is not None:
-            try:
-                process.kill()
-            except Exception:
-                pass
-            try:
-                process.wait(timeout=2)
-            except Exception:
-                pass
-
-def main():
-    state = load_state()
-    while True:
-        try:
-            run_stream(state)
-        except KeyboardInterrupt:
-            save_state(state)
-            break
-        except Exception as e:
-            log_error(f"main error: {e}")
+        log(f"启动grpcurl失败: {e}")
         time.sleep(RECONNECT_INTERVAL)
-
+        return
+    try:
+        while running:
+            line = proc.stdout.readline()
+            if line == "":
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except Exception:
+                continue
+            yield event
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+def signal_handler(signum, frame):
+    global running
+    running = False
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+def main():
+    global last_save, last_limit_check
+    TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
+    LIMIT_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_json(STATE_FILE, {"users": {}, "connections": {}})
+    if not isinstance(state, dict):
+        state = {"users": {}, "connections": {}}
+    state.setdefault("users", {})
+    state.setdefault("connections", {})
+    if ensure_period_fields(state):
+        save_state(state)
+    log("singbox traffic collector started")
+    while running:
+        try:
+            if sync_periods(state):
+                save_state(state)
+            check_limits(state)
+            update_connection_count(state)
+            save_state(state)
+            last_save = time.time()
+            last_limit_check = time.time()
+            for event in grpc_stream():
+                if not running:
+                    break
+                parse_event(event, state)
+                update_connection_count(state)
+                now = time.time()
+                if now - last_limit_check >= SAVE_INTERVAL:
+                    sync_periods(state)
+                    check_limits(state)
+                    update_connection_count(state)
+                    save_state(state)
+                    last_save = now
+                    last_limit_check = now
+            if running:
+                sync_periods(state)
+                check_limits(state)
+                update_connection_count(state)
+                save_state(state)
+                time.sleep(RECONNECT_INTERVAL)
+        except Exception as e:
+            log(f"collector异常: {type(e).__name__}: {e}")
+            try:
+                save_state(state)
+            except Exception:
+                pass
+            time.sleep(RECONNECT_INTERVAL)
+    try:
+        update_connection_count(state)
+        save_state(state)
+    except Exception:
+        pass
+    log("singbox traffic collector stopped")
 if __name__ == "__main__":
     main()
 PY
-        chmod 700 "$TRAFFIC_SCRIPT"
+    chmod 700 "$tmp_script"
+    if [ ! -f "$TRAFFIC_SCRIPT" ] || ! cmp -s "$tmp_script" "$TRAFFIC_SCRIPT"; then
+        install -m 700 "$tmp_script" "$TRAFFIC_SCRIPT"
+        TRAFFIC_SCRIPT_CHANGED=1
     fi
+    rm -f "$tmp_script"
 }
 
 init_traffic_service() {
     local service_file="/etc/systemd/system/$TRAFFIC_SERVICE"
-    local tmp_file
-    local changed=0
-    tmp_file="$(mktemp)"
-    cat > "$tmp_file" <<EOF
+    local tmp_service
+    tmp_service="$(mktemp)"
+    cat > "$tmp_service" <<EOF
 [Unit]
-Description=sing-box User Traffic Statistics
-After=sing-box.service
-Wants=sing-box.service
-
+Description=sing-box Traffic Collector
+After=network-online.target sing-box.service
+Wants=network-online.target
+Requires=sing-box.service
 [Service]
 Type=simple
 ExecStart=$PYTHON $TRAFFIC_SCRIPT
 Restart=always
 RestartSec=3
 User=root
+Group=root
 UMask=0077
 NoNewPrivileges=true
-
 [Install]
 WantedBy=multi-user.target
 EOF
-    if [ ! -f "$service_file" ] || ! cmp -s "$tmp_file" "$service_file"; then
-        install -m 644 "$tmp_file" "$service_file"
-        changed=1
+    local service_changed=0
+    if [ ! -f "$service_file" ] || ! cmp -s "$tmp_service" "$service_file"; then
+        install -m 644 "$tmp_service" "$service_file"
+        service_changed=1
     fi
-    rm -f "$tmp_file"
-    if [ "$changed" -eq 1 ]; then
+    rm -f "$tmp_service"
+    if [ "$service_changed" -eq 1 ]; then
         systemctl daemon-reload
     fi
     systemctl enable "$TRAFFIC_SERVICE" >/dev/null 2>&1
-    if [ "$changed" -eq 1 ]; then
-        systemctl restart "$TRAFFIC_SERVICE" >/dev/null 2>&1
+    if [ "$TRAFFIC_SCRIPT_CHANGED" -eq 1 ] || [ "$service_changed" -eq 1 ]; then
+        systemctl restart "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
     elif ! systemctl is-active --quiet "$TRAFFIC_SERVICE"; then
-        systemctl restart "$TRAFFIC_SERVICE" >/dev/null 2>&1
+        systemctl start "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
     fi
 }
 
@@ -791,63 +1138,30 @@ PY
 get_user_traffic() {
     local user="$1"
     if [ ! -f "$TRAFFIC_STATE" ]; then
-        echo "0 0 0 0"
+        echo "0 0 0 0 0 0 0"
         return
     fi
     "$PYTHON" - "$TRAFFIC_STATE" "$user" <<'PY'
 import sys
 import json
-
 fn = sys.argv[1]
 user = sys.argv[2]
-
 try:
     with open(fn, "r", encoding="utf-8") as f:
         data = json.load(f)
-except:
-    print("0 0 0 0")
+except Exception:
+    print("0 0 0 0 0 0 0")
     raise SystemExit
-
 d = data.get("users", {}).get(user, {})
 uplink = int(d.get("uplink", 0) or 0)
 downlink = int(d.get("downlink", 0) or 0)
 total = int(d.get("total", uplink + downlink) or 0)
 connections = int(d.get("connections", 0) or 0)
-print(uplink, downlink, total, connections)
+period_uplink = int(d.get("period_uplink", 0) or 0)
+period_downlink = int(d.get("period_downlink", 0) or 0)
+period_total = int(d.get("period_total", period_uplink + period_downlink) or 0)
+print(uplink, downlink, total, connections, period_uplink, period_downlink, period_total)
 PY
-}
-
-show_user_traffic() {
-    local user="$1"
-    title "流量统计"
-    echo -e "${skyblue}用户:${re} $user"
-    echo
-    if [ ! -f "$TRAFFIC_STATE" ]; then
-        red "未找到流量统计文件："
-        echo "$TRAFFIC_STATE"
-        pause
-        return
-    fi
-    local traffic
-    traffic="$(get_user_traffic "$user")"
-    local uplink
-    local downlink
-    local total
-    local connections
-    read -r uplink downlink total connections <<< "$traffic"
-    echo -e "${skyblue}上传:${re}   $(format_bytes "$uplink")"
-    echo -e "${skyblue}下载:${re}   $(format_bytes "$downlink")"
-    echo -e "${skyblue}总流量:${re} $(format_bytes "$total")"
-    echo -e "${skyblue}连接数:${re} $connections"
-    echo
-    echo -e "${skyblue}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${re}"
-    echo -e "${skyblue}原始数据:${re}"
-    echo "上传     : $uplink B"
-    echo "下载     : $downlink B"
-    echo "总流量   : $total B"
-    echo "连接数   : $connections"
-    echo
-    pause
 }
 
 show_user_traffic_inline() {
@@ -881,25 +1195,41 @@ show_limit() {
     "$PYTHON" - "$lf" <<'PY'
 import sys
 import json
+from datetime import datetime
 
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         d = json.load(f)
+
     if not d.get("enabled"):
         print("已关闭")
         raise SystemExit
-    value = d.get("limit_value")
-    unit = d.get("limit_unit")
-    if value is not None and unit:
-        if float(value).is_integer():
-            value = int(value)
-        print(f"已设置：{value} {unit}")
+
+    value = d.get("limit_value", 0)
+    unit = d.get("limit_unit", "GB")
+    period = d.get("period", "none")
+
+    if float(value).is_integer():
+        value = int(value)
+
+    period_name = {
+        "day": "每天重置",
+        "month": "每月重置",
+        "none": "不重置"
+    }.get(period, "未设置")
+
+    print(f"流量：{value} {unit}")
+    print(f"周期：{period_name}")
+
+    if d.get("disabled_by_limit"):
+        print("状态：已达到流量限制，用户已禁用")
     else:
-        gb = float(d.get("limit_gb", 0) or 0)
-        if gb.is_integer():
-            gb = int(gb)
-        print(f"已设置：{gb} GB")
-except:
+        print("状态：正常")
+
+    if d.get("period_end"):
+        print(f"周期结束：{d['period_end']}")
+
+except Exception:
     print("未设置")
 PY
 }
@@ -909,14 +1239,15 @@ set_limit() {
     local user="$2"
     local lf
     lf="$(get_limit_file "$tag" "$user")"
-    title "流量限制"
+    title "设置流量"
     show_limit "$tag" "$user"
     echo
-    echo -e "${skyblue}支持:${re}"
-    echo -e "  2       = 2GB"
-    echo -e "  100MB   = 100MB"
-    echo -e "  1GB     = 1GB"
-    echo -e "  0       = 关闭流量限制"
+    echo -e "${skyblue}支持格式:${re}"
+    echo "  2       = 2GB"
+    echo "  100MB   = 100MB"
+    echo "  1GB     = 1GB"
+    echo "  100.5GB = 100.5GB"
+    echo "  0       = 关闭流量限制"
     echo
     local input
     read -rp "$(green "请输入流量限制: ")" input
@@ -927,16 +1258,20 @@ import sys
 import json
 import os
 fn = sys.argv[1]
-data = {
-    "limit_value": 0,
-    "limit_unit": "GB",
-    "limit_bytes": 0,
-    "period": "none",
-    "enabled": False,
-    "disabled_by_limit": False
-}
+old = {}
+if os.path.exists(fn):
+    try:
+        with open(fn, "r", encoding="utf-8") as f:
+            old = json.load(f)
+    except:
+        pass
+old["limit_value"] = 0
+old["limit_unit"] = "GB"
+old["limit_bytes"] = 0
+old["enabled"] = False
+old["disabled_by_limit"] = False
 with open(fn, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+    json.dump(old, f, ensure_ascii=False, indent=2)
     f.write("\n")
 os.chmod(fn, 0o600)
 PY
@@ -995,6 +1330,8 @@ data = {
     "enabled": True,
     "disabled_by_limit": False
 }
+if "disabled_user" in old:
+    data["disabled_user"] = old["disabled_user"]
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -1006,6 +1343,11 @@ PY
         return
     fi
     green "流量限制已设置：${number}${unit}"
+    if [ "$unit" = "GB" ]; then
+        echo -e "${skyblue}限制字节:${re} $(awk "BEGIN {printf \"%.0f\", $number * 1024 * 1024 * 1024}") B"
+    else
+        echo -e "${skyblue}限制字节:${re} $(awk "BEGIN {printf \"%.0f\", $number * 1024 * 1024}") B"
+    fi
     pause
 }
 
@@ -1014,7 +1356,7 @@ set_limit_period() {
     local user="$2"
     local lf
     lf="$(get_limit_file "$tag" "$user")"
-    title "设置时间周期"
+    title "设置时间"
     if [ ! -f "$lf" ]; then
         red "请先设置流量限制"
         pause
@@ -1039,41 +1381,62 @@ set_limit_period() {
 import sys
 import json
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+
 fn = sys.argv[1]
 period = sys.argv[2]
+
 try:
     with open(fn, "r", encoding="utf-8") as f:
         data = json.load(f)
 except:
     data = {}
-now = datetime.now(timezone.utc)
-if period == "day":
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-elif period == "month":
-    if now.month == 12:
-        end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-    else:
-        end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-else:
-    start = None
-    end = None
+
+now = datetime.now().astimezone()
+
+def get_period(now, period):
+    if period == "day":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return start, end
+    if period == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start.month == 12:
+            end = start.replace(
+                year=start.year + 1,
+                month=1
+            )
+        else:
+            end = start.replace(
+                month=start.month + 1
+            )
+        return start, end
+    return None, None
+
+start, end = get_period(now, period)
+
 data["period"] = period
 data["period_start"] = start.isoformat() if start else None
 data["period_end"] = end.isoformat() if end else None
-data["enabled"] = True
+data["enabled"] = bool(data.get("limit_bytes", 0))
 data["disabled_by_limit"] = False
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
+
 os.chmod(fn, 0o600)
 PY
     case "$period" in
-        day) green "时间周期已设置：每天重置" ;;
-        month) green "时间周期已设置：每月重置" ;;
-        none) green "时间周期已设置：不重置" ;;
+        day)
+            green "时间周期已设置：每天重置"
+            ;;
+        month)
+            green "时间周期已设置：每月重置"
+            ;;
+        none)
+            green "时间周期已设置：不重置"
+            ;;
     esac
     pause
 }
@@ -1503,6 +1866,53 @@ PY
             2)
                 set_limit_period "$tag" "$user"
                 ;;
+            3)
+                show_limit "$tag" "$user"
+                pause
+                ;;
+            4)
+                local lf
+                lf="$(get_limit_file "$tag" "$user")"
+                if [ -f "$lf" ]; then
+                    "$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+import os
+
+fn = sys.argv[1]
+
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        d = json.load(f)
+except:
+    d = {}
+
+d["enabled"] = False
+d["disabled_by_limit"] = False
+
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(d, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+os.chmod(fn, 0o600)
+PY
+                    green "流量限制已关闭"
+                    pause
+                else
+                    yellow "当前没有流量限制"
+                    pause
+                fi
+                ;;
+            0)
+                break
+                ;;
+            *)
+                red "无效选择"
+                sleep 1
+                ;;
+        esac
+    done
+    ;;
             3)
                 show_limit "$tag" "$user"
                 pause
