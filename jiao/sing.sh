@@ -58,6 +58,9 @@ get_latest_stable() {
 get_latest_prerelease() {
     curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep '"tag_name":' | head -n 10 | grep -E "alpha|beta|rc" | head -n 1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
+get_latest_v2rayapi() {
+    curl -fsSL "https://api.github.com/repos/hyp3699/kknnuonmkk/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
+}
 get_latest_argo() {
     curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
@@ -79,7 +82,39 @@ update_sb() {
     fi
     rm -rf "$tmp"
 }
-
+update_v2rayapi() {
+    tag="$1"
+    [ -z "$tag" ] && return
+    url="https://github.com/hyp3699/kknnuonmkk/releases/download/${tag}/sing-box"
+    tmp=$(mktemp -d)
+    echo -e "${BLUE}▶ 正在从编译版官方 Release 下载 [ ${tag} ]...${RESET}"
+    if curl -fL -o "$tmp/sing-box" "$url"; then
+        if [ ! -s "$tmp/sing-box" ]; then
+            echo -e "${RED}❌ 下载文件为空。${RESET}"
+            rm -rf "$tmp"
+            return
+        fi
+        [ -f "$SB_BIN" ] && cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
+        mv "$tmp/sing-box" "$SB_BIN"
+        chmod +x "$SB_BIN"
+        if "$SB_BIN" version >/dev/null 2>&1; then
+            systemctl restart sing-box 2>/dev/null
+            echo -e "${GREEN}✅ 编译版 sing-box 更新成功!${RESET}"
+            rm -f "$SB_BIN.bak" 2>/dev/null
+        else
+            echo -e "${RED}❌ 新版 sing-box 无法运行，正在恢复旧版本...${RESET}"
+            if [ -f "$SB_BIN.bak" ]; then
+                mv -f "$SB_BIN.bak" "$SB_BIN"
+                chmod +x "$SB_BIN"
+                systemctl restart sing-box 2>/dev/null
+                echo -e "${YELLOW}🔄 已恢复旧版本。${RESET}"
+            fi
+        fi
+    else
+        echo -e "${RED}❌ 编译版下载失败，请检查网络环境。${RESET}"
+    fi
+    rm -rf "$tmp"
+}
 update_argo() {
     tag=$(get_latest_argo)
     url="https://github.com/cloudflare/cloudflared/releases/download/${tag}/cloudflared-linux-${ARCH}"
@@ -142,11 +177,13 @@ while true; do
     echo -e "${GREEN}正在获取版本信息...${RESET}"
     v_stable=$(get_latest_stable)
     v_pre=$(get_latest_prerelease)
+    v_v2rayapi=$(get_latest_v2rayapi)
     v_argo=$(get_latest_argo)
 
     echo -e "1) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方稳定版: ${v_stable:-获取中}${RESET} ]"
     echo -e "2) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方测试版: ${v_pre:-获取中}${RESET} ]"
-    echo -e "3) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
+    echo -e "3) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}V2Ray API 编译版: ${v_v2rayapi:-获取中}${RESET} ]"
+    echo -e "4) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
     echo -e "0) ${RED}退出程序${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo
