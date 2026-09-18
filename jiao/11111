@@ -1,19 +1,163 @@
+init_traffic() {
+    TRAFFIC_SCRIPT_CHANGED=0
+    mkdir -p "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
+    chmod 700 "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
+    local traffic_grpcurl="$TRAFFIC_DIR/grpcurl"
+    local traffic_proto="$TRAFFIC_DIR/stats.proto"
+    local grpcurl_version="1.9.3"
+    local grpcurl_sha256="62e2e4315bb70fab2e27f86c1f7738d09076a097a2dc8e0f701e386251172e40"
+    local stats_proto_sha256="9e2398a634daced553a41620eb0e31ef30c0d3ef0f50bced58fec84c99f62aaf"
+    local grpcurl_url="https://github.com/fullstorydev/grpcurl/releases/download/v${grpcurl_version}/grpcurl_${grpcurl_version}_linux_x86_64.tar.gz"
+    if [ ! -f "$traffic_grpcurl" ] || [ "$(sha256sum "$traffic_grpcurl" 2>/dev/null | awk '{print $1}')" != "$grpcurl_sha256" ]; then
+        local grpcurl_tmp
+        local grpcurl_dir
+        grpcurl_tmp="$(mktemp)"
+        grpcurl_dir="$(mktemp -d)"
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        else
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
+            return 1
+        fi
+        if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：解压 grpcurl 失败"
+            return 1
+        fi
+        if [ ! -f "$grpcurl_dir/grpcurl" ]; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：解压后找不到 grpcurl"
+            return 1
+        fi
+        chmod 755 "$grpcurl_dir/grpcurl"
+        local actual_grpcurl_sha256
+        actual_grpcurl_sha256="$(sha256sum "$grpcurl_dir/grpcurl" | awk '{print $1}')"
+        if [ "$actual_grpcurl_sha256" != "$grpcurl_sha256" ]; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：grpcurl SHA256 校验失败"
+            echo "期望：$grpcurl_sha256"
+            echo "实际：$actual_grpcurl_sha256"
+            return 1
+        fi
+        install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"
+        rm -f "$grpcurl_tmp"
+        rm -rf "$grpcurl_dir"
+    else
+        chmod 755 "$traffic_grpcurl"
+    fi
+    if [ ! -f "$traffic_proto" ] || [ "$(sha256sum "$traffic_proto" 2>/dev/null | awk '{print $1}')" != "$stats_proto_sha256" ]; then
+        local tmp_proto
+        tmp_proto="$(mktemp)"
+        cat > "$tmp_proto" <<'PROTO'
+syntax = "proto3";
+package v2ray.core.app.stats.command;
+option go_package = "github.com/sagernet/sing-box/experimental/v2rayapi";
+message GetStatsRequest {
+  // Name of the stat counter.
+  string name = 1;
+  // Whether or not to reset the counter to fetching its value.
+  bool reset = 2;
+}
+message Stat {
+  string name = 1;
+  int64 value = 2;
+}
+message GetStatsResponse {
+  Stat stat = 1;
+}
+message QueryStatsRequest {
+  // Deprecated, use Patterns instead
+  string pattern = 1;
+  bool reset = 2;
+  repeated string patterns = 3;
+  bool regexp = 4;
+}
+message QueryStatsResponse {
+  repeated Stat stat = 1;
+}
+message SysStatsRequest {}
+message SysStatsResponse {
+  uint32 NumGoroutine = 1;
+  uint32 NumGC = 2;
+  uint64 Alloc = 3;
+  uint64 TotalAlloc = 4;
+  uint64 Sys = 5;
+  uint64 Mallocs = 6;
+  uint64 Frees = 7;
+  uint64 LiveObjects = 8;
+  uint64 PauseTotalNs = 9;
+  uint32 Uptime = 10;
+}
+service StatsService {
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse) {}
+  rpc QueryStats(QueryStatsRequest) returns (QueryStatsResponse) {}
+  rpc GetSysStats(SysStatsRequest) returns (SysStatsResponse) {}
+}
+PROTO
+        local actual_proto_sha256
+        actual_proto_sha256="$(sha256sum "$tmp_proto" | awk '{print $1}')"
+        if [ "$actual_proto_sha256" != "$stats_proto_sha256" ]; then
+            rm -f "$tmp_proto"
+            echo "错误：生成 stats.proto 后 SHA256 校验失败"
+            echo "期望：$stats_proto_sha256"
+            echo "实际：$actual_proto_sha256"
+            return 1
+        fi
+        install -m 600 "$tmp_proto" "$traffic_proto"
+        rm -f "$tmp_proto"
+    else
+        chmod 600 "$traffic_proto"
+    fi
+    if [ ! -x "$traffic_grpcurl" ]; then
+        chmod 755 "$traffic_grpcurl"
+    fi
+    if ! "$traffic_grpcurl" -version 2>/dev/null | grep -q "grpcurl v${grpcurl_version}"; then
+        echo "错误：grpcurl 版本验证失败"
+        echo "当前版本：$("$traffic_grpcurl" -version 2>&1 || true)"
+        return 1
+    fi
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        cat > "$TRAFFIC_STATE" <<'JSON'
+{
+  "users": {},
+  "connections": {},
+  "stats_counters": {}
+}
+JSON
+        chmod 600 "$TRAFFIC_STATE"
+    fi
+    local tmp_script
+    tmp_script="$(mktemp)"
+    cat > "$tmp_script" <<'PY'
 #!/usr/bin/env python3
 import json
 import os
-import sys
+import subprocess
 import time
 import signal
-import shutil
-import subprocess
-import selectors
-import fcntl
+import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 
 BASE_DIR = Path("/etc/sing-box")
 CONF_DIR = BASE_DIR / "conf"
-CONFIG_FILE = CONF_DIR / "config.json"
 DATA_DIR = BASE_DIR / "user_manager"
 LIMIT_DIR = DATA_DIR / "limits"
 TRAFFIC_DIR = DATA_DIR / "traffic"
@@ -21,1185 +165,729 @@ STATE_FILE = TRAFFIC_DIR / "state.json"
 LOG_FILE = TRAFFIC_DIR / "traffic.log"
 BACKUP_DIR = DATA_DIR / "backups"
 LOCK_FILE = DATA_DIR / ".config.lock"
-
 SINGBOX = BASE_DIR / "sing-box"
 SERVICE = "sing-box"
-
 GRPC_HOST = "127.0.0.1"
-GRPC_PORT = 9093
-GRPCURL = "/tmp/grpcurl"
-
+GRPC_PORT = 9094
+GRPCURL = str(TRAFFIC_DIR / "grpcurl")
+PROTO_FILE = str(TRAFFIC_DIR / "stats.proto")
+CONFIG_FILE = CONF_DIR / "config.json"
 SAVE_INTERVAL = 5
+POLL_INTERVAL = 5
 RECONNECT_INTERVAL = 3
-
 running = True
 
-for directory in (DATA_DIR, LIMIT_DIR, TRAFFIC_DIR, BACKUP_DIR):
-    directory.mkdir(parents=True, exist_ok=True)
-
-def log(message):
+def log(msg):
     try:
+        TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+            f.write(datetime.now().astimezone().isoformat() + " " + str(msg) + "\n")
     except Exception:
         pass
 
-def atomic_write_json(path, data):
+def atomic_write_json(path, data, mode=0o600):
     path = Path(path)
-    tmp = path.with_name(path.name + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(
-                data,
-                f,
-                ensure_ascii=False,
-                indent=2,
-                separators=(",", ": ")
-            )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
-        return True
-    except Exception as e:
-        log(f"写入 JSON 失败 {path}: {e}")
+    finally:
         try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
+            os.unlink(tmp)
+        except FileNotFoundError:
             pass
-        return False
 
-def load_json(path, default=None):
-    path = Path(path)
-    if not path.exists():
-        return default
+def load_json(path, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
-        log(f"读取 JSON 失败 {path}: {e}")
+    except Exception:
         return default
 
-def load_state():
-    default = {
-        "users": {},
-        "connections": {}
-    }
-    data = load_json(STATE_FILE, default)
-    if not isinstance(data, dict):
-        return default
-    data.setdefault("users", {})
-    data.setdefault("connections", {})
-    return data
+def save_state(state):
+    atomic_write_json(STATE_FILE, state, 0o600)
 
-def save_state(state, force=False):
-    tmp = STATE_FILE.with_name(STATE_FILE.name + ".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(
-                state,
-                f,
-                ensure_ascii=False,
-                indent=2,
-                separators=(",", ": ")
-            )
-            if force:
-                f.flush()
-                os.fsync(f.fileno())
-        os.replace(tmp, STATE_FILE)
-        return True
-    except Exception as e:
-        log(f"保存 state 失败: {e}")
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return False
-
-def period_window(period):
-    now = datetime.now()
-    if period in ("day", "daily"):
+def period_window(period, now=None):
+    if now is None:
+        now = datetime.now().astimezone()
+    if period == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=1)
         return start, end
-    if period in ("month", "monthly"):
+    if period == "month":
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if start.month == 12:
-            end = start.replace(
-                year=start.year + 1,
-                month=1
-            )
+            end = start.replace(year=start.year + 1, month=1, day=1)
         else:
-            end = start.replace(month=start.month + 1)
+            end = start.replace(month=start.month + 1, day=1)
         return start, end
     return None, None
 
 def period_name(meta):
+    if not isinstance(meta, dict):
+        return "month"
     period = meta.get("period")
     if period in ("day", "daily"):
         return "day"
     if period in ("month", "monthly"):
         return "month"
-    return "none"
+    return "month"
 
 def limit_files():
-    if not LIMIT_DIR.exists():
+    try:
+        return sorted(LIMIT_DIR.glob("*.json"))
+    except Exception:
         return []
-    return sorted(
-        LIMIT_DIR.glob("*.json"),
-        key=lambda p: p.name
-    )
 
 def config_files():
-    if not CONF_DIR.exists():
+    try:
+        return sorted(CONF_DIR.glob("*.json"))
+    except Exception:
         return []
-    return sorted(
-        CONF_DIR.glob("*.json"),
-        key=lambda p: p.name
-    )
 
-def get_limit_meta_for_user(user):
+def get_limit_meta_for_user(username):
     for path in limit_files():
         data = load_json(path, {})
         if not isinstance(data, dict):
             continue
-        if data.get("user") == user:
+        if data.get("user") == username:
             return path, data
     return None, None
 
-def find_user(inbound_tag, username):
-    for path in config_files():
-        config = load_json(path, None)
-        if not isinstance(config, dict):
-            continue
-        inbounds = config.get("inbounds")
-        if not isinstance(inbounds, list):
-            continue
-        for inbound in inbounds:
-            if not isinstance(inbound, dict):
-                continue
-            if inbound.get("tag") != inbound_tag:
-                continue
-            users = inbound.get("users")
-            if not isinstance(users, list):
-                continue
-            for user in users:
-                if not isinstance(user, dict):
-                    continue
-                if user.get("name") == username:
-                    return path, config, inbound, user
-                if user.get("username") == username:
-                    return path, config, inbound, user
-                if user.get("user") == username:
-                    return path, config, inbound, user
-    return None, None, None, None
+def get_user_period(username):
+    _, meta = get_limit_meta_for_user(username)
+    if meta:
+        return period_name(meta)
+    return "month"
 
-def backup_config(config_file):
-    config_file = Path(config_file)
-    if not config_file.exists():
-        return None
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    backup_name = f"{config_file.stem}.{timestamp}.{os.getpid()}.json"
-    backup_path = BACKUP_DIR / backup_name
+def find_user(tag, username):
+    for fn in config_files():
+        try:
+            with open(fn, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") != tag:
+                continue
+            for user in inbound.get("users", []):
+                if user.get("name") == username:
+                    return fn, user
+    return None, None
+
+def backup_config(fn, reason):
     try:
-        shutil.copy2(config_file, backup_path)
-        return backup_path
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
+        target = BACKUP_DIR / f"{fn.stem}__{reason}__{stamp}.json"
+        with open(fn, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+        os.chmod(target, 0o600)
+        return target
     except Exception as e:
-        log(f"配置备份失败 {config_file}: {e}")
+        log(f"备份配置失败 {fn}: {e}")
         return None
 
 def check_config():
-    if not SINGBOX.exists():
-        log(f"找不到 sing-box: {SINGBOX}")
-        return False
-    command = [
-        str(SINGBOX),
-        "check",
-        "-C",
-        str(CONF_DIR)
-    ]
     try:
-        result = subprocess.run(
-            command,
+        r = subprocess.run(
+            [str(SINGBOX), "check", "-C", str(CONF_DIR)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=30
         )
-        if result.returncode != 0:
-            log(f"sing-box 配置检查失败: {result.stdout.strip()}")
+        if r.returncode != 0:
+            log("sing-box check失败: " + r.stdout[-3000:])
             return False
         return True
     except Exception as e:
-        log(f"sing-box 配置检查异常: {e}")
-        return False
-
-def service_exists():
-    try:
-        result = subprocess.run(
-            ["systemctl", "cat", f"{SERVICE}.service"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        return result.returncode == 0
-    except Exception:
+        log(f"sing-box check异常: {e}")
         return False
 
 def reload_singbox():
-    if not service_exists():
-        log(f"未找到 systemd 服务 {SERVICE}.service，无法自动重启 sing-box")
-        return False
     try:
-        result = subprocess.run(
+        r = subprocess.run(
+            ["systemctl", "reload", SERVICE],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30
+        )
+        if r.returncode == 0:
+            return True
+        r = subprocess.run(
             ["systemctl", "restart", SERVICE],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=60
         )
-        if result.returncode != 0:
-            log(f"重启 sing-box 失败: {result.stdout.strip()}")
+        if r.returncode != 0:
+            log("sing-box restart失败: " + r.stdout[-3000:])
             return False
-        time.sleep(1)
         return True
     except Exception as e:
-        log(f"重启 sing-box 异常: {e}")
+        log(f"reload/restart异常: {e}")
         return False
 
-class ConfigLock:
-    def __init__(self, path):
-        self.path = Path(path)
-        self.fd = None
-
-    def __enter__(self):
-        self.fd = open(self.path, "w")
-        fcntl.flock(self.fd.fileno(), fcntl.LOCK_EX)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.fd is not None:
-            try:
-                fcntl.flock(self.fd.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-            try:
-                self.fd.close()
-            except Exception:
-                pass
-
-def disable_user(user, limit_data):
-    inbound_tag = (
-        limit_data.get("inbound_tag")
-        or limit_data.get("tag")
-        or limit_data.get("inbound")
-    )
-    if not inbound_tag:
-        log(f"禁用用户失败: {user} 没有 inbound_tag")
-        return False
-
-    config_file, config, inbound, user_data = find_user(
-        inbound_tag,
-        user
-    )
-
-    limit_file, current_limit = get_limit_meta_for_user(user)
-
-    if current_limit is None:
-        current_limit = limit_data
-
-    if config_file is None:
-        if current_limit.get("disabled_by_limit"):
-            return True
-        log(f"找不到需要禁用的用户: {inbound_tag} / {user}")
-        return False
-
-    with ConfigLock(LOCK_FILE):
-        if current_limit.get("disabled_by_limit"):
-            return True
-
-        backup_path = backup_config(config_file)
-        if backup_path is None:
-            log(f"禁用用户失败，无法备份配置: {config_file}")
-            return False
-
-        saved_user = dict(user_data)
-
-        users = inbound.get("users")
-        if not isinstance(users, list):
-            log(f"配置用户列表异常: {config_file}")
-            return False
-
-        new_users = []
-        removed = False
-
-        for item in users:
-            if item is user_data:
-                removed = True
-                continue
-            if isinstance(item, dict):
-                item_name = (
-                    item.get("name")
-                    or item.get("username")
-                    or item.get("user")
-                )
-                if item_name == user:
-                    removed = True
-                    continue
-            new_users.append(item)
-
-        if not removed:
-            log(f"用户已经不存在: {inbound_tag} / {user}")
-            current_limit["disabled_by_limit"] = True
-            current_limit["saved_user"] = saved_user
-            current_limit["config_file"] = str(config_file)
-            if limit_file:
-                atomic_write_json(limit_file, current_limit)
-            return True
-
-        inbound["users"] = new_users
-
-        if not atomic_write_json(config_file, config):
-            return False
-
-        if not check_config():
-            shutil.copy2(backup_path, config_file)
-            log(f"配置检查失败，已恢复: {config_file}")
-            return False
-
-        if not reload_singbox():
-            shutil.copy2(backup_path, config_file)
-            log(f"sing-box 重启失败，已恢复: {config_file}")
-            try:
-                reload_singbox()
-            except Exception:
-                pass
-            return False
-
-        current_limit["disabled_by_limit"] = True
-        current_limit["saved_user"] = saved_user
-        current_limit["config_file"] = str(config_file)
-        current_limit["backup_file"] = str(backup_path)
-
-        if limit_file:
-            atomic_write_json(limit_file, current_limit)
-
-        log(f"用户已因流量超限禁用: {inbound_tag} / {user}")
-        return True
-
-def restore_user(user, limit_data):
-    if not limit_data.get("disabled_by_limit"):
-        return False
-
-    inbound_tag = (
-        limit_data.get("inbound_tag")
-        or limit_data.get("tag")
-        or limit_data.get("inbound")
-    )
-    saved_user = limit_data.get("saved_user")
-    config_file = limit_data.get("config_file")
-
-    if not inbound_tag or not saved_user:
-        log(f"恢复用户失败，缺少信息: {user}")
-        return False
-
-    if config_file:
-        config_file = Path(config_file)
-
-    if not config_file or not config_file.exists():
-        found = find_user(inbound_tag, user)
-        if found[0]:
-            config_file = found[0]
-        else:
-            log(f"恢复用户失败，找不到配置文件: {user}")
-            return False
-
-    found_file, config, inbound, current_user = find_user(
-        inbound_tag,
-        user
-    )
-
-    if current_user is not None:
-        limit_file, meta = get_limit_meta_for_user(user)
-        if meta is None:
-            meta = limit_data
-        meta["disabled_by_limit"] = False
-        meta.pop("saved_user", None)
-        meta.pop("backup_file", None)
-        if limit_file:
-            atomic_write_json(limit_file, meta)
-        log(f"用户已经存在，恢复状态标记: {user}")
-        return True
-
-    config = load_json(config_file, None)
-    if not isinstance(config, dict):
-        log(f"读取配置失败: {config_file}")
-        return False
-
-    inbounds = config.get("inbounds")
-    if not isinstance(inbounds, list):
-        log(f"配置没有 inbounds: {config_file}")
-        return False
-
-    target_inbound = None
-    for inbound_item in inbounds:
-        if not isinstance(inbound_item, dict):
-            continue
-        if inbound_item.get("tag") == inbound_tag:
-            target_inbound = inbound_item
-            break
-
-    if target_inbound is None:
-        log(f"恢复失败，找不到 inbound: {inbound_tag}")
-        return False
-
-    users = target_inbound.setdefault("users", [])
-    if not isinstance(users, list):
-        log(f"恢复失败，users 不是数组: {config_file}")
-        return False
-
-    with ConfigLock(LOCK_FILE):
-        backup_path = backup_config(config_file)
-        if backup_path is None:
-            return False
-
-        users.append(saved_user)
-
-        if not atomic_write_json(config_file, config):
-            return False
-
-        if not check_config():
-            shutil.copy2(backup_path, config_file)
-            log(f"恢复后配置检查失败，已恢复备份: {config_file}")
-            return False
-
-        if not reload_singbox():
-            shutil.copy2(backup_path, config_file)
-            log(f"恢复后重启 sing-box 失败，已恢复备份: {config_file}")
-            try:
-                reload_singbox()
-            except Exception:
-                pass
-            return False
-
-        limit_file, meta = get_limit_meta_for_user(user)
-        if meta is None:
-            meta = limit_data
-
-        meta["disabled_by_limit"] = False
-        meta.pop("saved_user", None)
-        meta.pop("backup_file", None)
-
-        if limit_file:
-            atomic_write_json(limit_file, meta)
-
-        log(f"用户已恢复: {inbound_tag} / {user}")
-        return True
-
-def update_limit_file(path, data):
-    return atomic_write_json(path, data)
-
-def get_user_period(user):
-    _, meta = get_limit_meta_for_user(user)
-    if isinstance(meta, dict):
-        return period_name(meta)
-    return "none"
-
-def ensure_user(state, user):
-    if not user:
+def acquire_lock():
+    try:
+        import fcntl
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fp = open(LOCK_FILE, "w")
+        fcntl.flock(fp.fileno(), fcntl.LOCK_EX)
+        return fp
+    except Exception as e:
+        log(f"获取配置锁失败: {e}")
         return None
 
-    users = state["users"]
+def disable_user(limit_data):
+    tag = limit_data.get("inbound_tag")
+    username = limit_data.get("user")
+    if not tag or not username:
+        return False
+    lock = acquire_lock()
+    if lock is None:
+        return False
+    try:
+        fn, user = find_user(tag, username)
+        if fn is None:
+            saved = limit_data.get("saved_user")
+            if saved:
+                return True
+            log(f"达到流量限制，但找不到用户: {tag}/{username}")
+            return False
+        cfg = load_json(fn, None)
+        if not isinstance(cfg, dict):
+            return False
+        target = None
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") == tag:
+                target = inbound
+                break
+        if target is None:
+            return False
+        saved_user = None
+        new_users = []
+        for u in target.get("users", []):
+            if u.get("name") == username:
+                saved_user = u
+            else:
+                new_users.append(u)
+        if saved_user is None:
+            return False
+        backup = backup_config(fn, "quota-disable")
+        if backup is None:
+            return False
+        target["users"] = new_users
+        atomic_write_json(fn, cfg, 0o600)
+        if not check_config():
+            try:
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
+            except Exception:
+                pass
+            log(f"达到流量限制后配置检查失败，已恢复: {tag}/{username}")
+            return False
+        if not reload_singbox():
+            try:
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
+            except Exception:
+                pass
+            reload_singbox()
+            log(f"达到流量限制后sing-box重载失败: {tag}/{username}")
+            return False
+        limit_data["saved_user"] = saved_user
+        limit_data["config_file"] = str(fn)
+        limit_data["disabled_by_limit"] = True
+        log(f"用户已因流量达到限制而停用: {tag}/{username}")
+        return True
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock.close()
 
-    if user not in users:
-        period = get_user_period(user)
-        start, end = period_window(period)
+def restore_user(limit_data):
+    tag = limit_data.get("inbound_tag")
+    username = limit_data.get("user")
+    saved_user = limit_data.get("saved_user")
+    if not tag or not username or not isinstance(saved_user, dict):
+        return False
+    lock = acquire_lock()
+    if lock is None:
+        return False
+    try:
+        fn = None
+        config_file = limit_data.get("config_file")
+        if config_file and Path(config_file).exists():
+            fn = Path(config_file)
+        if fn is None:
+            fn, _ = find_user(tag, username)
+        if fn is None:
+            for candidate in config_files():
+                cfg = load_json(candidate, {})
+                for inbound in cfg.get("inbounds", []):
+                    if inbound.get("tag") == tag:
+                        fn = candidate
+                        break
+                if fn:
+                    break
+        if fn is None:
+            log(f"周期重置需要恢复用户，但找不到inbound: {tag}/{username}")
+            return False
+        cfg = load_json(fn, None)
+        if not isinstance(cfg, dict):
+            return False
+        target = None
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") == tag:
+                target = inbound
+                break
+        if target is None:
+            return False
+        for u in target.get("users", []):
+            if u.get("name") == username:
+                limit_data["config_file"] = str(fn)
+                return True
+        backup = backup_config(fn, "quota-restore")
+        if backup is None:
+            return False
+        target.setdefault("users", []).append(saved_user)
+        atomic_write_json(fn, cfg, 0o600)
+        if not check_config():
+            try:
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
+            except Exception:
+                pass
+            log(f"恢复用户时配置检查失败: {tag}/{username}")
+            return False
+        if not reload_singbox():
+            try:
+                with open(backup, "rb") as src, open(fn, "wb") as dst:
+                    dst.write(src.read())
+            except Exception:
+                pass
+            reload_singbox()
+            log(f"恢复用户时sing-box重载失败: {tag}/{username}")
+            return False
+        limit_data["config_file"] = str(fn)
+        log(f"用户已恢复: {tag}/{username}")
+        return True
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock.close()
 
-        users[user] = {
+def update_limit_file(fn, data):
+    atomic_write_json(fn, data, 0o600)
+
+def ensure_user(state, username):
+    if not username:
+        return None
+    users = state.setdefault("users", {})
+    current_period = get_user_period(username)
+    if username not in users:
+        start, end = period_window(current_period)
+        users[username] = {
             "uplink": 0,
             "downlink": 0,
             "total": 0,
             "connections": 0,
-            "period": period,
+            "period": current_period,
             "period_uplink": 0,
             "period_downlink": 0,
             "period_total": 0,
-            "period_start": start.isoformat() if start else "",
-            "period_end": end.isoformat() if end else ""
+            "period_start": start.isoformat() if start else None,
+            "period_end": end.isoformat() if end else None
         }
+    else:
+        u = users[username]
+        u.setdefault("uplink", 0)
+        u.setdefault("downlink", 0)
+        u.setdefault("total", 0)
+        u.setdefault("connections", 0)
+        u.setdefault("period", current_period)
+        u.setdefault("period_uplink", 0)
+        u.setdefault("period_downlink", 0)
+        u.setdefault("period_total", 0)
+        u.setdefault("period_start", None)
+        u.setdefault("period_end", None)
+    return users[username]
 
-    data = users[user]
-    data.setdefault("uplink", 0)
-    data.setdefault("downlink", 0)
-    data.setdefault("total", 0)
-    data.setdefault("connections", 0)
-    data.setdefault("period", get_user_period(user))
-    data.setdefault("period_uplink", 0)
-    data.setdefault("period_downlink", 0)
-    data.setdefault("period_total", 0)
-    data.setdefault("period_start", "")
-    data.setdefault("period_end", "")
-
-    return data
-
-def add_traffic(state, user, uplink=0, downlink=0):
-    if not user:
-        return False
-
-    uplink = int(uplink or 0)
-    downlink = int(downlink or 0)
-
-    if uplink < 0:
-        uplink = 0
-    if downlink < 0:
-        downlink = 0
-
+def add_traffic(state, username, uplink=0, downlink=0):
+    if not username:
+        return
+    uplink = max(0, int(uplink or 0))
+    downlink = max(0, int(downlink or 0))
     if uplink == 0 and downlink == 0:
-        return False
-
-    stats = ensure_user(state, user)
-
-    stats["uplink"] += uplink
-    stats["downlink"] += downlink
-    stats["total"] += uplink + downlink
-
-    period = stats.get("period", "none")
-
-    if period in ("day", "month"):
-        stats["period_uplink"] += uplink
-        stats["period_downlink"] += downlink
-        stats["period_total"] += uplink + downlink
-
-    return True
-
-def process_new(state, event):
-    connection = event.get("connection") or {}
-    conn_id = event.get("id") or connection.get("id")
-
-    if not conn_id:
-        return False
-
-    user = connection.get("user")
-    if not user:
-        return False
-
-    connections = state["connections"]
-
-    uplink_total = int(connection.get("uplinkTotal") or 0)
-    downlink_total = int(connection.get("downlinkTotal") or 0)
-
-    existing = connections.get(conn_id)
-
-    if existing is None:
-        connections[conn_id] = {
-            "user": user,
-            "uplink_total": uplink_total,
-            "downlink_total": downlink_total,
-            "created_at": connection.get("createdAt", "")
-        }
-
-        stats = ensure_user(state, user)
-        stats["connections"] += 1
-
-        add_traffic(
-            state,
-            user,
-            uplink_total,
-            downlink_total
-        )
-        return True
-
-    old_user = existing.get("user") or user
-
-    if not existing.get("user"):
-        existing["user"] = user
-
-    extra_uplink = uplink_total - int(existing.get("uplink_total", 0))
-    extra_downlink = downlink_total - int(existing.get("downlink_total", 0))
-
-    if extra_uplink > 0 or extra_downlink > 0:
-        add_traffic(
-            state,
-            old_user,
-            max(extra_uplink, 0),
-            max(extra_downlink, 0)
-        )
-
-    if uplink_total > int(existing.get("uplink_total", 0)):
-        existing["uplink_total"] = uplink_total
-
-    if downlink_total > int(existing.get("downlink_total", 0)):
-        existing["downlink_total"] = downlink_total
-
-    if connection.get("createdAt"):
-        existing["created_at"] = connection.get("createdAt")
-
-    return bool(extra_uplink > 0 or extra_downlink > 0)
-
-def process_update(state, event):
-    conn_id = event.get("id")
-    if not conn_id:
-        return False
-
-    connections = state["connections"]
-    conn = connections.get(conn_id)
-    connection = event.get("connection") or {}
-
-    if conn is None:
-        user = connection.get("user")
-        if not user:
-            return False
-
-        conn = {
-            "user": user,
-            "uplink_total": 0,
-            "downlink_total": 0,
-            "created_at": connection.get("createdAt", "")
-        }
-        connections[conn_id] = conn
-
-        stats = ensure_user(state, user)
-        stats["connections"] += 1
-
-        initial_uplink = int(connection.get("uplinkTotal") or 0)
-        initial_downlink = int(connection.get("downlinkTotal") or 0)
-
-        if initial_uplink or initial_downlink:
-            add_traffic(
-                state,
-                user,
-                initial_uplink,
-                initial_downlink
-            )
-            conn["uplink_total"] = initial_uplink
-            conn["downlink_total"] = initial_downlink
-
-    user = conn.get("user")
-    if not user:
-        return False
-
-    changed = False
-
-    uplink_delta = int(event.get("uplinkDelta") or 0)
-    downlink_delta = int(event.get("downlinkDelta") or 0)
-
-    if uplink_delta > 0 or downlink_delta > 0:
-        add_traffic(
-            state,
-            user,
-            uplink_delta,
-            downlink_delta
-        )
-        conn["uplink_total"] += max(uplink_delta, 0)
-        conn["downlink_total"] += max(downlink_delta, 0)
-        changed = True
-
-    if connection:
-        final_uplink = connection.get("uplinkTotal")
-        final_downlink = connection.get("downlinkTotal")
-
-        if final_uplink is not None:
-            final_uplink = int(final_uplink)
-            if final_uplink > int(conn.get("uplink_total", 0)):
-                extra = final_uplink - int(conn.get("uplink_total", 0))
-                add_traffic(
-                    state,
-                    user,
-                    uplink=extra
-                )
-                conn["uplink_total"] = final_uplink
-                changed = True
-
-        if final_downlink is not None:
-            final_downlink = int(final_downlink)
-            if final_downlink > int(conn.get("downlink_total", 0)):
-                extra = final_downlink - int(conn.get("downlink_total", 0))
-                add_traffic(
-                    state,
-                    user,
-                    downlink=extra
-                )
-                conn["downlink_total"] = final_downlink
-                changed = True
-
-    return changed
-
-def process_closed(state, event):
-    conn_id = event.get("id")
-    if not conn_id:
-        return False
-
-    connections = state["connections"]
-    conn = connections.get(conn_id)
-
-    if conn is None:
-        return False
-
-    connection = event.get("connection") or {}
-
-    user = conn.get("user")
-    if not user:
-        del connections[conn_id]
-        return True
-
-    old_uplink = int(conn.get("uplink_total", 0))
-    old_downlink = int(conn.get("downlink_total", 0))
-
-    final_uplink = int(
-        connection.get("uplinkTotal")
-        if connection.get("uplinkTotal") is not None
-        else old_uplink
-    )
-    final_downlink = int(
-        connection.get("downlinkTotal")
-        if connection.get("downlinkTotal") is not None
-        else old_downlink
-    )
-
-    extra_uplink = max(final_uplink - old_uplink, 0)
-    extra_downlink = max(final_downlink - old_downlink, 0)
-
-    if extra_uplink or extra_downlink:
-        add_traffic(
-            state,
-            user,
-            extra_uplink,
-            extra_downlink
-        )
-
-    stats = ensure_user(state, user)
-
-    if stats["connections"] > 0:
-        stats["connections"] -= 1
-
-    del connections[conn_id]
-
-    return True
-
-def process_event(state, event):
-    event_type = event.get("type", "")
-
-    if event_type == "CONNECTION_EVENT_NEW":
-        return process_new(state, event)
-
-    if event_type == "CONNECTION_EVENT_UPDATE":
-        return process_update(state, event)
-
-    if event_type == "CONNECTION_EVENT_CLOSED":
-        return process_closed(state, event)
-
-    # 实际 sing-box API 的 NEW 事件可能没有 type。
-    if "connection" in event and event.get("id"):
-        return process_new(state, event)
-
-    return False
+        return
+    u = ensure_user(state, username)
+    u["uplink"] = int(u.get("uplink", 0)) + uplink
+    u["downlink"] = int(u.get("downlink", 0)) + downlink
+    u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
+    u["period_uplink"] = int(u.get("period_uplink", 0)) + uplink
+    u["period_downlink"] = int(u.get("period_downlink", 0)) + downlink
+    u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
 
 def sync_periods(state):
     changed = False
-    now = datetime.now()
-
-    # 先同步有配置限额的用户
-    for path in limit_files():
-        meta = load_json(path, {})
-        if not isinstance(meta, dict):
-            continue
-
-        user = meta.get("user")
-        if not user:
-            continue
-
-        period = period_name(meta)
-        stats = ensure_user(state, user)
-
-        if stats.get("period") != period:
-            stats["period"] = period
-            start, end = period_window(period)
-
-            if period == "none":
-                stats["period_uplink"] = 0
-                stats["period_downlink"] = 0
-                stats["period_total"] = 0
-                stats["period_start"] = ""
-                stats["period_end"] = ""
-            else:
-                stats["period_start"] = start.isoformat()
-                stats["period_end"] = end.isoformat()
-
+    now = datetime.now().astimezone()
+    users = state.setdefault("users", {})
+    for username, u in users.items():
+        current_period = get_user_period(username)
+        if current_period not in ("day", "month"):
+            current_period = "month"
+        start, end = period_window(current_period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        stored_period = u.get("period")
+        stored_start = u.get("period_start")
+        stored_end = u.get("period_end")
+        if stored_period != current_period:
+            u["period"] = current_period
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
             changed = True
-
-        if period not in ("day", "month"):
             continue
-
-        start, end = period_window(period)
-        if start is None or end is None:
-            continue
-
-        stored_end = stats.get("period_end", "")
-
-        reset_needed = False
-
-        if not stored_end:
-            reset_needed = True
-        else:
-            try:
-                old_end = datetime.fromisoformat(stored_end)
-                if now >= old_end:
-                    reset_needed = True
-            except Exception:
-                reset_needed = True
-
-        if reset_needed:
-            stats["period_uplink"] = 0
-            stats["period_downlink"] = 0
-            stats["period_total"] = 0
-            stats["period_start"] = start.isoformat()
-            stats["period_end"] = end.isoformat()
+        if not stored_start or not stored_end:
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
             changed = True
-
-            if meta.get("disabled_by_limit"):
-                if restore_user(user, meta):
-                    meta["disabled_by_limit"] = False
-                    update_limit_file(path, meta)
-
+            continue
+        try:
+            stored_end_dt = datetime.fromisoformat(stored_end)
+        except Exception:
+            stored_end_dt = None
+        if stored_end_dt is None or now >= stored_end_dt:
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            changed = True
+    for lf in limit_files():
+        data = load_json(lf, {})
+        if not isinstance(data, dict):
+            continue
+        username = data.get("user")
+        if not username:
+            continue
+        period = period_name(data)
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if data.get("period_start") != start_iso:
+            if data.get("disabled_by_limit"):
+                if not restore_user(data):
+                    log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
+                    continue
+            data["period_start"] = start_iso
+            data["period_end"] = end_iso
+            data["disabled_by_limit"] = False
+            update_limit_file(lf, data)
+            changed = True
     return changed
 
 def check_limits(state):
-    changed = False
-
-    for path in limit_files():
-        meta = load_json(path, {})
-        if not isinstance(meta, dict):
+    for lf in limit_files():
+        data = load_json(lf, {})
+        if not isinstance(data, dict):
             continue
-
-        if not meta.get("enabled", True):
+        username = data.get("user")
+        if not username:
             continue
-
-        if meta.get("disabled_by_limit"):
+        if not data.get("enabled"):
+            if data.get("disabled_by_limit"):
+                if restore_user(data):
+                    data["disabled_by_limit"] = False
+                    update_limit_file(lf, data)
             continue
-
-        user = meta.get("user")
-        if not user:
-            continue
-
         try:
-            limit_gb = float(meta.get("limit_gb", 0))
+            limit_bytes = int(data.get("limit_bytes", 0) or 0)
+        except Exception:
+            limit_bytes = 0
+        if limit_bytes <= 0:
+            continue
+        u = state.get("users", {}).get(username, {})
+        period = period_name(data)
+        if period in ("day", "month"):
+            current_total = int(u.get("period_total", 0) or 0)
+        else:
+            current_total = int(u.get("total", 0) or 0)
+        base_total = int(data.get("limit_base_total", 0) or 0)
+        used = max(0, current_total - base_total)
+        if data.get("disabled_by_limit"):
+            continue
+        if used >= limit_bytes:
+            if disable_user(data):
+                update_limit_file(lf, data)
+
+def get_stats():
+    if not os.path.exists(GRPCURL):
+        log(f"找不到grpcurl: {GRPCURL}")
+        return None
+    if not os.path.exists(PROTO_FILE):
+        log(f"找不到Stats proto: {PROTO_FILE}")
+        return None
+    cmd = [
+        GRPCURL,
+        "-plaintext",
+        "-import-path",
+        str(Path(PROTO_FILE).parent),
+        "-proto",
+        PROTO_FILE,
+        "-d",
+        '{"pattern":"user>>>.*>>>traffic>>>.*","reset":false,"regexp":true}',
+        f"{GRPC_HOST}:{GRPC_PORT}",
+        "v2ray.core.app.stats.command.StatsService/QueryStats"
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
+        )
+    except Exception as e:
+        log(f"QueryStats执行异常: {e}")
+        return None
+    if r.returncode != 0:
+        log(f"QueryStats失败: {r.stderr[-2000:]}")
+        return None
+    try:
+        result = json.loads(r.stdout)
+    except Exception as e:
+        log(f"QueryStats返回JSON解析失败: {e}; output={r.stdout[-2000:]}")
+        return None
+    stats = {}
+    for item in result.get("stat", []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", ""))
+        value = item.get("value", 0)
+        try:
+            value = int(value)
         except Exception:
             continue
-
-        if limit_gb <= 0:
+        parts = name.split(">>>")
+        if len(parts) != 4:
             continue
-
-        stats = state["users"].get(user)
-        if not isinstance(stats, dict):
+        if parts[0] != "user" or parts[2] != "traffic":
             continue
+        username = parts[1]
+        direction = parts[3]
+        if direction not in ("uplink", "downlink"):
+            continue
+        if username not in stats:
+            stats[username] = {
+                "uplink": 0,
+                "downlink": 0
+            }
+        stats[username][direction] = max(0, value)
+    return stats
 
-        limit_bytes = int(limit_gb * 1024 * 1024 * 1024)
-
-        period = period_name(meta)
-
-        if period in ("day", "month"):
-            used = int(stats.get("period_total", 0))
+def process_stats(state, current_stats):
+    if not isinstance(current_stats, dict):
+        return False
+    changed = False
+    counters = state.setdefault("stats_counters", {})
+    seen_users = set()
+    for username, current in current_stats.items():
+        if not username:
+            continue
+        seen_users.add(username)
+        current_uplink = max(0, int(current.get("uplink", 0) or 0))
+        current_downlink = max(0, int(current.get("downlink", 0) or 0))
+        previous = counters.get(username)
+        if not isinstance(previous, dict):
+            delta_uplink = current_uplink
+            delta_downlink = current_downlink
         else:
-            used = int(stats.get("total", 0))
-
-        if used < limit_bytes:
-            continue
-
-        log(
-            f"流量超限: user={user}, "
-            f"used={used}, limit={limit_bytes}, "
-            f"period={period}"
-        )
-
-        if disable_user(user, meta):
-            meta["disabled_by_limit"] = True
-            update_limit_file(path, meta)
+            previous_uplink = max(0, int(previous.get("uplink", 0) or 0))
+            previous_downlink = max(0, int(previous.get("downlink", 0) or 0))
+            if current_uplink >= previous_uplink:
+                delta_uplink = current_uplink - previous_uplink
+            else:
+                delta_uplink = current_uplink
+            if current_downlink >= previous_downlink:
+                delta_downlink = current_downlink - previous_downlink
+            else:
+                delta_downlink = current_downlink
+        if delta_uplink or delta_downlink:
+            add_traffic(
+                state,
+                username,
+                delta_uplink,
+                delta_downlink
+            )
             changed = True
-
+        counters[username] = {
+            "uplink": current_uplink,
+            "downlink": current_downlink
+        }
+    for username in list(counters.keys()):
+        if username not in seen_users:
+            del counters[username]
+            changed = True
     return changed
 
 def update_connection_count(state):
-    counts = {}
-
-    for conn in state["connections"].values():
-        user = conn.get("user")
-        if not user:
-            continue
-        counts[user] = counts.get(user, 0) + 1
-
-    for user, stats in state["users"].items():
-        stats["connections"] = counts.get(user, 0)
+    for username, data in state.setdefault("users", {}).items():
+        data["connections"] = 0
 
 def initialize_periods(state):
     changed = False
-
-    for path in limit_files():
-        meta = load_json(path, {})
-        if not isinstance(meta, dict):
-            continue
-
-        user = meta.get("user")
-        if not user:
-            continue
-
-        period = period_name(meta)
-        stats = ensure_user(state, user)
-
-        if stats.get("period") != period:
-            stats["period"] = period
-            changed = True
-
+    now = datetime.now().astimezone()
+    users = state.setdefault("users", {})
+    for username, u in users.items():
+        period = get_user_period(username)
         if period not in ("day", "month"):
-            stats["period_uplink"] = 0
-            stats["period_downlink"] = 0
-            stats["period_total"] = 0
-            stats["period_start"] = ""
-            stats["period_end"] = ""
-            continue
-
-        start, end = period_window(period)
-        if start is None or end is None:
-            continue
-
-        if not stats.get("period_start") or not stats.get("period_end"):
-            stats["period_start"] = start.isoformat()
-            stats["period_end"] = end.isoformat()
-            stats["period_uplink"] = int(stats.get("period_uplink", 0))
-            stats["period_downlink"] = int(stats.get("period_downlink", 0))
-            stats["period_total"] = int(stats.get("period_total", 0))
+            period = "month"
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if u.get("period") != period:
+            u["period"] = period
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
             changed = True
-
-    return changed
-
-def get_api_secret():
-    # 优先从指定 config.json 读取
-    candidate_files = []
-
-    if CONFIG_FILE.exists():
-        candidate_files.append(CONFIG_FILE)
-
-    for path in config_files():
-        if path not in candidate_files:
-            candidate_files.append(path)
-
-    for path in candidate_files:
-        data = load_json(path, None)
+            continue
+        if not u.get("period_start") or not u.get("period_end"):
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            changed = True
+            continue
+        try:
+            stored_end = datetime.fromisoformat(u["period_end"])
+        except Exception:
+            stored_end = None
+        if stored_end is None or now >= stored_end:
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            changed = True
+    for lf in limit_files():
+        data = load_json(lf, {})
         if not isinstance(data, dict):
             continue
-
-        services = data.get("services")
-        if not isinstance(services, list):
+        username = data.get("user")
+        if not username:
             continue
+        period = period_name(data)
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if data.get("period_start") != start_iso:
+            data["period_start"] = start_iso
+            data["period_end"] = end_iso
+            update_limit_file(lf, data)
+    return changed
 
-        for service in services:
-            if not isinstance(service, dict):
-                continue
-            if service.get("type") != "api":
-                continue
-            secret = service.get("secret")
-            if secret is not None:
-                return str(secret)
-
-    return ""
-
-def extract_json_objects(buffer):
-    decoder = json.JSONDecoder()
-    objects = []
-
-    while True:
-        buffer = buffer.lstrip()
-
-        if not buffer:
-            break
-
-        try:
-            obj, index = decoder.raw_decode(buffer)
-        except json.JSONDecodeError:
-            break
-
-        objects.append(obj)
-        buffer = buffer[index:]
-
-    return buffer, objects
-
-def grpc_stream():
-    if not Path(GRPCURL).exists():
-        log(f"找不到 grpcurl: {GRPCURL}")
-        return
-
-    secret = get_api_secret()
-
-    command = [
-        GRPCURL,
-        "-plaintext"
-    ]
-
-    if secret:
-        command.extend([
-            "-H",
-            f"Authorization: Bearer {secret}"
-        ])
-
-    command.extend([
-        "-d",
-        '{"interval":0}',
-        f"{GRPC_HOST}:{GRPC_PORT}",
-        "daemon.StartedService/SubscribeConnections"
-    ])
-
-    process = None
-    selector = None
-    buffer = ""
-
-    try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1
-        )
-
-        selector = selectors.DefaultSelector()
-        selector.register(process.stdout, selectors.EVENT_READ)
-
-        log("gRPC 流量统计连接已建立")
-
-        while running:
-            if process.poll() is not None:
-                break
-
-            ready = selector.select(timeout=1.0)
-
-            if not ready:
-                yield None
-                continue
-
-            line = process.stdout.readline()
-
-            if line == "":
-                break
-
-            buffer += line
-
-            buffer, objects = extract_json_objects(buffer)
-
-            for obj in objects:
-                yield obj
-
-        if buffer.strip():
-            buffer, objects = extract_json_objects(buffer)
-            for obj in objects:
-                yield obj
-
-    except Exception as e:
-        log(f"gRPC stream 异常: {e}")
-
-    finally:
-        if selector is not None:
-            try:
-                selector.close()
-            except Exception:
-                pass
-
-        if process is not None:
-            try:
-                if process.poll() is None:
-                    process.kill()
-            except Exception:
-                pass
-
-            try:
-                process.wait(timeout=2)
-            except Exception:
-                pass
-
-        log("gRPC 流量统计连接已断开")
-
-def handle_signal(signum, frame):
+def signal_handler(signum, frame):
     global running
     running = False
 
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 def main():
-    global running
-
-    state = load_state()
-
-    # 采集器停止期间，旧连接 ID 可能已经失效。
-    # 启动后由 SubscribeConnections 的当前连接事件重新建立映射。
-    state["connections"] = {}
-    update_connection_count(state)
-
+    TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
+    LIMIT_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_json(
+        STATE_FILE,
+        {
+            "users": {},
+            "connections": {},
+            "stats_counters": {}
+        }
+    )
+    if not isinstance(state, dict):
+        state = {
+            "users": {},
+            "connections": {},
+            "stats_counters": {}
+        }
+    state.setdefault("users", {})
+    state.setdefault("connections", {})
+    state.setdefault("stats_counters", {})
     initialize_periods(state)
-    save_state(state, force=True)
-
-    last_save = time.monotonic()
-    last_check = time.monotonic()
-    dirty = False
-
-    log("singbox_traffic 启动")
-
-    while running:
-        stream_had_data = False
-
-        try:
-            for obj in grpc_stream():
-                if not running:
-                    break
-
-                now = time.monotonic()
-
-                if obj is not None:
-                    stream_had_data = True
-
-                    events = obj.get("events") or []
-
-                    if isinstance(events, list):
-                        for event in events:
-                            if not isinstance(event, dict):
-                                continue
-
-                            if process_event(state, event):
-                                dirty = True
-
-                now = time.monotonic()
-
-                if now - last_check >= SAVE_INTERVAL:
-                    period_changed = sync_periods(state)
-                    limit_changed = check_limits(state)
-
-                    update_connection_count(state)
-
-                    if period_changed or limit_changed:
-                        dirty = True
-
-                    if dirty:
-                        save_state(state)
-                        dirty = False
-
-                    last_save = now
-                    last_check = now
-
-            if running:
-                if dirty:
-                    update_connection_count(state)
-                    save_state(state, force=True)
-                    dirty = False
-
-                log(
-                    f"gRPC 流结束，{RECONNECT_INTERVAL} 秒后重连"
-                )
-                time.sleep(RECONNECT_INTERVAL)
-
-        except Exception as e:
-            log(f"主循环异常: {e}")
-            time.sleep(RECONNECT_INTERVAL)
-
     update_connection_count(state)
-    save_state(state, force=True)
-    log("singbox_traffic 已退出")
+    save_state(state)
+    log("singbox traffic collector started (V2Ray Stats API)")
+    last_save = time.monotonic()
+    while running:
+        try:
+            sync_periods(state)
+            update_connection_count(state)
+            check_limits(state)
+            current_stats = get_stats()
+            if current_stats is not None:
+                process_stats(state, current_stats)
+                update_connection_count(state)
+                check_limits(state)
+            now = time.monotonic()
+            if now - last_save >= SAVE_INTERVAL:
+                sync_periods(state)
+                update_connection_count(state)
+                check_limits(state)
+                save_state(state)
+                last_save = now
+            if current_stats is None:
+                time.sleep(RECONNECT_INTERVAL)
+            else:
+                time.sleep(POLL_INTERVAL)
+        except Exception as e:
+            log(f"collector异常: {type(e).__name__}: {e}")
+            try:
+                save_state(state)
+            except Exception:
+                pass
+            time.sleep(RECONNECT_INTERVAL)
+    try:
+        update_connection_count(state)
+        save_state(state)
+    except Exception:
+        pass
+    log("singbox traffic collector stopped")
 
 if __name__ == "__main__":
     main()
-    
+PY
+    chmod 700 "$tmp_script"
+    if [ ! -f "$TRAFFIC_SCRIPT" ] || ! cmp -s "$tmp_script" "$TRAFFIC_SCRIPT"; then
+        install -m 700 "$tmp_script" "$TRAFFIC_SCRIPT"
+        TRAFFIC_SCRIPT_CHANGED=1
+    fi
+    rm -f "$tmp_script"
+}
