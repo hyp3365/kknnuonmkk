@@ -599,29 +599,41 @@ def check_limits(state):
         data = load_json(lf, {})
         if not isinstance(data, dict):
             continue
+
         username = data.get("user")
         if not username:
             continue
+
         if not data.get("enabled"):
             if data.get("disabled_by_limit"):
                 if restore_user(data):
                     data["disabled_by_limit"] = False
                     update_limit_file(lf, data)
             continue
+
         try:
             limit_bytes = int(data.get("limit_bytes", 0) or 0)
         except Exception:
             limit_bytes = 0
+
         if limit_bytes <= 0:
             continue
+
         u = state.get("users", {}).get(username, {})
         period = period_name(data)
+
         if period in ("day", "month"):
-            used = int(u.get("period_total", 0) or 0)
+            current_total = int(u.get("period_total", 0) or 0)
         else:
-            used = int(u.get("total", 0) or 0)
+            current_total = int(u.get("total", 0) or 0)
+
+        base_total = int(data.get("limit_base_total", 0) or 0)
+
+        used = max(0, current_total - base_total)
+
         if data.get("disabled_by_limit"):
             continue
+
         if used >= limit_bytes:
             if disable_user(data):
                 update_limit_file(lf, data)
@@ -2206,6 +2218,7 @@ modify_auth() {
     local tag="$2"
     local type="$3"
     local user="$4"
+
     local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     local user_json
@@ -2240,15 +2253,23 @@ PY
             old_uuid="$("$PYTHON" - "$user_json" <<'PY'
 import sys
 import json
+
 d = json.loads(sys.argv[1])
 print(d.get("uuid", ""))
 PY
 )"
 
             echo -e "${skyblue}当前 UUID:${re} $old_uuid"
-            read -rp "输入新的 UUID（直接回车保持不变）: " new_uuid
+            read -rp "输入新的 UUID（直接回车随机生成）: " new_uuid
 
-            [ -z "$new_uuid" ] && new_uuid="$old_uuid"
+            if [ -z "$new_uuid" ]; then
+                new_uuid="$("$PYTHON" - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+                echo -e "${skyblue}随机生成 UUID:${re} $new_uuid"
+            fi
 
             if [ "$limited" = "1" ]; then
                 "$PYTHON" - "$lf" "$new_uuid" <<'PY'
@@ -2328,6 +2349,7 @@ PY
             old_password="$("$PYTHON" - "$user_json" <<'PY'
 import sys
 import json
+
 d = json.loads(sys.argv[1])
 print(d.get("password", ""))
 PY
@@ -2335,7 +2357,6 @@ PY
 
             echo -e "${skyblue}当前密码:${re} $old_password"
             read -rp "输入新的密码（直接回车保持不变）: " new_password
-
             [ -z "$new_password" ] && new_password="$old_password"
 
             if [ "$limited" = "1" ]; then
@@ -2411,12 +2432,6 @@ PY
             fi
             ;;
     esac
-
-    if [ "$limited" = "1" ]; then
-        green "修改成功"
-        pause
-        return
-    fi
 
     if ! check_config; then
         red "sing-box 配置检查失败"
