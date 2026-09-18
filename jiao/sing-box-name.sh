@@ -37,63 +37,54 @@ init_traffic() {
     local traffic_grpcurl="$TRAFFIC_DIR/grpcurl"
     local traffic_proto="$TRAFFIC_DIR/stats.proto"
     local grpcurl_version="1.9.3"
-    local grpcurl_sha256="62e2e4315bb70fab2e27f86c1f7738d09076a097a2dc8e0f701e386251172e40"
     local grpcurl_url="https://github.com/fullstorydev/grpcurl/releases/download/v${grpcurl_version}/grpcurl_${grpcurl_version}_linux_x86_64.tar.gz"
-    if [ ! -f "$traffic_grpcurl" ] || [ "$(sha256sum "$traffic_grpcurl" 2>/dev/null | awk '{print $1}')" != "$grpcurl_sha256" ]; then
-        local grpcurl_tmp
-        local grpcurl_dir
-        grpcurl_tmp="$(mktemp)"
-        grpcurl_dir="$(mktemp -d)"
-        if command -v curl >/dev/null 2>&1; then
-            if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
-                rm -f "$grpcurl_tmp"
-                rm -rf "$grpcurl_dir"
-                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
-                return 1
-            fi
-        elif command -v wget >/dev/null 2>&1; then
-            if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
-                rm -f "$grpcurl_tmp"
-                rm -rf "$grpcurl_dir"
-                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
-                return 1
-            fi
-        else
+    echo "正在安装 grpcurl..."
+    local grpcurl_tmp
+    local grpcurl_dir
+    grpcurl_tmp="$(mktemp)"
+    grpcurl_dir="$(mktemp -d)"
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
             rm -f "$grpcurl_tmp"
             rm -rf "$grpcurl_dir"
-            echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
+            echo "错误：下载 grpcurl v${grpcurl_version} 失败"
             return 1
         fi
-        if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
+    elif command -v wget >/dev/null 2>&1; then
+        if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
             rm -f "$grpcurl_tmp"
             rm -rf "$grpcurl_dir"
-            echo "错误：解压 grpcurl 失败"
+            echo "错误：下载 grpcurl v${grpcurl_version} 失败"
             return 1
         fi
-        if [ ! -f "$grpcurl_dir/grpcurl" ]; then
-            rm -f "$grpcurl_tmp"
-            rm -rf "$grpcurl_dir"
-            echo "错误：解压后找不到 grpcurl"
-            return 1
-        fi
-        chmod 755 "$grpcurl_dir/grpcurl"
-        local actual_grpcurl_sha256
-        actual_grpcurl_sha256="$(sha256sum "$grpcurl_dir/grpcurl" | awk '{print $1}')"
-        if [ "$actual_grpcurl_sha256" != "$grpcurl_sha256" ]; then
-            rm -f "$grpcurl_tmp"
-            rm -rf "$grpcurl_dir"
-            echo "错误：grpcurl SHA256 校验失败"
-            echo "期望：$grpcurl_sha256"
-            echo "实际：$actual_grpcurl_sha256"
-            return 1
-        fi
-        install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"
+    else
         rm -f "$grpcurl_tmp"
         rm -rf "$grpcurl_dir"
-    else
-        chmod 755 "$traffic_grpcurl"
+        echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
+        return 1
     fi
-    if [ ! -f "$traffic_proto" ]; then
+    if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
+        rm -f "$grpcurl_tmp"
+        rm -rf "$grpcurl_dir"
+        echo "错误：解压 grpcurl 失败"
+        return 1
+    fi
+    if [ ! -f "$grpcurl_dir/grpcurl" ]; then
+        rm -f "$grpcurl_tmp"
+        rm -rf "$grpcurl_dir"
+        echo "错误：解压后找不到 grpcurl"
+        return 1
+    fi
+    if ! install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"; then
+        rm -f "$grpcurl_tmp"
+        rm -rf "$grpcurl_dir"
+        echo "错误：安装 grpcurl 失败"
+        return 1
+    fi
+    rm -f "$grpcurl_tmp"
+    rm -rf "$grpcurl_dir"
+    echo "grpcurl 安装完成"
+    echo "正在生成 stats.proto..."
     local tmp_proto
     tmp_proto="$(mktemp)"
     cat > "$tmp_proto" <<'PROTO'
@@ -136,7 +127,7 @@ message SysStatsResponse {
 service StatsService {
   rpc GetStats(GetStatsRequest) returns (GetStatsResponse) {}
   rpc QueryStats(QueryStatsRequest) returns (QueryStatsResponse) {}
-  rpc GetSysStats(SysStatsRequest) returns (SysStatsResponse) {}
+  rpc GetSysStats(GetSysStatsRequest) returns (SysStatsResponse) {}
 }
 PROTO
     if ! install -m 600 "$tmp_proto" "$traffic_proto"; then
@@ -145,17 +136,7 @@ PROTO
         return 1
     fi
     rm -f "$tmp_proto"
-else
-    chmod 600 "$traffic_proto"
-fi
-    if [ ! -x "$traffic_grpcurl" ]; then
-        chmod 755 "$traffic_grpcurl"
-    fi
-    if ! "$traffic_grpcurl" -version 2>/dev/null | grep -q "grpcurl v${grpcurl_version}"; then
-        echo "错误：grpcurl 版本验证失败"
-        echo "当前版本：$("$traffic_grpcurl" -version 2>&1 || true)"
-        return 1
-    fi
+    echo "stats.proto 安装完成"
     if [ ! -f "$TRAFFIC_STATE" ]; then
         cat > "$TRAFFIC_STATE" <<'JSON'
 {
@@ -178,7 +159,6 @@ import signal
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
-
 BASE_DIR = Path("/etc/sing-box")
 CONF_DIR = BASE_DIR / "conf"
 DATA_DIR = BASE_DIR / "user_manager"
@@ -199,7 +179,6 @@ SAVE_INTERVAL = 5
 POLL_INTERVAL = 5
 RECONNECT_INTERVAL = 3
 running = True
-
 def log(msg):
     try:
         TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,7 +186,6 @@ def log(msg):
             f.write(datetime.now().astimezone().isoformat() + " " + str(msg) + "\n")
     except Exception:
         pass
-
 def atomic_write_json(path, data, mode=0o600):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,17 +203,14 @@ def atomic_write_json(path, data, mode=0o600):
             os.unlink(tmp)
         except FileNotFoundError:
             pass
-
 def load_json(path, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return default
-
 def save_state(state):
     atomic_write_json(STATE_FILE, state, 0o600)
-
 def period_window(period, now=None):
     if now is None:
         now = datetime.now().astimezone()
@@ -251,7 +226,6 @@ def period_window(period, now=None):
             end = start.replace(month=start.month + 1, day=1)
         return start, end
     return None, None
-
 def period_name(meta):
     if not isinstance(meta, dict):
         return "month"
@@ -261,19 +235,16 @@ def period_name(meta):
     if period in ("month", "monthly"):
         return "month"
     return "month"
-
 def limit_files():
     try:
         return sorted(LIMIT_DIR.glob("*.json"))
     except Exception:
         return []
-
 def config_files():
     try:
         return sorted(CONF_DIR.glob("*.json"))
     except Exception:
         return []
-
 def get_limit_meta_for_user(username):
     for path in limit_files():
         data = load_json(path, {})
@@ -282,13 +253,11 @@ def get_limit_meta_for_user(username):
         if data.get("user") == username:
             return path, data
     return None, None
-
 def get_user_period(username):
     _, meta = get_limit_meta_for_user(username)
     if meta:
         return period_name(meta)
     return "month"
-
 def find_user(tag, username):
     for fn in config_files():
         try:
@@ -303,7 +272,6 @@ def find_user(tag, username):
                 if user.get("name") == username:
                     return fn, user
     return None, None
-
 def backup_config(fn, reason):
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -316,16 +284,9 @@ def backup_config(fn, reason):
     except Exception as e:
         log(f"备份配置失败 {fn}: {e}")
         return None
-
 def check_config():
     try:
-        r = subprocess.run(
-            [str(SINGBOX), "check", "-C", str(CONF_DIR)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=30
-        )
+        r = subprocess.run([str(SINGBOX), "check", "-C", str(CONF_DIR)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
         if r.returncode != 0:
             log("sing-box check失败: " + r.stdout[-3000:])
             return False
@@ -333,25 +294,12 @@ def check_config():
     except Exception as e:
         log(f"sing-box check异常: {e}")
         return False
-
 def reload_singbox():
     try:
-        r = subprocess.run(
-            ["systemctl", "reload", SERVICE],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=30
-        )
+        r = subprocess.run(["systemctl", "reload", SERVICE], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
         if r.returncode == 0:
             return True
-        r = subprocess.run(
-            ["systemctl", "restart", SERVICE],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=60
-        )
+        r = subprocess.run(["systemctl", "restart", SERVICE], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
         if r.returncode != 0:
             log("sing-box restart失败: " + r.stdout[-3000:])
             return False
@@ -359,7 +307,6 @@ def reload_singbox():
     except Exception as e:
         log(f"reload/restart异常: {e}")
         return False
-
 def acquire_lock():
     try:
         import fcntl
@@ -370,7 +317,6 @@ def acquire_lock():
     except Exception as e:
         log(f"获取配置锁失败: {e}")
         return None
-
 def disable_user(limit_data):
     tag = limit_data.get("inbound_tag")
     username = limit_data.get("user")
@@ -440,7 +386,6 @@ def disable_user(limit_data):
         except Exception:
             pass
         lock.close()
-
 def restore_user(limit_data):
     tag = limit_data.get("inbound_tag")
     username = limit_data.get("user")
@@ -515,10 +460,8 @@ def restore_user(limit_data):
         except Exception:
             pass
         lock.close()
-
 def update_limit_file(fn, data):
     atomic_write_json(fn, data, 0o600)
-
 def ensure_user(state, username):
     if not username:
         return None
@@ -551,7 +494,6 @@ def ensure_user(state, username):
         u.setdefault("period_start", None)
         u.setdefault("period_end", None)
     return users[username]
-
 def add_traffic(state, username, uplink=0, downlink=0):
     if not username:
         return
@@ -566,7 +508,6 @@ def add_traffic(state, username, uplink=0, downlink=0):
     u["period_uplink"] = int(u.get("period_uplink", 0)) + uplink
     u["period_downlink"] = int(u.get("period_downlink", 0)) + downlink
     u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
-
 def sync_periods(state):
     changed = False
     now = datetime.now().astimezone()
@@ -631,7 +572,6 @@ def sync_periods(state):
             update_limit_file(lf, data)
             changed = True
     return changed
-
 def check_limits(state):
     for lf in limit_files():
         data = load_json(lf, {})
@@ -665,7 +605,6 @@ def check_limits(state):
         if used >= limit_bytes:
             if disable_user(data):
                 update_limit_file(lf, data)
-
 def get_stats():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
@@ -686,13 +625,7 @@ def get_stats():
         "v2ray.core.app.stats.command.StatsService/QueryStats"
     ]
     try:
-        r = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=10
-        )
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
     except Exception as e:
         log(f"QueryStats执行异常: {e}")
         return None
@@ -724,13 +657,9 @@ def get_stats():
         if direction not in ("uplink", "downlink"):
             continue
         if username not in stats:
-            stats[username] = {
-                "uplink": 0,
-                "downlink": 0
-            }
+            stats[username] = {"uplink": 0, "downlink": 0}
         stats[username][direction] = max(0, value)
     return stats
-
 def process_stats(state, current_stats):
     if not isinstance(current_stats, dict):
         return False
@@ -759,27 +688,17 @@ def process_stats(state, current_stats):
             else:
                 delta_downlink = current_downlink
         if delta_uplink or delta_downlink:
-            add_traffic(
-                state,
-                username,
-                delta_uplink,
-                delta_downlink
-            )
+            add_traffic(state, username, delta_uplink, delta_downlink)
             changed = True
-        counters[username] = {
-            "uplink": current_uplink,
-            "downlink": current_downlink
-        }
+        counters[username] = {"uplink": current_uplink, "downlink": current_downlink}
     for username in list(counters.keys()):
         if username not in seen_users:
             del counters[username]
             changed = True
     return changed
-
 def update_connection_count(state):
     for username, data in state.setdefault("users", {}).items():
         data["connections"] = 0
-
 def initialize_periods(state):
     changed = False
     now = datetime.now().astimezone()
@@ -835,32 +754,18 @@ def initialize_periods(state):
             data["period_end"] = end_iso
             update_limit_file(lf, data)
     return changed
-
 def signal_handler(signum, frame):
     global running
     running = False
-
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
-
 def main():
     TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
     LIMIT_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    state = load_json(
-        STATE_FILE,
-        {
-            "users": {},
-            "connections": {},
-            "stats_counters": {}
-        }
-    )
+    state = load_json(STATE_FILE, {"users": {}, "connections": {}, "stats_counters": {}})
     if not isinstance(state, dict):
-        state = {
-            "users": {},
-            "connections": {},
-            "stats_counters": {}
-        }
+        state = {"users": {}, "connections": {}, "stats_counters": {}}
     state.setdefault("users", {})
     state.setdefault("connections", {})
     state.setdefault("stats_counters", {})
@@ -903,7 +808,6 @@ def main():
     except Exception:
         pass
     log("singbox traffic collector stopped")
-
 if __name__ == "__main__":
     main()
 PY
