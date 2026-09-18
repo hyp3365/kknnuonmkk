@@ -1604,8 +1604,10 @@ set_limit() {
     local tag="$1"
     local user="$2"
     local lf="$LIMIT_DIR/${tag}__${user}.json"
+
     title "流量限制"
     show_limit "$tag" "$user"
+
     echo
     echo -e "${skyblue}支持:${re}"
     echo -e "  2       = 2GB"
@@ -1613,15 +1615,20 @@ set_limit() {
     echo -e "  1GB     = 1GB"
     echo -e "  0       = 关闭流量限制"
     echo
+
     local input
     read -rp "$(green "请输入流量限制: ")" input
+
     input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
+
     if [ "$input" = "0" ]; then
         disable_limit "$tag" "$user"
         return
     fi
+
     local number
     local unit
+
     if [[ "$input" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         number="$input"
         unit="GB"
@@ -1637,41 +1644,105 @@ set_limit() {
         pause
         return
     fi
-    if ! "$PYTHON" - "$number" "$unit" "$lf" "$tag" "$user" <<'PY'
+
+    if ! "$PYTHON" - "$number" "$unit" "$lf" "$tag" "$user" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 import os
+
 number = float(sys.argv[1])
 unit = sys.argv[2]
 fn = sys.argv[3]
 tag = sys.argv[4]
 user = sys.argv[5]
+state_file = sys.argv[6]
+
 if number <= 0:
     raise SystemExit("限制必须大于 0")
+
 if unit == "GB":
     limit_bytes = int(number * 1024 * 1024 * 1024)
 else:
     limit_bytes = int(number * 1024 * 1024)
+
 old = {}
+
 if os.path.exists(fn):
     try:
         with open(fn, "r", encoding="utf-8") as f:
             old = json.load(f)
     except Exception:
         pass
+
+try:
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+except Exception:
+    state = {}
+
+u = state.get("users", {}).get(user, {})
+
+current_period_total = int(u.get("period_total", 0) or 0)
+
 data = {
     "inbound_tag": tag,
     "user": user,
     "limit_value": number,
     "limit_unit": unit,
     "limit_bytes": limit_bytes,
+    "limit_base_total": current_period_total,
     "period": old.get("period", "none"),
     "period_start": old.get("period_start"),
     "period_end": old.get("period_end"),
     "enabled": True,
-    "disabled_by_limit": old.get("disabled_by_limit", False),
+    "disabled_by_limit": False,
     "saved_user": old.get("saved_user"),
     "config_file": old.get("config_file")
+}
+
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+os.chmod(fn, 0o600)
+PY
+    then
+        red "流量限制保存失败"
+        pause
+        return
+    fi
+
+    green "流量限制已设置：${number}${unit}"
+
+    echo
+    echo "当前时间周期："
+
+    case "$("$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        print(json.load(f).get("period", "none"))
+except:
+    print("none")
+PY
+)" in
+        day)
+            echo "每天重置"
+            ;;
+        month)
+            echo "每月重置"
+            ;;
+        *)
+            echo "不重置"
+            ;;
+    esac
+
+    echo
+    echo "本次限制从当前已使用流量之后开始计算。"
+
+    pause
 }
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
