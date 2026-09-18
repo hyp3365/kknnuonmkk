@@ -1170,9 +1170,9 @@ PY
             USER_LIMITED+=("$status")
 
             if [ "$status" = "LIMITED" ]; then
-                printf "  ${red}%2d)${re} ${red}%-28s${re} ${red}[流量已限制]${re}\n" "$i" "$user"
+               printf "  ${red}%2d)${re} ${red}%-20s${re} ${red}[流量已限制]${re}\n" "$i" "$user"
             else
-                printf "  ${green}%2d)${re} %-32s\n" "$i" "$user"
+               printf "  ${green}%2d)${re} %-20s\n" "$i" "$user"
             fi
 
             ((i++))
