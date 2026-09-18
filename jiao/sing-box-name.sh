@@ -1090,25 +1090,68 @@ node_menu() {
         echo -e "${skyblue}端口:${re} ${port:-未知}"
         echo
         mapfile -t USERS < <(
-            "$PYTHON" - "$CONF_DIR/$file" "$tag" <<'PY'
+            "$PYTHON" - "$CONF_DIR/$file" "$tag" "$LIMIT_DIR" <<'PY'
 import sys
 import json
+from pathlib import Path
 
 fn = sys.argv[1]
 tag = sys.argv[2]
-with open(fn, "r", encoding="utf-8") as f:
-    data = json.load(f)
+limit_dir = Path(sys.argv[3])
+result = []
+normal_users = set()
+
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+
 for inbound in data.get("inbounds", []):
     if inbound.get("tag") == tag:
         for u in inbound.get("users", []):
-            print(u.get("name", ""))
+            name = u.get("name", "")
+            if name:
+                result.append(("normal", name))
+                normal_users.add(name)
         break
+
+if limit_dir.exists():
+    prefix = tag + "__"
+    for lf in sorted(limit_dir.glob(prefix + "*.json")):
+        try:
+            with open(lf, "r", encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            continue
+        if d.get("inbound_tag") != tag:
+            continue
+        if not d.get("disabled_by_limit"):
+            continue
+        name = d.get("user", "")
+        if not name or name in normal_users:
+            continue
+        saved = d.get("saved_user")
+        if not isinstance(saved, dict):
+            continue
+        if saved.get("name") != name:
+            continue
+        result.append(("limited", name))
+
+for status, name in result:
+    print(f"{status}\t{name}")
 PY
         )
         local i=1
-        for user in "${USERS[@]}"; do
-            [ -z "$user" ] && continue
-            printf "  ${green}%2d)${re} %-32s\n" "$i" "$user"
+        for entry in "${USERS[@]}"; do
+            [ -z "$entry" ] && continue
+            local status="${entry%%$'\t'*}"
+            local user="${entry#*$'\t'}"
+            if [ "$status" = "limited" ]; then
+                printf "  ${red}%2d) %-32s 流量已限制${re}\n" "$i" "$user"
+            else
+                printf "  ${green}%2d)${re} %-32s\n" "$i" "$user"
+            fi
             ((i++))
         done
         printf "  ${green}%2d)${re} %s\n" "$i" "+ 新增用户"
@@ -1126,7 +1169,9 @@ PY
         fi
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$add_num" ]; then
             local index=$((choice-1))
-            user_menu "$file" "$tag" "$type" "$port" "${USERS[$index]}"
+            local selected="${USERS[$index]}"
+            local selected_user="${selected#*$'\t'}"
+            user_menu "$file" "$tag" "$type" "$port" "$selected_user"
         else
             red "无效选择"
             sleep 1
@@ -1311,28 +1356,39 @@ get_user_json() {
     local file="$1"
     local tag="$2"
     local user="$3"
-    "$PYTHON" - "$CONF_DIR/$file" "$tag" "$user" <<'PY'
+    "$PYTHON" - "$CONF_DIR/$file" "$tag" "$user" "$LIMIT_DIR" <<'PY'
 import sys
 import json
+from pathlib import Path
 
-fn, tag, name = sys.argv[1:]
-with open(fn, "r", encoding="utf-8") as f:
-    data = json.load(f)
+fn, tag, name, limit_dir = sys.argv[1:]
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+
 for inbound in data.get("inbounds", []):
     if inbound.get("tag") == tag:
         for u in inbound.get("users", []):
             if u.get("name") == name:
                 print(json.dumps(u, ensure_ascii=False))
                 raise SystemExit
+
+lf = Path(limit_dir) / f"{tag}__{name}.json"
+if lf.exists():
+    try:
+        with open(lf, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    if d.get("disabled_by_limit"):
+        saved = d.get("saved_user")
+        if isinstance(saved, dict) and saved.get("name") == name:
+            print(json.dumps(saved, ensure_ascii=False))
+            raise SystemExit
 PY
 }
-
-get_limit_file() {
-    local tag="$1"
-    local user="$2"
-    echo "$LIMIT_DIR/${tag}__${user}.json"
-}
-
 format_bytes() {
     local bytes="${1:-0}"
     "$PYTHON" - "$bytes" <<'PY'
@@ -1604,32 +1660,63 @@ disable_limit() {
     local user="$2"
     local lf
     lf="$(get_limit_file "$tag" "$user")"
+
     if [ ! -f "$lf" ]; then
         yellow "当前没有设置流量限制"
         pause
         return
     fi
+
     "$PYTHON" - "$lf" <<'PY'
 import sys
 import json
 import os
+
 fn = sys.argv[1]
+
 try:
     with open(fn, "r", encoding="utf-8") as f:
         data = json.load(f)
 except Exception:
     data = {}
+
 data["enabled"] = False
 data["limit_value"] = 0
 data["limit_unit"] = "GB"
 data["limit_bytes"] = 0
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
+
 os.chmod(fn, 0o600)
 PY
-    green "流量限制已关闭"
-    echo "如果用户之前因达到额度被停用，流量服务会自动恢复该用户。"
+
+    if [ $? -ne 0 ]; then
+        red "流量限制解除失败"
+        pause
+        return
+    fi
+
+    green "流量限制已解除"
+
+    if "$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        d = json.load(f)
+    raise SystemExit(0 if d.get("disabled_by_limit") else 1)
+except Exception:
+    raise SystemExit(1)
+PY
+    then
+        echo "用户将在流量服务下一轮检查时自动恢复。"
+    else
+        echo "用户当前未因流量限制停用。"
+    fi
+
     pause
 }
 
@@ -1727,94 +1814,233 @@ modify_auth() {
     local tag="$2"
     local type="$3"
     local user="$4"
-    local full="$CONF_DIR/$file"
-    title "修改认证"
-    backup_file "$full"
-    local backup
-    backup="$(find_backup "$full")"
-    case "$type" in
-        vmess|vless|tuic)
-            local new_uuid
-            read -rp "$(green "请输入新的 UUID，留空自动生成: ")" new_uuid
-            [ -z "$new_uuid" ] && new_uuid="$(generate_uuid)"
-            if ! "$PYTHON" - "$full" "$tag" "$user" "$new_uuid" <<'PY'
+
+    local lf
+    lf="$(get_limit_file "$tag" "$user")"
+
+    local user_json
+    user_json="$(get_user_json "$file" "$tag" "$user" 2>/dev/null)"
+
+    if [ -z "$user_json" ]; then
+        red "找不到用户: $user"
+        pause
+        return
+    fi
+
+    local limited=0
+
+    if [ -f "$lf" ]; then
+        limited="$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
-import uuid
 
-fn, tag, name, value = sys.argv[1:]
 try:
-    uuid.UUID(value)
-except:
-    raise SystemExit("UUID格式错误")
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        d = json.load(f)
+    print(1 if d.get("disabled_by_limit") else 0)
+except Exception:
+    print(0)
+PY
+)"
+    fi
+
+    case "$type" in
+        vmess|vless|tuic)
+            local old_uuid
+            old_uuid="$("$PYTHON" - "$user_json" <<'PY'
+import sys
+import json
+d = json.loads(sys.argv[1])
+print(d.get("uuid", ""))
+PY
+)"
+
+            echo -e "${skyblue}当前 UUID:${re} $old_uuid"
+            read -rp "输入新的 UUID（直接回车保持不变）: " new_uuid
+
+            [ -z "$new_uuid" ] && new_uuid="$old_uuid"
+
+            if [ "$limited" = "1" ]; then
+                "$PYTHON" - "$lf" "$new_uuid" <<'PY'
+import sys
+import json
+import os
+
+fn = sys.argv[1]
+new_uuid = sys.argv[2]
+
 with open(fn, "r", encoding="utf-8") as f:
     data = json.load(f)
+
+saved = data.get("saved_user")
+
+if not isinstance(saved, dict):
+    raise SystemExit("saved_user 不存在")
+
+saved["uuid"] = new_uuid
+data["saved_user"] = saved
+
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+os.chmod(fn, 0o600)
+PY
+
+                if [ $? -eq 0 ]; then
+                    green "UUID 修改成功"
+                else
+                    red "UUID 修改失败"
+                fi
+
+                pause
+                return
+            fi
+
+            "$PYTHON" - "$CONF_DIR/$file" "$tag" "$user" "$new_uuid" <<'PY'
+import sys
+import json
+
+fn, tag, name, new_uuid = sys.argv[1:]
+
+with open(fn, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
 found = False
+
 for inbound in data.get("inbounds", []):
-    if inbound.get("tag") == tag:
-        for u in inbound.get("users", []):
-            if u.get("name") == name:
-                u["uuid"] = value
-                found = True
+    if inbound.get("tag") != tag:
+        continue
+
+    for u in inbound.get("users", []):
+        if u.get("name") == name:
+            u["uuid"] = new_uuid
+            found = True
+            break
+
 if not found:
-    raise SystemExit("用户不存在")
+    raise SystemExit(1)
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
 PY
-            then
-                red "UUID格式错误或用户不存在，正在恢复..."
-                restore_file "$full" "$backup"
+
+            if [ $? -ne 0 ]; then
+                red "UUID 修改失败"
                 pause
                 return
             fi
             ;;
+
         *)
-            local new_password
-            read -rp "$(green "请输入新的密码，留空自动生成 UUID: ")" new_password
-            [ -z "$new_password" ] && new_password="$(generate_uuid)"
-            if ! "$PYTHON" - "$full" "$tag" "$user" "$new_password" <<'PY'
+            local old_password
+            old_password="$("$PYTHON" - "$user_json" <<'PY'
+import sys
+import json
+d = json.loads(sys.argv[1])
+print(d.get("password", ""))
+PY
+)"
+
+            echo -e "${skyblue}当前密码:${re} $old_password"
+            read -rp "输入新的密码（直接回车保持不变）: " new_password
+
+            [ -z "$new_password" ] && new_password="$old_password"
+
+            if [ "$limited" = "1" ]; then
+                "$PYTHON" - "$lf" "$new_password" <<'PY'
+import sys
+import json
+import os
+
+fn = sys.argv[1]
+new_password = sys.argv[2]
+
+with open(fn, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+saved = data.get("saved_user")
+
+if not isinstance(saved, dict):
+    raise SystemExit("saved_user 不存在")
+
+saved["password"] = new_password
+data["saved_user"] = saved
+
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+os.chmod(fn, 0o600)
+PY
+
+                if [ $? -eq 0 ]; then
+                    green "密码修改成功"
+                else
+                    red "密码修改失败"
+                fi
+
+                pause
+                return
+            fi
+
+            "$PYTHON" - "$CONF_DIR/$file" "$tag" "$user" "$new_password" <<'PY'
 import sys
 import json
 
-fn, tag, name, value = sys.argv[1:]
+fn, tag, name, new_password = sys.argv[1:]
+
 with open(fn, "r", encoding="utf-8") as f:
     data = json.load(f)
+
 found = False
+
 for inbound in data.get("inbounds", []):
-    if inbound.get("tag") == tag:
-        for u in inbound.get("users", []):
-            if u.get("name") == name:
-                u["password"] = value
-                found = True
+    if inbound.get("tag") != tag:
+        continue
+
+    for u in inbound.get("users", []):
+        if u.get("name") == name:
+            u["password"] = new_password
+            found = True
+            break
+
 if not found:
-    raise SystemExit("用户不存在")
+    raise SystemExit(1)
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
 PY
-            then
-                red "用户不存在或修改失败，正在恢复..."
-                restore_file "$full" "$backup"
+
+            if [ $? -ne 0 ]; then
+                red "密码修改失败"
                 pause
                 return
             fi
             ;;
     esac
+
+    if [ "$limited" = "1" ]; then
+        green "修改成功"
+        pause
+        return
+    fi
+
     if ! check_config; then
-        red "配置检查失败，正在恢复..."
-        restore_file "$full" "$backup"
+        red "sing-box 配置检查失败"
         pause
         return
     fi
+
     if ! reload_singbox; then
-        red "sing-box 重载失败，正在恢复..."
-        restore_file "$full" "$backup"
-        reload_singbox
+        red "sing-box 重载失败"
         pause
         return
     fi
-    green "认证修改成功"
+
+    green "修改成功"
     pause
 }
 
