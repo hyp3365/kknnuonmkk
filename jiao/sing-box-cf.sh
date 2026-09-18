@@ -3185,6 +3185,17 @@ cat > "${config_dir}" << EOF
         "server_port": 123,
         "interval": "60m"
    }
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:9094",
+      "stats": {
+        "enabled": true,
+        "users": [
+          
+        ]
+      }
+    }
+  }
 }
 EOF
 cat > "${conf_dir}/outbounds.json" << EOF
@@ -5152,6 +5163,7 @@ done
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "vless-reality-user1",
           "uuid": "$uuid",
           "flow": "xtls-rprx-vision"
         }
@@ -5208,6 +5220,7 @@ EOF
 	  "bbr_profile": "standard",
       "users": [
         {
+		  "name": "hysteria2-user1",
           "password": "$uuid"
         }
       ],
@@ -5259,6 +5272,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "tuic-user1",
           "uuid": "$uuid",
           "password": "$password"
         }
@@ -5290,6 +5304,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "h2-reality-user1",
           "uuid": "$uuid"
         }
       ],
@@ -5338,6 +5353,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "grpc-reality-user1",
           "uuid": "$uuid"
         }
       ],
@@ -5405,6 +5421,7 @@ EOF
             "listen_port":$custom_port,
             "users":[
                 {
+				    "name": "anytls-user1",
                     "password":"$password"
                 }
             ],
@@ -5441,6 +5458,7 @@ EOF
             "listen_port":$custom_port,
             "users":[
                 {
+				    "name": "anytls-reality-user1",
                     "password":"$password"
                 }
             ],
@@ -5488,6 +5506,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "socks-in-user1",
           "username": "$username",
           "password": "$password"
         }
@@ -5513,6 +5532,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "http-in-user1",
           "username": "$username",
           "password": "$password"
         }
@@ -5585,6 +5605,7 @@ EOF
       "listen_port": $custom_port,
       "users": [
         {
+		  "name": "vless-tcp-tls-user1",
           "uuid": "$uuid"
         }
       ],
@@ -5613,6 +5634,7 @@ EOF
        "listen_port": $custom_port,
        "users": [
            {
+		      "name": "vmess-ws-user1",
               "uuid": "$uuid"
            }
         ],
@@ -5642,6 +5664,7 @@ EOF
        "listen_port": $custom_port,
        "users": [
            {
+		      "name": "vless-ws-user1",
               "uuid": "$uuid"
            }
         ],
@@ -5694,6 +5717,7 @@ green "节点链接: $url"
       "listen_port": $vless_wstls_cdn_port,
       "users": [
         {
+		  "name": "vless-wstls-cdn-user1",
           "uuid": "$uuid"
         }
       ],
@@ -5935,6 +5959,7 @@ new_managed=$(jq -n \
       "listen_port": $vmess_ws_cdn_port,
       "users": [
         {
+		  "name": "vmess-ws-cdn-user1",
           "uuid": "$uuid",
           "alterId": 0
         }
@@ -5961,6 +5986,7 @@ EOF
       "listen_port": $vless_ws_cdn_port,
       "users": [
         {
+		  "name": "vless-ws-cdn-user1",
           "uuid": "$uuid",
           "flow": ""
         }
@@ -5987,6 +6013,7 @@ EOF
       "listen_port": $trojan_ws_cdn_port,
       "users": [
         {
+		  "name": "trojan-ws-cdn-user1",
           "password": "$uuid"
         }
       ],
@@ -6068,6 +6095,7 @@ EOF
       "listen_port": $vmess_ws_argo_port,
       "users": [
         {
+		  "name": "vmess-ws-argo-user1",
           "uuid": "$uuid"
         }
       ],
@@ -6085,6 +6113,7 @@ EOF
       "listen_port": $vless_ws_argo_port,
       "users": [
         {
+		  "name": "vless-ws-argo-user1",
           "uuid": "$uuid"
         }
       ],
@@ -6102,6 +6131,7 @@ EOF
       "listen_port": $trojan_ws_argo_port,
       "users": [
         {
+		  "name": "trojan-ws-argo-user1",
           "password": "$uuid"
         }
       ],
@@ -6676,6 +6706,7 @@ green "--------------------------------------------------"
       "listen_port": $naive_port,
       "users": [
         {
+		  "name": "naive-user1",
           "username": "$uuid",
           "password": "$uuid"
         }
