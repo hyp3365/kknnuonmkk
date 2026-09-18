@@ -1079,16 +1079,19 @@ reset_traffic_script() {
     fi
     pause
 }
+
 node_menu() {
     local file="$1"
     local tag="$2"
     local type="$3"
     local port="$4"
+
     while true; do
         title "$tag"
         echo -e "${skyblue}协议:${re} $type"
         echo -e "${skyblue}端口:${re} ${port:-未知}"
         echo
+
         mapfile -t USERS < <(
             "$PYTHON" - "$CONF_DIR/$file" "$tag" "$LIMIT_DIR" <<'PY'
 import sys
@@ -1098,8 +1101,8 @@ from pathlib import Path
 fn = sys.argv[1]
 tag = sys.argv[2]
 limit_dir = Path(sys.argv[3])
-result = []
-normal_users = set()
+
+actual = {}
 
 try:
     with open(fn, "r", encoding="utf-8") as f:
@@ -1108,77 +1111,101 @@ except Exception:
     data = {}
 
 for inbound in data.get("inbounds", []):
-    if inbound.get("tag") == tag:
-        for u in inbound.get("users", []):
-            name = u.get("name", "")
-            if name:
-                result.append(("normal", name))
-                normal_users.add(name)
-        break
+    if inbound.get("tag") != tag:
+        continue
+
+    for u in inbound.get("users", []):
+        name = u.get("name", "")
+        if name:
+            actual[name] = True
+
+    break
+
+limited = {}
 
 if limit_dir.exists():
-    prefix = tag + "__"
-    for lf in sorted(limit_dir.glob(prefix + "*.json")):
+    for lf in limit_dir.glob("*.json"):
         try:
             with open(lf, "r", encoding="utf-8") as f:
                 d = json.load(f)
         except Exception:
             continue
+
         if d.get("inbound_tag") != tag:
             continue
-        if not d.get("disabled_by_limit"):
-            continue
-        name = d.get("user", "")
-        if not name or name in normal_users:
-            continue
-        saved = d.get("saved_user")
-        if not isinstance(saved, dict):
-            continue
-        if saved.get("name") != name:
-            continue
-        result.append(("limited", name))
 
-for status, name in result:
-    print(f"{status}\t{name}")
+        if not d.get("enabled"):
+            continue
+
+        user = d.get("user")
+        if not user:
+            continue
+
+        if d.get("disabled_by_limit"):
+            limited[user] = True
+
+for name in actual:
+    if limited.get(name):
+        print("LIMITED\t" + name)
+    else:
+        print("NORMAL\t" + name)
+
+for name in limited:
+    if name not in actual:
+        print("LIMITED\t" + name)
 PY
         )
+
         local i=1
-        for entry in "${USERS[@]}"; do
-            [ -z "$entry" ] && continue
-            local status="${entry%%$'\t'*}"
-            local user="${entry#*$'\t'}"
-            if [ "$status" = "limited" ]; then
-                printf "  ${red}%2d) %-32s 流量已限制${re}\n" "$i" "$user"
+        local -a USER_NAMES=()
+        local -a USER_LIMITED=()
+
+        for item in "${USERS[@]}"; do
+            local status="${item%%$'\t'*}"
+            local user="${item#*$'\t'}"
+
+            [ -z "$user" ] && continue
+
+            USER_NAMES+=("$user")
+            USER_LIMITED+=("$status")
+
+            if [ "$status" = "LIMITED" ]; then
+                printf "  ${red}%2d)${re} ${red}%-32s${re} ${red}[流量已限制]${re}\n" "$i" "$user"
             else
                 printf "  ${green}%2d)${re} %-32s\n" "$i" "$user"
             fi
+
             ((i++))
         done
+
         printf "  ${green}%2d)${re} %s\n" "$i" "+ 新增用户"
+
         local add_num="$i"
+
         echo
         echo -e "  ${yellow}0)${re} 返回"
         echo
+
         read -rp "$(green "请选择: ")" choice
+
         if [ "$choice" = "0" ]; then
             return
         fi
+
         if [ "$choice" = "$add_num" ]; then
             add_user "$file" "$tag" "$type"
             continue
         fi
+
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$add_num" ]; then
             local index=$((choice-1))
-            local selected="${USERS[$index]}"
-            local selected_user="${selected#*$'\t'}"
-            user_menu "$file" "$tag" "$type" "$port" "$selected_user"
+            user_menu "$file" "$tag" "$type" "$port" "${USER_NAMES[$index]}"
         else
             red "无效选择"
             sleep 1
         fi
     done
 }
-
 get_next_user_name() {
     local file="$1"
     local tag="$2"
@@ -1473,29 +1500,35 @@ show_user_traffic_inline() {
 show_limit() {
     local tag="$1"
     local user="$2"
-    local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
+
     if [ ! -f "$lf" ]; then
         echo -e "${skyblue}流量限制:${re} 未设置"
         return
     fi
+
     "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 from datetime import datetime
+
 lf = sys.argv[1]
 state_file = sys.argv[2]
+
 try:
     with open(lf, "r", encoding="utf-8") as f:
         d = json.load(f)
 except Exception:
     print("未设置")
     raise SystemExit
+
 if not d.get("enabled"):
     print("已关闭")
     raise SystemExit
+
 value = d.get("limit_value")
 unit = d.get("limit_unit")
+
 if value is not None and unit:
     try:
         fv = float(value)
@@ -1504,47 +1537,62 @@ if value is not None and unit:
         limit_text = f"{value} {unit}"
 else:
     limit_text = "未知"
+
 period = d.get("period", "none")
+
 period_text = {
     "day": "每天",
     "month": "每月",
     "none": "永久"
 }.get(period, "永久")
+
 user = d.get("user")
+
 try:
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 except Exception:
     state = {}
+
 u = state.get("users", {}).get(user, {})
+
 if period in ("day", "month"):
     used = int(u.get("period_total", 0) or 0)
 else:
     used = int(u.get("total", 0) or 0)
+
 limit_bytes = int(d.get("limit_bytes", 0) or 0)
+
 def fmt(n):
     n = float(n)
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     i = 0
-    while n >= 1024 and i < len(units)-1:
+
+    while n >= 1024 and i < len(units) - 1:
         n /= 1024
         i += 1
+
     if i == 0:
         return f"{int(n)} {units[i]}"
+
     return f"{n:.2f} {units[i]}"
+
 print(f"已设置：{limit_text}")
 print(f"时间周期：{period_text}")
 print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
+
 if limit_bytes > used:
-    print(f"剩余流量：{fmt(limit_bytes-used)}")
+    print(f"剩余流量：{fmt(limit_bytes - used)}")
 else:
     print("剩余流量：0 B")
+
 if period in ("day", "month") and d.get("period_end"):
     try:
         dt = datetime.fromisoformat(d["period_end"])
         print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
     except Exception:
         pass
+
 if d.get("disabled_by_limit"):
     print("状态：已达到流量限制，用户已停用")
 else:
@@ -2559,20 +2607,31 @@ user_menu() {
     local type="$3"
     local port="$4"
     local user="$5"
+
     while true; do
         title "$user"
+
         local user_json
         user_json="$(get_user_json "$file" "$tag" "$user")"
+
+        if [ -z "$user_json" ]; then
+            red "找不到用户信息"
+            pause
+            return
+        fi
+
         echo -e "${skyblue}节点:${re} $tag"
         echo -e "${skyblue}协议:${re} $type"
+
         case "$type" in
             vmess|vless|tuic)
                 local uuid
                 uuid="$("$PYTHON" - "$user_json" <<'PY'
 import sys
 import json
-d=json.loads(sys.argv[1])
-print(d.get("uuid",""))
+
+d = json.loads(sys.argv[1])
+print(d.get("uuid", ""))
 PY
 )"
                 echo -e "${skyblue}UUID :${re} $uuid"
@@ -2582,94 +2641,114 @@ PY
                 password="$("$PYTHON" - "$user_json" <<'PY'
 import sys
 import json
-d=json.loads(sys.argv[1])
-print(d.get("password",""))
+
+d = json.loads(sys.argv[1])
+print(d.get("password", ""))
 PY
 )"
                 echo -e "${skyblue}密码 :${re} $password"
                 ;;
         esac
+
         echo -e "${skyblue}流量限制:${re} "
         show_limit "$tag" "$user"
+
         echo -e "${skyblue}流量统计:${re}"
+
         if [ -f "$TRAFFIC_STATE" ]; then
-    local traffic
-    traffic="$(get_user_traffic "$user")"
-    local uplink
-    local downlink
-    local total
-    local connections
-    local period_uplink
-    local period_downlink
-    local period_total
-    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
-    echo "  上传:   $(format_bytes "$uplink")"
-    echo "  下载:   $(format_bytes "$downlink")"
-    echo "  总流量: $(format_bytes "$total")"
-    echo "  本周期: $(format_bytes "$period_total")"
-    echo "  连接数: $connections"
-else
-    echo "  未统计"
-fi
+            local traffic
+            traffic="$(get_user_traffic "$user")"
+
+            local uplink
+            local downlink
+            local total
+            local connections
+            local period_uplink
+            local period_downlink
+            local period_total
+
+            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+
+            echo "  上传:   $(format_bytes "$uplink")"
+            echo "  下载:   $(format_bytes "$downlink")"
+            echo "  总流量: $(format_bytes "$total")"
+            echo "  本周期: $(format_bytes "$period_total")"
+            echo "  连接数: $connections"
+        else
+            echo "  未统计"
+        fi
+
         echo
         echo -e "  ${green}1)${re} 修改 $(
             case "$type" in
-                vmess|vless|tuic) echo "UUID";;
-                *) echo "密码";;
+                vmess|vless|tuic)
+                    echo "UUID"
+                    ;;
+                *)
+                    echo "密码"
+                    ;;
             esac
         )"
+
         echo -e "  ${green}2)${re} 流量限制"
         echo -e "  ${green}3)${re} 流量统计"
         echo -e "  ${green}4)${re} 查看节点连接"
         echo -e "  ${red}5)${re} 删除用户"
+
         echo
         echo -e "  ${yellow}0)${re} 返回"
         echo
+
         read -rp "$(green "请选择: ")" choice
+
         case "$choice" in
             1)
                 modify_auth "$file" "$tag" "$type" "$user"
                 ;;
             2)
-    while true; do
-        title "流量限制"
-        show_limit "$tag" "$user"
-        echo
-        echo "1) 设置流量"
-        echo "2) 设置时间"
-        echo "3) 查看限制状态"
-        echo "4) 关闭流量限制"
-        echo "0) 返回"
-        echo
-        read -rp "$(green "请选择: ")" limit_choice
-        case "$limit_choice" in
-            1)
-                set_limit "$tag" "$user"
-                ;;
-            2)
-                set_limit_period "$tag" "$user"
+                while true; do
+                    title "流量限制"
+
+                    show_limit "$tag" "$user"
+
+                    echo
+                    echo "1) 设置流量"
+                    echo "2) 设置时间"
+                    echo "3) 查看限制状态"
+                    echo "4) 关闭流量限制"
+                    echo "0) 返回"
+                    echo
+
+                    read -rp "$(green "请选择: ")" limit_choice
+
+                    case "$limit_choice" in
+                        1)
+                            set_limit "$tag" "$user"
+                            ;;
+                        2)
+                            set_limit_period "$tag" "$user"
+                            ;;
+                        3)
+                            show_limit "$tag" "$user"
+                            pause
+                            ;;
+                        4)
+                            disable_limit "$tag" "$user"
+                            ;;
+                        0)
+                            break
+                            ;;
+                        *)
+                            red "无效选择"
+                            pause
+                            ;;
+                    esac
+                done
                 ;;
             3)
-                show_limit "$tag" "$user"
+                show_user_traffic_inline "$user"
                 pause
                 ;;
-            4)
-                disable_limit "$tag" "$user"
-                ;;
-            0)
-                break
-                ;;
-            *)
-                red "无效选择"
-                pause
-                ;;
-        esac
-    done
-    ;;
-            3)
-    show_user_traffic_inline "$user"
-    pause
-    ;;
             4)
                 show_connections "$file" "$tag" "$type" "$port" "$user"
                 ;;
