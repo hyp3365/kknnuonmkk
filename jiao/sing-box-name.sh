@@ -1557,9 +1557,13 @@ except Exception:
 u = state.get("users", {}).get(user, {})
 
 if period in ("day", "month"):
-    used = int(u.get("period_total", 0) or 0)
+    current_total = int(u.get("period_total", 0) or 0)
 else:
-    used = int(u.get("total", 0) or 0)
+    current_total = int(u.get("total", 0) or 0)
+
+base_total = int(data.get("limit_base_total", 0) or 0)
+
+used = max(0, current_total - base_total)
 
 limit_bytes = int(d.get("limit_bytes", 0) or 0)
 
