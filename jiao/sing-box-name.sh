@@ -2049,33 +2049,89 @@ delete_user() {
     local tag="$2"
     local user="$3"
     local full="$CONF_DIR/$file"
+    local lf
+    lf="$(get_limit_file "$tag" "$user")"
+
     title "删除用户"
     echo -e "${yellow}节点:${re} $tag"
     echo -e "${yellow}用户:${re} $user"
     echo
+
     red "删除后该用户将立即失效。"
     read -rp "$(yellow "确认删除？[y/N]: ")" confirm
     [[ ! "$confirm" =~ ^[Yy]$ ]] && return
+
+    local limited=0
+
+    if [ -f "$lf" ]; then
+        limited="$("$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data = json.load(f)
+    print(1 if data.get("disabled_by_limit") else 0)
+except Exception:
+    print(0)
+PY
+)"
+    fi
+
+    # 被流量限制的用户不在 sing-box 实际 users 中
+    # 直接删除限额文件即可彻底删除该用户
+    if [ "$limited" = "1" ]; then
+        rm -f "$lf"
+
+        if [ -f "$lf" ]; then
+            red "删除限额记录失败"
+            pause
+            return
+        fi
+
+        green "用户删除成功"
+        pause
+        return
+    fi
+
+    # 正常用户从 sing-box 配置中删除
+    if [ ! -f "$full" ]; then
+        red "配置文件不存在: $full"
+        pause
+        return
+    fi
+
     backup_file "$full"
+
     local backup
     backup="$(find_backup "$full")"
+
     if ! "$PYTHON" - "$full" "$tag" "$user" <<'PY'
 import sys
 import json
 
 fn, tag, name = sys.argv[1:]
+
 with open(fn, "r", encoding="utf-8") as f:
     data = json.load(f)
+
 found = False
+
 for inbound in data.get("inbounds", []):
-    if inbound.get("tag") == tag:
-        old = inbound.get("users", [])
-        new = [u for u in old if u.get("name") != name]
-        if len(new) != len(old):
-            found = True
-        inbound["users"] = new
+    if inbound.get("tag") != tag:
+        continue
+
+    old = inbound.get("users", [])
+    new = [u for u in old if u.get("name") != name]
+
+    if len(new) != len(old):
+        found = True
+
+    inbound["users"] = new
+
 if not found:
     raise SystemExit("用户不存在")
+
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -2086,12 +2142,14 @@ PY
         pause
         return
     fi
+
     if ! check_config; then
         red "配置检查失败，正在恢复..."
         restore_file "$full" "$backup"
         pause
         return
     fi
+
     if ! reload_singbox; then
         red "sing-box 重载失败，正在恢复..."
         restore_file "$full" "$backup"
@@ -2099,7 +2157,15 @@ PY
         pause
         return
     fi
-    rm -f "$(get_limit_file "$tag" "$user")"
+
+    rm -f "$lf"
+
+    if [ -f "$lf" ]; then
+        red "用户已经从 sing-box 删除，但流量限制记录删除失败"
+        pause
+        return
+    fi
+
     green "用户删除成功"
     pause
 }
