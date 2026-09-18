@@ -1,7 +1,13 @@
-name: Build sing-box v1.14.1 with V2Ray API
+name: Build sing-box
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SING_BOX_VERSION: "1.14.1"
 
 jobs:
   build:
@@ -11,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
-          ref: v1.14.1
+          ref: v${{ env.SING_BOX_VERSION }}
           fetch-depth: 1
 
       - name: Setup Go
@@ -20,14 +26,20 @@ jobs:
           go-version: '1.26.8'
 
       - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
         run: |
           set -euxo pipefail
-          TAGS="$(cat release/DEFAULT_BUILD_TAGS),with_v2ray_api"
+          TAGS="$(cat release/DEFAULT_BUILD_TAGS | sed 's/,with_naive_outbound//'),with_v2ray_api"
           LDFLAGS_SHARED="$(cat release/LDFLAGS)"
+          echo "Building sing-box v${SING_BOX_VERSION}"
+          echo "Build tags: $TAGS"
           go build -v -trimpath \
             -o sing-box \
             -tags "$TAGS" \
-            -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=1.14.1' ${LDFLAGS_SHARED} -s -w -buildid=" \
+            -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${SING_BOX_VERSION}' ${LDFLAGS_SHARED} -s -w -buildid=" \
             ./cmd/sing-box
 
       - name: Check build
@@ -35,8 +47,21 @@ jobs:
           chmod +x sing-box
           ./sing-box version
 
-      - name: Upload binary
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sing-box-v1.14.1-v2rayapi-linux-amd64
+          name: sing-box-v${{ env.SING_BOX_VERSION }}-v2rayapi-linux-amd64
           path: sing-box
+          retention-days: 90
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sing-box-v${{ env.SING_BOX_VERSION }}-v2rayapi
+          name: sing-box v${{ env.SING_BOX_VERSION }} V2Ray API
+          body: |
+            sing-box v${{ env.SING_BOX_VERSION }}
+            Build with with_v2ray_api.
+            Linux amd64.
+          files: sing-box
+          make_latest: false
