@@ -34,6 +34,137 @@ init_traffic() {
     TRAFFIC_SCRIPT_CHANGED=0
     mkdir -p "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
     chmod 700 "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
+    local traffic_grpcurl="$TRAFFIC_DIR/grpcurl"
+    local traffic_proto="$TRAFFIC_DIR/stats.proto"
+    local grpcurl_version="1.9.3"
+    local grpcurl_sha256="62e2e4315bb70fab2e27f86c1f7738d09076a097a2dc8e0f701e386251172e40"
+    local stats_proto_sha256="9e2398a634daced553a41620eb0e31ef30c0d3ef0f50bced58fec84c99f62aaf"
+    local grpcurl_url="https://github.com/fullstorydev/grpcurl/releases/download/v${grpcurl_version}/grpcurl_${grpcurl_version}_linux_x86_64.tar.gz"
+    if [ ! -f "$traffic_grpcurl" ] || [ "$(sha256sum "$traffic_grpcurl" 2>/dev/null | awk '{print $1}')" != "$grpcurl_sha256" ]; then
+        local grpcurl_tmp
+        local grpcurl_dir
+        grpcurl_tmp="$(mktemp)"
+        grpcurl_dir="$(mktemp -d)"
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        else
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
+            return 1
+        fi
+        if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：解压 grpcurl 失败"
+            return 1
+        fi
+        if [ ! -f "$grpcurl_dir/grpcurl" ]; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：解压后找不到 grpcurl"
+            return 1
+        fi
+        chmod 755 "$grpcurl_dir/grpcurl"
+        local actual_grpcurl_sha256
+        actual_grpcurl_sha256="$(sha256sum "$grpcurl_dir/grpcurl" | awk '{print $1}')"
+        if [ "$actual_grpcurl_sha256" != "$grpcurl_sha256" ]; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：grpcurl SHA256 校验失败"
+            echo "期望：$grpcurl_sha256"
+            echo "实际：$actual_grpcurl_sha256"
+            return 1
+        fi
+        install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"
+        rm -f "$grpcurl_tmp"
+        rm -rf "$grpcurl_dir"
+    else
+        chmod 755 "$traffic_grpcurl"
+    fi
+    if [ ! -f "$traffic_proto" ] || [ "$(sha256sum "$traffic_proto" 2>/dev/null | awk '{print $1}')" != "$stats_proto_sha256" ]; then
+        local tmp_proto
+        tmp_proto="$(mktemp)"
+        cat > "$tmp_proto" <<'PROTO'
+syntax = "proto3";
+package v2ray.core.app.stats.command;
+option go_package = "github.com/sagernet/sing-box/experimental/v2rayapi";
+message GetStatsRequest {
+  // Name of the stat counter.
+  string name = 1;
+  // Whether or not to reset the counter to fetching its value.
+  bool reset = 2;
+}
+message Stat {
+  string name = 1;
+  int64 value = 2;
+}
+message GetStatsResponse {
+  Stat stat = 1;
+}
+message QueryStatsRequest {
+  // Deprecated, use Patterns instead
+  string pattern = 1;
+  bool reset = 2;
+  repeated string patterns = 3;
+  bool regexp = 4;
+}
+message QueryStatsResponse {
+  repeated Stat stat = 1;
+}
+message SysStatsRequest {}
+message SysStatsResponse {
+  uint32 NumGoroutine = 1;
+  uint32 NumGC = 2;
+  uint64 Alloc = 3;
+  uint64 TotalAlloc = 4;
+  uint64 Sys = 5;
+  uint64 Mallocs = 6;
+  uint64 Frees = 7;
+  uint64 LiveObjects = 8;
+  uint64 PauseTotalNs = 9;
+  uint32 Uptime = 10;
+}
+service StatsService {
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse) {}
+  rpc QueryStats(QueryStatsRequest) returns (QueryStatsResponse) {}
+  rpc GetSysStats(SysStatsRequest) returns (SysStatsResponse) {}
+}
+PROTO
+        local actual_proto_sha256
+        actual_proto_sha256="$(sha256sum "$tmp_proto" | awk '{print $1}')"
+        if [ "$actual_proto_sha256" != "$stats_proto_sha256" ]; then
+            rm -f "$tmp_proto"
+            echo "错误：生成 stats.proto 后 SHA256 校验失败"
+            echo "期望：$stats_proto_sha256"
+            echo "实际：$actual_proto_sha256"
+            return 1
+        fi
+        install -m 600 "$tmp_proto" "$traffic_proto"
+        rm -f "$tmp_proto"
+    else
+        chmod 600 "$traffic_proto"
+    fi
+    if [ ! -x "$traffic_grpcurl" ]; then
+        chmod 755 "$traffic_grpcurl"
+    fi
+    if ! "$traffic_grpcurl" -version 2>/dev/null | grep -q "grpcurl v${grpcurl_version}"; then
+        echo "错误：grpcurl 版本验证失败"
+        echo "当前版本：$("$traffic_grpcurl" -version 2>&1 || true)"
+        return 1
+    fi
     if [ ! -f "$TRAFFIC_STATE" ]; then
         cat > "$TRAFFIC_STATE" <<'JSON'
 {
@@ -70,8 +201,8 @@ SINGBOX = BASE_DIR / "sing-box"
 SERVICE = "sing-box"
 GRPC_HOST = "127.0.0.1"
 GRPC_PORT = 9094
-GRPCURL = "/tmp/grpcurl"
-PROTO_FILE = "/tmp/stats.proto"
+GRPCURL = str(TRAFFIC_DIR / "grpcurl")
+PROTO_FILE = str(TRAFFIC_DIR / "stats.proto")
 CONFIG_FILE = CONF_DIR / "config.json"
 SAVE_INTERVAL = 5
 POLL_INTERVAL = 5
