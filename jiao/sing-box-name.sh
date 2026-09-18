@@ -53,6 +53,7 @@ import subprocess
 import time
 import signal
 import tempfile
+import select
 from pathlib import Path
 from datetime import datetime, timedelta
 BASE_DIR = Path("/etc/sing-box")
@@ -712,6 +713,7 @@ def grpc_stream():
         return
     api_secret = get_api_secret()
     if not api_secret:
+        log("无法获取API secret")
         time.sleep(RECONNECT_INTERVAL)
         return
     url = f"{GRPC_HOST}:{GRPC_PORT}"
@@ -730,36 +732,52 @@ def grpc_stream():
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
+            bufsize=0
         )
     except Exception as e:
         log(f"启动grpcurl失败: {e}")
         time.sleep(RECONNECT_INTERVAL)
         return
     try:
-        for line in proc.stdout:
-            if not running:
-                break
-            line = line.strip()
-            if not line:
-                continue
+        decoder = json.JSONDecoder()
+        buffer = ""
+        fd = proc.stdout.fileno()
+        while running:
             try:
-                response = json.loads(line)
-            except json.JSONDecodeError:
+                ready, _, _ = select.select([fd], [], [], 1)
+            except Exception:
+                ready = [fd]
+            if not ready:
+                if proc.poll() is not None:
+                    break
                 continue
-            if not isinstance(response, dict):
-                continue
-            events = response.get("events")
-            if not isinstance(events, list):
-                continue
-            for event in events:
-                if isinstance(event, dict):
-                    yield event
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            buffer += chunk.decode("utf-8", errors="replace")
+            while True:
+                buffer = buffer.lstrip()
+                if not buffer:
+                    break
+                try:
+                    response, index = decoder.raw_decode(buffer)
+                except json.JSONDecodeError:
+                    break
+                buffer = buffer[index:]
+                if not isinstance(response, dict):
+                    continue
+                events = response.get("events")
+                if not isinstance(events, list):
+                    continue
+                for event in events:
+                    if isinstance(event, dict):
+                        yield event
         try:
             err = proc.stderr.read()
             if err:
-                log("grpcurl stderr: " + err[-3000:])
+                err_text = err.decode("utf-8", errors="replace")
+                if err_text.strip():
+                    log("grpcurl stderr: " + err_text[-3000:])
         except Exception:
             pass
     finally:
