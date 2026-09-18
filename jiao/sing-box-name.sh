@@ -120,6 +120,15 @@ def period_window(period, now=None):
             end = start.replace(month=start.month + 1, day=1)
         return start, end
     return None, None
+def period_name(meta):
+    if not isinstance(meta, dict):
+        return "month"
+    period = meta.get("period")
+    if period in ("day", "daily"):
+        return "day"
+    if period in ("month", "monthly"):
+        return "month"
+    return "month"
 def limit_files():
     try:
         return sorted(LIMIT_DIR.glob("*.json"))
@@ -130,6 +139,19 @@ def config_files():
         return sorted(CONF_DIR.glob("*.json"))
     except Exception:
         return []
+def get_limit_meta_for_user(username):
+    for path in limit_files():
+        data = load_json(path, {})
+        if not isinstance(data, dict):
+            continue
+        if data.get("user") == username:
+            return path, data
+    return None, None
+def get_user_period(username):
+    _, meta = get_limit_meta_for_user(username)
+    if meta:
+        return period_name(meta)
+    return "month"
 def find_user(tag, username):
     for fn in config_files():
         try:
@@ -356,17 +378,20 @@ def ensure_user(state, username):
     if not username:
         return None
     users = state.setdefault("users", {})
+    current_period = get_user_period(username)
     if username not in users:
+        start, end = period_window(current_period)
         users[username] = {
             "uplink": 0,
             "downlink": 0,
             "total": 0,
             "connections": 0,
+            "period": current_period,
             "period_uplink": 0,
             "period_downlink": 0,
             "period_total": 0,
-            "period_start": None,
-            "period_end": None
+            "period_start": start.isoformat() if start else None,
+            "period_end": end.isoformat() if end else None
         }
     else:
         u = users[username]
@@ -374,6 +399,7 @@ def ensure_user(state, username):
         u.setdefault("downlink", 0)
         u.setdefault("total", 0)
         u.setdefault("connections", 0)
+        u.setdefault("period", current_period)
         u.setdefault("period_uplink", 0)
         u.setdefault("period_downlink", 0)
         u.setdefault("period_total", 0)
@@ -506,6 +532,45 @@ def process_event(state, event):
 def sync_periods(state):
     changed = False
     now = datetime.now().astimezone()
+    users = state.setdefault("users", {})
+    for username, u in users.items():
+        current_period = get_user_period(username)
+        if current_period not in ("day", "month"):
+            current_period = "month"
+        start, end = period_window(current_period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        stored_period = u.get("period")
+        stored_start = u.get("period_start")
+        stored_end = u.get("period_end")
+        if stored_period != current_period:
+            u["period"] = current_period
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            changed = True
+            continue
+        if not stored_start or not stored_end:
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            changed = True
+            continue
+        try:
+            stored_end_dt = datetime.fromisoformat(stored_end)
+        except Exception:
+            stored_end_dt = None
+        if stored_end_dt is None or now >= stored_end_dt:
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            changed = True
     for lf in limit_files():
         data = load_json(lf, {})
         if not isinstance(data, dict):
@@ -513,41 +578,20 @@ def sync_periods(state):
         username = data.get("user")
         if not username:
             continue
-        period = data.get("period", "none")
-        u = ensure_user(state, username)
-        if period in ("day", "month"):
-            start, end = period_window(period, now)
-            start_iso = start.isoformat()
-            end_iso = end.isoformat()
-            old_start = data.get("period_start")
-            if old_start != start_iso:
-                if data.get("disabled_by_limit"):
-                    if not restore_user(data):
-                        log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
-                        continue
-                u["period_uplink"] = 0
-                u["period_downlink"] = 0
-                u["period_total"] = 0
-                u["period_start"] = start_iso
-                u["period_end"] = end_iso
-                data["period_start"] = start_iso
-                data["period_end"] = end_iso
-                data["disabled_by_limit"] = False
-                update_limit_file(lf, data)
-                changed = True
-                log(f"用户周期已重置: {data.get('inbound_tag')}/{username} {period}")
-            elif u.get("period_start") != start_iso:
-                u["period_uplink"] = 0
-                u["period_downlink"] = 0
-                u["period_total"] = 0
-                u["period_start"] = start_iso
-                u["period_end"] = end_iso
-                changed = True
-        else:
-            if u.get("period_start") is not None or u.get("period_end") is not None:
-                u["period_start"] = None
-                u["period_end"] = None
-                changed = True
+        period = period_name(data)
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if data.get("period_start") != start_iso:
+            if data.get("disabled_by_limit"):
+                if not restore_user(data):
+                    log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
+                    continue
+            data["period_start"] = start_iso
+            data["period_end"] = end_iso
+            data["disabled_by_limit"] = False
+            update_limit_file(lf, data)
+            changed = True
     return changed
 def check_limits(state):
     for lf in limit_files():
@@ -570,7 +614,7 @@ def check_limits(state):
         if limit_bytes <= 0:
             continue
         u = state.get("users", {}).get(username, {})
-        period = data.get("period", "none")
+        period = period_name(data)
         if period in ("day", "month"):
             used = int(u.get("period_total", 0) or 0)
         else:
@@ -591,6 +635,42 @@ def update_connection_count(state):
 def initialize_periods(state):
     changed = False
     now = datetime.now().astimezone()
+    users = state.setdefault("users", {})
+    for username, u in users.items():
+        period = get_user_period(username)
+        if period not in ("day", "month"):
+            period = "month"
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if u.get("period") != period:
+            u["period"] = period
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            changed = True
+            continue
+        if not u.get("period_start") or not u.get("period_end"):
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            changed = True
+            continue
+        try:
+            stored_end = datetime.fromisoformat(u["period_end"])
+        except Exception:
+            stored_end = None
+        if stored_end is None or now >= stored_end:
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
+            changed = True
     for lf in limit_files():
         data = load_json(lf, {})
         if not isinstance(data, dict):
@@ -598,26 +678,14 @@ def initialize_periods(state):
         username = data.get("user")
         if not username:
             continue
-        period = data.get("period", "none")
-        u = ensure_user(state, username)
-        if period in ("day", "month"):
-            start, end = period_window(period, now)
-            start_iso = start.isoformat()
-            end_iso = end.isoformat()
-            if data.get("period_start") != start_iso:
-                data["period_start"] = start_iso
-                data["period_end"] = end_iso
-                update_limit_file(lf, data)
-            if u.get("period_start") != start_iso:
-                u["period_start"] = start_iso
-                u["period_end"] = end_iso
-                u["period_uplink"] = 0
-                u["period_downlink"] = 0
-                u["period_total"] = 0
-                changed = True
-        else:
-            u["period_start"] = None
-            u["period_end"] = None
+        period = period_name(data)
+        start, end = period_window(period, now)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        if data.get("period_start") != start_iso:
+            data["period_start"] = start_iso
+            data["period_end"] = end_iso
+            update_limit_file(lf, data)
     return changed
 def get_api_secret():
     try:
@@ -699,7 +767,7 @@ def grpc_stream():
             try:
                 proc.kill()
             except Exception:
-                pass                
+                pass
 def signal_handler(signum, frame):
     global running
     running = False
@@ -719,7 +787,6 @@ def main():
     save_state(state)
     log("singbox traffic collector started")
     last_save = time.monotonic()
-    last_limit_check = time.monotonic()
     while running:
         try:
             sync_periods(state)
@@ -727,7 +794,6 @@ def main():
             update_connection_count(state)
             save_state(state)
             last_save = time.monotonic()
-            last_limit_check = time.monotonic()
             for event in grpc_stream():
                 if not running:
                     break
@@ -740,7 +806,6 @@ def main():
                     update_connection_count(state)
                     save_state(state)
                     last_save = now
-                    last_limit_check = now
             if running:
                 sync_periods(state)
                 check_limits(state)
