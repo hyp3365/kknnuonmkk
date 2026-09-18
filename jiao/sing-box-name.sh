@@ -743,7 +743,7 @@ def grpc_stream():
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             bufsize=0
         )
     except Exception as e:
@@ -757,17 +757,25 @@ def grpc_stream():
         while running:
             try:
                 ready, _, _ = select.select([fd], [], [], 1)
+            except InterruptedError:
+                continue
             except Exception:
-                ready = [fd]
+                time.sleep(0.1)
+                continue
             if not ready:
                 if proc.poll() is not None:
                     break
                 continue
-            chunk = os.read(fd, 65536)
+            try:
+                chunk = os.read(fd, 65536)
+            except BlockingIOError:
+                continue
+            except OSError:
+                break
             if not chunk:
                 break
             buffer += chunk.decode("utf-8", errors="replace")
-            while True:
+            while buffer:
                 buffer = buffer.lstrip()
                 if not buffer:
                     break
@@ -784,14 +792,6 @@ def grpc_stream():
                 for event in events:
                     if isinstance(event, dict):
                         yield event
-        try:
-            err = proc.stderr.read()
-            if err:
-                err_text = err.decode("utf-8", errors="replace")
-                if err_text.strip():
-                    log("grpcurl stderr: " + err_text[-3000:])
-        except Exception:
-            pass
     finally:
         try:
             proc.terminate()
