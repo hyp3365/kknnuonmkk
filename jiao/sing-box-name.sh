@@ -2247,84 +2247,138 @@ PY
 }
 
 delete_user() {
-    local name="$1"
-    local full="$2"
-    local backup
-
-    if [[ -z "$name" || -z "$full" ]]; then
-        red "参数错误"
-        pause
-        return
-    fi
-
-    if [[ ! -f "$full" ]]; then
-        red "用户配置不存在: $name"
-        pause
-        return
-    fi
-
-    backup=$(backup_file "$full")
-
-    if ! "$PYTHON" - "$full" "$name" <<'PY'
+    local file="$1"
+    local tag="$2"
+    local user="$3"
+    local full="$CONF_DIR/$file"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    title "删除用户"
+    echo -e "${yellow}节点:${re} $tag"
+    echo -e "${yellow}用户:${re} $user"
+    red "删除后该用户将立即失效。"
+    read -rp "$(yellow "确认删除？[y/N]: ")" confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && return
+    local actual_exists
+    actual_exists="$("$PYTHON" - "$full" "$tag" "$user" <<'PY'
 import sys
 import json
-
-fn = sys.argv[1]
-name = sys.argv[2]
-
+fn, tag, name = sys.argv[1:]
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print(0)
+    raise SystemExit
+for inbound in data.get("inbounds", []):
+    if inbound.get("tag") != tag:
+        continue
+    for u in inbound.get("users", []):
+        if isinstance(u, dict) and u.get("name") == name:
+            print(1)
+            raise SystemExit
+print(0)
+PY
+)"
+    if [ "$actual_exists" != "1" ]; then
+        local saved_exists=0
+        if [ -f "$lf" ]; then
+            saved_exists="$("$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data = json.load(f)
+    saved = data.get("saved_user")
+    if isinstance(saved, dict) and saved.get("name"):
+        print(1)
+    else:
+        print(0)
+except Exception:
+    print(0)
+PY
+)"
+        fi
+        if [ "$saved_exists" = "1" ]; then
+            rm -f "$lf"
+            if [ -f "$lf" ]; then
+                red "删除限额记录失败"
+                pause
+                return
+            fi
+            if ! sync_v2ray_stats_users >/dev/null; then
+                red "V2Ray Stats 用户同步失败"
+                pause
+                return
+            fi
+            green "用户删除成功"
+            green "V2Ray Stats 用户列表已同步"
+            pause
+            return
+        fi
+        red "用户不存在"
+        pause
+        return
+    fi
+    backup_file "$full"
+    local backup
+    backup="$(find_backup "$full")"
+    if ! "$PYTHON" - "$full" "$tag" "$user" <<'PY'
+import sys
+import json
+fn, tag, name = sys.argv[1:]
 with open(fn, "r", encoding="utf-8") as f:
     data = json.load(f)
-
-changed = False
-
+found = False
 for inbound in data.get("inbounds", []):
-    users = inbound.get("users", [])
-    old_len = len(users)
-    inbound["users"] = [
-        u for u in users
-        if not (isinstance(u, dict) and u.get("name") == name)
-    ]
-    if len(inbound["users"]) != old_len:
-        changed = True
-
-if changed:
-    with open(fn, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    if inbound.get("tag") != tag:
+        continue
+    old = inbound.get("users", [])
+    new = [u for u in old if u.get("name") != name]
+    if len(new) != len(old):
+        found = True
+    inbound["users"] = new
+if not found:
+    raise SystemExit("用户不存在")
+with open(fn, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
 PY
     then
-        red "删除用户失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "删除失败，正在恢复..."
+        restore_file "$full" "$backup"
         pause
         return
     fi
-
     if ! sync_v2ray_stats_users >/dev/null; then
-        red "V2Ray Stats 用户同步失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "V2Ray Stats 用户同步失败，正在恢复..."
+        restore_file "$full" "$backup"
         sync_v2ray_stats_users >/dev/null 2>&1
         pause
         return
     fi
-
     if ! check_config; then
-        red "配置检查失败，正在恢复"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "配置检查失败，正在恢复..."
+        restore_file "$full" "$backup"
         sync_v2ray_stats_users >/dev/null 2>&1
         pause
         return
     fi
-
     if ! reload_singbox; then
-        red "sing-box 重载失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "sing-box 重载失败，正在恢复..."
+        restore_file "$full" "$backup"
         sync_v2ray_stats_users >/dev/null 2>&1
+        reload_singbox
         pause
         return
     fi
-
-    green "用户 $name 删除成功"
-    green "V2Ray Stats 已同步"
+    rm -f "$lf"
+    if [ -f "$lf" ]; then
+        red "用户已经从 sing-box 删除，但流量限制记录删除失败"
+        pause
+        return
+    fi
+    green "用户删除成功"
+    green "V2Ray Stats 用户列表已同步"
     pause
 }
 show_connections() {
