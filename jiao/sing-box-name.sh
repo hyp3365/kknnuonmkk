@@ -721,7 +721,7 @@ def grpc_stream():
         "-H",
         f"Authorization: Bearer {api_secret}",
         "-d",
-        '{"interval":0}',
+        '{"interval":1000}',
         url,
         "daemon.StartedService/SubscribeConnections"
     ]
@@ -738,18 +738,24 @@ def grpc_stream():
         time.sleep(RECONNECT_INTERVAL)
         return
     try:
-        while running:
-            line = proc.stdout.readline()
-            if line == "":
+        for line in proc.stdout:
+            if not running:
                 break
             line = line.strip()
             if not line:
                 continue
             try:
-                event = json.loads(line)
-            except Exception:
+                response = json.loads(line)
+            except json.JSONDecodeError:
                 continue
-            yield event
+            if not isinstance(response, dict):
+                continue
+            events = response.get("events")
+            if not isinstance(events, list):
+                continue
+            for event in events:
+                if isinstance(event, dict):
+                    yield event
         try:
             err = proc.stderr.read()
             if err:
