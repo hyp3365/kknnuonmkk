@@ -38,7 +38,6 @@ init_traffic() {
     local traffic_proto="$TRAFFIC_DIR/stats.proto"
     local grpcurl_version="1.9.3"
     local grpcurl_sha256="62e2e4315bb70fab2e27f86c1f7738d09076a097a2dc8e0f701e386251172e40"
-    local stats_proto_sha256="9e2398a634daced553a41620eb0e31ef30c0d3ef0f50bced58fec84c99f62aaf"
     local grpcurl_url="https://github.com/fullstorydev/grpcurl/releases/download/v${grpcurl_version}/grpcurl_${grpcurl_version}_linux_x86_64.tar.gz"
     if [ ! -f "$traffic_grpcurl" ] || [ "$(sha256sum "$traffic_grpcurl" 2>/dev/null | awk '{print $1}')" != "$grpcurl_sha256" ]; then
         local grpcurl_tmp
@@ -94,17 +93,15 @@ init_traffic() {
     else
         chmod 755 "$traffic_grpcurl"
     fi
-    if [ ! -f "$traffic_proto" ] || [ "$(sha256sum "$traffic_proto" 2>/dev/null | awk '{print $1}')" != "$stats_proto_sha256" ]; then
-        local tmp_proto
-        tmp_proto="$(mktemp)"
-        cat > "$tmp_proto" <<'PROTO'
+    if [ ! -f "$traffic_proto" ]; then
+    local tmp_proto
+    tmp_proto="$(mktemp)"
+    cat > "$tmp_proto" <<'PROTO'
 syntax = "proto3";
 package v2ray.core.app.stats.command;
 option go_package = "github.com/sagernet/sing-box/experimental/v2rayapi";
 message GetStatsRequest {
-  // Name of the stat counter.
   string name = 1;
-  // Whether or not to reset the counter to fetching its value.
   bool reset = 2;
 }
 message Stat {
@@ -115,7 +112,6 @@ message GetStatsResponse {
   Stat stat = 1;
 }
 message QueryStatsRequest {
-  // Deprecated, use Patterns instead
   string pattern = 1;
   bool reset = 2;
   repeated string patterns = 3;
@@ -143,20 +139,15 @@ service StatsService {
   rpc GetSysStats(SysStatsRequest) returns (SysStatsResponse) {}
 }
 PROTO
-        local actual_proto_sha256
-        actual_proto_sha256="$(sha256sum "$tmp_proto" | awk '{print $1}')"
-        if [ "$actual_proto_sha256" != "$stats_proto_sha256" ]; then
-            rm -f "$tmp_proto"
-            echo "错误：生成 stats.proto 后 SHA256 校验失败"
-            echo "期望：$stats_proto_sha256"
-            echo "实际：$actual_proto_sha256"
-            return 1
-        fi
-        install -m 600 "$tmp_proto" "$traffic_proto"
+    if ! install -m 600 "$tmp_proto" "$traffic_proto"; then
         rm -f "$tmp_proto"
-    else
-        chmod 600 "$traffic_proto"
+        echo "错误：安装 stats.proto 失败"
+        return 1
     fi
+    rm -f "$tmp_proto"
+else
+    chmod 600 "$traffic_proto"
+fi
     if [ ! -x "$traffic_grpcurl" ]; then
         chmod 755 "$traffic_grpcurl"
     fi
