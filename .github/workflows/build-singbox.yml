@@ -22,7 +22,7 @@ jobs:
       - name: Build
         run: |
           set -euxo pipefail
-          TAGS="$(cat release/DEFAULT_BUILD_TAGS) with_v2ray_api"
+          TAGS="$(cat release/DEFAULT_BUILD_TAGS),with_v2ray_api"
           LDFLAGS_SHARED="$(cat release/LDFLAGS)"
           go build -v -trimpath \
             -o sing-box \
