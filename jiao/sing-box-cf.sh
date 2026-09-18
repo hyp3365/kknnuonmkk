@@ -3185,17 +3185,6 @@ cat > "${config_dir}" << EOF
         "server_port": 123,
         "interval": "60m"
    }
-  "experimental": {
-    "v2ray_api": {
-      "listen": "127.0.0.1:9094",
-      "stats": {
-        "enabled": true,
-        "users": [
-          
-        ]
-      }
-    }
-  }
 }
 EOF
 cat > "${conf_dir}/outbounds.json" << EOF
