@@ -1603,8 +1603,7 @@ PY
 set_limit() {
     local tag="$1"
     local user="$2"
-    local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
     title "流量限制"
     show_limit "$tag" "$user"
     echo
@@ -1706,7 +1705,6 @@ PY
 disable_limit() {
     local tag="$1"
     local user="$2"
-    local lf
     local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     if [ ! -f "$lf" ]; then
@@ -1771,8 +1769,7 @@ PY
 set_limit_period() {
     local tag="$1"
     local user="$2"
-    local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     title "设置时间周期"
 
@@ -2034,9 +2031,7 @@ modify_auth() {
     local tag="$2"
     local type="$3"
     local user="$4"
-
-    local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     local user_json
     user_json="$(get_user_json "$file" "$tag" "$user" 2>/dev/null)"
@@ -2269,8 +2264,7 @@ delete_user() {
     local tag="$2"
     local user="$3"
     local full="$CONF_DIR/$file"
-    local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     title "删除用户"
     echo -e "${yellow}节点:${re} $tag"
