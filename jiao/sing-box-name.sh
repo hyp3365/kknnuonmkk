@@ -1243,91 +1243,145 @@ PY
 }
 
 add_user() {
-    local name="$1"
-    local full="$2"
+    local file="$1"
+    local tag="$2"
+    local type="$3"
+    local full="$CONF_DIR/$file"
+    title "新增用户"
+    local name
+    name="$(get_next_user_name "$file" "$tag")"
+    echo -e "${skyblue}节点:${re} $tag"
+    echo -e "${skyblue}协议:${re} $type"
+    echo -e "${skyblue}用户名:${re} $name"
+    local auth_type=""
+    local value=""
+    local username=""
+    local password=""
+    local uuid=""
+    case "$type" in
+        hysteria2|hysteria)
+            auth_type="password"
+            value="$(generate_uuid)"
+            echo -e "${green}自动生成 UUID:${re}"
+            echo "$value"
+            ;;
+        vmess|vless|tuic)
+            auth_type="uuid"
+            uuid="$(generate_uuid)"
+            echo -e "${green}自动生成 UUID:${re}"
+            echo "$uuid"
+            if [ "$type" = "tuic" ]; then
+                password="$(generate_uuid)"
+            fi
+            ;;
+        trojan|anytls|shadowtls|shadowsocks)
+            auth_type="password"
+            read -rp "$(green "请输入密码，留空自动生成 UUID: ")" value
+            [ -z "$value" ] && value="$(generate_uuid)"
+            ;;
+        socks|http|mixed|naive)
+            auth_type="username_password"
+            read -rp "$(green "用户名: ")" username
+            while [ -z "$username" ]; do
+                red "用户名不能为空"
+                read -rp "$(green "用户名: ")" username
+            done
+            read -rp "$(green "密码，留空自动生成 UUID: ")" password
+            [ -z "$password" ] && password="$(generate_uuid)"
+            ;;
+        *)
+            auth_type="password"
+            read -rp "$(green "请输入认证密码，留空自动生成 UUID: ")" value
+            [ -z "$value" ] && value="$(generate_uuid)"
+            ;;
+    esac
+    echo
+    echo -e "${yellow}确认添加用户:${re}"
+    echo "节点 : $tag"
+    echo "用户 : $name"
+    case "$type" in
+        vmess|vless)
+            echo "UUID  : $uuid"
+            ;;
+        tuic)
+            echo "UUID  : $uuid"
+            echo "密码  : $password"
+            ;;
+        socks|http|mixed|naive)
+            echo "用户名: $username"
+            echo "密码  : $password"
+            ;;
+        *)
+            echo "认证  : ${value:-$password}"
+            ;;
+    esac
+    echo
+    read -rp "$(yellow "确认添加？[Y/n]: ")" confirm
+    [[ "$confirm" =~ ^[Nn]$ ]] && return
+    backup_file "$full"
     local backup
-
-    if [[ -z "$name" || -z "$full" ]]; then
-        red "参数错误"
-        pause
-        return
-    fi
-
-    if [[ -f "$full" ]]; then
-        red "用户配置已存在: $name"
-        pause
-        return
-    fi
-
-    backup=$(backup_file "$full")
-
-    if ! "$PYTHON" - "$full" "$name" <<'PY'
+    backup="$(find_backup "$full")"
+    if ! "$PYTHON" - "$full" "$tag" "$type" "$name" "$value" "$uuid" "$password" "$username" <<'PY'
 import sys
 import json
-import uuid
-import secrets
-import string
-
-fn = sys.argv[1]
-name = sys.argv[2]
-
-try:
-    with open(fn, "r", encoding="utf-8") as f:
-        data = json.load(f)
-except Exception:
-    data = {}
-
-inbounds = data.get("inbounds", [])
-if not inbounds:
-    print("配置中没有 inbound", file=sys.stderr)
-    raise SystemExit(1)
-
-user = {
-    "name": name,
-    "uuid": str(uuid.uuid4())
-}
-
-if "users" not in inbounds[0]:
-    inbounds[0]["users"] = []
-
-inbounds[0]["users"].append(user)
-
+fn, tag, typ, name, value, uuid_value, password, username = sys.argv[1:]
+with open(fn, "r", encoding="utf-8") as f:
+    data = json.load(f)
+target = None
+for inbound in data.get("inbounds", []):
+    if inbound.get("tag") == tag:
+        target = inbound
+        break
+if target is None:
+    raise SystemExit("找不到节点")
+users = target.setdefault("users", [])
+new_user = {"name": name}
+if typ in ("vmess", "vless"):
+    new_user["uuid"] = uuid_value
+elif typ == "tuic":
+    new_user["uuid"] = uuid_value
+    new_user["password"] = password
+elif typ in ("socks", "http", "mixed", "naive"):
+    new_user["username"] = username
+    new_user["password"] = password
+else:
+    new_user["password"] = value or password
+users.append(new_user)
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
 PY
     then
-        red "创建用户失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "用户写入配置失败，正在恢复..."
+        restore_file "$full" "$backup"
         pause
         return
     fi
-
     if ! sync_v2ray_stats_users >/dev/null; then
-        red "V2Ray Stats 用户同步失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "用户同步失败，正在恢复..."
+        restore_file "$full" "$backup"
+        sync_v2ray_stats_users >/dev/null 2>&1
         pause
         return
     fi
-
     if ! check_config; then
-        red "配置检查失败，正在恢复"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "配置检查失败，正在恢复..."
+        restore_file "$full" "$backup"
         sync_v2ray_stats_users >/dev/null 2>&1
         pause
         return
     fi
-
     if ! reload_singbox; then
-        red "sing-box 重载失败"
-        [[ -f "$backup" ]] && restore_file "$full" "$backup"
+        red "sing-box 重载失败，正在恢复..."
+        restore_file "$full" "$backup"
         sync_v2ray_stats_users >/dev/null 2>&1
+        reload_singbox
         pause
         return
     fi
-
-    green "用户 $name 创建成功"
-    green "V2Ray Stats 已加入用户 $name"
+    green "用户添加成功"
+    echo -e "${skyblue}用户名:${re} $name"
+    echo
     pause
 }
 get_user_json() {
@@ -1699,90 +1753,141 @@ PY
     pause
 }
 disable_limit() {
-    local name="$1"
-    local full="$2"
-
-    if [[ -z "$name" || -z "$full" ]]; then
-        red "参数错误"
+    local tag="$1"
+    local user="$2"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    if [ ! -f "$lf" ]; then
+        yellow "当前没有设置流量限制"
         pause
         return
     fi
-
-    if [[ ! -f "$full" ]]; then
-        red "用户配置不存在: $name"
-        pause
-        return
-    fi
-
-    if ! "$PYTHON" - "$full" "$name" <<'PY'
+    local result
+    result="$("$PYTHON" - "$lf" "$CONF_DIR" <<'PY'
 import sys
 import json
-
-fn = sys.argv[1]
-name = sys.argv[2]
-
-with open(fn, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-saved = data.get("saved_user")
-
-if not isinstance(saved, dict):
-    print("没有找到被限制用户的保存信息", file=sys.stderr)
+import os
+from pathlib import Path
+lf = Path(sys.argv[1])
+conf_dir = Path(sys.argv[2])
+try:
+    with open(lf, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("ERROR")
     raise SystemExit(1)
-
-if saved.get("name") != name:
-    print("保存的用户信息与当前用户不匹配", file=sys.stderr)
+tag = data.get("inbound_tag")
+user = data.get("user")
+saved_user = data.get("saved_user")
+config_file = data.get("config_file")
+if not tag or not user:
+    print("ERROR")
     raise SystemExit(1)
-
+actual_file = None
+if config_file:
+    p = Path(config_file)
+    if p.exists():
+        actual_file = p
+if actual_file is None:
+    for fn in conf_dir.glob("*.json"):
+        try:
+            with open(fn, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        for inbound in cfg.get("inbounds", []):
+            if inbound.get("tag") == tag:
+                actual_file = fn
+                break
+        if actual_file:
+            break
+if actual_file is None:
+    print("NO_INBOUND")
+    raise SystemExit(1)
+try:
+    with open(actual_file, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception:
+    print("ERROR")
+    raise SystemExit(1)
+target = None
+for inbound in cfg.get("inbounds", []):
+    if inbound.get("tag") == tag:
+        target = inbound
+        break
+if target is None:
+    print("NO_INBOUND")
+    raise SystemExit(1)
+exists = False
+for u in target.get("users", []):
+    if isinstance(u, dict) and u.get("name") == user:
+        exists = True
+        break
 restored = False
-
-for inbound in data.get("inbounds", []):
-    users = inbound.setdefault("users", [])
-
-    if not any(
-        isinstance(u, dict) and u.get("name") == name
-        for u in users
-    ):
-        users.append(saved)
-        restored = True
-
+if not exists:
+    if not isinstance(saved_user, dict):
+        print("NO_SAVED_USER")
+        raise SystemExit(1)
+    target.setdefault("users", []).append(saved_user)
+    with open(actual_file, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.chmod(actual_file, 0o600)
+    restored = True
+data["enabled"] = False
+data["limit_value"] = 0
+data["limit_unit"] = "GB"
+data["limit_bytes"] = 0
+data["disabled_by_limit"] = False
 data.pop("saved_user", None)
-data.pop("disabled_by_limit", None)
-
-with open(fn, "w", encoding="utf-8") as f:
+data["config_file"] = str(actual_file)
+with open(lf, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
-print("restored" if restored else "already_exists")
+os.chmod(lf, 0o600)
+print("RESTORED" if restored else "EXISTS")
 PY
-    then
-        red "恢复用户失败"
+)"
+    if [ $? -ne 0 ]; then
+        case "$result" in
+            NO_SAVED_USER)
+                red "找不到被停用用户的保存信息"
+                ;;
+            NO_INBOUND)
+                red "找不到对应入站"
+                ;;
+            *)
+                red "解除流量限制失败"
+                ;;
+        esac
         pause
         return
     fi
-
     if ! sync_v2ray_stats_users >/dev/null; then
         red "V2Ray Stats 用户同步失败"
         pause
         return
     fi
-
-    if ! check_config; then
-        red "配置检查失败"
-        pause
-        return
+    if [ "$result" = "RESTORED" ]; then
+        if ! check_config; then
+            red "用户恢复后配置检查失败"
+            pause
+            return
+        fi
+        if ! reload_singbox; then
+            red "用户恢复后 sing-box 重载失败"
+            pause
+            return
+        fi
+        green "流量限制已解除"
+        green "用户已恢复到入站"
+        green "V2Ray Stats 用户列表已同步"
+    else
+        green "流量限制已解除"
+        echo "用户已经存在于入站，无需恢复。"
+        green "V2Ray Stats 用户列表已同步"
     fi
-
-    if ! reload_singbox; then
-        red "sing-box 重载失败"
-        pause
-        return
-    fi
-
-    green "用户 $name 已恢复"
     pause
 }
-
 set_limit_period() {
     local name="$1"
     local full="$2"
