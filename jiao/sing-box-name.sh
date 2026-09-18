@@ -1051,12 +1051,8 @@ reset_traffic_script() {
     echo "  $TRAFFIC_SCRIPT"
     echo "  /etc/systemd/system/$TRAFFIC_SERVICE"
     echo
-    echo "不会删除 sing-box 配置文件。"
-    echo "不会删除 /etc/sing-box/conf/ 下的配置。"
-    echo "不会删除 sing-box 程序。"
-    echo
-    read -r -p "确认重置并重新安装？输入 YES 确认: " confirm
-    if [ "$confirm" != "YES" ]; then
+    read -r -p "确认重置并重新安装？输入 y 确认: " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         echo "已取消"
         pause
         return
