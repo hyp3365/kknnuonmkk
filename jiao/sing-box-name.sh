@@ -34,60 +34,63 @@ init_traffic() {
     TRAFFIC_SCRIPT_CHANGED=0
     mkdir -p "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
     chmod 700 "$TRAFFIC_DIR" "$LIMIT_DIR" "$BACKUP_DIR"
-    local traffic_grpcurl="$TRAFFIC_DIR/grpcurl"
+        local traffic_grpcurl="$TRAFFIC_DIR/grpcurl"
     local traffic_proto="$TRAFFIC_DIR/stats.proto"
     local grpcurl_version="1.9.3"
     local grpcurl_url="https://github.com/fullstorydev/grpcurl/releases/download/v${grpcurl_version}/grpcurl_${grpcurl_version}_linux_x86_64.tar.gz"
-    echo "正在安装 grpcurl..."
-    local grpcurl_tmp
-    local grpcurl_dir
-    grpcurl_tmp="$(mktemp)"
-    grpcurl_dir="$(mktemp -d)"
-    if command -v curl >/dev/null 2>&1; then
-        if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
+    if [ ! -x "$traffic_grpcurl" ]; then
+        echo "正在安装 grpcurl..."
+        local grpcurl_tmp
+        local grpcurl_dir
+        grpcurl_tmp="$(mktemp)"
+        grpcurl_dir="$(mktemp -d)"
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -fL --retry 3 --connect-timeout 15 --max-time 120 "$grpcurl_url" -o "$grpcurl_tmp"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
+                rm -f "$grpcurl_tmp"
+                rm -rf "$grpcurl_dir"
+                echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+                return 1
+            fi
+        else
             rm -f "$grpcurl_tmp"
             rm -rf "$grpcurl_dir"
-            echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+            echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
             return 1
         fi
-    elif command -v wget >/dev/null 2>&1; then
-        if ! wget -q --timeout=30 --tries=3 -O "$grpcurl_tmp" "$grpcurl_url"; then
+        if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
             rm -f "$grpcurl_tmp"
             rm -rf "$grpcurl_dir"
-            echo "错误：下载 grpcurl v${grpcurl_version} 失败"
+            echo "错误：解压 grpcurl 失败"
             return 1
         fi
-    else
+        if [ ! -f "$grpcurl_dir/grpcurl" ]; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：解压后找不到 grpcurl"
+            return 1
+        fi
+        if ! install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"; then
+            rm -f "$grpcurl_tmp"
+            rm -rf "$grpcurl_dir"
+            echo "错误：安装 grpcurl 失败"
+            return 1
+        fi
         rm -f "$grpcurl_tmp"
         rm -rf "$grpcurl_dir"
-        echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
-        return 1
+        echo "grpcurl 安装完成"
     fi
-    if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
-        rm -f "$grpcurl_tmp"
-        rm -rf "$grpcurl_dir"
-        echo "错误：解压 grpcurl 失败"
-        return 1
-    fi
-    if [ ! -f "$grpcurl_dir/grpcurl" ]; then
-        rm -f "$grpcurl_tmp"
-        rm -rf "$grpcurl_dir"
-        echo "错误：解压后找不到 grpcurl"
-        return 1
-    fi
-    if ! install -m 755 "$grpcurl_dir/grpcurl" "$traffic_grpcurl"; then
-        rm -f "$grpcurl_tmp"
-        rm -rf "$grpcurl_dir"
-        echo "错误：安装 grpcurl 失败"
-        return 1
-    fi
-    rm -f "$grpcurl_tmp"
-    rm -rf "$grpcurl_dir"
-    echo "grpcurl 安装完成"
-    echo "正在生成 stats.proto..."
-    local tmp_proto
-    tmp_proto="$(mktemp)"
-    cat > "$tmp_proto" <<'PROTO'
+    if [ ! -f "$traffic_proto" ]; then
+        echo "正在生成 stats.proto..."
+        local tmp_proto
+        tmp_proto="$(mktemp)"
+        cat > "$tmp_proto" <<'PROTO'
 syntax = "proto3";
 package v2ray.core.app.stats.command;
 option go_package = "github.com/sagernet/sing-box/experimental/v2rayapi";
@@ -130,13 +133,14 @@ service StatsService {
   rpc GetSysStats(GetSysStatsRequest) returns (SysStatsResponse) {}
 }
 PROTO
-    if ! install -m 600 "$tmp_proto" "$traffic_proto"; then
+        if ! install -m 600 "$tmp_proto" "$traffic_proto"; then
+            rm -f "$tmp_proto"
+            echo "错误：安装 stats.proto 失败"
+            return 1
+        fi
         rm -f "$tmp_proto"
-        echo "错误：安装 stats.proto 失败"
-        return 1
+        echo "stats.proto 安装完成"
     fi
-    rm -f "$tmp_proto"
-    echo "stats.proto 安装完成"
     if [ ! -f "$TRAFFIC_STATE" ]; then
         cat > "$TRAFFIC_STATE" <<'JSON'
 {
