@@ -2061,46 +2061,79 @@ delete_user() {
     read -rp "$(yellow "确认删除？[y/N]: ")" confirm
     [[ ! "$confirm" =~ ^[Yy]$ ]] && return
 
-    local limited=0
+    # 先判断用户是否还存在于实际 sing-box 配置
+    local actual_exists
+    actual_exists="$("$PYTHON" - "$full" "$tag" "$user" <<'PY'
+import sys
+import json
 
-    if [ -f "$lf" ]; then
-        limited="$("$PYTHON" - "$lf" <<'PY'
+fn, tag, name = sys.argv[1:]
+
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print(0)
+    raise SystemExit
+
+for inbound in data.get("inbounds", []):
+    if inbound.get("tag") != tag:
+        continue
+
+    for u in inbound.get("users", []):
+        if u.get("name") == name:
+            print(1)
+            raise SystemExit
+
+print(0)
+PY
+)"
+
+    # 实际配置不存在，再检查是否存在被限额保存的用户
+    if [ "$actual_exists" != "1" ]; then
+        local saved_exists=0
+
+        if [ -f "$lf" ]; then
+            saved_exists="$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
 
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         data = json.load(f)
-    print(1 if data.get("disabled_by_limit") else 0)
+
+    saved = data.get("saved_user")
+
+    if isinstance(saved, dict) and saved.get("name"):
+        print(1)
+    else:
+        print(0)
 except Exception:
     print(0)
 PY
 )"
-    fi
+        fi
 
-    # 被流量限制的用户不在 sing-box 实际 users 中
-    # 直接删除限额文件即可彻底删除该用户
-    if [ "$limited" = "1" ]; then
-        rm -f "$lf"
+        if [ "$saved_exists" = "1" ]; then
+            rm -f "$lf"
 
-        if [ -f "$lf" ]; then
-            red "删除限额记录失败"
+            if [ -f "$lf" ]; then
+                red "删除限额记录失败"
+                pause
+                return
+            fi
+
+            green "用户删除成功"
             pause
             return
         fi
 
-        green "用户删除成功"
+        red "用户不存在"
         pause
         return
     fi
 
-    # 正常用户从 sing-box 配置中删除
-    if [ ! -f "$full" ]; then
-        red "配置文件不存在: $full"
-        pause
-        return
-    fi
-
+    # 正常用户删除
     backup_file "$full"
 
     local backup
@@ -2158,6 +2191,7 @@ PY
         return
     fi
 
+    # 正常用户如果有历史限额记录，一并删除
     rm -f "$lf"
 
     if [ -f "$lf" ]; then
