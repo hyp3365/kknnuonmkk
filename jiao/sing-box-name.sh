@@ -111,7 +111,7 @@ message QueryStatsRequest {
 message QueryStatsResponse {
   repeated Stat stat = 1;
 }
-message SysStatsRequest {}
+message GetSysStatsRequest {}
 message SysStatsResponse {
   uint32 NumGoroutine = 1;
   uint32 NumGC = 2;
