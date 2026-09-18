@@ -1693,7 +1693,6 @@ except Exception:
     state = {}
 
 u = state.get("users", {}).get(user, {})
-
 current_period_total = int(u.get("period_total", 0) or 0)
 
 data = {
@@ -1756,35 +1755,6 @@ PY
 
     pause
 }
-with open(fn, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-os.chmod(fn, 0o600)
-PY
-    then
-        red "流量限制保存失败"
-        pause
-        return
-    fi
-    green "流量限制已设置：${number}${unit}"
-    echo
-    echo "当前时间周期："
-    case "$( "$PYTHON" - "$lf" <<'PY'
-import sys,json
-try:
-    with open(sys.argv[1],encoding="utf-8") as f:
-        print(json.load(f).get("period","none"))
-except:
-    print("none")
-PY
-)" in
-        day) echo "每天重置" ;;
-        month) echo "每月重置" ;;
-        *) echo "不重置" ;;
-    esac
-    pause
-}
-
 disable_limit() {
     local tag="$1"
     local user="$2"
