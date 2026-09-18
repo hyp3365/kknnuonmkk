@@ -9652,6 +9652,7 @@ manage_singbox() {
     green "5. Tunnel 隧道连接 IP：仅IPv4"
     green "6. Tunnel 隧道连接 IP：仅IPv6"
 	green "7. CDN IP同步管理"
+	green "8. 节点流量管理"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -9684,7 +9685,7 @@ manage_singbox() {
 7)
     cdn_ip_manager
     ;;
-88888) 
+8) 
     clear
     bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-name.sh)
     ;;
