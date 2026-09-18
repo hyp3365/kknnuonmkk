@@ -1707,7 +1707,7 @@ disable_limit() {
     local tag="$1"
     local user="$2"
     local lf
-    lf="$(get_limit_file "$tag" "$user")"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
 
     if [ ! -f "$lf" ]; then
         yellow "当前没有设置流量限制"
