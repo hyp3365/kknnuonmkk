@@ -1441,18 +1441,19 @@ if not d.get("enabled"):
 value = d.get("limit_value")
 unit = d.get("limit_unit")
 if value is not None and unit:
-    if float(value).is_integer():
-        limit_text = f"{int(value)} {unit}"
-    else:
+    try:
+        fv = float(value)
+        limit_text = f"{int(fv)} {unit}" if fv.is_integer() else f"{value} {unit}"
+    except Exception:
         limit_text = f"{value} {unit}"
 else:
     limit_text = "未知"
 period = d.get("period", "none")
 period_text = {
-    "day": "每天重置",
-    "month": "每月重置",
-    "none": "不重置"
-}.get(period, "不重置")
+    "day": "每天",
+    "month": "每月",
+    "none": "永久"
+}.get(period, "永久")
 user = d.get("user")
 try:
     with open(state_file, "r", encoding="utf-8") as f:
@@ -1482,7 +1483,7 @@ if limit_bytes > used:
     print(f"剩余流量：{fmt(limit_bytes-used)}")
 else:
     print("剩余流量：0 B")
-if d.get("period_end"):
+if period in ("day", "month") and d.get("period_end"):
     try:
         dt = datetime.fromisoformat(d["period_end"])
         print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
