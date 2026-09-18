@@ -735,7 +735,7 @@ def grpc_stream():
         "-H",
         f"Authorization: Bearer {api_secret}",
         "-d",
-        '{"interval":1000}',
+        '{"interval":120000}',
         url,
         "daemon.StartedService/SubscribeConnections"
     ]
