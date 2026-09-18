@@ -1,6 +1,6 @@
 #!/bin/bash
 # --- 基础配置 ---
-BASE_DIR="/etc/sing-box"
+BASE_DIR="/etc/sing-box/conf"
 CONFIG_FILE="$BASE_DIR/config.json"
 SB_BIN=""
 ARGO_BIN=""
