@@ -1889,125 +1889,209 @@ PY
     pause
 }
 set_limit_period() {
-    local name="$1"
-    local full="$2"
-    local period="$3"
-
-    if [[ -z "$name" || -z "$full" || -z "$period" ]]; then
-        red "参数错误"
+    local tag="$1"
+    local user="$2"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    title "设置时间周期"
+    if [ ! -f "$lf" ]; then
+        red "请先设置流量限制"
         pause
         return
     fi
-
-    case "$period" in
-        day|week|month)
-            ;;
-        *)
-            red "无效的限额周期: $period"
-            pause
-            return
-            ;;
+    echo "1) 每天重置"
+    echo "2) 每月重置"
+    echo "3) 不重置"
+    echo "0) 返回"
+    local choice
+    read -rp "$(green "请选择: ")" choice
+    local period=""
+    case "$choice" in
+        1) period="day" ;;
+        2) period="month" ;;
+        3) period="none" ;;
+        0) return ;;
+        *) red "无效选择"; pause; return ;;
     esac
-
-    if [[ ! -f "$full" ]]; then
-        red "用户配置不存在: $name"
-        pause
-        return
-    fi
-
-    if ! "$PYTHON" - "$full" "$name" "$period" <<'PY'
+    local result
+    result="$("$PYTHON" - "$lf" "$period" "$TRAFFIC_STATE" "$CONF_DIR" <<'PY'
 import sys
 import json
-from datetime import datetime, timezone, timedelta
-
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
 fn = sys.argv[1]
-name = sys.argv[2]
-period = sys.argv[3]
-
-with open(fn, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-data["period"] = period
-data["period_uplink"] = 0
-data["period_downlink"] = 0
-data["period_total"] = 0
-data["period_start"] = datetime.now(timezone.utc).isoformat()
-
+period = sys.argv[2]
+state_file = sys.argv[3]
+conf_dir = Path(sys.argv[4])
+try:
+    with open(fn, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+user = data.get("user")
+tag = data.get("inbound_tag")
+saved_user = data.get("saved_user")
+config_file = data.get("config_file")
+now = datetime.now().astimezone()
 if period == "day":
-    end = datetime.now(timezone.utc) + timedelta(days=1)
-elif period == "week":
-    end = datetime.now(timezone.utc) + timedelta(days=7)
-else:
-    now = datetime.now(timezone.utc)
-    if now.month == 12:
-        end = now.replace(
-            year=now.year + 1,
-            month=1,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0
-        )
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+elif period == "month":
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1, day=1)
     else:
-        end = now.replace(
-            month=now.month + 1,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0
-        )
-
-data["period_end"] = end.isoformat()
-
-saved = data.get("saved_user")
-
-if data.get("disabled_by_limit") and isinstance(saved, dict):
-    restored_name = saved.get("name")
-
-    if restored_name == name:
-        for inbound in data.get("inbounds", []):
-            users = inbound.setdefault("users", [])
-
-            if not any(
-                isinstance(u, dict) and u.get("name") == name
-                for u in users
-            ):
-                users.append(saved)
-
-        data.pop("saved_user", None)
-        data.pop("disabled_by_limit", None)
-
+        end = start.replace(month=start.month + 1, day=1)
+else:
+    start = None
+    end = None
+start_iso = start.isoformat() if start else None
+end_iso = end.isoformat() if end else None
+actual_exists = False
+actual_file = None
+candidates = []
+if config_file:
+    p = Path(config_file)
+    if p.exists():
+        candidates.append(p)
+if not candidates:
+    try:
+        candidates = list(conf_dir.glob("*.json"))
+    except Exception:
+        candidates = []
+for candidate in candidates:
+    try:
+        with open(candidate, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        continue
+    for inbound in cfg.get("inbounds", []):
+        if inbound.get("tag") != tag:
+            continue
+        for u in inbound.get("users", []):
+            if isinstance(u, dict) and u.get("name") == user:
+                actual_exists = True
+                actual_file = candidate
+                break
+        if actual_exists:
+            break
+    if actual_exists:
+        break
+restored = False
+if not actual_exists and isinstance(saved_user, dict) and tag and user:
+    restore_file = actual_file
+    if restore_file is None and config_file:
+        p = Path(config_file)
+        if p.exists():
+            restore_file = p
+    if restore_file is None:
+        for candidate in candidates:
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                continue
+            for inbound in cfg.get("inbounds", []):
+                if inbound.get("tag") == tag:
+                    restore_file = candidate
+                    break
+            if restore_file:
+                break
+    if restore_file is not None:
+        try:
+            with open(restore_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            target = None
+            for inbound in cfg.get("inbounds", []):
+                if inbound.get("tag") == tag:
+                    target = inbound
+                    break
+            if target is not None:
+                exists = False
+                for u in target.get("users", []):
+                    if isinstance(u, dict) and u.get("name") == user:
+                        exists = True
+                        break
+                if not exists:
+                    target.setdefault("users", []).append(saved_user)
+                    with open(restore_file, "w", encoding="utf-8") as f:
+                        json.dump(cfg, f, ensure_ascii=False, indent=2)
+                        f.write("\n")
+                    os.chmod(restore_file, 0o600)
+                    data["config_file"] = str(restore_file)
+                    restored = True
+        except Exception as e:
+            print(f"恢复用户失败: {e}", file=sys.stderr)
+            raise SystemExit(1)
+data["period"] = period
+data["period_start"] = start_iso
+data["period_end"] = end_iso
+data["enabled"] = True
+if restored:
+    data["disabled_by_limit"] = False
+    data.pop("saved_user", None)
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
+os.chmod(fn, 0o600)
+if user:
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:
+        state = {"users": {}, "connections": {}}
+    users = state.setdefault("users", {})
+    u = users.setdefault(user, {})
+    u["period"] = period
+    u["period_uplink"] = 0
+    u["period_downlink"] = 0
+    u["period_total"] = 0
+    u["period_start"] = start_iso
+    u["period_end"] = end_iso
+    tmp = state_file + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, state_file)
+print("RESTORED" if restored else "NORMAL")
 PY
-    then
-        red "修改限额周期失败"
+)"
+    if [ $? -ne 0 ]; then
+        red "时间周期设置失败"
         pause
         return
     fi
-
     if ! sync_v2ray_stats_users >/dev/null; then
         red "V2Ray Stats 用户同步失败"
         pause
         return
     fi
-
-    if ! check_config; then
-        red "配置检查失败"
-        pause
-        return
+    if [ "$result" = "RESTORED" ]; then
+        if ! check_config; then
+            red "用户恢复后配置检查失败"
+            pause
+            return
+        fi
+        if ! reload_singbox; then
+            red "用户恢复后 sing-box 重载失败"
+            pause
+            return
+        fi
+        green "用户已恢复，时间周期同时重新设置"
     fi
-
-    if ! reload_singbox; then
-        red "sing-box 重载失败"
-        pause
-        return
-    fi
-
-    green "用户 $name 的限额周期已修改为 $period"
+    case "$period" in
+        day)
+            green "时间周期已设置：每天重置"
+            ;;
+        month)
+            green "时间周期已设置：每月重置"
+            ;;
+        none)
+            green "时间周期已设置：不重置"
+            ;;
+    esac
+    echo "本次设置会从当前时间重新计算本周期流量。"
     pause
 }
 modify_auth() {
