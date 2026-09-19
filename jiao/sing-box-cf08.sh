@@ -3098,7 +3098,10 @@ close_port() {
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
 }
-
+TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+if [ -s "$TRAFFIC_SCRIPT" ]; then
+    source "$TRAFFIC_SCRIPT"
+fi
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
     clear
@@ -5132,6 +5135,8 @@ manage_nodes_menu() {
         public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 		short_id=$(openssl rand -hex 6)
     fi
+	generate_vars
+    server_ip=$(get_realip)
     CONF_DIR="/etc/sing-box/conf"
     XRAY_CONF_DIR="/etc/xray/conf"
     URL_DIR="/etc/sing-box/url"
@@ -5598,19 +5603,6 @@ manage_hy2_obfs_menu() {
         esac
     done
 }
-TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
-TRAFFIC_SCRIPT="/tmp/sing-box-name.sh"
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
-elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT_URL" 2>/dev/null
-fi
-if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
-    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
-fi
-if [ -s "$TRAFFIC_SCRIPT" ] && [ -f /etc/sing-box/sing-box ]; then
-    source "$TRAFFIC_SCRIPT"
-fi
 manage_single_inbound() {
     local selected="$1"
     local config_file=""
@@ -9535,6 +9527,13 @@ while true; do
 			    optimize_dns
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
+				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+        TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+        curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+        if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
+            mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
+            source "$TRAFFIC_SCRIPT"
+        fi
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
