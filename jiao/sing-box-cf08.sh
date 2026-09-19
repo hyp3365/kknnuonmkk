@@ -10196,7 +10196,112 @@ delete_rule_menu() {
     sleep 1.5
     warp_manage
 }
-
+edit_singbox_files() {
+    local current_dir="/etc/sing-box"
+    local choice=""
+    local selected=""
+    local items=()
+    local file=""
+    local result=""
+    local errors=()
+    local i=1
+    while true; do
+        clear
+        green "================ 文件管理 ================"
+        echo
+        echo "当前目录：$current_dir"
+        echo
+        items=()
+        i=1
+        while IFS= read -r file; do
+            items+=("$file")
+        done < <(find "$current_dir" -mindepth 1 -maxdepth 1 -printf '%y|%f|%p\n' 2>/dev/null | sort -k1,1r -k2,2)
+        if [ "${#items[@]}" -eq 0 ]; then
+            green "当前目录为空"
+        else
+            for file in "${items[@]}"; do
+                local type="${file%%|*}"
+                local rest="${file#*|}"
+                local name="${rest%%|*}"
+                if [ "$type" = "d" ]; then
+                    green "${i}. [目录] $name"
+                else
+                    green "${i}. [文件] $name"
+                fi
+                ((i++))
+            done
+        fi
+        echo
+        green "c. 检查全部 JSON 配置"
+        green "0. 返回"
+        echo
+        read -rp "请选择: " choice
+        if [ "$choice" = "0" ]; then
+            if [ "$current_dir" = "/etc/sing-box" ]; then
+                return
+            fi
+            current_dir=$(dirname "$current_dir")
+            continue
+        fi
+        if [[ "$choice" =~ ^[Cc]$ ]]; then
+            clear
+            green "================ JSON 配置检查 ================"
+            echo
+            errors=()
+            while IFS= read -r file; do
+                result=$(/etc/sing-box/sing-box check -c "$file" 2>&1)
+                if [ $? -eq 0 ]; then
+                    green "[正确] $(basename "$file")"
+                else
+                    green "[错误] $(basename "$file")"
+                    errors+=("$file")
+                    echo "$result"
+                    echo
+                fi
+            done < <(find "/etc/sing-box/conf" -maxdepth 1 -type f -name "*.json" -print | sort)
+            echo
+            if [ "${#errors[@]}" -eq 0 ]; then
+                green "全部 JSON 配置文件检查通过"
+                echo
+                read -rp "按回车返回..." _
+                continue
+            fi
+            green "发现 ${#errors[@]} 个配置文件存在错误"
+            echo
+            for i in "${!errors[@]}"; do
+                green "$((i + 1)). ${errors[$i]}"
+            done
+            echo
+            green "0. 返回"
+            echo
+            read -rp "请选择要修改的错误配置文件: " choice
+            if [ "$choice" = "0" ]; then
+                continue
+            fi
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#errors[@]}" ]; then
+                nano "${errors[$((choice - 1))]}"
+            else
+                green "无效选择"
+                sleep 1
+            fi
+            continue
+        fi
+        if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#items[@]}" ]; then
+            green "无效选择"
+            sleep 1
+            continue
+        fi
+        selected="${items[$((choice-1))]}"
+        local selected_type="${selected%%|*}"
+        local selected_rest="${selected#*|}"
+        local selected_path="${selected_rest#*|}"
+        if [ "$selected_type" = "d" ]; then
+            current_dir="$selected_path"
+        else
+            nano "$selected_path"
+        fi
+    done
+}
 # 主菜单
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
@@ -10217,7 +10322,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
-   printf "%b%-32s%b%s%b\n" "$green" "6. 空着没什么用" "$red" "15. WARP分流管理" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "0. 退出脚本" "$re"
@@ -10267,7 +10372,7 @@ fi
         3) manage_singbox ;;
         4) manage_cf ;;
         5) check_nodes ;;
-        6)  ;;
+        6) edit_singbox_files ;;
         7) disable_open_sub ;;
 		8) 
            clear
