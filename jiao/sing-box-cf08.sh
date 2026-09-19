@@ -3115,20 +3115,19 @@ install_singbox() {
     esac
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
     # 下载sing-box,cloudflared
-    latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
+    latest_version=$(get_latest_v2rayapi)
+    latest_version=${latest_version#v}
     work_dir=${work_dir:-/etc/sing-box}
-mkdir -p "$work_dir"
-ARCH_RAW=$(uname -m)
-case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
-if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
-latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[]|select(.prerelease==false)][0].tag_name|sub("^v";"")')
-[ -z "$latest_version" ] && latest_version=1.8.10
-TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
-URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
-curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
-       
+    mkdir -p "$work_dir"
+    ARCH_RAW=$(uname -m)
+    case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
+    if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
+    latest_version=$(get_latest_v2rayapi)
+    latest_version=${latest_version#v}
+    [ -z "$latest_version" ] && latest_version=1.8.10
+    URL="https://github.com/hyp3699/kknnuonmkk/releases/download/v${latest_version}/sing-box"
+    curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
-    
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
@@ -3184,7 +3183,18 @@ cat > "${config_dir}" << EOF
         "server": "time.apple.com",
         "server_port": 123,
         "interval": "60m"
-   }
+   },
+    "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:9094",
+      "stats": {
+        "enabled": true,
+        "users": [
+          
+        ]
+      }
+    }
+  }
 }
 EOF
 cat > "${conf_dir}/outbounds.json" << EOF
