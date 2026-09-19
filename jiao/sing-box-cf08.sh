@@ -5128,6 +5128,20 @@ update_sub_file() {
     base64 -w0 "$tmp_file" > "$SUB_FILE" 2>/dev/null
     rm -f "$tmp_file"
 }
+add_v2ray_api_user() {
+    local username="$1"
+    local config="/etc/sing-box/conf/config.json"
+    local tmp="${config}.tmp"
+    jq --arg username "$username" '.experimental.v2ray_api.stats.users += [$username] | .experimental.v2ray_api.stats.users |= unique' "$config" > "$tmp" && mv -f "$tmp" "$config"
+}
+delete_v2ray_api_user() {
+    local username="$1"
+    local config="/etc/sing-box/conf/config.json"
+    local tmp="${config}.tmp"
+    [ -n "$username" ] || return 0
+    jq --arg username "$username" '.experimental.v2ray_api.stats.users |= map(select(. != $username))' "$config" > "$tmp" && mv -f "$tmp" "$config"
+}
+
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
         output=$(${work_dir}/sing-box generate reality-keypair)
@@ -5341,6 +5355,7 @@ add_inbound() {
 EOF
     allow_port "$xtls_reality/tcp" >/dev/null 2>&1
 	node_remark="${isp}vless_tcp_reality"
+	add_v2ray_api_user "vless-reality-user${inbound_number}"
     url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
@@ -5378,7 +5393,7 @@ EOF
 	  "bbr_profile": "standard",
       "users": [
         {
-		  "name": "hysteria2-user1",
+		  "name": "hysteria2-user${inbound_number}",
           "password": "$uuid"
         }
       ],
@@ -5398,6 +5413,7 @@ EOF
 EOF
     allow_port "$hy2_port/udp" >/dev/null 2>&1
     node_remark="${isp}hysteria2"
+	add_v2ray_api_user "hysteria2-user${inbound_number}"
     url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
@@ -5434,7 +5450,7 @@ EOF
       "listen_port": $tuic_port,
       "users": [
         {
-		  "name": "tuic-user1",
+		  "name": "tuic-user${inbound_number}",
           "uuid": "$uuid",
           "password": "$password"
         }
@@ -5452,6 +5468,7 @@ EOF
 EOF
     allow_port "$tuic_port/udp" >/dev/null 2>&1
     node_remark="${isp}tuic_port"
+	add_v2ray_api_user "tuic-user${inbound_number}"
     url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
@@ -5677,7 +5694,7 @@ manage_single_inbound() {
                 modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
             3)
-                inbound_traffic_limit "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                bash /etc/sing-box/sing-box-name.sh
                 ;;
             4)
                 show_inbound_url "$inbound_type" "$inbound_number"
@@ -5836,6 +5853,8 @@ delete_inbound() {
     local inbound_number="$4"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     local inbound_port=""
+    local v2ray_api_user=""
+
     echo
     red "确定删除 ${inbound_type}-${inbound_number}？"
     green "配置文件：${config_file}"
@@ -5848,6 +5867,10 @@ delete_inbound() {
         sleep 1
         return 1
     fi
+    if command -v jq >/dev/null 2>&1; then
+    v2ray_api_user=$(jq -r '.inbounds[]?.users[]?.name // empty' "$config_file" 2>/dev/null | head -n1)
+    fi
+
     if command -v jq >/dev/null 2>&1; then
         inbound_port=$(jq -r '.. | objects | select(has("listen_port")) | .listen_port' "$config_file" 2>/dev/null | head -n1)
     fi
@@ -5876,6 +5899,9 @@ delete_inbound() {
     fi
     rm -f "$config_file"
     rm -f "$url_file"
+    if [ -n "$v2ray_api_user" ]; then
+      delete_v2ray_api_user "$v2ray_api_user"
+    fi
     update_sub_file
     if [ "$engine" = "xray" ]; then
         restart_xray
