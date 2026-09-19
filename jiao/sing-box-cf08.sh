@@ -5198,17 +5198,6 @@ enable_ws_cdn() {
         sleep 1
         return 1
     fi
-    generate_vars
-    if [ -z "$domain" ]; then
-        red "未获取到域名"
-        sleep 1
-        return 1
-    fi
-    if [ -z "$CFIP" ]; then
-        red "未获取到 Cloudflare IP"
-        sleep 1
-        return 1
-    fi
     if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
         skyblue "请选择 Cloudflare 验证方式："
         green " 1) Cloudflare API Token"
@@ -5233,13 +5222,16 @@ enable_ws_cdn() {
         yellow "未获得有效的 Cloudflare API 凭据"
         return 1
     fi
-    zone_id=$(cf_find_zone "$domain")
-    if [ -z "$zone_id" ]; then
-        yellow "未找到 ${domain} 对应的 Cloudflare Zone"
-        yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
-        return 1
+    cf_select_zone || return 1
+    domain="$zone_domain"
+    zone_id="$selected_zone_id"
+    if [ -z "$domain" ] || [ -z "$zone_id" ]; then
+    red "未获取到 Cloudflare 域名或 Zone ID"
+    sleep 1
+    return 1
     fi
-    green "Cloudflare Zone 检测成功：$zone_id"
+    green "Cloudflare 域名：$domain"
+    green "Cloudflare Zone：$zone_id"
     if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
         green "Cloudflare DNS 配置成功"
     else
