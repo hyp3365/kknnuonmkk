@@ -5865,9 +5865,8 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-	restart_singbox
-   
-        vless-ws) green "这里接入 VLESS WS 创建逻辑" ;;
+	restart_singbox  
+    ;;
         *) red "未知入站类型" ;;
     esac
     echo
