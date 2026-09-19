@@ -6066,6 +6066,9 @@ manage_single_inbound() {
     local inbound_tag=""
     local traffic_user=""
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
+    if [ -f "/etc/sing-box/sing-box-name.sh" ]; then
+        source "/etc/sing-box/sing-box-name.sh"
+    fi
     inbound_tag=$(jq -r '.inbounds[0].tag // empty' "$config_file" 2>/dev/null)
     traffic_user=$(jq -r '.inbounds[0].users[0].name // empty' "$config_file" 2>/dev/null)
     while true; do
