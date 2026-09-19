@@ -2176,4 +2176,8 @@ main_menu() {
         esac
     done
 }
-main_menu "$@"
+if [ -n "$INBOUND_TAG" ] && [ -n "$TRAFFIC_USER" ]; then
+    main_menu "" "$INBOUND_TAG" "" "" "$TRAFFIC_USER"
+else
+    main_menu "$@"
+fi
