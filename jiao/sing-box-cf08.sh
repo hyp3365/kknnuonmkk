@@ -6291,8 +6291,8 @@ manage_single_inbound() {
     modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
     ;;
     3)
-        bash /etc/sing-box/sing-box-name.sh
-        ;;
+    bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
+    ;;
     4)
         show_inbound_url "$inbound_type" "$inbound_number"
         ;;
