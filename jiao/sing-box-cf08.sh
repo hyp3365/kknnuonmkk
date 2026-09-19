@@ -6057,129 +6057,20 @@ manage_hy2_obfs_menu() {
         esac
     done
 }
-show_limit() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
-
-    if [ ! -f "$lf" ]; then
-        echo -e "${skyblue}流量限制:${re} 未设置"
-        return
-    fi
-
-    "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
-import sys
-import json
-from datetime import datetime
-
-lf = sys.argv[1]
-state_file = sys.argv[2]
-
-try:
-    with open(lf, "r", encoding="utf-8") as f:
-        d = json.load(f)
-except Exception:
-    print("未设置")
-    raise SystemExit
-
-if not d.get("enabled"):
-    print("已关闭")
-    raise SystemExit
-
-value = d.get("limit_value")
-unit = d.get("limit_unit")
-
-if value is not None and unit:
-    try:
-        fv = float(value)
-        limit_text = f"{int(fv)} {unit}" if fv.is_integer() else f"{value} {unit}"
-    except Exception:
-        limit_text = f"{value} {unit}"
-else:
-    limit_text = "未知"
-
-period = d.get("period", "none")
-
-period_text = {
-    "day": "每天",
-    "month": "每月",
-    "none": "永久"
-}.get(period, "永久")
-
-user = d.get("user")
-
-try:
-    with open(state_file, "r", encoding="utf-8") as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-
-u = state.get("users", {}).get(user, {})
-
-if period in ("day", "month"):
-    current_total = int(u.get("period_total", 0) or 0)
-else:
-    current_total = int(u.get("total", 0) or 0)
-
-base_total = int(d.get("limit_base_total", 0) or 0)
-
-used = max(0, current_total - base_total)
-
-limit_bytes = int(d.get("limit_bytes", 0) or 0)
-
-def fmt(n):
-    n = float(n)
-    units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    i = 0
-
-    while n >= 1024 and i < len(units) - 1:
-        n /= 1024
-        i += 1
-
-    if i == 0:
-        return f"{int(n)} {units[i]}"
-
-    return f"{n:.2f} {units[i]}"
-
-print(f"已设置：{limit_text}")
-print(f"时间周期：{period_text}")
-print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
-
-if limit_bytes > used:
-    print(f"剩余流量：{fmt(limit_bytes - used)}")
-else:
-    print("剩余流量：0 B")
-
-if period in ("day", "month") and d.get("period_end"):
-    try:
-        dt = datetime.fromisoformat(d["period_end"])
-        print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
-    except Exception:
-        pass
-
-if d.get("disabled_by_limit"):
-    print("状态：已达到流量限制，用户已停用")
-else:
-    print("状态：正常")
-PY
-}
+format_bytes() {
     local bytes="${1:-0}"
     "$PYTHON" - "$bytes" <<'PY'
 import sys
-
 try:
     n = int(float(sys.argv[1]))
 except:
     n = 0
-
 units = ["B", "KB", "MB", "GB", "TB", "PB"]
 i = 0
 v = float(n)
-
 while v >= 1024 and i < len(units) - 1:
     v /= 1024
     i += 1
-
 if i == 0:
     print(f"{int(v)} {units[i]}")
 elif v >= 100:
@@ -6190,7 +6081,6 @@ else:
     print(f"{v:.2f} {units[i]}")
 PY
 }
-
 get_user_traffic() {
     local user="$1"
     if [ ! -f "$TRAFFIC_STATE" ]; then
@@ -6219,6 +6109,91 @@ period_total = int(d.get("period_total", period_uplink + period_downlink) or 0)
 print(uplink, downlink, total, connections, period_uplink, period_downlink, period_total)
 PY
 }
+show_limit() {
+    local tag="$1"
+    local user="$2"
+    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    if [ ! -f "$lf" ]; then
+        echo -e "${skyblue}流量限制:${re} 未设置"
+        return
+    fi
+    "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
+import sys
+import json
+from datetime import datetime
+lf = sys.argv[1]
+state_file = sys.argv[2]
+try:
+    with open(lf, "r", encoding="utf-8") as f:
+        d = json.load(f)
+except Exception:
+    print("未设置")
+    raise SystemExit
+if not d.get("enabled"):
+    print("已关闭")
+    raise SystemExit
+value = d.get("limit_value")
+unit = d.get("limit_unit")
+if value is not None and unit:
+    try:
+        fv = float(value)
+        limit_text = f"{int(fv)} {unit}" if fv.is_integer() else f"{value} {unit}"
+    except Exception:
+        limit_text = f"{value} {unit}"
+else:
+    limit_text = "未知"
+period = d.get("period", "none")
+period_text = {
+    "day": "每天",
+    "month": "每月",
+    "none": "永久"
+}.get(period, "永久")
+user = d.get("user")
+try:
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+except Exception:
+    state = {}
+u = state.get("users", {}).get(user, {})
+if period in ("day", "month"):
+    current_total = int(u.get("period_total", 0) or 0)
+else:
+    current_total = int(u.get("total", 0) or 0)
+base_total = int(d.get("limit_base_total", 0) or 0)
+used = max(0, current_total - base_total)
+limit_bytes = int(d.get("limit_bytes", 0) or 0)
+def fmt(n):
+    n = float(n)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    i = 0
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
+        i += 1
+    if i == 0:
+        return f"{int(n)} {units[i]}"
+    return f"{n:.2f} {units[i]}"
+print(f"已设置：{limit_text}")
+print(f"时间周期：{period_text}")
+print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
+if limit_bytes > used:
+    print(f"剩余流量：{fmt(limit_bytes - used)}")
+else:
+    print("剩余流量：0 B")
+if period in ("day", "month") and d.get("period_end"):
+    try:
+        dt = datetime.fromisoformat(d["period_end"])
+        print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception:
+        pass
+if d.get("disabled_by_limit"):
+    print("状态：已达到流量限制，用户已停用")
+else:
+    print("状态：正常")
+PY
+}
+
+
+    
 manage_single_inbound() {
     local selected="$1"
     local config_file=""
