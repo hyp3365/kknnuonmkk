@@ -3098,10 +3098,7 @@ close_port() {
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
 }
-TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
-if [ -s "$TRAFFIC_SCRIPT" ]; then
-    source "$TRAFFIC_SCRIPT"
-fi
+
 # 下载并安装 sing-box,cloudflared
 install_singbox() {
     clear
@@ -5135,6 +5132,10 @@ manage_nodes_menu() {
         public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 		short_id=$(openssl rand -hex 6)
     fi
+	TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+    if [ -s "$TRAFFIC_SCRIPT" ]; then
+    source "$TRAFFIC_SCRIPT"
+    fi
 	generate_vars
     server_ip=$(get_realip)
     CONF_DIR="/etc/sing-box/conf"
@@ -5889,12 +5890,19 @@ delete_inbound() {
 update_script() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-cf08.sh"
     local local_file="$work_dir/sb.sh"
-
+    local traffic_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+    local traffic_file="/etc/sing-box/sing-box-name.sh"
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
         if [ -s "${local_file}.tmp" ]; then
             mv -f "${local_file}.tmp" "$local_file"
             chmod +x "$local_file"
             ln -sf "$local_file" /usr/bin/sb
+            curl -Lss "$traffic_url" -o "${traffic_file}.tmp"
+            if [ -s "${traffic_file}.tmp" ]; then
+                mv -f "${traffic_file}.tmp" "$traffic_file"
+            else
+                rm -f "${traffic_file}.tmp"
+            fi
             green "\n脚本已更新！"
             sleep 1
             exec bash "$local_file"
@@ -9528,12 +9536,11 @@ while true; do
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
 				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
-        TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
-        curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
-        if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
-            mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
-            source "$TRAFFIC_SCRIPT"
-        fi
+TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
+    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
+fi
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
