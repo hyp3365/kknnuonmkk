@@ -6063,16 +6063,42 @@ manage_single_inbound() {
     local engine=""
     local inbound_type=""
     local inbound_number=""
+    local inbound_tag=""
+    local traffic_user=""
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
+    inbound_tag=$(jq -r '.inbounds[0].tag // empty' "$config_file" 2>/dev/null)
+    traffic_user=$(jq -r '.inbounds[0].users[0].name // empty' "$config_file" 2>/dev/null)
     while true; do
         clear
         green "================ 入站管理 ================"
         echo
         green "入站：${inbound_type}-${inbound_number}"
         green "类型：${inbound_type}"
-        green "编号：${inbound_number}"
-        green "核心：${engine}"
         green "配置：${config_file}"
+        echo
+        echo -e "${skyblue}流量统计:${re}"
+        if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
+            local traffic
+            traffic="$(get_user_traffic "$traffic_user")"
+            local uplink
+            local downlink
+            local total
+            local connections
+            local period_uplink
+            local period_downlink
+            local period_total
+            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+            echo "  上传:   $(format_bytes "$uplink")"
+            echo "  下载:   $(format_bytes "$downlink")"
+            echo "  总流量: $(format_bytes "$total")"
+            echo "  本周期: $(format_bytes "$period_total")"
+            echo "  连接数: $connections"
+        else
+            echo "  未统计"
+        fi
+        echo
+        echo -e "${skyblue}流量限制:${re}"
+        show_limit "$inbound_tag" "$traffic_user"
         echo
         green "--------------------------------------------"
         echo
