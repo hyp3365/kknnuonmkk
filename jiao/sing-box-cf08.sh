@@ -5198,66 +5198,65 @@ enable_ws_cdn() {
         sleep 1
         return 1
     fi
-	if [ -z "$CFIP" ]; then
-        red "未获取到 Cloudflare IP"
-        sleep 1
-        return 1
-    fi
     if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-        skyblue "请选择 Cloudflare 验证方式："
-        green " 1) Cloudflare API Token"
-        green " 2) Cloudflare Global API Key"
-        local cf_auth_type
-        reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
-        [[ -z "$cf_auth_type" ]] && cf_auth_type=1
-        case "$cf_auth_type" in
-            1)
-                cf_auth_token || return 1
-                ;;
-            2)
-                cf_auth_global || return 1
-                ;;
-            *)
-                red "无效选择！"
-                return 1
-                ;;
-        esac
-    fi
-    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-        yellow "未获得有效的 Cloudflare API 凭据"
-        return 1
-    fi
-    cf_select_zone || return 1
-    domain="$zone_domain"
-    zone_id="$selected_zone_id"
-    if [ -z "$domain" ] || [ -z "$zone_id" ]; then
+    skyblue "请选择 Cloudflare 验证方式："
+    green " 1) Cloudflare API Token"
+    green " 2) Cloudflare Global API Key"
+    local cf_auth_type
+    reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
+    [[ -z "$cf_auth_type" ]] && cf_auth_type=1
+    case "$cf_auth_type" in
+        1)
+            cf_auth_token || return 1
+            ;;
+        2)
+            cf_auth_global || return 1
+            ;;
+        *)
+            red "无效选择！"
+            return 1
+            ;;
+    esac
+fi
+if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+    yellow "未获得有效的 Cloudflare API 凭据"
+    return 1
+fi
+if [ -z "$CFIP" ]; then
+    red "未获取到 Cloudflare IP"
+    sleep 1
+    return 1
+fi
+cf_select_zone || return 1
+domain="$zone_domain"
+if [ -z "$domain" ] || [ -z "$zone_id" ]; then
     red "未获取到 Cloudflare 域名或 Zone ID"
     sleep 1
     return 1
-    fi
-    green "Cloudflare 域名：$domain"
-    green "Cloudflare Zone：$zone_id"
-    if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-        green "Cloudflare DNS 配置成功"
-    else
-        yellow "警告：Cloudflare DNS 配置失败"
-    fi
-    if jq -e '.inbounds[0].tls' "$config_file" >/dev/null 2>&1; then
-        cf_ssl_mode="full"
-    else
-        cf_ssl_mode="flexible"
-    fi
-    if cf_set_ssl "$zone_id" "$cf_ssl_mode"; then
-        green "Cloudflare SSL 模式已设置为：$cf_ssl_mode"
-    else
-        yellow "警告：Cloudflare SSL 模式设置失败"
-    fi
-    if set_domain_origin_port "$zone_id" "$domain" "$origin_port"; then
-        green "Cloudflare CDN 回源规则配置成功"
-        green "回源端口：$origin_port"
-    else
-        yellow "警告：Cloudflare CDN 回源规则配置失败"
-    fi
+fi
+green "Cloudflare 域名：$domain"
+green "Cloudflare Zone：$zone_id"
+if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+    green "Cloudflare DNS 配置成功"
+else
+    yellow "警告：Cloudflare DNS 配置失败"
+fi
+if jq -e '.inbounds[0].tls' "$config_file" >/dev/null 2>&1; then
+    cf_ssl_mode="full"
+else
+    cf_ssl_mode="flexible"
+fi
+if cf_set_ssl "$zone_id" "$cf_ssl_mode"; then
+    green "Cloudflare SSL 模式已设置为：$cf_ssl_mode"
+else
+    yellow "警告：Cloudflare SSL 模式设置失败"
+fi
+if set_domain_origin_port "$zone_id" "$domain" "$origin_port"; then
+    green "Cloudflare CDN 回源规则配置成功"
+    green "回源端口：$origin_port"
+else
+    yellow "警告：Cloudflare CDN 回源规则配置失败"
+fi
     node_remark_cdn="${isp}_${inbound_type}_cdn"
     node_remark_enc=$(printf '%s' "$node_remark_cdn" | jq -sRr @uri)
     case "$inbound_type" in
