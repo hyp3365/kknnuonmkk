@@ -4020,417 +4020,588 @@ change_hosts() {
     sed -i '2s/.*/::1         localhost/' /etc/hosts
 }
 # 修改sing-box节点uuid
-change_uuid() {
-    local conf_dir="/etc/sing-box/conf"
-    local url_file="/etc/sing-box/url.txt"
-    local sub_file="/etc/sing-box/sub.txt"
-    [ -f "$url_file" ] || {
-        red "未找到：$url_file"
-        return 1
-    }
-    [ -d "$conf_dir" ] || {
-        red "未找到：$conf_dir"
-        return 1
-    }
-    while IFS= read -r file; do
-        jq -e 'has("inbounds") and (.inbounds | type == "array")' "$file" >/dev/null 2>&1 || continue
-        inbound_count=$(jq '.inbounds | length' "$file")
-        for ((i=0; i<inbound_count; i++)); do
-            protocol=$(jq -r ".inbounds[$i].type // empty" "$file")
-            case "$protocol" in
-                socks|http) continue ;;
-            esac
-            old_value=$(jq -r "
-                .inbounds[$i].users[0].uuid //
-                .inbounds[$i].users[0].password //
-                empty
-            " "$file")
-            [ -z "$old_value" ] && continue
-            [ "$old_value" = "null" ] && continue
-            new_uuid=$(cat /proc/sys/kernel/random/uuid)
-            if [ "$protocol" = "tuic" ]; then
-                jq --arg uuid "$new_uuid" --argjson index "$i" '
-                    if (.inbounds[$index].users? | type) == "array" then
-                        .inbounds[$index].users |= map(
-                            if .uuid != null then .uuid = $uuid else . end
-                        )
-                    else
-                        .
-                    end
-                ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-                sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
-            elif [ "$protocol" = "vmess" ]; then
-                jq --arg uuid "$new_uuid" --argjson index "$i" '
-                    if (.inbounds[$index].users? | type) == "array" then
-                        .inbounds[$index].users |= map(
-                            if .uuid != null then .uuid = $uuid else . end
-                        )
-                    else
-                        .
-                    end
-                ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-                while IFS= read -r line; do
-                    case "$line" in
-                        vmess://*)
-                            vmess_b64="${line#vmess://}"
-                            vmess_json=$(printf '%s' "$vmess_b64" | base64 -d 2>/dev/null)
-                            [ -z "$vmess_json" ] && continue
-                            vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
-                            [ "$vmess_id" = "$old_value" ] || continue
-                            new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
-                            [ -z "$new_vmess_json" ] && continue
-                            new_vmess_b64=$(printf '%s' "$new_vmess_json" | base64 -w0)
-                            sed -i "s#^vmess://.*#vmess://${new_vmess_b64}#" "$url_file"
-                            break
-                            ;;
-                    esac
-                done < "$url_file"
-            else
-                jq --arg uuid "$new_uuid" --argjson index "$i" '
-                    if (.inbounds[$index].users? | type) == "array" then
-                        .inbounds[$index].users |= map(
-                            if .uuid != null then .uuid = $uuid else . end |
-                            if .password != null then .password = $uuid else . end
-                        )
-                    else
-                        .
-                    end
-                ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-                for scheme in vless hysteria2 anytls trojan; do
-                    if grep -Fq "${scheme}://${old_value}@" "$url_file"; then
-                        sed -i "s#${scheme}://${old_value}@#${scheme}://${new_uuid}@#g" "$url_file"
-                        break
-                    fi
-                done
-            fi
-            green "UUID：$new_uuid"
-        done
-    done < <(find "$conf_dir" -type f -name "*.json")
-    restart_singbox
-    base64 -w0 "$url_file" > "$sub_file"
-    green "所有节点 UUID 修改完成！"
-}
-
-# 变更配置
-change_config() {
-    # 检查sing-box状态
-    local singbox_status=$(check_singbox 2>/dev/null)
-    local singbox_installed=$?
-    
-    if [ $singbox_installed -eq 2 ]; then
-        yellow "sing-box 尚未安装！"
+modify_inbound_uuid() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local protocol=""
+    local old_value=""
+    local new_uuid=""
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
         sleep 1
-        menu
-        return
+        return 1
     fi
-    
-    clear
-    echo ""
-    green "=== 修改节点配置 ===\n"
-    green "sing-box当前状态: $singbox_status\n"
-	green "1. 修改节点UUID"
-    skyblue "------------"
-    green "2. 修改Reality伪装域名"
-    skyblue "------------"
-    green "3. 添加hysteria2端口跳跃"
-    skyblue "------------"
-    green "4. 删除hysteria2端口跳跃"
-    skyblue "------------"
-	green "5. hysteria2开启混淆"
-    skyblue "------------"
-    green "6. hysteria2关闭混淆"
-    skyblue "------------"
-    purple "0. 返回主菜单"
-    skyblue "------------"
-    reading "请输入选择: " choice
-    case "${choice}" in
-	    1) change_uuid ;;
-        2)  
-		  clear
-		  green "\n1. www.joom.com\n\n2. www.stengg.com\n\n3. www.wedgehr.com\n\n4. www.cerebrium.ai\n\n5. www.nazhumi.com\n\n6. addons.mozilla.org\n\n7. www.iij.ad.jp\n\n8. 自定义域名\n"
-		  reading "\n请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
-  
-          case "$new_sni" in
-            "1"|"") new_sni="www.joom.com" ;;
-            "2") new_sni="www.stengg.com" ;;
-            "3") new_sni="www.wedgehr.com" ;;
-            "4") new_sni="www.cerebrium.ai" ;;
-            "5") new_sni="www.nazhumi.com" ;;
-			"6") new_sni="addons.mozilla.org" ;;
-			"7") new_sni="www.iij.ad.jp" ;;
-            "8")
-              reading "\n请输入自定义的伪装域名(例如 www.example.com): " new_sni
-              [[ -z "$new_sni" ]] && new_sni="www.joom.com"
-              ;;
-            *) new_sni="$new_sni" ;;
-           esac
-           
-          conf_base_dir=$(dirname "$config_dir")
-
-          for file in "${conf_base_dir}"/*.json; do
-          if jq -e '.inbounds[0].tls.enabled == true and .inbounds[0].tls.reality.enabled == true' "$file" >/dev/null 2>&1; then
-          jq --arg sni "$new_sni" '
-         .inbounds[0].tls.server_name = $sni |
-         .inbounds[0].tls.reality.handshake.server = $sni
-         ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
-          fi
-          done
-
-          restart_singbox
-           
-          if [ -f "$client_dir" ]; then
-            # 通用正则替换 sni 参数
-            sed -i "s/sni=[^&]*/sni=$new_sni/g" "$client_dir"
-            base64 "$client_dir" | tr -d '\n' > /etc/sing-box/sub.txt
-          fi
-          
-          while IFS= read -r line; do yellow "$line"; done < "${work_dir}/url.txt"
-          green "\nReality SNI 已修改为：${purple}${new_sni}${re}\n"
-           ;;
-         3) 
-            generate_vars
-            purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。\n"
-            local check_cmds=("nft" "curl" "shuf" "python3")
-            local install_pkgs=("nftables" "curl" "coreutils" "python3")  
-            for i in "${!check_cmds[@]}"; do
-                if ! command -v "${check_cmds[$i]}" &> /dev/null; then
-                    yellow "检测到缺少依赖 ${install_pkgs[$i]}，正在安装..."
-                    if [ -f /etc/debian_version ]; then
-                        apt-get update && apt-get install -y "${install_pkgs[$i]}"
-                    elif [ -f /etc/redhat-release ]; then
-                        yum install -y "${install_pkgs[$i]}"
-                    fi
-                fi
-            done       
-            reading "请输入跳跃起始端口: " min_port
-            while [ -z "$min_port" ]; do
-                red "不能为空，请重新输入: "
-                read min_port
-            done
-            yellow "起始端口为：$min_port"
-            reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
-            [ -z "$max_port" ] && max_port=$(($min_port + 100)) 
-            yellow "结束端口为：$max_port\n"
-            listen_port=$(grep '"listen_port"' /etc/sing-box/conf/hysteria2.json | head -n 1 | awk -F': ' '{print $2}' | tr -d ', "')
-            if [ -z "$listen_port" ]; then
-                red "无法自动获取 Hysteria2 监听端口，请检查配置文件！"
-                exit 1
-            fi  
-            purple "正在设置端口跳跃规则..."
-            sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-            [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
-            nft add table ip hysteria_nat 2>/dev/null
-            nft 'add chain ip hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
-            nft add rule ip hysteria_nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
-            if [ -f /proc/net/if_inet6 ]; then
-                nft add table ip6 hysteria_nat 2>/dev/null
-                nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
-                nft add rule ip6 hysteria_nat prerouting udp dport $min_port-$max_port dnat to :$listen_port comment "Hysteria2_Hop" 2>/dev/null
-            fi       
-            nft list ruleset > /etc/nftables.conf 2>/dev/null    
-            if command -v systemctl &> /dev/null; then
-                systemctl enable nftables >/dev/null 2>&1
-                systemctl start nftables >/dev/null 2>&1
-            elif command -v rc-service &> /dev/null; then
-                rc-update add nftables default 2>/dev/null
-            fi    
-            ip=$(get_realip)
-            uuid=$(grep -oP 'hysteria2://\K[^@]+' "$client_dir" | head -n 1)
-            sed -i "/hysteria2:/d" "$client_dir"
-            key_path=$(grep '"key_path"' /etc/sing-box/conf/hysteria2.json | head -n 1 | sed -E 's/.*"key_path"\s*:\s*"([^"]+)".*/\1/')
-            if [[ "$key_path" =~ \/root\/cert\/([^\/]+)\/ ]]; then
-                custom_sni="${BASH_REMATCH[1]}"
-                url_param="sni=${custom_sni}"
-            else
-                custom_sni="www.bing.com"
-                url_param="insecure=0&sni=www.bing.com&pinSHA256=${fingerprint}"
-            fi
-            node_remark="${isp}_hysteria2"
-            sed -i "/hysteria2:/d" "$client_dir"
-            obfs_param=""       
-if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
-    obfs_info=$(python3 -c "
-import json
-try:
-    with open('/etc/sing-box/conf/hysteria2.json', 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    obfs = {}
-    if isinstance(data, dict):
-        if 'inbounds' in data:
-            for ib in data['inbounds']:
-                if ib.get('type') == 'hysteria2':
-                    obfs = ib.get('obfs', {})
-                    break
-        else:
-            obfs = data.get('obfs', {})
-    if obfs.get('type') == 'gecko' and obfs.get('password'):
-        print(f\"obfs=gecko&obfs-password={obfs.get('password')}&obfs-min={obfs.get('min_packet_size',512)}&obfs-max={obfs.get('max_packet_size',1200)}\")
-except:
-    pass
-" 2>/dev/null)
-    [ -n "$obfs_info" ] && obfs_param="$obfs_info"
-fi
-            echo "hysteria2://$uuid@$ip:$listen_port?${url_param}&alpn=h3&${obfs_param}&mport=$listen_port,$min_port-$max_port#$node_remark" >> "$client_dir"
-            echo "" >> "${work_dir}/url.txt"
-            hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
-            # ------------------------------------------------
-            base64 -w0 "$client_dir" > /etc/sing-box/sub.txt         
-            green "Hysteria2 端口跳跃已开启"
-            green "${hy2_link}"
-            green "=================================================="
-            purple "跳跃区间：$min_port-$max_port"
-            ;;
-         4)  
-            purple "正在清理端口跳跃规则..."
-            nft delete table ip hysteria_nat 2>/dev/null
-            if [ -f /proc/net/if_inet6 ]; then
-                nft delete table ip6 hysteria_nat 2>/dev/null
-            fi
-            if nft list chain ip nat prerouting &>/dev/null; then
-                for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                    nft delete rule ip nat prerouting handle $handle 2>/dev/null
-                done
-            fi         
-            if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
-                for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                    nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
-                done
-            fi
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i '/hysteria2/s/&mport=[^#&]*//g' /etc/sing-box/url.txt
-                base64 -w0 "/etc/sing-box/url.txt" > /etc/sing-box/sub.txt
-            fi 
-			if [ -f "/etc/sing-box/url.txt" ]; then
-                 sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-                 echo "" >> /etc/sing-box/url.txt
-            fi
-            if [ -s "/etc/sing-box/url.txt" ]; then
-                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-               else
-                 truncate -s 0 /etc/sing-box/sub.txt
-            fi
-            green "\n[✔] 端口跳跃已关闭"
-			hy2_link=$(grep -oP 'hysteria2://.*' "$client_dir" | head -n 1)     
-            green "${hy2_link}"
-            ;;
-		5)  # 检测并自动补全 python3 依赖
-if ! command -v python3 &> /dev/null; then
-    yellow "检测到缺少依赖 python3，正在安装..."
-    if [ -f /etc/debian_version ]; then
-        apt-get update && apt-get install -y python3
-    elif [ -f /etc/redhat-release ]; then
-        yum install -y python3
-    elif [ -f /etc/alpine-release ]; then
-        apk add --no-cache python3
+    if [ "$engine" != "sing-box" ]; then
+        red "当前 UUID 修改功能暂未接入 Xray 入站"
+        sleep 1
+        return 1
     fi
-fi
-
-            if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
-                red "未检测到 Hysteria2 节点配置或链接，请先安装 Hysteria2！"
-                exit 1
-            fi
-            obfs_pwd=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 20)   
-            python3 -c "
-import json
-path = '/etc/sing-box/conf/hysteria2.json'
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    obfs_data = {
-        'type': 'gecko',
-        'password': '$obfs_pwd',
-        'min_packet_size': 512,
-        'max_packet_size': 1200
-    }
-    if isinstance(data, dict):
-        if 'inbounds' in data:
-            for ib in data['inbounds']:
-                if ib.get('type') == 'hysteria2':
-                    ib['obfs'] = obfs_data
-        else:
-            data['obfs'] = obfs_data
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-except Exception as e:
-    print(f'修改 JSON 失败: {e}')
-"
-    		sed -i -E 's/&obfs=[^&#]+//g; s/&obfs-password=[^&#]+//g; s/&obfs-min=[^&#]+//g; s/&obfs-max=[^&#]+//g' /etc/sing-box/url.txt
-            sed -i -E "s/&alpn=h3/\&obfs=gecko\&obfs-password=${obfs_pwd}\&obfs-min=512\&obfs-max=1200\&alpn=h3/g" /etc/sing-box/url.txt
-			base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-            if command -v restart_singbox &> /dev/null; then
-                restart_singbox
-            else
-                systemctl restart sing-box >/dev/null 2>&1
-            fi
-            hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
-            echo "" >> "${work_dir}/url.txt"
-            echo ""
-            green "=================================================="
-            green "Hysteria2 gecko混淆已开启！"
-            green "=================================================="
-            green "${hy2_link}"
-            green "=================================================="
-            echo "" 
-            ;;
-		6)
-    if [ ! -f "/etc/sing-box/conf/hysteria2.json" ] || ! grep -q "hysteria2://" "/etc/sing-box/url.txt"; then
-        red "未检测到 Hysteria2 节点配置或链接！"
-        exit 1
+    if ! command -v jq >/dev/null 2>&1; then
+        red "未安装 jq，无法修改 UUID"
+        sleep 1
+        return 1
     fi
-    python3 -c "
-import json
-path = '/etc/sing-box/conf/hysteria2.json'
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    if isinstance(data, dict):
-        if 'inbounds' in data:
-            for ib in data['inbounds']:
-                if ib.get('type') == 'hysteria2' and 'obfs' in ib:
-                    del ib['obfs']
-        elif 'obfs' in data:
-            del data['obfs']
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-except Exception as e:
-    print(f'清理 JSON 混淆配置失败: {e}')
-"
-    sed -i -E 's/&obfs=[^&#]+//g; s/&obfs-password=[^&#]+//g; s/&obfs-min=[^&#]+//g; s/&obfs-max=[^&#]+//g' /etc/sing-box/url.txt
-    base64 -w0 "/etc/sing-box/url.txt" > "/etc/sing-box/sub.txt" 2>/dev/null
-    if command -v restart_singbox &> /dev/null; then
-        restart_singbox
-    else
-        systemctl restart sing-box >/dev/null 2>&1
+    protocol=$(jq -r '.inbounds[0].type // empty' "$config_file" 2>/dev/null)
+    if [ -z "$protocol" ]; then
+        red "无法读取入站类型"
+        sleep 1
+        return 1
     fi
-	if [ -f "/etc/sing-box/url.txt" ]; then
-                 sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-                 echo "" >> /etc/sing-box/url.txt
-            fi
-            if [ -s "/etc/sing-box/url.txt" ]; then
-                 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-               else
-                 truncate -s 0 /etc/sing-box/sub.txt
-            fi
-    hy2_link=$(grep -oP 'hysteria2://.*' /etc/sing-box/url.txt | head -n 1)
-    echo ""
-    green "=================================================="
-    green "Hysteria2 Gecko 混淆已关闭！"
-    green "=================================================="
-    green "${hy2_link}"
-    green "=================================================="
-    echo ""
-    ;;
-        0)  menu ;;
-        *)  
-            red "无效的选项！"
+    case "$protocol" in
+        socks|http)
+            red "当前入站没有 UUID"
             sleep 1
-            change_config
+            return 1
             ;;
     esac
+    old_value=$(jq -r '
+        .inbounds[0].users[0].uuid //
+        .inbounds[0].users[0].password //
+        empty
+    ' "$config_file" 2>/dev/null)
+    if [ -z "$old_value" ] || [ "$old_value" = "null" ]; then
+        red "当前入站没有可修改的 UUID"
+        sleep 1
+        return 1
+    fi
+    new_uuid=$(cat /proc/sys/kernel/random/uuid)
+    if [ "$protocol" = "tuic" ] || [ "$protocol" = "vmess" ]; then
+        jq --arg uuid "$new_uuid" '
+            if (.inbounds[0].users? | type) == "array" then
+                .inbounds[0].users |= map(
+                    if .uuid != null then .uuid = $uuid else . end
+                )
+            else
+                .
+            end
+        ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    else
+        jq --arg uuid "$new_uuid" '
+            if (.inbounds[0].users? | type) == "array" then
+                .inbounds[0].users |= map(
+                    if .uuid != null then .uuid = $uuid else . end |
+                    if .password != null then .password = $uuid else . end
+                )
+            else
+                .
+            end
+        ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    fi
+    if [ ! -f "$url_file" ]; then
+        red "链接文件不存在：$url_file"
+        restart_singbox
+        sleep 1
+        return 1
+    fi
+    case "$protocol" in
+        tuic)
+            sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
+            ;;
+        vmess)
+            while IFS= read -r line; do
+                case "$line" in
+                    vmess://*)
+                        vmess_b64="${line#vmess://}"
+                        vmess_json=$(printf '%s' "$vmess_b64" | base64 -d 2>/dev/null)
+                        [ -z "$vmess_json" ] && continue
+                        vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
+                        [ "$vmess_id" = "$old_value" ] || continue
+                        new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
+                        [ -z "$new_vmess_json" ] && continue
+                        new_vmess_b64=$(printf '%s' "$new_vmess_json" | base64 -w0)
+                        sed -i "s#^vmess://.*#vmess://${new_vmess_b64}#" "$url_file"
+                        break
+                        ;;
+                esac
+            done < "$url_file"
+            ;;
+        *)
+            for scheme in vless hysteria2 anytls trojan; do
+                if grep -Fq "${scheme}://${old_value}@" "$url_file"; then
+                    sed -i "s#${scheme}://${old_value}@#${scheme}://${new_uuid}@#g" "$url_file"
+                    break
+                fi
+            done
+            ;;
+    esac
+    update_sub_file
+    if [ "$engine" = "xray" ]; then
+        restart_xray
+    else
+        restart_singbox
+    fi
+    green "==============================================="
+    green " UUID 修改完成"
+    green "入站：${inbound_type}-${inbound_number}"
+    green "新 UUID：${new_uuid}"
+    green "==============================================="
+    echo
+    sleep 1
+    return 0
 }
-
-
+#修改reality  sni
+modify_reality_domain() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local new_sni
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        red "未安装 jq，无法修改 Reality 域名"
+        sleep 1
+        return 1
+    fi
+    if ! jq -e '.inbounds[0].tls.enabled == true and .inbounds[0].tls.reality.enabled == true' "$config_file" >/dev/null 2>&1; then
+        red "当前入站不是 Reality 配置"
+        sleep 1
+        return 1
+    fi
+    clear
+    green "================ 修改 Reality 域名 ================"
+    echo
+    green "1. www.joom.com"
+    green "2. www.stengg.com"
+    green "3. www.wedgehr.com"
+    green "4. www.cerebrium.ai"
+    green "5. www.nazhumi.com"
+    green "6. addons.mozilla.org"
+    green "7. www.iij.ad.jp"
+    green "8. 自定义域名"
+    echo
+    reading "请输入新的Reality伪装域名序号(回车使用默认1): " new_sni
+    case "$new_sni" in
+        1|"") new_sni="www.joom.com" ;;
+        2) new_sni="www.stengg.com" ;;
+        3) new_sni="www.wedgehr.com" ;;
+        4) new_sni="www.cerebrium.ai" ;;
+        5) new_sni="www.nazhumi.com" ;;
+        6) new_sni="addons.mozilla.org" ;;
+        7) new_sni="www.iij.ad.jp" ;;
+        8)
+            reading "请输入自定义的伪装域名(例如 www.example.com): " new_sni
+            [ -z "$new_sni" ] && new_sni="www.joom.com"
+            ;;
+        *)
+            red "无效选项"
+            sleep 1
+            return 1
+            ;;
+    esac
+    jq --arg sni "$new_sni" '
+        .inbounds[0].tls.server_name = $sni |
+        .inbounds[0].tls.reality.handshake.server = $sni
+    ' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+    if [ $? -ne 0 ]; then
+        red "Reality 域名修改失败"
+        rm -f "${config_file}.tmp"
+        sleep 1
+        return 1
+    fi
+    if [ -f "$url_file" ]; then
+        sed -i "s/sni=[^&]*/sni=$new_sni/g" "$url_file"
+        update_sub_file
+    else
+        yellow "对应链接文件不存在：$url_file"
+    fi
+    if [ "$engine" = "xray" ]; then
+        restart_xray
+    else
+        restart_singbox
+    fi
+    echo
+    green "==============================================="
+    green " Reality SNI 已修改"
+    green "入站：${inbound_type}-${inbound_number}"
+    green "新域名：${new_sni}"
+    green "==============================================="
+    echo
+    sleep 1
+    return 0
+}
+hy2_port_hopping() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local listen_port=""
+    local min_port=""
+    local max_port=""
+    local ip=""
+    local uuid=""
+    local key_path=""
+    local custom_sni=""
+    local url_param=""
+    local obfs_param=""
+    local old_url=""
+    local old_obfs=""
+    local node_remark=""
+    local hy2_link=""
+    local hop_comment="Hysteria2_Hop_${inbound_number}"
+    local check_cmds=("nft" "curl" "shuf" "python3")
+    local install_pkgs=("nftables" "curl" "coreutils" "python3")
+    local i
+    if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
+        red "当前入站不是 Hysteria2"
+        sleep 1
+        return 1
+    fi
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        red "未安装 jq，无法读取 Hysteria2 配置"
+        sleep 1
+        return 1
+    fi
+    listen_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
+    if [ -z "$listen_port" ] || [ "$listen_port" = "null" ]; then
+        red "无法获取 Hysteria2 监听端口"
+        sleep 1
+        return 1
+    fi
+    if [ -f "$url_file" ]; then
+        old_url=$(cat "$url_file")
+        old_obfs=$(printf '%s' "$old_url" | grep -oP 'obfs=gecko&obfs-password=[^&#]+&obfs-min=[^&#]+&obfs-max=[^&#]+' | head -n1)
+    fi
+    clear
+    green "================ Hysteria2 端口跳跃 ================"
+    echo
+    green "入站：${inbound_type}-${inbound_number}"
+    green "配置：${config_file}"
+    green "监听端口：${listen_port}"
+    if [ -n "$old_obfs" ]; then
+        green "检测到 Gecko 混淆：保留现有混淆参数"
+    else
+        yellow "未检测到 Gecko 混淆"
+    fi
+    echo
+    purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。"
+    echo
+    for i in "${!check_cmds[@]}"; do
+        if ! command -v "${check_cmds[$i]}" >/dev/null 2>&1; then
+            yellow "检测到缺少依赖 ${install_pkgs[$i]}，正在安装..."
+            if [ -f /etc/debian_version ]; then
+                apt-get update && apt-get install -y "${install_pkgs[$i]}"
+            elif [ -f /etc/redhat-release ]; then
+                yum install -y "${install_pkgs[$i]}"
+            elif [ -f /etc/alpine-release ]; then
+                apk add --no-cache "${install_pkgs[$i]}"
+            fi
+        fi
+    done
+    for i in "${!check_cmds[@]}"; do
+        if ! command -v "${check_cmds[$i]}" >/dev/null 2>&1; then
+            red "缺少依赖：${check_cmds[$i]}"
+            sleep 1
+            return 1
+        fi
+    done
+    reading "请输入跳跃起始端口: " min_port
+    while [ -z "$min_port" ]; do
+        red "不能为空，请重新输入: "
+        read -r min_port
+    done
+    if ! [[ "$min_port" =~ ^[0-9]+$ ]] || [ "$min_port" -lt 1 ] || [ "$min_port" -gt 65535 ]; then
+        red "起始端口无效"
+        sleep 1
+        return 1
+    fi
+    yellow "起始端口为：$min_port"
+    reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
+    [ -z "$max_port" ] && max_port=$((min_port + 100))
+    if ! [[ "$max_port" =~ ^[0-9]+$ ]] || [ "$max_port" -gt 65535 ] || [ "$max_port" -le "$min_port" ]; then
+        red "结束端口无效，必须大于起始端口且不能超过 65535"
+        sleep 1
+        return 1
+    fi
+    yellow "结束端口为：$max_port"
+    echo
+    purple "正在设置 ${inbound_type}-${inbound_number} 端口跳跃规则..."
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+    [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+    nft add table ip hysteria_nat 2>/dev/null
+    nft 'add chain ip hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+    if nft list chain ip hysteria_nat prerouting >/dev/null 2>&1; then
+        for handle in $(nft -a list chain ip hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+            nft delete rule ip hysteria_nat prerouting handle "$handle" 2>/dev/null
+        done
+    fi
+    nft add rule ip hysteria_nat prerouting udp dport "$min_port"-"$max_port" dnat to :"$listen_port" comment "$hop_comment" 2>/dev/null
+    if [ -f /proc/net/if_inet6 ]; then
+        nft add table ip6 hysteria_nat 2>/dev/null
+        nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+        if nft list chain ip6 hysteria_nat prerouting >/dev/null 2>&1; then
+            for handle in $(nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+                nft delete rule ip6 hysteria_nat prerouting handle "$handle" 2>/dev/null
+            done
+        fi
+        nft add rule ip6 hysteria_nat prerouting udp dport "$min_port"-"$max_port" dnat to :"$listen_port" comment "$hop_comment" 2>/dev/null
+    fi
+    nft list ruleset > /etc/nftables.conf 2>/dev/null
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable nftables >/dev/null 2>&1
+        systemctl start nftables >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-update add nftables default 2>/dev/null
+    fi
+    if [ -f "$url_file" ]; then
+        uuid=$(grep -oP 'hysteria2://\K[^@]+' "$url_file" | head -n1)
+    fi
+    if [ -z "$uuid" ]; then
+        uuid=$(jq -r '.inbounds[0].users[0].password // .inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
+    fi
+    if [ -z "$uuid" ]; then
+        red "无法获取 Hysteria2 UUID/密码"
+        sleep 1
+        return 1
+    fi
+    ip=$(get_realip)
+    key_path=$(jq -r '.inbounds[0].tls.key_path // empty' "$config_file" 2>/dev/null)
+    if [[ "$key_path" =~ /root/cert/([^/]+)/ ]]; then
+        custom_sni="${BASH_REMATCH[1]}"
+        url_param="sni=${custom_sni}"
+    else
+        custom_sni="www.bing.com"
+        url_param="insecure=0&sni=www.bing.com"
+    fi
+    node_remark="${inbound_type}-${inbound_number}"
+    if [ -n "$old_obfs" ]; then
+        obfs_param="$old_obfs"
+    fi
+    if [ -n "$obfs_param" ]; then
+        echo "hysteria2://${uuid}@${ip}:${listen_port}?${url_param}&alpn=h3&${obfs_param}&mport=${listen_port},${min_port}-${max_port}#${node_remark}" > "$url_file"
+    else
+        echo "hysteria2://${uuid}@${ip}:${listen_port}?${url_param}&alpn=h3&mport=${listen_port},${min_port}-${max_port}#${node_remark}" > "$url_file"
+    fi
+    update_sub_file
+    restart_singbox
+    hy2_link=$(cat "$url_file")
+    echo
+    green "Hysteria2-${inbound_number} 端口跳跃已开启"
+    if [ -n "$obfs_param" ]; then
+        green "已保留 Gecko 混淆参数"
+    fi
+    green "$hy2_link"
+    green "=================================================="
+    purple "跳跃区间：$min_port-$max_port"
+    echo
+    sleep 1
+    return 0
+}
+disable_hy2_port_hopping() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local hop_comment="Hysteria2_Hop_${inbound_number}"
+    local hy2_link=""
+    if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
+        red "当前入站不是 Hysteria2"
+        sleep 1
+        return 1
+    fi
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    clear
+    green "================ 关闭端口跳跃 ================"
+    echo
+    green "入站：${inbound_type}-${inbound_number}"
+    echo
+    purple "正在清理 ${inbound_type}-${inbound_number} 端口跳跃规则..."
+    if nft list chain ip hysteria_nat prerouting &>/dev/null; then
+        for handle in $(nft -a list chain ip hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+            nft delete rule ip hysteria_nat prerouting handle "$handle" 2>/dev/null
+        done
+    fi
+    if [ -f /proc/net/if_inet6 ] && nft list chain ip6 hysteria_nat prerouting &>/dev/null; then
+        for handle in $(nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+            nft delete rule ip6 hysteria_nat prerouting handle "$handle" 2>/dev/null
+        done
+    fi
+    nft list ruleset > /etc/nftables.conf 2>/dev/null
+    if [ -f "$url_file" ]; then
+        sed -i -E 's/&mport=[^#&]*//g;s/[?&]mport=[^#&]*//g' "$url_file"
+        update_sub_file
+        hy2_link=$(cat "$url_file")
+    fi
+    restart_singbox
+    echo
+    green "[✔] ${inbound_type}-${inbound_number} 端口跳跃已关闭"
+    if [ -n "$hy2_link" ]; then
+        green "$hy2_link"
+    fi
+    echo
+    sleep 1
+}
+modify_hy2_obfs() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local obfs_pwd=""
+    local old_url=""
+    local mport_param=""
+    local hy2_link=""
+    if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
+        red "当前入站不是 Hysteria2"
+        sleep 1
+        return 1
+    fi
+    if [ ! -f "$config_file" ] || [ ! -f "$url_file" ]; then
+        red "当前 Hysteria2 配置或链接文件不存在"
+        sleep 1
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        yellow "检测到缺少依赖 python3，正在安装..."
+        if [ -f /etc/debian_version ]; then
+            apt-get update && apt-get install -y python3
+        elif [ -f /etc/redhat-release ]; then
+            yum install -y python3
+        elif [ -f /etc/alpine-release ]; then
+            apk add --no-cache python3
+        fi
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        red "python3 安装失败"
+        sleep 1
+        return 1
+    fi
+    old_url=$(cat "$url_file")
+    mport_param=$(printf '%s' "$old_url" | grep -oP 'mport=[^#&]+' | head -n1)
+    obfs_pwd=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 20)
+    if ! python3 - "$config_file" "$obfs_pwd" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+obfs_pwd = sys.argv[2]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get('inbounds'), list):
+        sys.exit(1)
+    found = False
+    for ib in data['inbounds']:
+        if isinstance(ib, dict) and ib.get('type') == 'hysteria2':
+            ib['obfs'] = {
+                'type': 'gecko',
+                'password': obfs_pwd,
+                'min_packet_size': 512,
+                'max_packet_size': 1200
+            }
+            found = True
+    if not found:
+        sys.exit(1)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+except Exception:
+    sys.exit(1)
+PY
+    then
+        red "Hysteria2 Gecko 混淆配置失败"
+        sleep 1
+        return 1
+    fi
+    sed -i -E 's/&obfs=[^&#]+//g;s/&obfs-password=[^&#]+//g;s/&obfs-min=[^&#]+//g;s/&obfs-max=[^&#]+//g' "$url_file"
+    if [ -n "$mport_param" ]; then
+        sed -i -E "s/&alpn=h3/&obfs=gecko\&obfs-password=${obfs_pwd}\&obfs-min=512\&obfs-max=1200\&alpn=h3\&${mport_param}/" "$url_file"
+    else
+        sed -i -E "s/&alpn=h3/&obfs=gecko\&obfs-password=${obfs_pwd}\&obfs-min=512\&obfs-max=1200\&alpn=h3/" "$url_file"
+    fi
+    update_sub_file
+    restart_singbox
+    hy2_link=$(cat "$url_file")
+    echo
+    green "=================================================="
+    green "${inbound_type}-${inbound_number} Hysteria2 Gecko 混淆已开启"
+    green "=================================================="
+    green "$hy2_link"
+    green "=================================================="
+    echo
+    sleep 1
+}
+disable_hy2_obfs() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local hy2_link=""
+    if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
+        red "当前入站不是 Hysteria2"
+        sleep 1
+        return 1
+    fi
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        red "未安装 python3，无法修改配置"
+        sleep 1
+        return 1
+    fi
+    python3 - "$config_file" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get('inbounds'), list):
+        sys.exit(1)
+    found = False
+    for ib in data['inbounds']:
+        if isinstance(ib, dict) and ib.get('type') == 'hysteria2':
+            ib.pop('obfs', None)
+            found = True
+    if not found:
+        sys.exit(1)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+except Exception:
+    sys.exit(1)
+PY
+    if [ $? -ne 0 ]; then
+        red "关闭 Gecko 混淆失败"
+        sleep 1
+        return 1
+    fi
+    if [ -f "$url_file" ]; then
+        sed -i -E 's/&obfs=[^&#]+//g;s/&obfs-password=[^&#]+//g;s/&obfs-min=[^&#]+//g;s/&obfs-max=[^&#]+//g' "$url_file"
+        update_sub_file
+        hy2_link=$(cat "$url_file")
+    fi
+    restart_singbox
+    echo
+    green "=================================================="
+    green "${inbound_type}-${inbound_number} Hysteria2 Gecko 混淆已关闭"
+    green "=================================================="
+    if [ -n "$hy2_link" ]; then
+        green "$hy2_link"
+    fi
+    green "=================================================="
+    echo
+    sleep 1
+}
 # 优化并设置 DNS 
 optimize_dns() {
     local cloudflare_ipv4="1.1.1.1"
@@ -5145,10 +5316,11 @@ add_inbound() {
   ]
 }
 EOF
-    node_remark="${isp}_vless_tcp_reality_${inbound_number}"
+    node_remark="${isp}vless_tcp_reality"
     url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
+	restart_service="singbox"
 	update_sub_file
     restart_singbox
     ;;
@@ -5177,12 +5349,138 @@ EOF
     echo
     read -rp "按回车返回..." _
 }
+hy2_port_hopping_enabled() {
+    local inbound_number="$1"
+    local hop_comment="Hysteria2_Hop_${inbound_number}"
+    if nft list chain ip hysteria_nat prerouting >/dev/null 2>&1; then
+        if nft -a list chain ip hysteria_nat prerouting 2>/dev/null | grep -Fq "comment \"$hop_comment\""; then
+            return 0
+        fi
+    fi
+    if [ -f /proc/net/if_inet6 ] && nft list chain ip6 hysteria_nat prerouting >/dev/null 2>&1; then
+        if nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null | grep -Fq "comment \"$hop_comment\""; then
+            return 0
+        fi
+    fi
+    return 1
+}
+hy2_obfs_enabled() {
+    local config_file="$1"
+    local inbound_type="$2"
+    local inbound_number="$3"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    if command -v jq >/dev/null 2>&1; then
+        if jq -e '.inbounds[0].obfs.type == "gecko"' "$config_file" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    if [ -f "$url_file" ] && grep -qE '(^|[?&])obfs=gecko(&|$)' "$url_file"; then
+        return 0
+    fi
+    return 1
+}
+manage_hy2_port_hopping_menu() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    while true; do
+        clear
+        green "================ 端口跳跃管理 ================"
+        echo
+        green "入站：${inbound_type}-${inbound_number}"
+        echo
+        if hy2_port_hopping_enabled "$inbound_number"; then
+            green "当前状态：已开启"
+            echo
+            green "1. 修改端口跳跃"
+            red "2. 关闭端口跳跃"
+        else
+            yellow "当前状态：未开启"
+            echo
+            green "1. 开启端口跳跃"
+        fi
+        echo
+        green "--------------------------------------------"
+        green "0. 返回"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            1)
+                hy2_port_hopping "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                ;;
+            2)
+                if hy2_port_hopping_enabled "$inbound_number"; then
+                    disable_hy2_port_hopping "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                else
+                    red "无效选项"
+                    sleep 1
+                fi
+                ;;
+            0)
+                return
+                ;;
+            *)
+                red "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
+manage_hy2_obfs_menu() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    while true; do
+        clear
+        green "================ Hysteria2 混淆管理 ================"
+        echo
+        green "入站：${inbound_type}-${inbound_number}"
+        echo
+        if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
+            green "当前状态：已开启"
+            echo
+            green "1. 重新生成混淆"
+            red "2. 关闭混淆"
+        else
+            yellow "当前状态：未开启"
+            echo
+            green "1. 开启混淆"
+        fi
+        echo
+        green "--------------------------------------------"
+        green "0. 返回"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            1)
+                modify_hy2_obfs "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                ;;
+            2)
+                if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
+                    disable_hy2_obfs "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                else
+                    red "无效选项"
+                    sleep 1
+                fi
+                ;;
+            0)
+                return
+                ;;
+            *)
+                red "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
 manage_single_inbound() {
     local selected="$1"
-    local config_file
-    local engine
-    local inbound_type
-    local inbound_number
+    local config_file=""
+    local engine=""
+    local inbound_type=""
+    local inbound_number=""
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
     while true; do
         clear
@@ -5201,8 +5499,40 @@ manage_single_inbound() {
         green "3. 流量限制"
         green "4. 查看链接"
         green "5. 查看配置"
-        red "6. 删除入站"
+        case "$inbound_type" in
+            vless-reality|grpc-reality|xhttp-reality)
+                green "6. 修改 Reality 域名"
+                red "7. 删除入站"
+                ;;
+            hysteria2)
+                if hy2_port_hopping_enabled "$inbound_number"; then
+                    green "7. 端口跳跃（已开启）"
+                else
+                    yellow "7. 端口跳跃（未开启）"
+                fi
+                if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
+                    green "8. 混淆（已开启）"
+                else
+                    yellow "8. 混淆（未开启）"
+                fi
+                red "9. 删除入站"
+                ;;
+            tuic|anytls|anytls-reality)
+                green "6. 修改证书"
+                red "7. 删除入站"
+                ;;
+            vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
+                green "6. 添加证书"
+                green "7. 修改证书"
+                green "8. 删除证书"
+                red "9. 删除入站"
+                ;;
+            *)
+                red "6. 删除入站"
+                ;;
+        esac
         echo
+        green "--------------------------------------------"
         green "0. 返回"
         echo
         read -rp "请选择: " choice
@@ -5223,9 +5553,59 @@ manage_single_inbound() {
                 show_inbound_config "$config_file"
                 ;;
             6)
-                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-                    return
-                fi
+                case "$inbound_type" in
+                    vless-reality|grpc-reality|xhttp-reality)
+                        modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    hysteria2|tuic|anytls|anytls-reality)
+                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
+                        add_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    *)
+                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                            return
+                        fi
+                        ;;
+                esac
+                ;;
+            7)
+                case "$inbound_type" in
+                    hysteria2)
+                        manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    tuic|anytls|anytls-reality)
+                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    vless-reality|grpc-reality|xhttp-reality)
+                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                            return
+                        fi
+                        ;;
+                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
+                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                esac
+                ;;
+            8)
+                case "$inbound_type" in
+                    hysteria2)
+                        manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
+                        delete_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                esac
+                ;;
+            9)
+                case "$inbound_type" in
+                    hysteria2|vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
+                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                            return
+                        fi
+                        ;;
+                esac
                 ;;
             0)
                 return
@@ -5294,17 +5674,56 @@ delete_inbound() {
     local inbound_type="$3"
     local inbound_number="$4"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local inbound_port=""
     echo
     red "确定删除 ${inbound_type}-${inbound_number}？"
     green "配置文件：${config_file}"
     green "链接文件：${url_file}"
     echo
-    read -rp "输入 yes 确认删除: " confirm
-    [ "$confirm" = "yes" ] || return 1
+    read -rp "输入 y 确认删除: " confirm
+    [ "$confirm" = "y" ] || return 1
+    if [ ! -f "$config_file" ]; then
+        red "错误：配置文件不存在，删除取消。"
+        sleep 1
+        return 1
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        inbound_port=$(jq -r '.. | objects | select(has("listen_port")) | .listen_port' "$config_file" 2>/dev/null | head -n1)
+    fi
+    if [ -z "$inbound_port" ] || [ "$inbound_port" = "null" ]; then
+        inbound_port=$(grep -m1 '"listen_port"' "$config_file" 2>/dev/null | tr -cd '0-9')
+    fi
+    if [ "$inbound_type" = "hysteria2" ]; then
+        if nft list chain ip nat prerouting &>/dev/null; then
+            for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                nft delete rule ip nat prerouting handle "$handle" 2>/dev/null
+            done
+        fi
+        if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
+            for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
+                nft delete rule ip6 nat prerouting handle "$handle" 2>/dev/null
+            done
+        fi
+    fi
+    if [ -n "$inbound_port" ] && [ "$inbound_port" != "443" ]; then
+        if nft list chain inet filter input &>/dev/null; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$inbound_port" '$0 ~ "dport "p {print $NF}'); do
+                nft delete rule inet filter input handle "$handle" 2>/dev/null
+            done
+        fi
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+    fi
     rm -f "$config_file"
     rm -f "$url_file"
-	update_sub_file
-    green "入站配置和节点连接已删除"
+    update_sub_file
+    if [ "$engine" = "xray" ]; then
+        restart_xray
+    else
+        restart_singbox
+    fi
+    green "==============================================="
+    green " 入站已移除：${inbound_type}-${inbound_number}"
+    green "==============================================="
     echo
     sleep 1
     return 0
