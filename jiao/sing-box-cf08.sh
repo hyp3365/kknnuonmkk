@@ -9162,9 +9162,7 @@ check_nodes() {
     local sub_file="${work_dir}/sub.txt"
     if [ -f "$sub_file" ]; then
         green "================ sub.txt ================"
-        while IFS= read -r line; do
-            [ -n "$line" ] && purple "$line"
-        done < "$sub_file"
+        purple "$(cat "$sub_file")"
         green "=========================================="
     else
         red "sub.txt 文件不存在：$sub_file"
