@@ -6134,23 +6134,25 @@ manage_single_inbound() {
     esac
     ;;
     10)
-        case "$inbound_type" in
-            vless-ws|vmess-ws|trojan-ws)
-                # 这里放开启隧道的函数
-                ;;
-            *)
-                red "当前入站没有此功能"
-                sleep 1
-                ;;
-        esac
-        ;;
-    0)
-            *)
-                red "无效选项"
-                sleep 1
-                ;;
-        esac
-    done
+    case "$inbound_type" in
+        vless-ws|vmess-ws|trojan-ws)
+            # 这里放开启隧道的函数
+            ;;
+        *)
+            red "当前入站没有此功能"
+            sleep 1
+            ;;
+    esac
+    ;;
+0)
+    return
+    ;;
+*)
+    red "无效选项"
+    sleep 1
+    ;;
+esac
+done
 }
 show_inbound_config() {
     local config_file="$1"
