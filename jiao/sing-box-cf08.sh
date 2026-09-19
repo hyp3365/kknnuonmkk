@@ -4938,11 +4938,11 @@ manage_nodes_menu() {
     mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR"
     while true; do
         clear
-        echo -e "${BLUE}================ 入站管理 ================${NC}"
+        echo -e "${GREEN}================ 入站管理 ================${NC}"
         echo
         echo -e "${GREEN}a.${NC} 添加入站"
         echo
-        echo -e "${BLUE}---------------- 已添加入站 ----------------${NC}"
+        echo -e "${GREEN}---------------- 已添加入站 ----------------${NC}"
         local entries=()
         local index=1
         local file
@@ -4957,7 +4957,7 @@ manage_nodes_menu() {
                 inbound_type="${BASH_REMATCH[1]}"
                 inbound_number="${BASH_REMATCH[2]}"
                 entries+=("$file|sing-box|$inbound_type|$inbound_number")
-                echo -e "${GREEN}${index}.${NC} ${inbound_type}-${inbound_number}"
+                echo -e "${GREEN}${index}. ${inbound_type}-${inbound_number}${NC}"
                 index=$((index + 1))
             fi
         done
@@ -4968,17 +4968,17 @@ manage_nodes_menu() {
                 inbound_type="${BASH_REMATCH[1]}"
                 inbound_number="${BASH_REMATCH[2]}"
                 entries+=("$file|xray|$inbound_type|$inbound_number")
-                echo -e "${GREEN}${index}.${NC} ${inbound_type}-${inbound_number}"
+                echo -e "${GREEN}${index}. ${inbound_type}-${inbound_number}${NC}"
                 index=$((index + 1))
             fi
         done
         shopt -u nullglob
         if [ ${#entries[@]} -eq 0 ]; then
-            echo -e "${GRAY}暂无已添加入站${NC}"
+            echo -e "${GREEN}暂无已添加入站${NC}"
         fi
         echo
-        echo -e "${BLUE}--------------------------------------------${NC}"
-        echo -e "${GREEN}0.${NC} 返回"
+        echo -e "${GREEN}--------------------------------------------${NC}"
+        echo -e "${GREEN}0. 返回${NC}"
         echo
         read -rp "请选择: " choice
         case "$choice" in
@@ -5023,105 +5023,58 @@ get_inbound_config_file() {
 add_inbound_menu() {
     while true; do
         clear
-        echo -e "${BLUE}================ 添加入站 ================${NC}"
+        echo -e "${GREEN}================ 添加入站 ================${NC}"
         echo
-        echo -e "${GREEN}1.${NC} VLESS Reality"
-        echo -e "${GREEN}2.${NC} Hysteria2"
-        echo -e "${GREEN}3.${NC} TUIC"
-        echo -e "${GREEN}4.${NC} HTTP Reality"
-        echo -e "${GREEN}5.${NC} gRPC Reality"
-        echo -e "${GREEN}6.${NC} AnyTLS"
-        echo -e "${GREEN}7.${NC} AnyTLS Reality"
-        echo -e "${GREEN}8.${NC} SOCKS5"
-        echo -e "${GREEN}9.${NC} HTTP"
-        echo -e "${GREEN}10.${NC} VLESS WS TLS"
-        echo -e "${GREEN}11.${NC} VMess/VLESS/Trojan CDN"
-        echo -e "${GREEN}12.${NC} Cloudflare Tunnel"
-        echo -e "${GREEN}13.${NC} XHTTP Reality"
-        echo -e "${GREEN}14.${NC} XHTTP CDN"
-        echo -e "${GREEN}15.${NC} XHTTP CDN TLS"
-        echo -e "${GREEN}16.${NC} XHTTP UDP TLS"
-        echo -e "${GREEN}17.${NC} XHTTP TCP+UDP CDN TLS"
-        echo -e "${GREEN}18.${NC} VLESS TCP TLS"
-        echo -e "${GREEN}19.${NC} Naiveproxy"
-        echo -e "${GREEN}20.${NC} VMess WS"
-        echo -e "${GREEN}21.${NC} VLESS WS"
+        echo -e "${GREEN}1. VLESS Reality${NC}"
+        echo -e "${GREEN}2. Hysteria2${NC}"
+        echo -e "${GREEN}3. TUIC${NC}"
+        echo -e "${GREEN}4. HTTP Reality${NC}"
+        echo -e "${GREEN}5. gRPC Reality${NC}"
+        echo -e "${GREEN}6. AnyTLS${NC}"
+        echo -e "${GREEN}7. AnyTLS Reality${NC}"
+        echo -e "${GREEN}8. SOCKS5${NC}"
+        echo -e "${GREEN}9. HTTP${NC}"
+        echo -e "${GREEN}10. VLESS WS TLS${NC}"
+        echo -e "${GREEN}11. VMess/VLESS/Trojan CDN${NC}"
+        echo -e "${GREEN}12. Cloudflare Tunnel${NC}"
+        echo -e "${GREEN}13. XHTTP Reality${NC}"
+        echo -e "${GREEN}14. XHTTP CDN${NC}"
+        echo -e "${GREEN}15. XHTTP CDN TLS${NC}"
+        echo -e "${GREEN}16. XHTTP UDP TLS${NC}"
+        echo -e "${GREEN}17. XHTTP TCP+UDP CDN TLS${NC}"
+        echo -e "${GREEN}18. VLESS TCP TLS${NC}"
+        echo -e "${GREEN}19. Naiveproxy${NC}"
+        echo -e "${GREEN}20. VMess WS${NC}"
+        echo -e "${GREEN}21. VLESS WS${NC}"
         echo
-        echo -e "${BLUE}--------------------------------------------${NC}"
-        echo -e "${GREEN}0.${NC} 返回"
+        echo -e "${GREEN}--------------------------------------------${NC}"
+        echo -e "${GREEN}0. 返回${NC}"
         echo
         read -rp "请选择入站类型: " choice
         case "$choice" in
-            1)
-                add_inbound "vless-reality" "sing-box"
-                ;;
-            2)
-                add_inbound "hysteria2" "sing-box"
-                ;;
-            3)
-                add_inbound "tuic" "sing-box"
-                ;;
-            4)
-                add_inbound "http-reality" "sing-box"
-                ;;
-            5)
-                add_inbound "grpc-reality" "sing-box"
-                ;;
-            6)
-                add_inbound "anytls" "sing-box"
-                ;;
-            7)
-                add_inbound "anytls-reality" "sing-box"
-                ;;
-            8)
-                add_inbound "socks5" "sing-box"
-                ;;
-            9)
-                add_inbound "http" "sing-box"
-                ;;
-            10)
-                add_inbound "vless-ws-tls" "sing-box"
-                ;;
-            11)
-                add_inbound "cdn" "sing-box"
-                ;;
-            12)
-                add_inbound "argo" "sing-box"
-                ;;
-            13)
-                add_inbound "xhttp-reality" "xray"
-                ;;
-            14)
-                add_inbound "xhttp-cdn" "xray"
-                ;;
-            15)
-                add_inbound "xhttp-cdn-tls" "xray"
-                ;;
-            16)
-                add_inbound "xhttp-udp-tls" "xray"
-                ;;
-            17)
-                add_inbound "xhttp-tcpudp-cdn-tls" "xray"
-                ;;
-            18)
-                add_inbound "vless-tcp-tls" "sing-box"
-                ;;
-            19)
-                add_inbound "naiveproxy" "sing-box"
-                ;;
-            20)
-                add_inbound "vmess-ws" "sing-box"
-                ;;
-            21)
-                add_inbound "vless-ws" "sing-box"
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "${RED}无效选项${NC}"
-                sleep 1
-                ;;
+            1) add_inbound "vless-reality" "sing-box" ;;
+            2) add_inbound "hysteria2" "sing-box" ;;
+            3) add_inbound "tuic" "sing-box" ;;
+            4) add_inbound "http-reality" "sing-box" ;;
+            5) add_inbound "grpc-reality" "sing-box" ;;
+            6) add_inbound "anytls" "sing-box" ;;
+            7) add_inbound "anytls-reality" "sing-box" ;;
+            8) add_inbound "socks5" "sing-box" ;;
+            9) add_inbound "http" "sing-box" ;;
+            10) add_inbound "vless-ws-tls" "sing-box" ;;
+            11) add_inbound "cdn" "sing-box" ;;
+            12) add_inbound "argo" "sing-box" ;;
+            13) add_inbound "xhttp-reality" "xray" ;;
+            14) add_inbound "xhttp-cdn" "xray" ;;
+            15) add_inbound "xhttp-cdn-tls" "xray" ;;
+            16) add_inbound "xhttp-udp-tls" "xray" ;;
+            17) add_inbound "xhttp-tcpudp-cdn-tls" "xray" ;;
+            18) add_inbound "vless-tcp-tls" "sing-box" ;;
+            19) add_inbound "naiveproxy" "sing-box" ;;
+            20) add_inbound "vmess-ws" "sing-box" ;;
+            21) add_inbound "vless-ws" "sing-box" ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
         esac
     done
 }
@@ -5133,80 +5086,74 @@ add_inbound() {
     inbound_number=$(get_next_inbound_number "$inbound_type")
     config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "$engine")
     clear
-    echo -e "${BLUE}================ 添加入站 ================${NC}"
+    echo -e "${GREEN}================ 添加入站 ================${NC}"
     echo
-    echo -e "入站类型：${GREEN}${inbound_type}${NC}"
-    echo -e "编号：${GREEN}${inbound_number}${NC}"
-    echo -e "配置文件：${GREEN}${config_file}${NC}"
-    echo -e "核心：${GREEN}${engine}${NC}"
+    echo -e "${GREEN}入站类型：${inbound_type}${NC}"
+    echo -e "${GREEN}自动编号：${inbound_number}${NC}"
+    echo -e "${GREEN}配置文件：${config_file}${NC}"
+    echo -e "${GREEN}核心：${engine}${NC}"
     echo
     case "$inbound_type" in
-        vless-reality)
-            echo "这里接入 VLESS Reality 创建逻辑"
-            ;;
-        hysteria2)
-            echo "这里接入 Hysteria2 创建逻辑"
-            ;;
-        tuic)
-            echo "这里接入 TUIC 创建逻辑"
-            ;;
-        http-reality)
-            echo "这里接入 HTTP Reality 创建逻辑"
-            ;;
-        grpc-reality)
-            echo "这里接入 gRPC Reality 创建逻辑"
-            ;;
-        anytls)
-            echo "这里接入 AnyTLS 创建逻辑"
-            ;;
-        anytls-reality)
-            echo "这里接入 AnyTLS Reality 创建逻辑"
-            ;;
-        socks5)
-            echo "这里接入 SOCKS5 创建逻辑"
-            ;;
-        http)
-            echo "这里接入 HTTP 创建逻辑"
-            ;;
-        vless-ws-tls)
-            echo "这里接入 VLESS WS TLS 创建逻辑"
-            ;;
-        cdn)
-            echo "这里接入 CDN 创建逻辑"
-            ;;
-        argo)
-            echo "这里接入 Cloudflare Tunnel 创建逻辑"
-            ;;
-        xhttp-reality)
-            echo "这里接入 XHTTP Reality 创建逻辑"
-            ;;
-        xhttp-cdn)
-            echo "这里接入 XHTTP CDN 创建逻辑"
-            ;;
-        xhttp-cdn-tls)
-            echo "这里接入 XHTTP CDN TLS 创建逻辑"
-            ;;
-        xhttp-udp-tls)
-            echo "这里接入 XHTTP UDP TLS 创建逻辑"
-            ;;
-        xhttp-tcpudp-cdn-tls)
-            echo "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑"
-            ;;
-        vless-tcp-tls)
-            echo "这里接入 VLESS TCP TLS 创建逻辑"
-            ;;
-        naiveproxy)
-            echo "这里接入 Naiveproxy 创建逻辑"
-            ;;
-        vmess-ws)
-            echo "这里接入 VMess WS 创建逻辑"
-            ;;
-        vless-ws)
-            echo "这里接入 VLESS WS 创建逻辑"
-            ;;
-        *)
-            echo -e "${RED}未知入站类型${NC}"
-            ;;
+    vless-reality)
+	generate_vars
+    server_ip=$(get_realip)
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-reality-${inbound_number}",
+      "listen": "::",
+      "listen_port": $xtls_reality,
+      "users": [
+        {
+          "name": "vless-reality-user${inbound_number}",
+          "uuid": "$uuid",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      }
+    }
+  ]
+}
+EOF
+    node_remark="${isp}${inbound_number}_vless_tcp_reality_${inbound_number}"
+    url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+	restart_singbox
+    ;;
+        hysteria2) echo -e "${GREEN}这里接入 Hysteria2 创建逻辑${NC}" ;;
+        tuic) echo -e "${GREEN}这里接入 TUIC 创建逻辑${NC}" ;;
+        http-reality) echo -e "${GREEN}这里接入 HTTP Reality 创建逻辑${NC}" ;;
+        grpc-reality) echo -e "${GREEN}这里接入 gRPC Reality 创建逻辑${NC}" ;;
+        anytls) echo -e "${GREEN}这里接入 AnyTLS 创建逻辑${NC}" ;;
+        anytls-reality) echo -e "${GREEN}这里接入 AnyTLS Reality 创建逻辑${NC}" ;;
+        socks5) echo -e "${GREEN}这里接入 SOCKS5 创建逻辑${NC}" ;;
+        http) echo -e "${GREEN}这里接入 HTTP 创建逻辑${NC}" ;;
+        vless-ws-tls) echo -e "${GREEN}这里接入 VLESS WS TLS 创建逻辑${NC}" ;;
+        cdn) echo -e "${GREEN}这里接入 CDN 创建逻辑${NC}" ;;
+        argo) echo -e "${GREEN}这里接入 Cloudflare Tunnel 创建逻辑${NC}" ;;
+        xhttp-reality) echo -e "${GREEN}这里接入 XHTTP Reality 创建逻辑${NC}" ;;
+        xhttp-cdn) echo -e "${GREEN}这里接入 XHTTP CDN 创建逻辑${NC}" ;;
+        xhttp-cdn-tls) echo -e "${GREEN}这里接入 XHTTP CDN TLS 创建逻辑${NC}" ;;
+        xhttp-udp-tls) echo -e "${GREEN}这里接入 XHTTP UDP TLS 创建逻辑${NC}" ;;
+        xhttp-tcpudp-cdn-tls) echo -e "${GREEN}这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑${NC}" ;;
+        vless-tcp-tls) echo -e "${GREEN}这里接入 VLESS TCP TLS 创建逻辑${NC}" ;;
+        naiveproxy) echo -e "${GREEN}这里接入 Naiveproxy 创建逻辑${NC}" ;;
+        vmess-ws) echo -e "${GREEN}这里接入 VMess WS 创建逻辑${NC}" ;;
+        vless-ws) echo -e "${GREEN}这里接入 VLESS WS 创建逻辑${NC}" ;;
+        *) echo -e "${RED}未知入站类型${NC}" ;;
     esac
     echo
     read -rp "按回车返回..." _
@@ -5220,35 +5167,29 @@ manage_single_inbound() {
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
     while true; do
         clear
-        echo -e "${BLUE}================ 入站管理 ================${NC}"
+        echo -e "${GREEN}================ 入站管理 ================${NC}"
         echo
-        echo -e "入站：${GREEN}${inbound_type}-${inbound_number}${NC}"
-        echo -e "类型：${GREEN}${inbound_type}${NC}"
-        echo -e "编号：${GREEN}${inbound_number}${NC}"
-        echo -e "核心：${GREEN}${engine}${NC}"
-        echo -e "配置：${GREEN}${config_file}${NC}"
+        echo -e "${GREEN}入站：${inbound_type}-${inbound_number}${NC}"
+        echo -e "${GREEN}类型：${inbound_type}${NC}"
+        echo -e "${GREEN}编号：${inbound_number}${NC}"
+        echo -e "${GREEN}核心：${engine}${NC}"
+        echo -e "${GREEN}配置：${config_file}${NC}"
         echo
-        echo -e "${BLUE}--------------------------------------------${NC}"
+        echo -e "${GREEN}--------------------------------------------${NC}"
         echo
-        echo -e "${GREEN}1.${NC} 修改入站"
-        echo -e "${GREEN}2.${NC} 查看配置"
-        echo -e "${GREEN}3.${NC} 查看分享链接"
-        echo -e "${GREEN}4.${NC} 重启服务"
-        echo -e "${RED}5.${NC} 删除入站"
+        echo -e "${GREEN}1. 修改入站${NC}"
+        echo -e "${GREEN}2. 查看配置${NC}"
+        echo -e "${GREEN}3. 查看分享链接${NC}"
+        echo -e "${GREEN}4. 重启服务${NC}"
+        echo -e "${GREEN}5. 删除入站${NC}"
         echo
-        echo -e "${GREEN}0.${NC} 返回"
+        echo -e "${GREEN}0. 返回${NC}"
         echo
         read -rp "请选择: " choice
         case "$choice" in
-            1)
-                edit_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            2)
-                show_inbound_config "$config_file"
-                ;;
-            3)
-                show_inbound_url "$inbound_type" "$inbound_number"
-                ;;
+            1) edit_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            2) show_inbound_config "$config_file" ;;
+            3) show_inbound_url "$inbound_type" "$inbound_number" ;;
             4)
                 if [ "$engine" = "xray" ]; then
                     systemctl restart xray
@@ -5263,20 +5204,15 @@ manage_single_inbound() {
                     return
                 fi
                 ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "${RED}无效选项${NC}"
-                sleep 1
-                ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
         esac
     done
 }
 show_inbound_config() {
     local config_file="$1"
     clear
-    echo -e "${BLUE}================ 入站配置 ================${NC}"
+    echo -e "${GREEN}================ 入站配置 ================${NC}"
     echo
     if [ -f "$config_file" ]; then
         if command -v jq >/dev/null 2>&1; then
@@ -5295,14 +5231,14 @@ show_inbound_url() {
     local inbound_number="$2"
     local remark="${inbound_type}-${inbound_number}"
     clear
-    echo -e "${BLUE}================ 分享链接 ================${NC}"
+    echo -e "${GREEN}================ 分享链接 ================${NC}"
     echo
-    echo -e "正在查找：${GREEN}${remark}${NC}"
+    echo -e "${GREEN}正在查找：${remark}${NC}"
     echo
     if [ -f "$URL_FILE" ]; then
-        grep -E "#${remark}$" "$URL_FILE" 2>/dev/null || echo -e "${GRAY}暂未找到对应分享链接${NC}"
+        grep -E "#${remark}$" "$URL_FILE" 2>/dev/null || echo -e "${GREEN}暂未找到对应分享链接${NC}"
     else
-        echo -e "${GRAY}URL 文件不存在${NC}"
+        echo -e "${GREEN}URL 文件不存在${NC}"
     fi
     echo
     read -rp "按回车返回..." _
@@ -5313,13 +5249,13 @@ edit_inbound() {
     local inbound_type="$3"
     local inbound_number="$4"
     clear
-    echo -e "${BLUE}================ 修改入站 ================${NC}"
+    echo -e "${GREEN}================ 修改入站 ================${NC}"
     echo
-    echo -e "入站：${GREEN}${inbound_type}-${inbound_number}${NC}"
-    echo -e "核心：${GREEN}${engine}${NC}"
-    echo -e "配置：${GREEN}${config_file}${NC}"
+    echo -e "${GREEN}入站：${inbound_type}-${inbound_number}${NC}"
+    echo -e "${GREEN}核心：${engine}${NC}"
+    echo -e "${GREEN}配置：${config_file}${NC}"
     echo
-    echo "这里后续接入对应入站的修改逻辑"
+    echo -e "${GREEN}这里后续接入对应入站的修改逻辑${NC}"
     echo
     read -rp "按回车返回..." _
 }
@@ -5330,14 +5266,13 @@ delete_inbound() {
     local inbound_number="$4"
     echo
     echo -e "${RED}确定删除 ${inbound_type}-${inbound_number}？${NC}"
-    echo -e "配置文件：${config_file}"
+    echo -e "${GREEN}配置文件：${config_file}${NC}"
     echo
     read -rp "输入 yes 确认删除: " confirm
     [ "$confirm" = "yes" ] || return 1
     rm -f "$config_file"
     echo -e "${GREEN}配置文件已删除${NC}"
     echo
-    echo -e "${GRAY}后续这里再加入端口、URL、订阅以及 Cloudflare 相关清理${NC}"
     sleep 1
     return 0
 }
