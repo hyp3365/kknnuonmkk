@@ -5840,8 +5840,8 @@ EOF
         vless-tcp-tls) green "这里接入 VLESS TCP TLS 创建逻辑" ;;
         naiveproxy) green "这里接入 Naiveproxy 创建逻辑" ;;
         vmess-ws)
-vmess_path="/xtcssssess-ws"
-cat > "$config_file" << EOF
+    vmess_path="/xtcssssess-ws"
+    cat > "$config_file" << EOF
 {
   "inbounds": [
     {
@@ -5851,7 +5851,7 @@ cat > "$config_file" << EOF
       "listen_port": $vmess_ws_port,
       "users": [
         {
-		  "name": "vmess-ws-user${inbound_number}",
+          "name": "vmess-ws-user${inbound_number}",
           "uuid": "$uuid",
           "alterId": 0
         }
@@ -5859,22 +5859,37 @@ cat > "$config_file" << EOF
       "transport": {
         "type": "ws",
         "path": "$vmess_path",
-		"max_early_data": 2048,
+        "max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ]
 }
 EOF
+    local add_cert
+    local vmess_tls="false"
+    reading "是否为此入站添加 TLS 证书？(y/回车跳过): " add_cert
+    if [[ "$add_cert" =~ ^[Yy]$ ]]; then
+        check_and_issue_ssl "" || return 1
+        jq --arg domain "$domain" --arg cert "$cert_file" --arg key "$key_file" \
+            '.inbounds[0].tls = {"enabled":true,"server_name":$domain,"certificate_path":$cert,"key_path":$key}' \
+            "$config_file" > "${config_file}.tmp" &&
+        mv -f "${config_file}.tmp" "$config_file"
+        vmess_tls="true"
+    fi
     vmess_remark="${isp}vmess_ws"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    url="vmess://$(echo -n "$VMESS" | base64 -w0)"    
-	add_v2ray_api_user "vmess-ws-user${inbound_number}"
-  	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    if [[ "$vmess_tls" == "true" ]]; then
+        VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${server_ip}\", \"port\": \"${vmess_ws_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    else
+        VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${server_ip}\", \"port\": \"${vmess_ws_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"path\": \"${vmess_path}\" }"
+    fi
+    url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    add_v2ray_api_user "vmess-ws-user${inbound_number}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
-	update_sub_file
-	restart_singbox  
+    restart_service="singbox"
+    update_sub_file
+    restart_singbox
     ;;
         *) red "未知入站类型" ;;
     esac
@@ -6037,7 +6052,6 @@ manage_single_inbound() {
                 green "6. 修改 Reality 域名"
                 ;;
             hysteria2)
-                green "6. 修改证书"
                 if hy2_port_hopping_enabled "$inbound_number"; then
                     green "7. 端口跳跃（已开启）"
                 else
@@ -6049,15 +6063,9 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-            tuic|anytls|anytls-reality|vless-tcp-tls)
-                green "6. 修改证书"
-                ;;
 			vless-ws|vmess-ws|trojan-ws)
-			    green "6. 添加证书"
-                green "7. 修改证书"
-                green "8. 删除证书"
-                green "9. 开启CDN"
-                green "10. 开启隧道"
+                green "6. 开启CDN"
+                green "7. 开启隧道"
                 ;;
         esac
         echo
@@ -6087,54 +6095,10 @@ manage_single_inbound() {
         show_inbound_config "$config_file"
         ;;
     6)
-        case "$inbound_type" in
-            vless-reality|grpc-reality|xhttp-reality)
-                modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            hysteria2|tuic|anytls|anytls-reality)
-                modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            vless-tcp-tls|vless-ws|vmess-ws|trojan-ws)
-                add_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            *)
-                red "当前入站没有此功能"
-                sleep 1
-                ;;
-        esac
-        ;;
-    7)
-        case "$inbound_type" in
-            hysteria2)
-                manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            vless-ws|vmess-ws|trojan-ws)
-                modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            *)
-                red "当前入站没有此功能"
-                sleep 1
-                ;;
-        esac
-        ;;
-    8)
-        case "$inbound_type" in
-            hysteria2)
-                manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            vless-ws|vmess-ws|trojan-ws)
-                delete_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                ;;
-            *)
-                red "当前入站没有此功能"
-                sleep 1
-                ;;
-        esac
-        ;;
-    9)
     case "$inbound_type" in
         vless-ws|vmess-ws|trojan-ws)
-            enable_vmess_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            enable_ws_cdn 
+			"$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
             red "当前入站没有此功能"
@@ -6142,7 +6106,7 @@ manage_single_inbound() {
             ;;
     esac
     ;;
-    10)
+    7)
     case "$inbound_type" in
         vless-ws|vmess-ws|trojan-ws)
             # 这里放开启隧道的函数
