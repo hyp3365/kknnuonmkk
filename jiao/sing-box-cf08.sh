@@ -5347,21 +5347,36 @@ modify_inbound_port() {
     fi
     echo
     green "当前端口：$old_port"
-    reading "请输入新端口： " new_port
-    if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
-        red "端口无效，请输入 1-65535"
-        sleep 1
-        return 1
+    reading "请输入新端口（直接回车随机生成）： " new_port
+    if [ -z "$new_port" ]; then
+        new_port=$(get_available_port)
+        if [ -z "$new_port" ]; then
+            red "无法获取可用端口"
+            sleep 1
+            return 1
+        fi
+        green "已随机选择可用端口：$new_port"
+    else
+        if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+            red "端口无效，请输入 1-65535"
+            sleep 1
+            return 1
+        fi
+        if [ "$new_port" = "$old_port" ]; then
+            yellow "新端口与当前端口相同"
+            sleep 1
+            return 0
+        fi
+        if ss -lntup 2>/dev/null | grep -Eq ":${new_port}([[:space:]]|$)"; then
+            red "端口 ${new_port} 已被占用"
+            sleep 1
+            return 1
+        fi
     fi
     if [ "$new_port" = "$old_port" ]; then
         yellow "新端口与当前端口相同"
         sleep 1
         return 0
-    fi
-    if ss -lntup 2>/dev/null | grep -Eq ":${new_port}[[:space:]]"; then
-        red "端口 ${new_port} 已被占用"
-        sleep 1
-        return 1
     fi
     jq --argjson port "$new_port" '.inbounds[0].listen_port = $port' "$config_file" > "${config_file}.tmp" || {
         rm -f "${config_file}.tmp"
@@ -5370,16 +5385,17 @@ modify_inbound_port() {
         return 1
     }
     mv -f "${config_file}.tmp" "$config_file"
-    green "端口已修改：${old_port} → ${new_port}"
-    if /etc/sing-box/sing-box check -C /etc/sing-box/conf >/dev/null 2>&1; then
-        green "配置检查通过"
-    else
+    if ! /etc/sing-box/sing-box check -C /etc/sing-box/conf >/dev/null 2>&1; then
         red "配置检查失败，正在恢复原端口"
         jq --argjson port "$old_port" '.inbounds[0].listen_port = $port' "$config_file" > "${config_file}.tmp" &&
         mv -f "${config_file}.tmp" "$config_file"
         sleep 1
         return 1
     fi
+    allow_port "$new_port/tcp" >/dev/null 2>&1
+    allow_port "$new_port/udp" >/dev/null 2>&1
+    green "端口已修改：${old_port} → ${new_port}"
+    green "TCP/UDP 端口已放行：${new_port}"
     restart_singbox
     green "新端口：${new_port}"
     sleep 2
