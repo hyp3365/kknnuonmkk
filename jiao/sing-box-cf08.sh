@@ -792,12 +792,6 @@ cf_remove_cdn_rules() {
         yellow "未获取到 CDN 域名，跳过删除回源规则"
         return 0
     }
-    read -rp "是否同时删除 ${domain} 的 Cloudflare 回源规则？(y/N): " del_cf
-    [[ ! "$del_cf" =~ ^[Yy]$ ]] && {
-        yellow "已跳过删除 Cloudflare 回源规则"
-        return 0
-    }
-    # 没有认证信息时请求
     if [[ -z "${CF_TOKEN:-}" &&
           ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
         echo
@@ -5333,6 +5327,63 @@ get_inbound_cdn_domain() {
     [ -n "$cdn_domain" ] || return 1
     printf '%s\n' "$cdn_domain"
 }
+modify_inbound_port() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local old_port=""
+    local new_port=""
+    if [ ! -f "$config_file" ]; then
+        red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    old_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
+    if [ -z "$old_port" ]; then
+        red "无法读取当前端口"
+        sleep 1
+        return 1
+    fi
+    echo
+    green "当前端口：$old_port"
+    reading "请输入新端口： " new_port
+    if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        red "端口无效，请输入 1-65535"
+        sleep 1
+        return 1
+    fi
+    if [ "$new_port" = "$old_port" ]; then
+        yellow "新端口与当前端口相同"
+        sleep 1
+        return 0
+    fi
+    if ss -lntup 2>/dev/null | grep -Eq ":${new_port}[[:space:]]"; then
+        red "端口 ${new_port} 已被占用"
+        sleep 1
+        return 1
+    fi
+    jq --argjson port "$new_port" '.inbounds[0].listen_port = $port' "$config_file" > "${config_file}.tmp" || {
+        rm -f "${config_file}.tmp"
+        red "修改端口失败"
+        sleep 1
+        return 1
+    }
+    mv -f "${config_file}.tmp" "$config_file"
+    green "端口已修改：${old_port} → ${new_port}"
+    if /etc/sing-box/sing-box check -C /etc/sing-box/conf >/dev/null 2>&1; then
+        green "配置检查通过"
+    else
+        red "配置检查失败，正在恢复原端口"
+        jq --argjson port "$old_port" '.inbounds[0].listen_port = $port' "$config_file" > "${config_file}.tmp" &&
+        mv -f "${config_file}.tmp" "$config_file"
+        sleep 1
+        return 1
+    fi
+    restart_singbox
+    green "新端口：${new_port}"
+    sleep 2
+}
 
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
@@ -6053,8 +6104,8 @@ manage_single_inbound() {
         modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
         ;;
     2)
-        modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
-        ;;
+    modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+    ;;
     3)
         bash /etc/sing-box/sing-box-name.sh
         ;;
