@@ -1125,8 +1125,8 @@ units = ["B", "KB", "MB", "GB", "TB", "PB"]
 i = 0
 v = float(n)
 
-while v >= 1000 and i < len(units) - 1:
-    v /= 1000
+while v >= 1024 and i < len(units) - 1:
+    v /= 1024
     i += 1
 
 if i == 0:
@@ -1267,8 +1267,8 @@ def fmt(n):
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     i = 0
 
-    while n >= 1000 and i < len(units) - 1:
-        n /= 1000
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
         i += 1
 
     if i == 0:
