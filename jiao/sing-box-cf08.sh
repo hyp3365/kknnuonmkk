@@ -5151,6 +5151,7 @@ enable_ws_cdn() {
     local inbound_type="$3"
     local inbound_number="$4"
     local uuid=""
+    local password=""
     local ws_path=""
     local origin_port=""
     local domain=""
@@ -5160,6 +5161,7 @@ enable_ws_cdn() {
     local cf_ssl_mode="flexible"
     local cdn_url=""
     local node_remark_cdn=""
+    local node_remark_enc=""
     local url_file=""
     if [ ! -f "$config_file" ]; then
         red "入站配置文件不存在：$config_file"
@@ -5167,20 +5169,32 @@ enable_ws_cdn() {
         return 1
     fi
     uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
+    password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
-    if [ -z "$uuid" ]; then
-        red "未检测到 UUID"
-        sleep 1
-        return 1
-    fi
+    case "$inbound_type" in
+        vless-ws|vmess-ws)
+            if [ -z "$uuid" ]; then
+                red "无法读取 UUID"
+                sleep 1
+                return 1
+            fi
+            ;;
+        trojan-ws)
+            if [ -z "$password" ]; then
+                red "无法读取 Trojan 密码"
+                sleep 1
+                return 1
+            fi
+            ;;
+    esac
     if [ -z "$ws_path" ]; then
-        red "未检测到 WebSocket Path"
+        red "无法读取 WebSocket Path"
         sleep 1
         return 1
     fi
     if [ -z "$origin_port" ]; then
-        red "未检测到入站端口"
+        red "无法读取入站端口"
         sleep 1
         return 1
     fi
@@ -5248,17 +5262,18 @@ enable_ws_cdn() {
         yellow "警告：Cloudflare CDN 回源规则配置失败"
     fi
     node_remark_cdn="${isp}_${inbound_type}_cdn"
+    node_remark_enc=$(printf '%s' "$node_remark_cdn" | jq -sRr @uri)
     case "$inbound_type" in
         vless-ws)
-            cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+            cdn_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
         vmess-ws)
             local vmess_json=""
-            vmess_json="{\"v\":\"2\",\"ps\":\"${node_remark_cdn}\",\"add\":\"${CFIP}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"auto\",\"host\":\"${domain}\",\"path\":\"${ws_path}\",\"tls\":\"tls\",\"sni\":\"${domain}\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
+            vmess_json="{ \"v\": \"2\", \"ps\": \"${node_remark_cdn}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
             cdn_url="vmess://$(printf '%s' "$vmess_json" | base64 -w0)"
             ;;
         trojan-ws)
-            cdn_url="trojan://${uuid}@${CFIP}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}#${node_remark_cdn}"
+            cdn_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 CDN：$inbound_type"
@@ -5268,11 +5283,11 @@ enable_ws_cdn() {
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     mkdir -p "$URL_DIR"
     if [ -f "$url_file" ]; then
-        sed -i "/#${node_remark_cdn}$/d" "$url_file"
+        sed -i "/#${node_remark_enc}$/d" "$url_file"
     fi
     echo "$cdn_url" >> "$url_file"
     if [ -f "${work_dir}/url.txt" ]; then
-        sed -i "/#${node_remark_cdn}$/d" "${work_dir}/url.txt"
+        sed -i "/#${node_remark_enc}$/d" "${work_dir}/url.txt"
     fi
     echo "$cdn_url" >> "${work_dir}/url.txt"
     echo "" >> "${work_dir}/url.txt"
@@ -5289,7 +5304,6 @@ enable_ws_cdn() {
     green "============================================"
     read -rp "按回车返回..." _
 }
-
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
         output=$(${work_dir}/sing-box generate reality-keypair)
