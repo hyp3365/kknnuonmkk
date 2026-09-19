@@ -5394,8 +5394,6 @@ modify_inbound_port() {
     fi
     allow_port "$new_port/tcp" >/dev/null 2>&1
     allow_port "$new_port/udp" >/dev/null 2>&1
-    green "端口已修改：${old_port} → ${new_port}"
-    green "TCP/UDP 端口已放行：${new_port}"
     restart_singbox
     green "新端口：${new_port}"
     sleep 2
