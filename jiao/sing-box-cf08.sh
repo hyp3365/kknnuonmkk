@@ -5330,6 +5330,24 @@ EOF
     restart_singbox
     ;;
 	   hysteria2)
+	echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
+    fi
 	cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -5369,6 +5387,24 @@ EOF
     restart_singbox
 	;;
         tuic)
+    echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com"
+    fi
 	cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -5572,8 +5608,8 @@ manage_single_inbound() {
         echo
         green "--------------------------------------------"
         echo
-        green "1. 修改 UUID（随机生成）"
-        green "2. 修改端口（随机生成）"
+        green "1. 修改UUID"
+        green "2. 修改端口"
         green "3. 流量限制"
         green "4. 查看链接"
         green "5. 查看配置"
@@ -5595,7 +5631,7 @@ manage_single_inbound() {
                 fi
                 red "9. 删除入站"
                 ;;
-            tuic|anytls|anytls-reality)
+            tuic|anytls|anytls-reality|hysteria2)
                 green "6. 修改证书"
                 red "7. 删除入站"
                 ;;
@@ -5716,16 +5752,54 @@ show_inbound_url() {
     local inbound_type="$1"
     local inbound_number="$2"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
+    local domain_conf="/etc/nginx/conf.d/sing-box1.conf"
+    local found_any=false
+    local line=""
+    local sub_domain=""
+    local sub_port=""
+    local sub_path=""
+    local domain_url=""
+    local server_ip=""
+    local lujing=""
+    local base64_url=""
     clear
     green "================ 节点连接 ================"
     echo
     green "入站：${inbound_type}-${inbound_number}"
-    green "链接文件：${url_file}"
     echo
     if [ -f "$url_file" ]; then
-        cat "$url_file"
+        while IFS= read -r line; do
+            [ -n "$line" ] && purple "$line"
+        done < "$url_file"
     else
         red "对应链接文件不存在"
+    fi
+    echo
+    green "================ 订阅链接 ================"
+    echo
+    if [ -f "$domain_conf" ]; then
+        sub_domain=$(sed -n 's/^\s*server_name\s\+\([^;]\+\);.*/\1/p' "$domain_conf" | tr -d ' ')
+        sub_port=$(sed -n 's/^\s*listen\s\+\([0-9]\+\).*/\1/p' "$domain_conf" | head -n 1)
+        sub_path=$(sed -n 's|.*location = /\([^ {]*\).*|\1|p' "$domain_conf")
+        if [ -n "$sub_domain" ] && [ "$sub_domain" != "_" ] && [ -n "$sub_port" ] && [ -n "$sub_path" ]; then
+            domain_url="https://${sub_domain}:${sub_port}/${sub_path}"
+            green "订阅链接: ${purple}${domain_url}${re}"
+            found_any=true
+        fi
+    fi
+    if [ -f "$nginx_conf" ]; then
+        server_ip=$(get_realip)
+        lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "$nginx_conf")
+        sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf" | head -n 1)
+        if [ -n "$server_ip" ] && [ -n "$sub_port" ] && [ -n "$lujing" ]; then
+            base64_url="http://${server_ip}:${sub_port}/${lujing}"
+            green "订阅链接: ${purple}${base64_url}${re}"
+            found_any=true
+        fi
+    fi
+    if [ "$found_any" = false ]; then
+        red "订阅服务未配置或订阅已关闭"
     fi
     echo
     read -rp "按回车返回..." _
