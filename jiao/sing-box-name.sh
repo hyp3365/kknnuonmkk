@@ -29,6 +29,8 @@ TRAFFIC_SERVICE="singbox-traffic.service"
 PYTHON="$(command -v python3 2>/dev/null || true)"
 CONFIG_LOCK="$DATA_DIR/.config.lock"
 TRAFFIC_SCRIPT_CHANGED=0
+INBOUND_TAG="${1:-}"
+TRAFFIC_USER="${2:-}"
 
 init_traffic() {
     TRAFFIC_SCRIPT_CHANGED=0
