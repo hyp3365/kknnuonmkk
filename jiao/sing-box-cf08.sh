@@ -5198,6 +5198,11 @@ enable_ws_cdn() {
         sleep 1
         return 1
     fi
+	if [ -z "$CFIP" ]; then
+        red "未获取到 Cloudflare IP"
+        sleep 1
+        return 1
+    fi
     if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
         skyblue "请选择 Cloudflare 验证方式："
         green " 1) Cloudflare API Token"
