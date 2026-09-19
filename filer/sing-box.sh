@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.3.25 (2026.09.16)'
+VERSION='v1.3.25 (2026.09.18)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -22,7 +22,7 @@ NODE_TAG=("xtls-reality" "hysteria2" "tuic" "ShadowTLS" "shadowsocks" "trojan" "
 CONSECUTIVE_PORTS=${#PROTOCOL_LIST[@]}
 CDN_DOMAIN=("skk.moe" "ip.sb" "time.is" "cfip.xxxxxxxx.tk" "bestcf.top" "cdn.2020111.xyz" "xn--b6gac.eu.org" "cf.090227.xyz")
 SUBSCRIBE_TEMPLATE="https://raw.githubusercontent.com/fscarmen/client_template/main"
-DEFAULT_NEWEST_VERSION='1.15.0-alpha.4'
+DEFAULT_NEWEST_VERSION='1.15.0-alpha.6'
 FINGER_PRINT='chrome'
 STEP_NUM=0      # 当前步骤编号（安装流程中动态递增）
 TOTAL_STEPS=''  # 总步骤数（协议确定后动态计算）
@@ -3026,11 +3026,14 @@ sing-box_variables() {
     elif grep -qi 'cloudflare' <<< "$ASNORG4" && [ -n "$WAN6" ] && ! grep -qi 'cloudflare' <<< "$ASNORG6"; then
       SERVER_IP_DEFAULT=$WAN6
     else
+      # 双栈均为 Cloudflare（或唯一出口为 CF），无法自动反选真实出口，需交互确认
+      SERVER_IP_DEFAULT="${SERVER_IP_DEFAULT:-${WAN4:-$WAN6}}"
       local a=6
       until [ -n "$SERVER_IP" ] && is_valid_server_addr "$SERVER_IP"; do
         ((a--)) || true
         [ "$a" = 0 ] && error "\n $(text 3) \n"
-        reading "\n $(text 46) " SERVER_IP
+        reading "\n (${STEP_NUM}/${TOTAL_STEPS:-?}) $(text 10) " SERVER_IP
+        [ -z "$SERVER_IP" ] && SERVER_IP="$SERVER_IP_DEFAULT"
       done
     fi
   elif [ -n "$WAN4" ]; then
@@ -3074,8 +3077,7 @@ sing-box_variables() {
 
   # 输入服务器 IP,默认为检测到的服务器 IP，如果全部为空，则提示并退出脚本
   if [ "$IS_FAST_INSTALL" = 'is_fast_install' ]; then
-    grep -q '^$' <<< "$SERVER_IP" && grep -q '.' <<< "$WAN4" && SERVER_IP=$WAN4
-    grep -q '^$' <<< "$SERVER_IP" && grep -q '.' <<< "$WAN6" && SERVER_IP=$WAN6
+    grep -q '^$' <<< "$SERVER_IP" && SERVER_IP="$SERVER_IP_DEFAULT"
   fi
   if [ -z "$SERVER_IP" ]; then
     if [[ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' || "$IS_FAST_INSTALL" = 'is_fast_install' ]]; then
