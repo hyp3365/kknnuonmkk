@@ -3115,7 +3115,7 @@ install_singbox() {
     esac
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
     # 下载sing-box,cloudflared
-    latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
+    latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | test("^sing-box-v[0-9.]+-v2rayapi$"))][0].tag_name')
     work_dir=${work_dir:-/etc/sing-box}
 mkdir -p "$work_dir"
 ARCH_RAW=$(uname -m)
@@ -3128,7 +3128,7 @@ URL="https://github.com/hyp3699/kknnuonmkk/releases/download/${latest_version}/s
 curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
  
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
-    
+
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
