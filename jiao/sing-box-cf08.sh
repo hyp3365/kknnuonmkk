@@ -3114,16 +3114,17 @@ install_singbox() {
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
-    latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | contains("sing-box-") and contains("-v2rayapi"))][0].tag_name')
+    # 下载sing-box,cloudflared
+    latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | test("^sing-box-v[0-9.]+-v2rayapi$"))][0].tag_name')
     work_dir=${work_dir:-/etc/sing-box}
-mkdir -p "$work_dir"
-ARCH_RAW=$(uname -m)
-case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
-if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
-latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | contains("sing-box-") and contains("-v2rayapi"))][0].tag_name')
-[ -z "$latest_version" ] && latest_version=sing-box-v1.14.1-v2rayapi
-URL="https://github.com/hyp3699/kknnuonmkk/releases/download/${latest_version}/sing-box"
-curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
+    mkdir -p "$work_dir"
+    ARCH_RAW=$(uname -m)
+    case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
+    if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
+    latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | test("^sing-box-v[0-9.]+-v2rayapi$"))][0].tag_name')
+    [ -z "$latest_version" ] && latest_version=sing-box-v1.14.1-v2rayapi
+    URL="https://github.com/hyp3699/kknnuonmkk/releases/download/${latest_version}/sing-box"
+    curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
 
     # 放行端口
