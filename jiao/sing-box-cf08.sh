@@ -4140,18 +4140,19 @@ modify_inbound_uuid() {
             ;;
     esac
     update_sub_file
-    if [ "$engine" = "xray" ]; then
-        restart_xray
-    else
-        restart_singbox
-    fi
     green "==============================================="
     green " UUID 修改完成"
     green "入站：${inbound_type}-${inbound_number}"
     green "新 UUID：${new_uuid}"
     green "==============================================="
     echo
-    sleep 1
+	sleep 2
+	if [ "$engine" = "xray" ]; then
+        restart_xray
+    else
+        restart_singbox
+    fi
+    sleep 2
     return 0
 }
 #修改reality  sni
@@ -5403,7 +5404,7 @@ modify_inbound_port() {
     allow_port "$new_port/udp" >/dev/null 2>&1
     restart_singbox
     green "新端口：${new_port}"
-    sleep 2
+    sleep 3
 }
 
 manage_nodes_menu() {
@@ -9158,20 +9159,23 @@ done
 
 # 查看节点信息和订阅链接
 check_nodes() {
-    if [ -f "${work_dir}/sub.txt" ]; then
-        while IFS= read -r line; do 
-            purple "$line"
-        done < "${work_dir}/sub.txt"
+    local sub_file="${work_dir}/sub.txt"
+    if [ -f "$sub_file" ]; then
+        green "================ sub.txt ================"
+        while IFS= read -r line; do
+            [ -n "$line" ] && purple "$line"
+        done < "$sub_file"
+        green "=========================================="
+    else
+        red "sub.txt 文件不存在：$sub_file"
     fi
-
     local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
     local domain_conf="/etc/nginx/conf.d/sing-box1.conf"
-    local found_any=false 
+    local found_any=false
     if [ -f "$domain_conf" ]; then
         local sub_domain=$(sed -n 's/^\s*server_name\s\+\([^;]\+\);.*/\1/p' "$domain_conf" | tr -d ' ')
         local sub_port=$(sed -n 's/^\s*listen\s\+\([0-9]\+\).*/\1/p' "$domain_conf" | head -n 1)
         local sub_path=$(sed -n 's|.*location = /\([^ {]*\).*|\1|p' "$domain_conf")
-        
         if [ -n "$sub_domain" ] && [ "$sub_domain" != "_" ]; then
             local domain_url="https://${sub_domain}:${sub_port}/${sub_path}"
             green "订阅链接: ${purple}${domain_url}${re}"
@@ -9181,13 +9185,13 @@ check_nodes() {
     if [ -f "$nginx_conf" ]; then
         server_ip=$(get_realip)
         lujing=$(sed -n 's|.*location = /\([^ ]*\).*|\1|p' "$nginx_conf")
-        sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf")      
-        base64_url="http://${server_ip}:${sub_port}/${lujing}"        
-        green "订阅链接: ${purple}${base64_url}${re}\n"
+        sub_port=$(sed -n 's/^\s*listen \([0-9]\+\);/\1/p' "$nginx_conf")
+        base64_url="http://${server_ip}:${sub_port}/${lujing}"
+        green "订阅链接: ${purple}${base64_url}${re}"
         found_any=true
     fi
     if [ "$found_any" = false ]; then
-        red "订阅服务未配置或订阅已关闭\n"
+        red "订阅服务未配置或订阅已关闭"
     fi
 }
 
