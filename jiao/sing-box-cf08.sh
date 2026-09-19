@@ -5221,8 +5221,6 @@ if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
     return 1
 fi
 cf_select_zone || return 1
-domain="$zone_domain"
-cf_select_zone || return 1
 reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
 prefix=$(echo "$prefix" | tr -d '[:space:]')
 prefix="${prefix#.}"
@@ -5308,6 +5306,34 @@ fi
     green "============================================"
     read -rp "按回车返回..." _
 }
+get_inbound_cdn_domain() {
+    local inbound_type="$1"
+    local inbound_number="$2"
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    local cdn_domain=""
+    local line=""
+    local decoded=""
+    [ -f "$url_file" ] || return 1
+    case "$inbound_type" in
+        vless-ws|trojan-ws)
+            line=$(grep -m1 'sni=' "$url_file")
+            if [ -n "$line" ]; then
+                cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+            fi
+            ;;
+        vmess-ws)
+            while IFS= read -r line; do
+                [[ "$line" == vmess://* ]] || continue
+                decoded=$(printf '%s' "${line#vmess://}" | base64 -d 2>/dev/null) || continue
+                cdn_domain=$(echo "$decoded" | jq -r '.sni // empty' 2>/dev/null)
+                [ -n "$cdn_domain" ] && break
+            done < "$url_file"
+            ;;
+    esac
+    [ -n "$cdn_domain" ] || return 1
+    printf '%s\n' "$cdn_domain"
+}
+
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
         output=$(${work_dir}/sing-box generate reality-keypair)
@@ -5524,6 +5550,10 @@ EOF
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
     ;;
 	   hysteria2)
 	echo -e "\n请选择 TLS 证书类型:"
@@ -5582,6 +5612,10 @@ EOF
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
 	;;
         tuic)
     echo -e "\n请选择 TLS 证书类型:"
@@ -5637,6 +5671,10 @@ EOF
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
 	;;
         http-reality)
     cat > "$config_file" << EOF
@@ -5691,6 +5729,10 @@ EOF
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
     ;;
         grpc-reality)
     cat > "$config_file" << EOF
@@ -5746,6 +5788,10 @@ EOF
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
     ;;
         anytls) green "这里接入 AnyTLS 创建逻辑" ;;
         anytls-reality) green "这里接入 AnyTLS Reality 创建逻辑" ;;
@@ -5810,6 +5856,10 @@ EOF
     restart_service="singbox"
     update_sub_file
     restart_singbox
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
     ;;
         *) red "未知入站类型" ;;
     esac
@@ -6143,6 +6193,7 @@ delete_inbound() {
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     local inbound_port=""
     local v2ray_api_user=""
+	local cdn_domain=""
 
     echo
     red "确定删除 ${inbound_type}-${inbound_number}？"
@@ -6156,6 +6207,17 @@ delete_inbound() {
         sleep 1
         return 1
     fi
+	case "$inbound_type" in
+    vless-ws|vmess-ws|trojan-ws)
+        cdn_domain=$(get_inbound_cdn_domain "$inbound_type" "$inbound_number")
+        if [[ -n "$cdn_domain" ]]; then
+            reading "检测到此入站存在 CDN：${cdn_domain}，是否同时删除 CDN 回源规则和 DNS 记录？(y/N): " delete_cdn
+            if [[ "$delete_cdn" =~ ^[Yy]$ ]]; then
+                cf_remove_cdn_rules "$cdn_domain"
+            fi
+        fi
+        ;;
+    esac
     if command -v jq >/dev/null 2>&1; then
     v2ray_api_user=$(jq -r '.. | objects | .name? // empty' "$config_file" 2>/dev/null | head -n1)
     fi
