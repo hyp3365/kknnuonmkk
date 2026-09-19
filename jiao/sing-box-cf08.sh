@@ -5139,7 +5139,12 @@ delete_v2ray_api_user() {
     local config="/etc/sing-box/conf/config.json"
     local tmp="${config}.tmp"
     [ -n "$username" ] || return 0
-    jq --arg username "$username" '.experimental.v2ray_api.stats.users |= map(select(. != $username))' "$config" > "$tmp" && mv -f "$tmp" "$config"
+    [ -f "$config" ] || return 0
+    jq --arg username "$username" '.experimental.v2ray_api.stats.users |= map(select(. != $username))' "$config" > "$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    mv -f "$tmp" "$config"
 }
 
 manage_nodes_menu() {
@@ -5868,7 +5873,7 @@ delete_inbound() {
         return 1
     fi
     if command -v jq >/dev/null 2>&1; then
-    v2ray_api_user=$(jq -r '.inbounds[]?.users[]?.name // empty' "$config_file" 2>/dev/null | head -n1)
+    v2ray_api_user=$(jq -r '.. | objects | .name? // empty' "$config_file" 2>/dev/null | head -n1)
     fi
 
     if command -v jq >/dev/null 2>&1; then
