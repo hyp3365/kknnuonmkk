@@ -1789,6 +1789,13 @@ main_menu() {
     local type="$3"
     local port="$4"
     local user="$5"
+    if [ -z "$user" ] && [ -n "$tag" ] && [ -d "$LIMIT_DIR" ]; then
+        local limit_file=""
+        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${tag}__*.json" -print -quit 2>/dev/null)
+        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
+            user=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
+        fi
+    fi
     while true; do
         title "流量设置"
         echo -e "  ${cyan}a)${re} 停止流量统计"
@@ -1830,7 +1837,14 @@ main_menu() {
         esac
     done
 }
-if [ -n "$INBOUND_TAG" ] && [ -n "$TRAFFIC_USER" ]; then
+if [ -n "$INBOUND_TAG" ]; then
+    if [ -z "$TRAFFIC_USER" ] && [ -d "$LIMIT_DIR" ]; then
+        local limit_file=""
+        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${INBOUND_TAG}__*.json" -print -quit 2>/dev/null)
+        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
+            TRAFFIC_USER=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
+        fi
+    fi
     main_menu "" "$INBOUND_TAG" "" "" "$TRAFFIC_USER"
 else
     main_menu "$@"
