@@ -156,6 +156,12 @@ trojan_ws_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
+DATA_DIR="$BASE_DIR/user_manager"
+LIMIT_DIR="$DATA_DIR/limits"
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+PYTHON="$(command -v python3 2>/dev/null || true)"
+
 to_chinese() {
     local clean_status=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
     [ -z "$clean_status" ] && clean_status="unknown" 
