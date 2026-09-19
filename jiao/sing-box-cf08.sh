@@ -4937,7 +4937,7 @@ local service="$3"
 if [ ! -f "$target_conf" ]; then
     red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     return 1
-fi
+fitag
 local port
 port=$(grep -E '"listen_port"|"port"' "$target_conf" | head -1 | tr -cd '0-9')
 if [ -n "$port" ] && [ "$port" != "443" ]; then
@@ -4968,2283 +4968,415 @@ green "==============================================="
 }
 
 manage_nodes_menu() {
-    if [ -z "$private_key" ]; then
-        output=$(${work_dir}/sing-box generate reality-keypair)
-        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-		short_id=$(openssl rand -hex 6)
-    fi
+    local CONF_DIR="/etc/sing-box/conf"
+    local XRAY_CONF_DIR="/etc/xray/conf"
+    local URL_FILE="/etc/sing-box/url.txt"
+    local SUB_FILE="/etc/sing-box/sub.txt"
+    mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR"
     while true; do
-       local CONF_DIR="/etc/sing-box/conf"
-       local XRAY_CONF_DIR="/etc/xray/conf"
-       local width=45
-  fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
-  local node_list=(
-    "$CONF_DIR/xtls-reality.json|vless-Reality|1"
-    "$CONF_DIR/hysteria2.json|hysteria2|2"
-    "$CONF_DIR/tuic.json|tuic|3"
-    "$CONF_DIR/h2-reality.json|http-Reality|4"
-    "$CONF_DIR/grpc-reality.json|gRPC-Reality|5"
-    "$CONF_DIR/anytls.json|anytls|6"
-	"$CONF_DIR/anytls-reality.json|anytls-Reality|7"
-    "$CONF_DIR/socks5.json|socks5|8"
-    "$CONF_DIR/http.json|HTTP|9"
-    "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|10"
-    "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|11"
-	"$CONF_DIR/tunnel-ws-argo.json|Vless-Vmess-Trojan-argo|12"
-    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|13"
-    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|14"
-    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|15"
-	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|16"
-	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|17"
-	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|18"
-	"$CONF_DIR/naive-tls.json|Naiveproxy|19"
-	"$CONF_DIR/vmess-ws.json|vmess-ws|20"
-	"$CONF_DIR/vless-ws.json|vless-ws|21"
-)
-		
         clear
-        yellow "============================================="
-        echo -e "             添加节点               "
-        yellow "============================================="
-        echo -e "\e[1;34m[ 未添加节点 ]\033[0m"
-        local has_unadded=false
-        for item in "${node_list[@]}"; do
-            local file=$(echo $item | cut -d'|' -f1)
-            local name=$(echo $item | cut -d'|' -f2)
-            local id=$(echo $item | cut -d'|' -f3)
-            
-            if [ ! -f "$file" ]; then
-                local left_text=" ${id}. ${name}节点"
-                local right_text="(未添加) -> 输入 ${id} 开始配置"
-                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(red "$right_text")"
-                has_unadded=true
+        echo -e "${BLUE}================ 入站管理 ================${NC}"
+        echo
+        echo -e "${GREEN}a.${NC} 添加入站"
+        echo
+        echo -e "${BLUE}---------------- 已添加入站 ----------------${NC}"
+        local entries=()
+        local index=1
+        local file
+        local filename
+        local inbound_type
+        local inbound_number
+        shopt -s nullglob
+        for file in "$CONF_DIR"/*.json; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
+                inbound_type="${BASH_REMATCH[1]}"
+                inbound_number="${BASH_REMATCH[2]}"
+                entries+=("$file|sing-box|$inbound_type|$inbound_number")
+                echo -e "${GREEN}${index}.${NC} ${inbound_type}-${inbound_number}"
+                index=$((index + 1))
             fi
         done
-        [ "$has_unadded" = false ] && echo -e " (所有节点已添加)"
-
-        echo -e "\n============================================="
-        echo -e "\e[1;32m[ 已添加节点 ]\033[0m"
-        local has_added=false
-        for item in "${node_list[@]}"; do
-            local file=$(echo $item | cut -d'|' -f1)
-            local name=$(echo $item | cut -d'|' -f2)
-            local id=$(echo $item | cut -d'|' -f3)
-            local del_id=$((id + 50))
-            
-            if [ -f "$file" ]; then
-                local left_text=" ${del_id}. ${name}节点"
-                local right_text="(已添加) -> 输入 ${del_id} 删除节点"
-                printf "%s%$(($width - ${#left_text}))s\n" "$left_text" "$(green "$right_text")"
-                has_added=true
+        for file in "$XRAY_CONF_DIR"/*.json; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
+                inbound_type="${BASH_REMATCH[1]}"
+                inbound_number="${BASH_REMATCH[2]}"
+                entries+=("$file|xray|$inbound_type|$inbound_number")
+                echo -e "${GREEN}${index}.${NC} ${inbound_type}-${inbound_number}"
+                index=$((index + 1))
             fi
         done
-        [ "$has_added" = false ] && echo -e " (当前无运行中节点)"
-
-        yellow "============================================="
-		echo -e "\033[31m 0. 返回上一级菜单\033[0m"
-        echo -ne "\n"
-        reading "请选择操作: " choice
-		case "${choice}" in
-    1|2|3|4|5|6|7|8|9|13|18|20|21)
-    if [[ "$choice" == "13" ]]; then
-        check_xray
-        xray_status=$?
-        if [ $xray_status -eq 2 ]; then
-            red "Xray 未安装！"
-            read -rp "按回车安装 Xray，其他键取消: " install_choice
-            if [ -z "$install_choice" ]; then
-                install_xray
-                check_xray
-                xray_status=$?
-                if [ $xray_status -eq 2 ]; then
-                    red "Xray 安装失败！"
-                    return 1
+        shopt -u nullglob
+        if [ ${#entries[@]} -eq 0 ]; then
+            echo -e "${GRAY}暂无已添加入站${NC}"
+        fi
+        echo
+        echo -e "${BLUE}--------------------------------------------${NC}"
+        echo -e "${GREEN}0.${NC} 返回"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            a|A)
+                add_inbound_menu
+                ;;
+            0)
+                return
+                ;;
+            '')
+                continue
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#entries[@]}" ]; then
+                    manage_single_inbound "${entries[$((choice - 1))]}"
+                else
+                    echo -e "${RED}无效选项${NC}"
+                    sleep 1
                 fi
-            else
-                return 1
-            fi
-        fi
-    fi
-    generate_vars
-    server_ip=$(get_realip)
-    case "$choice" in
-    1)
-        default_port=$xtls_reality
-        protocol="tcp"
-        ;;
-    2)
-        default_port=$hy2_port
-        protocol="udp"
-        ;;
-    3)
-        default_port=$tuic_port
-        protocol="udp"
-        ;;
-    4)
-        default_port=$h2_reality
-        protocol="tcp"
-        ;;
-    5)
-        default_port=$grpc_reality
-        protocol="tcp"
-        ;;
-    6)
-        default_port=$anytls_port
-        protocol="tcp"
-        ;;
-    7)
-        default_port=$anytls_reality_port
-        protocol="tcp"
-        ;;
-    8)
-        default_port=$socks_port
-        protocol="tcp"
-        ;;
-    9)
-        default_port=$http_port
-        protocol="tcp"
-        ;;
-    13)
-        default_port=$xray_xhttp_reality
-        protocol="tcp"
-        ;;
-    18)
-        default_port=$vless_tcp_tls
-        protocol="tcp"
-        ;;
-    20)
-        default_port=60001
-        protocol="tcp"
-        ;;
-    21)
-        default_port=60002
-        protocol="tcp"
-        ;;
-esac
-
-while true; do
-    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${default_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$default_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if port_is_used "$custom_port" "$protocol"; then
-            red "该 ${protocol^^} 端口已被占用，请重新输入！"
-            continue
-        fi
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
-    case "$choice" in
-        1)
-            xtls_reality=$custom_port
-            cat > /etc/sing-box/conf/xtls-reality.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-reality",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "vless-reality-user1",
-          "uuid": "$uuid",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "www.iij.ad.jp",
-            "server_port": 443
-          },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-        }
-      }
-    }
-  ]
-}
-EOF
-            node_remark="${isp}_vless_tcp_reality"
-            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
-            restart_service="singbox"
-            ;;
-		2)
-    echo -e "\n请选择 TLS 证书类型:"
-    echo -e " 1) \e[32m使用自签名证书\e[0m"
-    echo -e " 2) \e[32m使用真实域名证书\e[0m"
-    read -rp "请输入数字 [1-2] (默认 1): " cert_type
-    [ -z "$cert_type" ] && cert_type=1
-    if [ "$cert_type" -eq 2 ]; then
-        if check_and_issue_ssl; then
-            cert_path="$cert_file"
-            key_path="$key_file"
-            url_param="sni=${domain}"
-        else
-            return 1
-        fi
-    else
-        cert_path="$work_dir/cert.pem"
-        key_path="$work_dir/private.key"
-        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
-    fi
-    yellow "正在配置 hysteria2..."
-    cat > /etc/sing-box/conf/hysteria2.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $custom_port,
-	  "bbr_profile": "standard",
-      "users": [
-        {
-		  "name": "hysteria2-user1",
-          "password": "$uuid"
-        }
-      ],
-      "ignore_client_bandwidth": false,
-      "masquerade": "https://bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "min_version": "1.3",
-        "max_version": "1.3",
-        "certificate_path": "$cert_path",
-        "key_path": "$key_path"
-      }
-    }
-  ]
-}
-EOF
-    allow_port "$custom_port/udp" >/dev/null 2>&1
-    node_remark="${isp}_hysteria2"
-    url="hysteria2://${uuid}@${server_ip}:${custom_port}/?${url_param}&alpn=h3#${node_remark}"
-    ;;
-	3)
-    echo -e "\n请选择 TLS 证书类型:"
-    echo -e " 1) \e[32m使用自签名证书\e[0m"
-    echo -e " 2) \e[32m使用真实域名证书\e[0m"
-    read -rp "请输入数字 [1-2] (默认 1): " cert_type
-    [ -z "$cert_type" ] && cert_type=1
-    if [ "$cert_type" -eq 2 ]; then
-        if check_and_issue_ssl; then
-            cert_path="$cert_file"
-            key_path="$key_file"
-            url_param="sni=${domain}"
-        else
-            return 1
-        fi
-    else
-        cert_path="$work_dir/cert.pem"
-        key_path="$work_dir/private.key"
-        url_param="insecure=1&sni=www.bing.com"
-    fi
-    yellow "正在配置 tuic..."
-    cat > /etc/sing-box/conf/tuic.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "tuic",
-      "tag": "tuic",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "tuic-user1",
-          "uuid": "$uuid",
-          "password": "$password"
-        }
-      ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "$cert_path",
-        "key_path": "$key_path"
-      }
-    }
-  ]
-}
-EOF
-    allow_port "$custom_port/udp" >/dev/null 2>&1
-    node_remark="${isp}_tuic"
-    url="tuic://${uuid}:${password}@${server_ip}:${custom_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
-    ;;
-        4)
-            h2_reality=$custom_port
-            cat > /etc/sing-box/conf/h2-reality.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "h2-reality",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "h2-reality-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "www.iij.ad.jp",
-            "server_port": 443
-          },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-        }
-      },
-      "transport": {
-        "type": "http"
-      },
-      "multiplex": {
-        "enabled": true,
-        "padding": true,
-        "brutal": {
-          "enabled": true,
-          "up_mbps": 1000,
-          "down_mbps": 1000
-        }
-      }
-    }
-  ]
-}
-EOF
-            node_remark="${isp}_vless_http_reality"
-            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
-            restart_service="singbox"
-            ;;
-        5)
-            grpc_reality=$custom_port
-            cat > /etc/sing-box/conf/grpc-reality.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "grpc-reality",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "grpc-reality-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "www.iij.ad.jp",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "www.iij.ad.jp",
-            "server_port": 443
-          },
-          "private_key": "$private_key",
-          "short_id": ["$short_id"]
-        }
-      },
-      "transport": {
-        "type": "grpc",
-        "service_name": "grpc"
-      },
-      "multiplex": {
-        "enabled": true,
-        "padding": true,
-        "brutal": {
-          "enabled": true,
-          "up_mbps": 200,
-          "down_mbps": 200
-        }
-      }
-    }
-  ]
-}
-EOF
-            node_remark="${isp}_vless_grpc_reality"
-            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
-            restart_service="singbox"
-            ;;
-	    6)
-    echo -e "\n请选择 TLS 证书类型:"
-    echo -e " 1) \e[32m使用自签名证书\e[0m"
-    echo -e " 2) \e[32m使用真实域名证书\e[0m"
-    read -rp "请输入数字 [1-2] (默认 1): " cert_type
-    [ -z "$cert_type" ] && cert_type=1
-    if [ "$cert_type" -eq 2 ]; then
-        if check_and_issue_ssl; then
-            cert_path="$cert_file"
-            key_path="$key_file"
-            url_param="sni=${domain}"
-        else
-            return 1
-        fi
-    else
-        cert_path="$work_dir/cert.pem"
-        key_path="$work_dir/private.key"
-        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
-    fi
-    yellow "正在配置 anytls..."
-    cat > /etc/sing-box/conf/anytls.json << EOF
-{
-    "inbounds":[
-        {
-            "type":"anytls",
-            "tag":"anytls",
-            "listen":"::",
-            "listen_port":$custom_port,
-            "users":[
-                {
-				    "name": "anytls-user1",
-                    "password":"$password"
-                }
-            ],
-            "padding_scheme":[
-                "stop=6",
-                "0=30-50",
-                "1=80-400",
-                "2=400-500,c,500-1000,c,500-1000",
-                "3=9-9,500-1000",
-                "4=500-1000",
-                "5=500-1000"
-            ],
-            "tls":{
-                "enabled":true,
-                "certificate_path":"$cert_path",
-                "key_path":"$key_path"
-            }
-        }
-    ]
-}
-EOF
-    node_remark="${isp}_anytls_nt123"
-    url="anytls://${password}@${server_ip}:${custom_port}?${url_param}&alpn=h3#${node_remark}"
-    ;;
-	7)
-    yellow "正在配置 anytls + Reality..."
-    cat > /etc/sing-box/conf/anytls-reality.json << EOF
-{
-    "inbounds":[
-        {
-            "type":"anytls",
-            "listen":"::",
-            "tag":"anytls-reality",
-            "listen_port":$custom_port,
-            "users":[
-                {
-				    "name": "anytls-reality-user1",
-                    "password":"$password"
-                }
-            ],
-            "padding_scheme":[
-                "stop=8",
-                "0=30-30",
-                "1=100-400",
-                "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
-                "3=9-9,500-1000",
-                "4=500-1000",
-                "5=500-1000",
-                "6=500-1000",
-                "7=500-1000"
-            ],
-            "tls":{
-                "enabled":true,
-                "server_name":"www.iij.ad.jp",
-                "reality":{
-                    "enabled":true,
-                    "handshake":{
-                        "server":"www.iij.ad.jp",
-                        "server_port":443
-                    },
-                    "private_key":"$private_key",
-                    "short_id":["$short_id"]
-                }
-            }
-        }
-    ]
-}
-EOF
-    node_remark="${isp}_anytls_reality"
-    url="anytls://${password}@${server_ip}:${custom_port}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
-    ;;
-		8)
-    socks_port=$custom_port
-    yellow "正在配置 Socks5..."
-    cat > /etc/sing-box/conf/socks5.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "socks",
-      "tag": "socks-in",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "socks-in-user1",
-          "username": "$username",
-          "password": "$password"
-        }
-      ]
-    }
-  ]
-}
-EOF
-    node_remark="${isp}_socks5"
-    url="socks://${username}:${password}@${server_ip}:${custom_port}#${node_remark}"
-    restart_service="singbox"
-    ;;
-	9)
-    http_port=$custom_port
-    yellow "正在配置 HTTP 代理..."
-    cat > /etc/sing-box/conf/http.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "http",
-      "tag": "http-in",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "http-in-user1",
-          "username": "$username",
-          "password": "$password"
-        }
-      ]
-    }
-  ]
-}
-EOF
-    node_remark="${isp}_http"
-    url="http://${username}:${password}@${server_ip}:${custom_port}#${node_remark}"
-    restart_service="singbox"
-    ;;
-        13)
-            xray_xhttp_reality=$custom_port
-            mkdir -p /etc/xray/conf
-            cat > /etc/xray/conf/xhttp-reality.json << EOF
-{
-  "inbounds": [
-    {
-      "listen": "::",
-      "tag": "vless-xhttp-reality",
-      "port": $custom_port,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$uuid"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "xhttp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.iij.ad.jp:443",
-          "xver": 0,
-          "serverNames": [
-            "www.iij.ad.jp"
-          ],
-          "privateKey": "$private_key",
-          "shortIds": [
-            "$short_id"
-          ]
-        },
-        "xhttpSettings": {
-          "path": "/xhttp",
-          "mode": "auto"
-        }
-      }
-    }
-  ]
-}
-EOF
-            node_remark="${isp}_xray_vless_xhttp_reality"
-            url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
-            restart_service="xray"
-            ;;
-18)
-    check_and_issue_ssl || return 1
-
-    cat > /etc/sing-box/conf/vless-tcp-tls.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-tcp-tls",
-      "listen": "::",
-      "listen_port": $custom_port,
-      "users": [
-        {
-		  "name": "vless-tcp-tls-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "${domain:-$server_ip}",
-        "certificate_path": "$cert_file",
-        "key_path": "$key_file"
-      }
-    }
-  ]
-}
-EOF
-    node_remark="${isp}_vless_tcp_tls"
-    url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
-    restart_service="singbox"
-	;;
-20) 
-    cat > /etc/sing-box/conf/vmess-ws.json <<EOF
-{
-  "inbounds": [
-    {
-       "type": "vmess",
-       "tag": "vmess-ws",
-       "listen": "::",
-       "listen_port": $custom_port,
-       "users": [
-           {
-		      "name": "vmess-ws-user1",
-              "uuid": "$uuid"
-           }
-        ],
-       "transport": {
-           "type": "ws",
-           "path": "/asasbsbs-vmess",
-		   "max_early_data": 2048,
-           "early_data_header_name": "Sec-WebSocket-Protocol"
-       }
-     }
-  ]
-}
-EOF
-    node_remark="${isp}_vmess_ws_notls"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${server_ip}\", \"port\": \"${custom_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-    restart_service="singbox"
-    ;;
-21) 
-    cat > /etc/sing-box/conf/vless-ws.json <<EOF
-{
-  "inbounds": [
-    {
-       "type": "vless",
-       "tag": "vless-ws",
-       "listen": "::",
-       "listen_port": $custom_port,
-       "users": [
-           {
-		      "name": "vless-ws-user1",
-              "uuid": "$uuid"
-           }
-        ],
-       "transport": {
-           "type": "ws",
-           "path": "/asasbsbs-vless",
-		   "max_early_data": 2048,
-           "early_data_header_name": "Sec-WebSocket-Protocol"
-       }
-     }
-  ]
-}
-EOF
-    node_remark="${isp}_vless_ws_notls"
-    url="vless://${uuid}@${server_ip}:${custom_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"  
-    restart_service="singbox"
-    ;;
-    esac
-allow_port "$custom_port/tcp" >/dev/null 2>&1
-sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
-echo "$url" >> /etc/sing-box/url.txt
-echo "" >> /etc/sing-box/url.txt
-base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-if [[ "$choice" == "13" ]]; then
-    restart_xray
-else
-    restart_singbox
-fi
-green "${node_name} 节点已添加!"
-green "节点链接: $url"
-;;
-		10)
-    check_and_issue_ssl || return 1
-    generate_vars
-    server_ip=$(get_realip)
-    echo ""
-    vless_wstls_cdn_port=$(get_available_port)
-    if [[ ! "$vless_wstls_cdn_port" =~ ^[0-9]+$ ]]; then
-        red "获取 VLESS WS TLS 端口失败：${vless_wstls_cdn_port:-<空>}"
-        return 1
-    fi
-    ws_path="/sspaasksavxssaszass"
-    cat > /etc/sing-box/conf/vless-wstls-cdn.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-wstls-cdn",
-      "listen": "::",
-      "listen_port": $vless_wstls_cdn_port,
-      "users": [
-        {
-		  "name": "vless-wstls-cdn-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "${domain:-$server_ip}",
-        "certificate_path": "$cert_file",
-        "key_path": "$key_file"
-      },
-      "transport": {
-        "type": "ws",
-        "path": "$ws_path",
-        "max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-
-    allow_port "$vless_wstls_cdn_port/tcp" >/dev/null 2>&1
-    node_remark_direct="${isp}_vless_wstls_direct"
-    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}?ed=2048%3Fed%3D2560#${node_remark_direct}"
-    if [ -f "${work_dir}/url.txt" ]; then
-        sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
-    fi
-    echo "$VLESS_DIRECT_URL" >> "${work_dir}/url.txt"
-    echo "" >> "${work_dir}/url.txt"
-    echo ""
-    read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
-    unset VLESS_CDN_URL
-    if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
-    if [[ -z "$domain" ]]; then
-        yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
-    else
-        if [[ -z "${CF_TOKEN:-}" &&
-      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-    skyblue "请选择 Cloudflare 验证方式："
-    green " 1) Cloudflare API Token"
-    green " 2) Cloudflare Global API Key"
-    local cf_auth_type
-    reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
-    [[ -z "$cf_auth_type" ]] && cf_auth_type=1
-    case "$cf_auth_type" in
-        1)
-            cf_auth_token || return 1
-            ;;
-        2)
-            cf_auth_global || return 1
-            ;;
-        *)
-            red "无效选择！"
-            return 1
-            ;;
+                ;;
         esac
-        fi
-        if [[ -n "${CF_TOKEN:-}" ||
-              ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-            zone_id=$(cf_find_zone "$domain")
-            if [[ -n "$zone_id" ]]; then
-                green "Cloudflare Zone 检测成功：$zone_id"
-                if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-                    green "Cloudflare DNS 配置成功"
-                else
-                    yellow "警告：Cloudflare DNS 配置失败"
-                fi
-                if cf_set_ssl "$zone_id" "full"; then
-                    green "Cloudflare SSL 模式已设置为 Full"
-                else
-                    yellow "警告：Cloudflare SSL 模式设置失败"
-                fi
-                if set_domain_origin_port \
-                    "$zone_id" \
-                    "$domain" \
-                    "$vless_wstls_cdn_port"; then
-                    green "Cloudflare CDN 回源规则配置成功"
-                    green "回源端口：$vless_wstls_cdn_port"
-                else
-                    yellow "警告：Cloudflare CDN 回源规则配置失败"
-                fi
-                node_remark_cdn="${isp}_vless_wstls_cdn"
-                VLESS_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
-                if [ -f "${work_dir}/url.txt" ]; then
-                    sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
-                fi
-                echo "$VLESS_CDN_URL" >> "${work_dir}/url.txt"
-                echo "" >> "${work_dir}/url.txt"
-            else
-                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
-                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
-            fi
-        else
-            yellow "未获得有效的 Cloudflare API 凭据，已跳过 CDN 配置。"
-        fi
-    fi
-fi
-    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-    restart_singbox
-    green "--------------------------------------------------"
-    green " 节点创建完成！"
-    green "--------------------------------------------------"
-    green " 1. 直连节点链接："
-    echo "$VLESS_DIRECT_URL"
-    if [[ -n "${VLESS_CDN_URL:-}" ]]; then
-        echo ""
-        green " 2. CDN 节点链接："
-        echo "$VLESS_CDN_URL"
-    fi
-    green "--------------------------------------------------"
-    ;;
-    11)
-    generate_vars
-    server_ip=$(get_realip)
-    echo ""
-    vmess_ws_cdn_port=$(get_available_port)
-    vless_ws_cdn_port=$(get_available_port)
-    trojan_ws_cdn_port=$(get_available_port)
-    vmess_path="/vmess-ws"
-    vless_path="/vless-ws"
-    trojan_path="/trojan-ws"
-    allow_port $vmess_ws_cdn_port/tcp > /dev/null 2>&1
-    allow_port $vless_ws_cdn_port/tcp > /dev/null 2>&1
-    allow_port $trojan_ws_cdn_port/tcp > /dev/null 2>&1
-    echo ""
-    skyblue "请选择 Cloudflare 验证方式："
-    green "1) Cloudflare API Token"
-    green "2) Cloudflare Global API Key (邮箱 + Key)"
-    local cf_type
-    reading "请输入选择 [1-2]（默认 1）: " cf_type
-    [[ -z "$cf_type" ]] && cf_type=1
-    case "$cf_type" in
-    1)
-        cf_auth_token || return 1
-        ;;
-    2)
-        cf_auth_global || return 1
-        ;;
-    *)
-        red "无效选择！"
-        return 1
-        ;;
-    esac
-    cf_select_zone || return 1
-	reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
-prefix=$(echo "$prefix" | tr -d '[:space:]')
-prefix="${prefix#.}"
-prefix="${prefix%.}"
-if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-    red "域名前缀格式无效！"
-    return 1
-fi
-if [[ -n "$prefix" ]]; then
-    domain="${prefix}.${zone_domain}"
-else
-    domain="$zone_domain"
-fi
-green "当前 CDN 域名: $domain"
-    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-        if [[ -n "$selected_zone_id" ]]; then
-          green "匹配成功 (Zone ID: $selected_zone_id)"
-          if cf_upsert_dns "$selected_zone_id" "$domain" "$server_ip"; then
-          green "✓ DNS 解析已更新并开启 CDN 代理"
-       else
-        yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
-    fi
-    cf_set_ssl "$selected_zone_id" "flexible"
-    existing=$(cf_get_origin_rules "$selected_zone_id")
-            kept=$(echo "$existing" | jq --arg d "$domain" --arg pfx "$pfx" '[
-                .[] | select(
-                    (.description | startswith($pfx) | not) or
-                    (.expression | ascii_downcase | contains("http.host eq \"" + ($d|ascii_downcase) + "\"") | not)
-                )
-            ]')
-            pfx="${MANAGED_PREFIX:-Auto_Script:}"
-new_managed=$(jq -n \
-    --arg d "$domain" \
-    --arg pfx "$pfx" \
-    --argjson p1 "$vmess_ws_cdn_port" \
-    --arg path1 "$vmess_path" \
-    --argjson p2 "$vless_ws_cdn_port" \
-    --arg path2 "$vless_path" \
-    --argjson p3 "$trojan_ws_cdn_port" \
-    --arg path3 "$trojan_path" \
-'[
-    {
-        description: ($pfx + "VMESS_" + $d),
-        enabled: true,
-        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path1 + "\")"),
-        action: "route",
-        action_parameters: {
-            origin: {
-                port: $p1
-            }
-        }
-    },
-    {
-        description: ($pfx + "VLESS_" + $d),
-        enabled: true,
-        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path2 + "\")"),
-        action: "route",
-        action_parameters: {
-            origin: {
-                port: $p2
-            }
-        }
-    },
-    {
-        description: ($pfx + "TROJAN_" + $d),
-        enabled: true,
-        expression: ("(http.host eq \"" + $d + "\" and http.request.uri.path eq \"" + $path3 + "\")"),
-        action: "route",
-        action_parameters: {
-            origin: {
-                port: $p3
-            }
-        }
-    }
-]')
-            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-
-            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
-            green "✓ 回源规则创建成功！"
-            else
-            yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
-            fi
-            else
-            yellow "⚠ 未获取到 Cloudflare Zone ID。"
-            fi
-		fi
-    mkdir -p /etc/sing-box/conf
-    # 1. 写入 VMess 配置文件
-    cat > /etc/sing-box/conf/vmess-ws-cdn.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vmess",
-      "tag": "vmess-ws-cdn",
-      "listen": "::",
-      "listen_port": $vmess_ws_cdn_port,
-      "users": [
-        {
-		  "name": "vmess-ws-cdn-user1",
-          "uuid": "$uuid",
-          "alterId": 0
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$vmess_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-
-    # 2. 写入 VLESS 配置文件
-    cat > /etc/sing-box/conf/vless-ws-cdn.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-ws-cdn",
-      "listen": "::",
-      "listen_port": $vless_ws_cdn_port,
-      "users": [
-        {
-		  "name": "vless-ws-cdn-user1",
-          "uuid": "$uuid",
-          "flow": ""
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$vless_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-
-    # 3. 写入 Trojan 配置文件 
-    cat > /etc/sing-box/conf/trojan-ws-cdn.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "trojan",
-      "tag": "trojan-ws-cdn",
-      "listen": "::",
-      "listen_port": $trojan_ws_cdn_port,
-      "users": [
-        {
-		  "name": "trojan-ws-cdn-user1",
-          "password": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$trojan_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-                          
-	vmess_remark="${isp}_vmess_ws_cdn"
-    vless_remark="${isp}_vless_ws_cdn"
-    trojan_remark="${isp}_trojan_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-    vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
-    trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
-	if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
-        sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
-        sed -i "/${trojan_remark}/d" /etc/sing-box/url.txt
-    fi                              
-    
-    echo "$vmess_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt
-    echo "$vless_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt
-    echo "$trojan_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt
-    
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-    restart_singbox
-    
-    green "--------------------------------------------------"
-    green " CDN 节点生成成功 (VMess / VLESS / Trojan)"
-    green "--------------------------------------------------"
-    green " VMess 节点 : "
-    echo "$vmess_url"
-    echo ""
-    green " VLESS 节点 : "
-    echo "$vless_url"
-    echo ""
-    green " Trojan 节点: "
-    echo "$trojan_url"
-    green "--------------------------------------------------"
-    ;;
-	12)
-    skyblue "正在创建 Cloudflare Tunnel  节点..."
-    generate_vars
-    vmess_ws_argo_port=$(get_available_port)
-    vless_ws_argo_port=$(get_available_port)
-    trojan_ws_argo_port=$(get_available_port)
-    vmess_path="/vmess-ws"
-    vless_path="/vless-ws"
-    trojan_path="/trojan-ws"
-    ws_argo_config="${conf_dir}/tunnel-ws-argo.json"
-    cf_add_tunnel_route \
-        "$vmess_ws_argo_port" "$vmess_path" \
-        "$vless_ws_argo_port" "$vless_path" \
-        "$trojan_ws_argo_port" "$trojan_path" || return 1
-    domain="$ArgoDomain"
-    [[ -z "$domain" ]] && {
-        red "未获取到 Tunnel 域名！"
-        return 1
-    }
-    cat > "$ws_argo_config" <<EOF
-{
-  "inbounds": [
-    {
-      "type": "vmess",
-      "tag": "vmess-ws-argo",
-      "listen": "127.0.0.1",
-      "listen_port": $vmess_ws_argo_port,
-      "users": [
-        {
-		  "name": "vmess-ws-argo-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$vmess_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    },
-    {
-      "type": "vless",
-      "tag": "vless-ws-argo",
-      "listen": "127.0.0.1",
-      "listen_port": $vless_ws_argo_port,
-      "users": [
-        {
-		  "name": "vless-ws-argo-user1",
-          "uuid": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$vless_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    },
-    {
-      "type": "trojan",
-      "tag": "trojan-ws-argo",
-      "listen": "127.0.0.1",
-      "listen_port": $trojan_ws_argo_port,
-      "users": [
-        {
-		  "name": "trojan-ws-argo-user1",
-          "password": "$uuid"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$trojan_path",
-		"max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
-      }
-    }
-  ]
-}
-EOF
-
-	vmess_remark="${isp}_Tunnelvmess_ws_argo"
-    vless_remark="${isp}_Tunnelvless_ws_argo"
-    trojan_remark="${isp}_Tunneltrojan_ws_argo"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-    vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
-    trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
-	if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
-        sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
-        sed -i "/${trojan_remark}/d" /etc/sing-box/url.txt
-    fi                              
-    echo "$vmess_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt
-    echo "$vless_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt
-    echo "$trojan_url" >> /etc/sing-box/url.txt
-	echo "" >> /etc/sing-box/url.txt  
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-    restart_singbox
-	green "--------------------------------------------------"
-    green "$vmess_url"
-    green "$vless_url"
-    green "$trojan_url"
-	green "--------------------------------------------------"
-    ;;
-	14)
-	check_xray
-    xray_status=$?
-    if [ $xray_status -eq 2 ]; then
-    red "Xray 未安装！"
-    read -rp "按回车安装 Xray，其他键取消: " choice
-    if [ -z "$choice" ]; then
-        install_xray
-        check_xray
-        xray_status=$?
-        if [ $xray_status -eq 2 ]; then
-            red "Xray 安装失败！"
-            return 1
-        fi
-    else
-        return 1
-    fi
-    fi
-    generate_vars
-    server_ip=$(get_realip)
-    echo ""
-    vless_xhttp_cdn_port=$(get_available_port)
-    allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
-    node_remark="${isp}_vless_xhttp_cdn_notls"
-    echo ""
-    skyblue "请选择 Cloudflare 验证方式："
-    green "1) Cloudflare API Token"
-    green "2) Cloudflare Global API Key (邮箱 + Key)"
-    local cf_type
-    reading "请输入选择 [1-2]（默认 1）: " cf_type
-    [[ -z "$cf_type" ]] && cf_type=1
-    case "$cf_type" in
-    1)
-        cf_auth_token || return 1
-        ;;
-    2)
-        cf_auth_global || return 1
-        ;;
-    *)
-        red "无效选择！"
-        return 1
-        ;;
-    esac
-    cf_select_zone || return 1
-    reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
-    prefix=$(echo "$prefix" | tr -d '[:space:]')
-    prefix="${prefix#.}"
-    prefix="${prefix%.}"
-    if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        red "域名前缀格式无效！"
-        return 1
-    fi
-    if [[ -n "$prefix" ]]; then
-        domain="${prefix}.${zone_domain}"
-    else
-        domain="$zone_domain"
-    fi
-    green "当前 CDN 域名: $domain"
-    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-        if [[ -n "$selected_zone_id" ]]; then
-            green "匹配成功 (Zone ID: $selected_zone_id)"
-            if cf_upsert_dns "$selected_zone_id" "$domain" "$server_ip"; then
-                green "✓ DNS 解析已更新并开启 CDN 代理"
-            else
-                yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
-            fi
-            cf_set_ssl "$selected_zone_id" "flexible"
-            existing=$(cf_get_origin_rules "$selected_zone_id")
-            pfx="${MANAGED_PREFIX:-Auto_Script:}"
-            kept=$(echo "$existing" | jq --arg pfx "$pfx" '
-            [
-                .[] | select(
-                    (.description | startswith($pfx) | not)
-                )
-            ]')
-            new_managed=$(jq -n \
-    --arg d "$domain" \
-    --arg pfx "$pfx" \
-    --argjson port "$vless_xhttp_cdn_port" \
-    '[
-        {
-            description: ($pfx + "VLESS_XHTTP_" + $d),
-            enabled: true,
-            expression: ("(http.host eq \"" + $d + "\")"),
-            action: "route",
-            action_parameters: {
-                origin: {
-                    port: $port
-                }
-            }
-        }
-    ]')
-            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
-                green "✓ 回源规则创建成功！"
-            else
-                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
-            fi
-        else
-            yellow "⚠ 未获取到 Cloudflare Zone ID。"
-        fi
-    fi
-    mkdir -p /etc/xray/conf
-    cat > /etc/xray/conf/xhttp-cdn.json << EOF
-{
-  "inbounds": [
-    {
-	  "listen": "::",
-      "port": $vless_xhttp_cdn_port,
-      "protocol": "vless",
-	  "tag": "vless-xhttp-cdn",
-      "settings": {
-        "clients": [
-          {
-            "id": "$uuid"
-          }
-        ],
-        "decryption": "none"
-      },
-	  "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls"
-        ]
-      },
-      "streamSettings": {
-        "network": "xhttp",
-        "xhttpSettings": {
-          "path": "/vless-xhttp",
-          "mode": "auto"
-        }
-      }
-    }
-  ]
-}
-EOF
-    vless_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=/vless-xhttp&mode=auto#$(echo -n "$node_remark" | jq -sRr @uri)"
-    if [ -f "/etc/sing-box/url.txt" ]; then
-        sed -i "/${node_remark}/d" /etc/sing-box/url.txt
-    fi
-    echo "$vless_url" >> /etc/sing-box/url.txt
-    echo "" >> /etc/sing-box/url.txt
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-    restart_xray
-    green "--------------------------------------------------"
-    green " CDN VLESS XHTTP 节点生成成功"
-    green "--------------------------------------------------"
-    green " VLESS XHTTP 节点 : "
-    echo "$vless_url"
-    echo "--------------------------------------------------"
-    ;;
-	15)
-	check_xray
-    xray_status=$?
-    if [ $xray_status -eq 2 ]; then
-    red "Xray 未安装！"
-    read -rp "按回车安装 Xray，其他键取消: " choice
-    if [ -z "$choice" ]; then
-        install_xray
-        check_xray
-        xray_status=$?
-        if [ $xray_status -eq 2 ]; then
-            red "Xray 安装失败！"
-            return 1
-        fi
-    else
-        return 1
-    fi
-    fi
-	while true; do
-    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${vless_xhttp_cdn_tls_port}): " custom_port   
-    if [ -z "$custom_port" ]; then
-        custom_port=$vless_xhttp_cdn_tls_port
-    fi   
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口 ($custom_port) 已被占用，请重新输入！"
-            continue
-        fi
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
     done
-    check_and_issue_ssl || return 1
-    generate_vars
-    server_ip=$(get_realip)
-    vless_xhttp_cdn_tls_port=$(get_available_port)
-    cat > /etc/xray/conf/xhttp-cdn-tls.json << EOF
-{
-  "inbounds": [
-    {
-      "tag": "vless-xhttp-cdn-tls",
-      "listen": "::",
-      "port": $custom_port,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$uuid"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "xhttp",
-        "security": "tls",
-        "tlsSettings": {
-          "serverName": "${domain:-$server_ip}",
-          "certificates": [
-            {
-              "certificateFile": "$cert_file",
-              "keyFile": "$key_file"
-            }
-          ]
-        },
-        "xhttpSettings": {
-          "path": "/sspaasksavxssaszass",
-          "mode": "auto"
-        }
-      }
-    }
-  ]
 }
-EOF
-
-    allow_port "$custom_port/tcp" >/dev/null 2>&1
-    node_remark_direct="${isp}_xray_vless_xhttp_tls"
-    xhttp_direct="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
-	if [ -f "${work_dir}/url.txt" ]; then
-    sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
-    fi
-    echo "$xhttp_direct" >> "${work_dir}/url.txt"
-    echo "" >> "${work_dir}/url.txt"
-    echo ""
-    read -rp "是否需要为此节点配置 Cloudflare CDN 节点？(y/N): " add_cdn
-    unset VLESS_CDN_URL
-    if [[ "$add_cdn" =~ ^[Yy]$ ]]; then
-    if [[ -z "$domain" ]]; then
-        yellow "未检测到有效的域名变量，已跳过 CDN 加速配置。"
+get_next_inbound_number() {
+    local inbound_type="$1"
+    local number=1
+    while [ -f "$CONF_DIR/${inbound_type}-${number}.json" ] || [ -f "$XRAY_CONF_DIR/${inbound_type}-${number}.json" ]; do
+        number=$((number + 1))
+    done
+    echo "$number"
+}
+get_inbound_config_file() {
+    local inbound_type="$1"
+    local number="$2"
+    local engine="$3"
+    if [ "$engine" = "xray" ]; then
+        echo "$XRAY_CONF_DIR/${inbound_type}-${number}.json"
     else
-        if [[ -z "${CF_TOKEN:-}" &&
-      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-    skyblue "请选择 Cloudflare 验证方式："
-    green " 1) Cloudflare API Token"
-    green " 2) Cloudflare Global API Key"
-    local cf_auth_type
-    reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
-    [[ -z "$cf_auth_type" ]] && cf_auth_type=1
-    case "$cf_auth_type" in
-        1)
-            cf_auth_token || return 1
-            ;;
-        2)
-            cf_auth_global || return 1
-            ;;
-        *)
-            red "无效选择！"
-            return 1
-            ;;
+        echo "$CONF_DIR/${inbound_type}-${number}.json"
+    fi
+}
+add_inbound_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}================ 添加入站 ================${NC}"
+        echo
+        echo -e "${GREEN}1.${NC} VLESS Reality"
+        echo -e "${GREEN}2.${NC} Hysteria2"
+        echo -e "${GREEN}3.${NC} TUIC"
+        echo -e "${GREEN}4.${NC} HTTP Reality"
+        echo -e "${GREEN}5.${NC} gRPC Reality"
+        echo -e "${GREEN}6.${NC} AnyTLS"
+        echo -e "${GREEN}7.${NC} AnyTLS Reality"
+        echo -e "${GREEN}8.${NC} SOCKS5"
+        echo -e "${GREEN}9.${NC} HTTP"
+        echo -e "${GREEN}10.${NC} VLESS WS TLS"
+        echo -e "${GREEN}11.${NC} VMess/VLESS/Trojan CDN"
+        echo -e "${GREEN}12.${NC} Cloudflare Tunnel"
+        echo -e "${GREEN}13.${NC} XHTTP Reality"
+        echo -e "${GREEN}14.${NC} XHTTP CDN"
+        echo -e "${GREEN}15.${NC} XHTTP CDN TLS"
+        echo -e "${GREEN}16.${NC} XHTTP UDP TLS"
+        echo -e "${GREEN}17.${NC} XHTTP TCP+UDP CDN TLS"
+        echo -e "${GREEN}18.${NC} VLESS TCP TLS"
+        echo -e "${GREEN}19.${NC} Naiveproxy"
+        echo -e "${GREEN}20.${NC} VMess WS"
+        echo -e "${GREEN}21.${NC} VLESS WS"
+        echo
+        echo -e "${BLUE}--------------------------------------------${NC}"
+        echo -e "${GREEN}0.${NC} 返回"
+        echo
+        read -rp "请选择入站类型: " choice
+        case "$choice" in
+            1)
+                add_inbound "vless-reality" "sing-box"
+                ;;
+            2)
+                add_inbound "hysteria2" "sing-box"
+                ;;
+            3)
+                add_inbound "tuic" "sing-box"
+                ;;
+            4)
+                add_inbound "http-reality" "sing-box"
+                ;;
+            5)
+                add_inbound "grpc-reality" "sing-box"
+                ;;
+            6)
+                add_inbound "anytls" "sing-box"
+                ;;
+            7)
+                add_inbound "anytls-reality" "sing-box"
+                ;;
+            8)
+                add_inbound "socks5" "sing-box"
+                ;;
+            9)
+                add_inbound "http" "sing-box"
+                ;;
+            10)
+                add_inbound "vless-ws-tls" "sing-box"
+                ;;
+            11)
+                add_inbound "cdn" "sing-box"
+                ;;
+            12)
+                add_inbound "argo" "sing-box"
+                ;;
+            13)
+                add_inbound "xhttp-reality" "xray"
+                ;;
+            14)
+                add_inbound "xhttp-cdn" "xray"
+                ;;
+            15)
+                add_inbound "xhttp-cdn-tls" "xray"
+                ;;
+            16)
+                add_inbound "xhttp-udp-tls" "xray"
+                ;;
+            17)
+                add_inbound "xhttp-tcpudp-cdn-tls" "xray"
+                ;;
+            18)
+                add_inbound "vless-tcp-tls" "sing-box"
+                ;;
+            19)
+                add_inbound "naiveproxy" "sing-box"
+                ;;
+            20)
+                add_inbound "vmess-ws" "sing-box"
+                ;;
+            21)
+                add_inbound "vless-ws" "sing-box"
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "${RED}无效选项${NC}"
+                sleep 1
+                ;;
         esac
-        fi
-        if [[ -n "${CF_TOKEN:-}" ||
-              ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
-            zone_id=$(cf_find_zone "$domain")
-            if [[ -n "$zone_id" ]]; then
-                green "Cloudflare Zone 检测成功：$zone_id"
-                if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-                    green "Cloudflare DNS 配置成功"
-                else
-                    yellow "警告：Cloudflare DNS 配置失败"
-                fi
-                if cf_set_ssl "$zone_id" "full"; then
-                    green "Cloudflare SSL 模式已设置为 Full"
-                else
-                    yellow "警告：Cloudflare SSL 模式设置失败"
-                fi
-                if ! is_cf_supported_port "$custom_port"; then
-                  if set_domain_origin_port \
-                     "$zone_id" \
-                     "$domain" \
-                     "$custom_port"; then
-                     green "Cloudflare CDN 回源规则配置成功"
-                     green "回源端口：$custom_port"
-                   else
-                   yellow "警告：Cloudflare CDN 回源规则配置失败"
-                  fi
-                fi
-                node_remark_cdn="${isp}_xray_vless_xhttp_cdn_tls"
-                XHTTP_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_cdn}"    
-				if [ -f "${work_dir}/url.txt" ]; then
-                    sed -i "/#${node_remark_cdn}$/{N;d;}" "${work_dir}/url.txt"
-                fi
-                echo "$XHTTP_CDN_URL" >> "${work_dir}/url.txt"
-                echo "" >> "${work_dir}/url.txt"
-            else
-                yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
-                yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
-            fi
-        else
-            yellow "未获得有效的 Cloudflare API 凭据，已跳过 CDN 配置。"
-        fi
-    fi
-fi
-    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-    restart_xray
-    green "--------------------------------------------------"
-    green " 节点创建完成！"
-    green "--------------------------------------------------"
-    green " 1. 直连节点链接："
-    echo "$xhttp_direct"
-    if [[ -n "${XHTTP_CDN_URL:-}" ]]; then
-        echo ""
-        green " 2. CDN 节点链接："
-        echo "$XHTTP_CDN_URL"
-    fi
-    green "--------------------------------------------------"
-    ;;
-	16)
-check_xray
-    xray_status=$?
-    if [ $xray_status -eq 2 ]; then
-    red "Xray 未安装！"
-    read -rp "按回车安装 Xray，其他键取消: " choice
-    if [ -z "$choice" ]; then
-        install_xray
-        check_xray
-        xray_status=$?
-        if [ $xray_status -eq 2 ]; then
-            red "Xray 安装失败！"
-            return 1
-        fi
-    else
-        return 1
-    fi
-    fi
-check_and_issue_ssl || return 1
-generate_vars
-vless_xhttp_udp_tls_port=$(get_available_port)
-
-cat > /etc/xray/conf/xhttp-udp-tls.json <<EOF
-{
-  "inbounds": [
- {
-  "tag": "xhttp-udp-tsl",
-  "listen": "::",
-  "port": $vless_xhttp_udp_tls_port,
-  "protocol": "vless",
-  "settings": {
-    "clients": [
-      {
-        "id": "$uuid",
-        "flow": ""
-      }
-    ],
-    "decryption": "none"
-  },
-  "streamSettings": {
-    "network": "xhttp",
-    "security": "tls",
-    "xhttpSettings": {
-      "mode": "auto",
-      "path": "/ssuddxu"
-    },
-    "tlsSettings": {
-      "alpn": [
-        "h3"
-      ],
-      "certificates": [
-        {
-          "certificateFile": "$cert_file",
-          "keyFile": "$key_file"
-        }
-      ]
-    }
-  },
-  "sniffing": {
-    "enabled": true,
-    "destOverride": [
-      "http",
-      "tls",
-      "quic"
-     ],
-    "metadataOnly": false
-    }
-  }
- ]
-}
-EOF
-
-allow_port "$vless_xhttp_udp_tls_port/udp" >/dev/null 2>&1
-node_remark="${isp}_xray_vless_xhttp_h3"
-xhttp_h3="vless://${uuid}@${domain}:${vless_xhttp_udp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&mode=auto&path=/ssuddxu&alpn=h3#${node_remark}"
-if [ -f "${work_dir}/url.txt" ]; then
-    sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
-fi
-echo "$xhttp_h3" >> "${work_dir}/url.txt"
-echo "" >> "${work_dir}/url.txt"
-base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-restart_xray
-green "--------------------------------------------------"
-green " VLESS XHTTP-H3 节点创建完成！"
-green "--------------------------------------------------"
-echo "$xhttp_h3"
-green "--------------------------------------------------"
-;;
-17)
-check_xray
-    xray_status=$?
-    if [ $xray_status -eq 2 ]; then
-    red "Xray 未安装！"
-    read -rp "按回车安装 Xray，其他键取消: " choice
-    if [ -z "$choice" ]; then
-        install_xray
-        check_xray
-        xray_status=$?
-        if [ $xray_status -eq 2 ]; then
-            red "Xray 安装失败！"
-            return 1
-        fi
-    else
-        return 1
-    fi
-    fi
-check_and_issue_ssl || return 1
-generate_vars
-vless_xhttp_tcpudp_tls_port=$(shuf -e 2053 2083 2087 2096 8443 -n 1)
-
-cat > /etc/xray/conf/xhttp-tcpudp-tls.json <<EOF
-{
-  "inbounds": [
-{
-  "tag": "xhttp-tcpudp-cdn-tls",
-  "listen": "::",
-  "port": $vless_xhttp_tcpudp_tls_port,
-  "protocol": "vless",
-  "settings": {
-    "clients": [
-      {
-        "id": "$uuid",
-        "flow": ""
-      }
-    ],
-    "decryption": "none"
-  },
-  "streamSettings": {
-    "network": "xhttp",
-    "security": "tls",
-    "xhttpSettings": {
-    "mode": "auto",
-    "path": "/xjakakkakccdd"
-    },
-    "tlsSettings": {
-     "alpn": [
-      "h2","http/1.1"
-       ],
-      "certificates": [
-        {
-          "certificateFile": "$cert_file",
-          "keyFile": "$key_file"
-        }
-      ]
-    }
-  },
-  "sniffing": {
-    "enabled": true,
-    "destOverride": ["http", "tls", "quic"],
-   "metadataOnly": false
-  }
- }
- ]
-}
-EOF
-
-allow_port "$vless_xhttp_tcpudp_tls_port/tcp" >/dev/null 2>&1
-allow_port "$vless_xhttp_tcpudp_tls_port/udp" >/dev/null 2>&1
-node_remark="${isp}_xray_vless_xhttp_tcpudpcdn"
-xhttp_tcp="vless://${uuid}@${CFIP}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&mode=auto&path=/xjakakkakccdd&#${node_remark}"
-xhttp_udp="vless://${uuid}@${CFIP}:${vless_xhttp_tcpudp_tls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&mode=auto&path=/xjakakkakccdd&alpn=h3#${node_remark}"
-zone_id=$(cf_find_zone "$domain")
-if [[ -n "$zone_id" ]]; then
-    green "Cloudflare Zone 检测成功：$zone_id"
-    if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
-        green "Cloudflare DNS 配置成功"
-    else
-        yellow "警告：Cloudflare DNS 配置失败"
-    fi
-    if cf_set_ssl "$zone_id" "full"; then
-        green "Cloudflare SSL 模式已设置为 Full"
-    else
-        yellow "警告：Cloudflare SSL 模式设置失败"
-    fi
-else
-    yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
-fi
-if [ -f "${work_dir}/url.txt" ]; then
-    sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
-fi
-echo "$xhttp_tcp" >> "${work_dir}/url.txt"
-echo "" >> "${work_dir}/url.txt"
-echo "$xhttp_udp" >> "${work_dir}/url.txt"
-echo "" >> "${work_dir}/url.txt"
-base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-restart_xray
-green "--------------------------------------------------"
-green " 节点创建完成！"
-echo "$xhttp_udp"
-green "--------------------------------------------------"
-echo "$xhttp_tcp"
-green "--------------------------------------------------"
-;;
-19)
-    check_and_issue_ssl || return 1
-    generate_vars
-    server_ip=$(get_realip)
-    echo ""
-    naive_port=$(get_available_port)
-    if [[ ! "$naive_port" =~ ^[0-9]+$ ]]; then
-        red "获取 Naive 端口失败：${naive_port:-<空>}"
-        return 1
-    fi
-    cat > /etc/sing-box/conf/naive-tls.json << EOF
-{
-  "inbounds": [
-    {
-      "type": "naive",
-      "tag": "naive",
-      "listen": "::",
-      "listen_port": $naive_port,
-      "users": [
-        {
-		  "name": "naive-user1",
-          "username": "$uuid",
-          "password": "$uuid"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "certificate_path": "$cert_file",
-        "key_path": "$key_file"
-      }
-    }
-  ]
-}
-EOF
-
-    allow_port "$naive_port/tcp" >/dev/null 2>&1
-    allow_port "$naive_port/udp" >/dev/null 2>&1
-    node_remark_h2="${isp}_naive_h2"
-    node_remark_h3="${isp}_naive_h3"
-    naive_server="${domain:-$server_ip}"
-    NAIVE_H2_URL="naive+https://${uuid}:${uuid}@${naive_server}:${naive_port}?security=tls&sni=${naive_server}&insecure=0#${node_remark_h2}"
-    NAIVE_H3_URL="naive+quic://${uuid}:${uuid}@${naive_server}:${naive_port}?congestion_control=bbr&security=tls&sni=${naive_server}&insecure=0#${node_remark_h3}"
-    if [ -f "${work_dir}/url.txt" ]; then
-        sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
-    fi
-    echo "$NAIVE_H2_URL" >> "${work_dir}/url.txt"
-	echo "" >> "${work_dir}/url.txt"
-    echo "$NAIVE_H3_URL" >> "${work_dir}/url.txt"
-    echo "" >> "${work_dir}/url.txt"
-    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-    restart_singbox
-    green "--------------------------------------------------"
-    green " Naive 节点创建完成！"
-    green "--------------------------------------------------"
-    echo ""
-    green "节点链接："
-	echo  "$NAIVE_H2_URL"
-	echo  "$NAIVE_H3_URL"
-    green "--------------------------------------------------"
-    ;;
-            # --- 完整的删除逻辑 ---
-51)
-    delete_node "_vless_tcp_reality" "/etc/sing-box/conf/xtls-reality.json" "singbox"
-    ;;
-52) 
-            target="_hysteria2"
-            target_conf="/etc/sing-box/conf/hysteria2.json"
-            if [ -f "$target_conf" ]; then
-				hy2_port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-				
-                # 安全清理 Hysteria2 的 NAT 端口跳跃规则
-                if nft list chain ip nat prerouting &>/dev/null; then
-                    for handle in $(nft -a list chain ip nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                        nft delete rule ip nat prerouting handle $handle 2>/dev/null
-                    done
-                fi
-                if [ -f /proc/net/if_inet6 ] && nft list chain ip6 nat prerouting &>/dev/null; then
-                    for handle in $(nft -a list chain ip6 nat prerouting 2>/dev/null | awk '/Hysteria2_Hop/ {print $NF}'); do
-                        nft delete rule ip6 nat prerouting handle $handle 2>/dev/null
-                    done
-                fi
-
-                # 清理入站放行规则
-                if [ -n "$hy2_port" ] && [ "$hy2_port" != "443" ]; then
-                 for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$hy2_port" '$0~"dport "p {print $NF}'); do
-                 nft delete rule inet filter input handle $handle 2>/dev/null
-                done
-                nft list ruleset > /etc/nftables.conf 2>/dev/null
-                fi
-
-                rm -f "$target_conf"
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                    sed -i "/${target}/d" /etc/sing-box/url.txt
-                    sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-					echo "" >> /etc/sing-box/url.txt
-                fi
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                restart_singbox                
-                green "==============================================="
-                green " 节点已移除!"
-                green "==============================================="
-            else
-                red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-            fi
-            ;;
-
-53)
-    delete_node "_tuic" "/etc/sing-box/conf/tuic.json" "singbox"
-    ;;
-54)
-    delete_node "_vless_http_reality" "/etc/sing-box/conf/h2-reality.json" "singbox"
-    ;;
-55)
-    delete_node "_vless_grpc_reality" "/etc/sing-box/conf/grpc-reality.json" "singbox"
-    ;;
-56)
-    delete_node "_anytls_nt123" "/etc/sing-box/conf/anytls.json" "singbox"
-    ;;
-57)
-    delete_node "_anytls_reality" "/etc/sing-box/conf/anytls-reality.json" "singbox"
-    ;;
-58)
-    delete_node "_socks5" "/etc/sing-box/conf/socks5.json" "singbox"
-    ;;
-59)
-    delete_node "_http" "/etc/sing-box/conf/http.json" "singbox"
-    ;;
-63)
-    delete_node "_xray_vless_xhttp_reality" "/etc/xray/conf/xhttp-reality.json" "xray"
-    ;;
-64)
-    delete_node "_vless_xhttp_cdn_notls" "/etc/xray/conf/xhttp-cdn.json" "xray"
-    ;;
-66)
-    delete_node "_xray_vless_xhttp_h3" "/etc/xray/conf/xhttp-udp-tls.json" "xray"
-    ;;
-68)
-    delete_node "_vless_tcp_tls" "/etc/sing-box/conf/vless-tcp-tls.json" "singbox"
-    ;;
-71)
-    delete_node "_vless_ws_notls" "/etc/sing-box/conf/vless-ws.json" "singbox"
-    ;;
-
-		 60) 
-            target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
-            target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
-            if [ -f "$target_cdn_conf" ] || [ -f "$target_direct_conf" ]; then
-			cdn_domain=""
-            if [ -f "/etc/sing-box/url.txt" ]; then
-            while IFS= read -r line; do
-            if [[ "$line" == vless://*"_vless_wstls_cdn"* ]]; then
-            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-            break
-            fi
-            done < /etc/sing-box/url.txt
-            fi
-                if [ -f "$target_cdn_conf" ]; then
-                    vless_wstls_cdn_port=$(grep '"listen_port"' "$target_cdn_conf" | tr -cd '0-9')
-                    if [ -n "$vless_wstls_cdn_port" ]; then
-                        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_cdn_port" '$0~"dport "p {print $NF}'); do
-                            nft delete rule inet filter input handle $handle 2>/dev/null
-                        done
-                    fi
-                    rm -f "$target_cdn_conf"
-                fi
-                if [ -f "$target_direct_conf" ]; then
-                    vless_wstls_direct_port=$(grep '"listen_port"' "$target_direct_conf" | tr -cd '0-9')
-                    if [ -n "$vless_wstls_direct_port" ]; then
-                        for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_wstls_direct_port" '$0~"dport "p {print $NF}'); do
-                            nft delete rule inet filter input handle $handle 2>/dev/null
-                        done
-                    fi
-                    rm -f "$target_direct_conf"
-                fi
-                nft list ruleset > /etc/nftables.conf 2>/dev/null
-                if [ -f "/etc/sing-box/url.txt" ]; then
-                     sed -i "/_vless_wstls_cdn/d" /etc/sing-box/url.txt
-                     sed -i "/_vless_wstls_direct/d" /etc/sing-box/url.txt
-                     
-                     sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-                     echo "" >> /etc/sing-box/url.txt
-                fi
-                
-                if [ -s "/etc/sing-box/url.txt" ]; then
-                    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-                else
-                    truncate -s 0 /etc/sing-box/sub.txt
-                fi
-                
-                restart_singbox               
-                green "============================================"
-                green " 节点已移除!"
-                green "============================================"
-				if [[ -n "$cdn_domain" ]]; then
-                cf_remove_cdn_rules "$cdn_domain"
-                fi
-            else
-                red "错误: 未找到 VLESS WS-TLS 相关的配置文件，删除取消。"
-            fi
-            ;;
-		    
-	61)
-    targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
-    configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
-    exist_flag=0
-    for conf in "${configs[@]}"; do
-        [ -f "$conf" ] && exist_flag=1 && break
     done
-    if [ "$exist_flag" -eq 1 ]; then
-        cdn_domain=""
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            while IFS= read -r line; do
-                if [[ "$line" == trojan://*"_trojan_ws_cdn"* ]]; then
-                    cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-                    break
-                fi
-            done < /etc/sing-box/url.txt
-        fi
-        for conf in "${configs[@]}"; do
-            if [ -f "$conf" ]; then
-                port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
-                if [ -n "$port" ]; then
-                    nft delete rule inet filter input handle $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}') 2>/dev/null
-                fi
-                rm -f "$conf"
-            fi
-        done
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            tmp_file=$(mktemp)
-            while IFS= read -r line || [ -n "$line" ]; do
-                skip=0
-                if [[ "$line" == vmess://* ]]; then
-                    b64_str="${line#vmess://}"
-                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    for t in "${targets[@]}"; do
-                        if [[ "$decoded" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                else
-                    for t in "${targets[@]}"; do
-                        if [[ "$line" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                fi
-                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
-            done < "/etc/sing-box/url.txt"
-            mv "$tmp_file" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_singbox
-        green "==============================================="
-        green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
-        green "==============================================="
-        if [[ -n "$cdn_domain" ]]; then
-            cf_remove_cdn_rules "$cdn_domain"
-        fi
-    else
-        red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
-    fi
-    ;;
-	62)
-    targets=("_Tunnelvmess_ws_argo" "_Tunnelvless_ws_argo" "_Tunneltrojan_ws_argo")
-    configs=("/etc/sing-box/conf/tunnel-ws-argo.json")
-    exist_flag=0
-    for conf in "${configs[@]}"; do
-        [ -f "$conf" ] && exist_flag=1 && break
-    done
-    if [ "$exist_flag" -eq 1 ]; then
-        cdn_domain=""
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            while IFS= read -r line; do
-                if [[ "$line" == trojan://*"_Tunneltrojan_ws_argo"* ]]; then
-                    cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-                    break
-                fi
-            done < /etc/sing-box/url.txt
-        fi
-        for conf in "${configs[@]}"; do
-            if [ -f "$conf" ]; then
-                port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
-                if [ -n "$port" ]; then
-                    nft delete rule inet filter input handle $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}') 2>/dev/null
-                fi
-                rm -f "$conf"
-            fi
-        done
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            tmp_file=$(mktemp)
-            while IFS= read -r line || [ -n "$line" ]; do
-                skip=0
-                if [[ "$line" == vmess://* ]]; then
-                    b64_str="${line#vmess://}"
-                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    for t in "${targets[@]}"; do
-                        if [[ "$decoded" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                else
-                    for t in "${targets[@]}"; do
-                        if [[ "$line" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                fi
-                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
-            done < "/etc/sing-box/url.txt"
-            mv "$tmp_file" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_singbox
-        green "==============================================="
-        green " 节点已移除！"
-        green "==============================================="
-        if [[ -n "$cdn_domain" ]]; then
+}
+add_inbound() {
+    local inbound_type="$1"
+    local engine="$2"
+    local inbound_number
+    local config_file
+    inbound_number=$(get_next_inbound_number "$inbound_type")
+    config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "$engine")
+    clear
+    echo -e "${BLUE}================ 添加入站 ================${NC}"
     echo
-    reading "是否删除 Cloudflare DNS 解析和 Tunnel 路由？[y/N]: " del_argo_cf
-    if [[ "$del_argo_cf" =~ ^[Yy]$ ]]; then
-        if [[ -z "${CF_TOKEN:-}" &&
-              ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-            echo
-            skyblue "未检测到 Cloudflare API 权限，请先验证"
-            green "1) Cloudflare API Token"
-            green "2) Cloudflare Global API Key (邮箱 + Key)"
-            local cf_type
-            reading "请输入选择 [1-2]（默认 1）: " cf_type
-            [[ -z "$cf_type" ]] && cf_type=1
-
-            case "$cf_type" in
-                1)
-                    cf_auth_token || break
-                    ;;
-                2)
-                    cf_auth_global || break
-                    ;;
-                *)
-                    red "无效选择！"
-                    break
-                    ;;
-            esac
-        fi
-
-        if [[ -s "/etc/sing-box/conf/cloudflared.json" ]]; then
-            tunnel_token=$(jq -r \
-                '.inbounds[]? |
-                 select(.type == "cloudflared") |
-                 .token // empty' \
-                /etc/sing-box/conf/cloudflared.json | head -n1)
-
-            tunnel_id=$(echo "$tunnel_token" |
-                base64 -d 2>/dev/null |
-                jq -r '.t // empty' 2>/dev/null)
-
-            if [[ -n "$tunnel_id" && -n "${CF_ACCOUNT_ID:-}" ]]; then
-                config_data=$(cf_call GET \
-                    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-                    2>/dev/null)
-
-                if [[ "$(echo "$config_data" | jq -r '.success // false')" == "true" ]]; then
-                    ingress=$(echo "$config_data" |
-                        jq -c '.result.config.ingress // []')
-
-                    new_config=$(echo "$ingress" |
-                        jq -c --arg h "$cdn_domain" '
-                            {
-                                config: {
-                                    ingress: (
-                                        map(select(
-                                            (.hostname // "") != $h and
-                                            (.service // "") != "http_status:404"
-                                        ))
-                                        + [{service:"http_status:404"}]
-                                    )
-                                }
-                            }')
-
-                    response=$(cf_call PUT \
-                        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-                        "$new_config" \
-                        2>/dev/null)
-
-                    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
-                        green "Tunnel 路由已删除：$cdn_domain"
-                    else
-                        red "Tunnel 路由删除失败！"
-                        echo "$response" |
-                            jq -r '.errors[]?.message // empty'
-                    fi
+    echo -e "入站类型：${GREEN}${inbound_type}${NC}"
+    echo -e "编号：${GREEN}${inbound_number}${NC}"
+    echo -e "配置文件：${GREEN}${config_file}${NC}"
+    echo -e "核心：${GREEN}${engine}${NC}"
+    echo
+    case "$inbound_type" in
+        vless-reality)
+            echo "这里接入 VLESS Reality 创建逻辑"
+            ;;
+        hysteria2)
+            echo "这里接入 Hysteria2 创建逻辑"
+            ;;
+        tuic)
+            echo "这里接入 TUIC 创建逻辑"
+            ;;
+        http-reality)
+            echo "这里接入 HTTP Reality 创建逻辑"
+            ;;
+        grpc-reality)
+            echo "这里接入 gRPC Reality 创建逻辑"
+            ;;
+        anytls)
+            echo "这里接入 AnyTLS 创建逻辑"
+            ;;
+        anytls-reality)
+            echo "这里接入 AnyTLS Reality 创建逻辑"
+            ;;
+        socks5)
+            echo "这里接入 SOCKS5 创建逻辑"
+            ;;
+        http)
+            echo "这里接入 HTTP 创建逻辑"
+            ;;
+        vless-ws-tls)
+            echo "这里接入 VLESS WS TLS 创建逻辑"
+            ;;
+        cdn)
+            echo "这里接入 CDN 创建逻辑"
+            ;;
+        argo)
+            echo "这里接入 Cloudflare Tunnel 创建逻辑"
+            ;;
+        xhttp-reality)
+            echo "这里接入 XHTTP Reality 创建逻辑"
+            ;;
+        xhttp-cdn)
+            echo "这里接入 XHTTP CDN 创建逻辑"
+            ;;
+        xhttp-cdn-tls)
+            echo "这里接入 XHTTP CDN TLS 创建逻辑"
+            ;;
+        xhttp-udp-tls)
+            echo "这里接入 XHTTP UDP TLS 创建逻辑"
+            ;;
+        xhttp-tcpudp-cdn-tls)
+            echo "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑"
+            ;;
+        vless-tcp-tls)
+            echo "这里接入 VLESS TCP TLS 创建逻辑"
+            ;;
+        naiveproxy)
+            echo "这里接入 Naiveproxy 创建逻辑"
+            ;;
+        vmess-ws)
+            echo "这里接入 VMess WS 创建逻辑"
+            ;;
+        vless-ws)
+            echo "这里接入 VLESS WS 创建逻辑"
+            ;;
+        *)
+            echo -e "${RED}未知入站类型${NC}"
+            ;;
+    esac
+    echo
+    read -rp "按回车返回..." _
+}
+manage_single_inbound() {
+    local selected="$1"
+    local config_file
+    local engine
+    local inbound_type
+    local inbound_number
+    IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
+    while true; do
+        clear
+        echo -e "${BLUE}================ 入站管理 ================${NC}"
+        echo
+        echo -e "入站：${GREEN}${inbound_type}-${inbound_number}${NC}"
+        echo -e "类型：${GREEN}${inbound_type}${NC}"
+        echo -e "编号：${GREEN}${inbound_number}${NC}"
+        echo -e "核心：${GREEN}${engine}${NC}"
+        echo -e "配置：${GREEN}${config_file}${NC}"
+        echo
+        echo -e "${BLUE}--------------------------------------------${NC}"
+        echo
+        echo -e "${GREEN}1.${NC} 修改入站"
+        echo -e "${GREEN}2.${NC} 查看配置"
+        echo -e "${GREEN}3.${NC} 查看分享链接"
+        echo -e "${GREEN}4.${NC} 重启服务"
+        echo -e "${RED}5.${NC} 删除入站"
+        echo
+        echo -e "${GREEN}0.${NC} 返回"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            1)
+                edit_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                ;;
+            2)
+                show_inbound_config "$config_file"
+                ;;
+            3)
+                show_inbound_url "$inbound_type" "$inbound_number"
+                ;;
+            4)
+                if [ "$engine" = "xray" ]; then
+                    systemctl restart xray
                 else
-                    red "获取 Tunnel 配置失败！"
-                    echo "$config_data" |
-                        jq -r '.errors[]?.message // empty'
+                    systemctl restart sing-box
                 fi
-            else
-                red "无法获取 Tunnel ID 或 Account ID！"
-            fi
-        else
-            yellow "未找到 cloudflared.json，跳过 Tunnel 路由删除"
-        fi
-
-        if cf_get_zone_id_by_domain "$cdn_domain"; then
-            cf_delete_dns "$selected_zone_id" "$cdn_domain"
-            green "DNS 解析已删除：$cdn_domain"
-        else
-            yellow "未找到 DNS 所属 Zone：$cdn_domain"
-        fi
-    else
-        yellow "已跳过 Cloudflare DNS 和 Tunnel 路由删除"
-    fi
-fi
-else
-    red "错误: 未找到节点配置文件，删除取消。"
-fi
-;;                       
-	65)
-    target="_xray_vless_xhttp_tls"
-    target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
-    if [ -f "$target_conf" ]; then
-	    cdn_domain=""
-            if [ -f "/etc/sing-box/url.txt" ]; then
-            while IFS= read -r line; do
-            if [[ "$line" == vless://*"_xray_vless_xhttp_cdn_tls"* ]]; then
-            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-            break
-            fi
-    done < /etc/sing-box/url.txt
-fi
-        vless_xhttp_cdn_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$vless_xhttp_cdn_tls_port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_cdn_tls_port" '$0~"dport "p {print $NF}'); do
-                nft delete rule inet filter input handle $handle 2>/dev/null
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-        fi
-        rm -f "$target_conf"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            sed -i "/${target}/d" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_xray
-        green "==============================================="
-        green " 节点已移除!"
-        green "==============================================="
-		if [[ -n "$cdn_domain" ]]; then
-            cf_remove_cdn_rules "$cdn_domain"
-        fi
-    else
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-    fi
-    ;;
-	67)
-    target="_xray_vless_xhttp_tcpudpcdn"
-    target_conf="/etc/xray/conf/xhttp-tcpudp-tls.json"
-    if [ -f "$target_conf" ]; then
-	    cdn_domain=""
-            if [ -f "/etc/sing-box/url.txt" ]; then
-            while IFS= read -r line; do
-            if [[ "$line" == vless://*"_xray_vless_xhttp_tcpudpcdn"* ]]; then
-            cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
-            break
-            fi
-    done < /etc/sing-box/url.txt
-fi
-        vless_xhttp_tcpudp_tls_port=$(grep '"port"' "$target_conf" | head -1 | tr -cd '0-9')
-        if [ -n "$vless_xhttp_tcpudp_tls_port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$vless_xhttp_tcpudp_tls_port" '$0~"dport "p {print $NF}'); do
-                nft delete rule inet filter input handle $handle 2>/dev/null
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-        fi
-        rm -f "$target_conf"
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            sed -i "/${target}/d" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_xray
-        green "==============================================="
-        green " 节点已移除!"
-        green "==============================================="
-		if [[ -n "$cdn_domain" ]]; then
-            cf_remove_cdn_rules "$cdn_domain"
-        fi
-    else
-        red "错误: 未找到配置文件 ($target_conf)，删除取消。"
-    fi
-    ;;
-	70)
-    target="_vmess_ws_notls"
-    target_conf="/etc/sing-box/conf/vmess-ws.json"
-    if [ -f "$target_conf" ]; then
-        port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
-        if [ -n "$port" ]; then
-            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0 ~ "dport "p {print $NF}'); do
-                nft delete rule inet filter input handle "$handle" 2>/dev/null
-            done
-        fi
-        rm -f "$target_conf"
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-        if [ -f "/etc/sing-box/url.txt" ]; then
-            tmp_file=$(mktemp)
-            while IFS= read -r line || [ -n "$line" ]; do
-                skip=0
-                if [[ "$line" == vmess://* ]]; then
-                    b64_str="${line#vmess://}"
-                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    if [[ "$decoded" == *"$target"* ]]; then
-                        skip=1
-                    fi
+                echo -e "${GREEN}服务已重启${NC}"
+                sleep 1
+                ;;
+            5)
+                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                    return
                 fi
-                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
-            done < "/etc/sing-box/url.txt"
-            mv "$tmp_file" /etc/sing-box/url.txt
-            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-            echo "" >> /etc/sing-box/url.txt
-        fi
-        if [ -s "/etc/sing-box/url.txt" ]; then
-            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-        else
-            truncate -s 0 /etc/sing-box/sub.txt
-        fi
-        restart_singbox
-        green "==============================================="
-        green " 节点已移除！"
-        green "==============================================="
-    else
-        red "错误: 未找到 VMess WS 节点配置文件，删除取消。"
-    fi
-    ;;
-            0) break ;;
-            *) red "无效选项"; sleep 1; continue ;;
-        esac       
-        echo -e "\n\033[31m按任意键返回菜单...\033[0m"
-        read -n 1
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "${RED}无效选项${NC}"
+                sleep 1
+                ;;
+        esac
     done
+}
+show_inbound_config() {
+    local config_file="$1"
+    clear
+    echo -e "${BLUE}================ 入站配置 ================${NC}"
+    echo
+    if [ -f "$config_file" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            jq . "$config_file"
+        else
+            cat "$config_file"
+        fi
+    else
+        echo -e "${RED}配置文件不存在${NC}"
+    fi
+    echo
+    read -rp "按回车返回..." _
+}
+show_inbound_url() {
+    local inbound_type="$1"
+    local inbound_number="$2"
+    local remark="${inbound_type}-${inbound_number}"
+    clear
+    echo -e "${BLUE}================ 分享链接 ================${NC}"
+    echo
+    echo -e "正在查找：${GREEN}${remark}${NC}"
+    echo
+    if [ -f "$URL_FILE" ]; then
+        grep -E "#${remark}$" "$URL_FILE" 2>/dev/null || echo -e "${GRAY}暂未找到对应分享链接${NC}"
+    else
+        echo -e "${GRAY}URL 文件不存在${NC}"
+    fi
+    echo
+    read -rp "按回车返回..." _
+}
+edit_inbound() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    clear
+    echo -e "${BLUE}================ 修改入站 ================${NC}"
+    echo
+    echo -e "入站：${GREEN}${inbound_type}-${inbound_number}${NC}"
+    echo -e "核心：${GREEN}${engine}${NC}"
+    echo -e "配置：${GREEN}${config_file}${NC}"
+    echo
+    echo "这里后续接入对应入站的修改逻辑"
+    echo
+    read -rp "按回车返回..." _
+}
+delete_inbound() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    echo
+    echo -e "${RED}确定删除 ${inbound_type}-${inbound_number}？${NC}"
+    echo -e "配置文件：${config_file}"
+    echo
+    read -rp "输入 yes 确认删除: " confirm
+    [ "$confirm" = "yes" ] || return 1
+    rm -f "$config_file"
+    echo -e "${GREEN}配置文件已删除${NC}"
+    echo
+    echo -e "${GRAY}后续这里再加入端口、URL、订阅以及 Cloudflare 相关清理${NC}"
+    sleep 1
+    return 0
 }
 
 #更新脚本
