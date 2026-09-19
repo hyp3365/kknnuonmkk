@@ -6173,8 +6173,8 @@ def fmt(n):
     n = float(n)
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     i = 0
-    while n >= 1024 and i < len(units) - 1:
-        n /= 1024
+    while n >= 1000 and i < len(units) - 1:
+        n /= 1000
         i += 1
     if i == 0:
         return f"{int(n)} {units[i]}"
@@ -6198,7 +6198,6 @@ else:
     print("状态：正常")
 PY
 }
-
 
     
 manage_single_inbound() {
@@ -6242,12 +6241,13 @@ else
 fi
 echo -e "${skyblue}流量限制${re}"
 show_limit "$inbound_tag" "$traffic_user"
-echo "s. 删除入站"
-echo "1. 修改UUID"
-echo "2. 修改端口"
-echo "3. 流量限制"
-echo "4. 查看链接"
-echo "5. 查看配置"
+green "────────────────"
+red "s. 删除入站"
+green "1. 修改UUID"
+green "2. 修改端口"
+green "3. 流量限制"
+green "4. 查看链接"
+green "5. 查看配置"
         case "$inbound_type" in
             vless-reality|grpc-reality|xhttp-reality)
                 green "6. 修改 Reality 域名"
@@ -6371,6 +6371,7 @@ show_inbound_url() {
     else
         red "对应链接文件不存在"
     fi
+
     echo
     green "================ 订阅链接 ================"
     echo
@@ -9150,10 +9151,10 @@ done
 
 # 查看节点信息和订阅链接
 check_nodes() {
-    if [ -f "${work_dir}/url.txt" ]; then
+    if [ -f "${work_dir}/sub.txt" ]; then
         while IFS= read -r line; do 
             purple "$line"
-        done < "${work_dir}/url.txt"
+        done < "${work_dir}/sub.txt"
     fi
 
     local nginx_conf="/etc/nginx/conf.d/sing-box.conf"
@@ -10201,7 +10202,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
-   printf "%b%-32s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "6. 空着没什么用" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "0. 退出脚本" "$re"
@@ -10251,7 +10252,7 @@ fi
         3) manage_singbox ;;
         4) manage_cf ;;
         5) check_nodes ;;
-        6) change_config ;;
+        6)  ;;
         7) disable_open_sub ;;
 		8) 
            clear
