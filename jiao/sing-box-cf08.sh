@@ -5743,7 +5743,7 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -6499,7 +6499,7 @@ delete_inbound() {
     if [ "$engine" = "xray" ]; then
         restart_xray
     else
-        restart_singbox
+        systemctl reload sing-box
     fi
     green "==============================================="
     green " 入站已移除：${inbound_type}-${inbound_number}"
@@ -10355,7 +10355,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.02===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.1===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
