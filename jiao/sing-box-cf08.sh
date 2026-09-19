@@ -5279,7 +5279,7 @@ delete_inbound() {
 
 #更新脚本
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-cf.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-cf08.sh"
     local local_file="$work_dir/sb.sh"
 
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
