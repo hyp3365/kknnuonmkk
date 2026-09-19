@@ -10288,9 +10288,7 @@ edit_singbox_files() {
                 content=$(cat "${errors[$((choice - 1))]}")
                 printf '%s\n' "$content"
                 echo
-                green "e. 编辑"
-				green "保存文件：Ctrl + O，回车（Enter）确认"
-				green "退出编辑：Ctrl + X"
+                green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
                 green "0. 退出"
                 echo
                 read -rp "请选择: " choice
@@ -10326,7 +10324,7 @@ edit_singbox_files() {
                     green "文件不存在"
                 fi
                 echo
-                green "e. 编辑"
+                green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
                 green "0. 退出"
                 echo
                 read -rp "请选择: " choice
