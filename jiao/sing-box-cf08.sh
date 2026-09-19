@@ -10202,6 +10202,7 @@ edit_singbox_files() {
     local selected=""
     local items=()
     local file=""
+    local content=""
     local result=""
     local errors=()
     local i=1
@@ -10279,10 +10280,25 @@ edit_singbox_files() {
                 continue
             fi
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#errors[@]}" ]; then
-                nano "${errors[$((choice - 1))]}"
-            else
-                green "无效选择"
-                sleep 1
+                clear
+                green "================ 配置文件 ================"
+                echo
+                echo "文件：${errors[$((choice - 1))]}"
+                echo
+                content=$(cat "${errors[$((choice - 1))]}")
+                printf '%s\n' "$content"
+                echo
+                green "e. 编辑"
+				green "保存文件：Ctrl + O，回车（Enter）确认"
+				green "退出编辑：Ctrl + X"
+                green "0. 退出"
+                echo
+                read -rp "请选择: " choice
+                case "$choice" in
+                    e|E)
+                        nano "${errors[$((choice - 1))]}"
+                        ;;
+                esac
             fi
             continue
         fi
@@ -10298,7 +10314,35 @@ edit_singbox_files() {
         if [ "$selected_type" = "d" ]; then
             current_dir="$selected_path"
         else
-            nano "$selected_path"
+            while true; do
+                clear
+                green "================ 文件内容 ================"
+                echo
+                echo "文件：$selected_path"
+                echo
+                if [ -f "$selected_path" ]; then
+                    cat "$selected_path"
+                else
+                    green "文件不存在"
+                fi
+                echo
+                green "e. 编辑"
+                green "0. 退出"
+                echo
+                read -rp "请选择: " choice
+                case "$choice" in
+                    e|E)
+                        nano "$selected_path"
+                        ;;
+                    0)
+                        break
+                        ;;
+                    *)
+                        green "无效选择"
+                        sleep 1
+                        ;;
+                esac
+            done
         fi
     done
 }
@@ -10312,7 +10356,7 @@ menu() {
    echo ""
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
-   green "${purple}快捷命令sb或者b${re}"
+   green "${purple}快捷命令sb或者b${re}  清屏 clear"
    purple "=== 老王sing-box四合一安装脚本 1.02===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
