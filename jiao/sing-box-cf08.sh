@@ -5135,9 +5135,10 @@ manage_nodes_menu() {
         public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 		short_id=$(openssl rand -hex 6)
     fi
-	TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
-    if [ -s "$TRAFFIC_SCRIPT" ]; then
-    source "$TRAFFIC_SCRIPT"
+	if systemctl is-active --quiet singbox-traffic.service; then
+    :
+    else
+    systemctl start singbox-traffic.service >/dev/null 2>&1 || true
     fi
 	generate_vars
     server_ip=$(get_realip)
