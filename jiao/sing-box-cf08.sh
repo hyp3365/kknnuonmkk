@@ -8372,34 +8372,48 @@ SRVEOF
             sleep 1 && iptables_ssl
             ;;                  
 9)
-    yellow "正在扫描所有 nftables 端口规则..."
+        yellow "正在扫描所有 nftables 端口规则..."
+    yellow "Hysteria2 端口跳跃规则将自动排除。"
+
     local cleaned=0
+
+    # 1. 预先一次性获取所有正在监听的 TCP/UDP 端口 (格式: proto:port，例如 tcp:80 或 udp:53)
+    local listening_ports
+    listening_ports=$(ss -H -lntu 2>/dev/null | awk '{
+        proto=$1
+        addr=$5
+        sub(/.*:/, "", addr)
+        if (proto ~ /^(tcp|udp)$/ && addr ~ /^[0-9]+$/) {
+            print proto ":" addr
+        }
+    }' | sort -u)
+
     local family table chain type port handle
+
+    # 2. 解析并逐条比对 nftables 规则
     while read -r family table chain type port handle; do
         [[ "$family" =~ ^(ip|ip6|inet)$ ]] || continue
         [[ "$port" =~ ^[0-9]+$ ]] || continue
         [[ "$handle" =~ ^[0-9]+$ ]] || continue
+
+        # 排除 Hysteria2 NAT 表，避免误删 Hy2 端口跳跃规则
         if [[ "$table" == "hysteria_nat" ]]; then
             yellow "跳过 Hy2 端口跳跃规则: $family $table $chain $type $port"
             continue
         fi
-        local listening=0
-        while read -r proto state recvq sendq local_addr peer rest; do
-            if [[ "${local_addr##*:}" == "$port" ]]; then
-                listening=1
-                break
-            fi
-        done < <(ss -H -lntu 2>/dev/null)
-        if [[ "$listening" -eq 0 ]]; then
+
+        # 3. 精确校验该协议 (tcp/udp) 和端口是否在监听列表中
+        if ! grep -q -x "${type}:${port}" <<< "$listening_ports"; then
             if nft delete rule "$family" "$table" "$chain" handle "$handle" 2>/dev/null; then
-                green "已清理: $family $table $chain $type $port"
+                green "已清理未运行规则: $family $table $chain $type $port (handle $handle)"
                 cleaned=1
             fi
         fi
     done < <(
         nft -a -nn list ruleset 2>/dev/null |
         awk '
-            /^table (ip|ip6|inet) / {
+            # 匹配 table (允许行首包含缩进)
+            /^[ \t]*table (ip|ip6|inet) / {
                 family=$2
                 table=$3
                 gsub(/[{}]/, "", table)
@@ -8407,36 +8421,42 @@ SRVEOF
                 next
             }
 
-            /^chain / {
-                chain=$2
+            # 匹配 chain (允许行首包含缩进)
+            /^[ \t]*chain / {
+                sub(/^[ \t]*chain[ \t]+/, "")
+                chain=$1
                 gsub(/[{}]/, "", chain)
                 next
             }
 
-            ($1 == "tcp" || $1 == "udp") && $2 == "dport" {
-                type=$1
-                port=$3
+            # 匹配包含 tcp/udp dport 和 handle 的规则 (不限制 dport 的位置)
+            /^[ \t]*(.*[ \t])?(tcp|udp)[ \t]+dport[ \t]+/ {
+                type=""
+                port=""
                 handle=""
 
                 for (i=1; i<=NF; i++) {
+                    if ($i == "tcp" || $i == "udp") {
+                        if ($(i+1) == "dport") {
+                            type=$i
+                            port=$(i+2)
+                        }
+                    }
                     if ($i == "handle") {
                         handle=$(i+1)
-                        break
                     }
                 }
 
                 gsub(/[{},;]/, "", port)
 
-                if (port ~ /^[0-9]+$/ && handle ~ /^[0-9]+$/)
+                if (type != "" && port ~ /^[0-9]+$/ && handle ~ /^[0-9]+$/)
                     print family, table, chain, type, port, handle
             }
         '
     )
-
     if [[ "$cleaned" -eq 0 ]]; then
         green "没有发现需要清理的未运行端口规则。"
     fi
-
     save_nft_rules
     green "未运行端口规则清理完成！"
     sleep 1 && iptables_ssl
