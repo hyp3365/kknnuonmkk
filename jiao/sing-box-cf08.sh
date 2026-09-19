@@ -3985,35 +3985,38 @@ uninstall_singbox() {
            yellow "正在卸载 sing-box"
            if command_exists rc-service; then
                 rc-service sing-box stop
-                rm /etc/init.d/sing-box 
+                rm /etc/init.d/sing-box
                 rc-update del sing-box default
-           else               
-		        # 停止 sing-box
-                systemctl stop "${server_name}"		
+           else
+                
+                systemctl stop "${server_name}"
                 systemctl disable "${server_name}"
-                # 重新加载 systemd
+                
+                systemctl stop singbox-traffic.service 2>/dev/null || true
+                systemctl disable singbox-traffic.service 2>/dev/null || true
+                rm -f /etc/systemd/system/singbox-traffic.service
+            
                 systemctl daemon-reload || true
-
             fi
-           # 删除配置文件和日志
            rm -rf "${work_dir}" || true
            rm -rf "${log_dir}" || true
            rm -rf /etc/systemd/system/sing-box.service > /dev/null 2>&1
-           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           # 卸载Nginx
+           rm -rf /etc/systemd/system/singbox-traffic.service > /dev/null 2>&1
+           rm -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
+           rm -f /etc/sing-box/sing-box-name.sh
+           rm -rf /etc/sing-box/user_manager
            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
             case "${choice}" in
                 y|Y)
-				    stop_nginx
+                    stop_nginx
                     manage_packages uninstall nginx
-					rm -f /etc/nginx/conf.d/sing-box.conf
+                    rm -f /etc/nginx/conf.d/sing-box.conf
                     rm -f /etc/nginx/conf.d/sing-box.conf.bak*
                     ;;
-                 *) 
+                 *)
                     yellow "取消卸载Nginx\n\n"
                     ;;
             esac
-
             green "\nsing-box 卸载成功\n\n" && exit 0
            ;;
        *)
