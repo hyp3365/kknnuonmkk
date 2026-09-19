@@ -5598,7 +5598,19 @@ manage_hy2_obfs_menu() {
         esac
     done
 }
-
+TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+TRAFFIC_SCRIPT="/tmp/sing-box-name.sh"
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT_URL" 2>/dev/null
+fi
+if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
+    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
+fi
+if [ -s "$TRAFFIC_SCRIPT" ] && [ -f /etc/sing-box/sing-box ]; then
+    source "$TRAFFIC_SCRIPT"
+fi
 manage_single_inbound() {
     local selected="$1"
     local config_file=""
