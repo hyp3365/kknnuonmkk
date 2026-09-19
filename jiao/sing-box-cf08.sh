@@ -5222,11 +5222,6 @@ if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
     yellow "未获得有效的 Cloudflare API 凭据"
     return 1
 fi
-if [ -z "$CFIP" ]; then
-    red "未获取到 Cloudflare IP"
-    sleep 1
-    return 1
-fi
 cf_select_zone || return 1
 domain="$zone_domain"
 if [ -z "$domain" ] || [ -z "$zone_id" ]; then
