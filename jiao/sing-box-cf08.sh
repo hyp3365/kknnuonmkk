@@ -5622,7 +5622,7 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -5684,7 +5684,7 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -5801,7 +5801,7 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -5860,7 +5860,7 @@ EOF
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -5928,7 +5928,7 @@ EOF
     echo "$url" > "$url_file"
     restart_service="singbox"
     update_sub_file
-    restart_singbox
+    systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
     echo "$url"
@@ -10358,7 +10358,17 @@ menu() {
    purple "=== 老王sing-box四合一安装脚本 1.1===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
-   printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
+   singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
+   if [ -n "$singbox_start_time" ]; then
+    singbox_start_ts=$(date -d "$singbox_start_time" +%s 2>/dev/null)
+    singbox_now_ts=$(date +%s)
+    singbox_uptime=$((singbox_now_ts - singbox_start_ts))
+    singbox_uptime_text="$(printf '%d天 %02d小时 %02d分钟 %02d秒' $((singbox_uptime/86400)) $(((singbox_uptime%86400)/3600)) $(((singbox_uptime%3600)/60)) $((singbox_uptime%60)))"
+    else
+    singbox_uptime_text="未运行"
+   fi
+   printf "${purple}singbox 状态: %s${re}\n" "$(to_chinese "$singbox_status")"
+   printf "${purple}singbox 运行: %s${re}\n\n" "$singbox_uptime_text"
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
