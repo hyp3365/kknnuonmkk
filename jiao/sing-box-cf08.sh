@@ -6373,13 +6373,12 @@ show_inbound_url() {
     green "入站：${inbound_type}-${inbound_number}"
     echo
     if [ -f "$url_file" ]; then
-        while IFS= read -r line; do
-            [ -n "$line" ] && purple "$line"
-        done < "$url_file"
+    echo
+    cat "$url_file"
+    echo
     else
-        red "对应链接文件不存在"
+    red "对应链接文件不存在"
     fi
-
     echo
     green "================ 订阅链接 ================"
     echo
@@ -9162,7 +9161,11 @@ check_nodes() {
     local sub_file="${work_dir}/sub.txt"
     if [ -f "$sub_file" ]; then
         green "================ sub.txt ================"
-        purple "$(cat "$sub_file")"
+        echo
+		echo
+		purple "$(cat "$sub_file")"
+        echo
+        echo
         green "=========================================="
     else
         red "sub.txt 文件不存在：$sub_file"
