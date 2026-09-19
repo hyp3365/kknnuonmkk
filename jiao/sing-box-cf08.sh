@@ -8372,18 +8372,71 @@ SRVEOF
             sleep 1 && iptables_ssl
             ;;                  
         9)
-            yellow "正在自动扫描并清理所有未运行的无用端口规则..."
-            for port in $(nft list chain inet filter input 2>/dev/null | awk '/ScriptManaged/ {for(i=1;i<=NF;i++) if($i=="dport") print $(i+1)}' | tr -d '{};' | tr ',' '\n' | grep -E "^[0-9]+$" | sort -un); do
-                if ! ss -tunlp | grep -q ":$port "; then
-                    for handle in $(nft -a list chain inet filter input | awk -v p="$port" '$0~"dport "p {print $NF}'); do
-                        nft delete rule inet filter input handle $handle 2>/dev/null
-                    done
-                    green "已清理: $port"
-                fi
-            done
-            save_nft_rules
-            green "清理完成！配置文件已更新保存。"
-            sleep 1 && iptables_ssl ;;
+    yellow "正在扫描所有端口..."
+    local cleaned=0
+    local family table chain type port handle
+    while read -r family table chain type port handle; do
+        [[ "$family" =~ ^(ip|ip6|inet)$ ]] || continue
+        [[ "$port" =~ ^[0-9]+$ ]] || continue
+        [[ "$handle" =~ ^[0-9]+$ ]] || continue
+        # 排除 Hysteria2 NAT 表，避免误删 Hy2 端口跳跃规则
+        if [[ "$table" == "hysteria_nat" ]]; then
+            yellow "跳过 Hy2 端口跳跃规则: $family $table $chain $type $port"
+            continue
+        fi
+        # 检查 TCP/UDP 端口是否正在监听
+        if ! ss -H -lntu 2>/dev/null | awk -v p="$port" '
+            {
+                addr=$5
+                sub(/^.*:/, "", addr)
+                if (addr == p) found=1
+            }
+            END {
+                exit(found ? 0 : 1)
+            }
+        '; then
+            if nft delete rule "$family" "$table" "$chain" handle "$handle" 2>/dev/null; then
+                green "已清理: $family $table $chain $type $port"
+                cleaned=1
+            fi
+        fi
+    done < <(
+        nft -a -nn list ruleset 2>/dev/null |
+        awk '
+            /^table (ip|ip6|inet) / {
+                family=$2
+                table=$3
+                gsub(/[{}]/, "", table)
+                chain=""
+                next
+            }
+            /^chain / {
+                chain=$2
+                gsub(/[{}]/, "", chain)
+                next
+            }
+            ($1 == "tcp" || $1 == "udp") && $2 == "dport" {
+                type=$1
+                port=$3
+                handle=""
+                for (i=1; i<=NF; i++) {
+                    if ($i == "handle") {
+                        handle=$(i+1)
+                        break
+                    }
+                }
+                gsub(/[{},;]/, "", port)
+                if (port ~ /^[0-9]+$/ && handle ~ /^[0-9]+$/)
+                    print family, table, chain, type, port, handle
+            }
+        '
+    )
+    if [[ "$cleaned" -eq 0 ]]; then
+        green "没有发现需要清理的未运行端口规则。"
+    fi
+    save_nft_rules
+    green "未运行端口规则清理完成！"
+    sleep 1 && iptables_ssl ;;
         10)
     clear
     current_port=$(grep -RniE '^\s*Port\s+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | awk '{print $2}' | head -n 1)
