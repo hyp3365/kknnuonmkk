@@ -6009,8 +6009,7 @@ manage_single_inbound() {
     6)
     case "$inbound_type" in
         vless-ws|vmess-ws|trojan-ws)
-            enable_ws_cdn 
-			"$config_file" "$engine" "$inbound_type" "$inbound_number"
+            enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
             red "当前入站没有此功能"
