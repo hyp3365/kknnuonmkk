@@ -6076,8 +6076,8 @@ except:
 units = ["B", "KB", "MB", "GB", "TB", "PB"]
 i = 0
 v = float(n)
-while v >= 1000 and i < len(units) - 1:
-    v /= 1000
+while v >= 1024 and i < len(units) - 1:
+    v /= 1024
     i += 1
 if i == 0:
     print(f"{int(v)} {units[i]}")
@@ -6174,8 +6174,8 @@ def fmt(n):
     n = float(n)
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     i = 0
-    while n >= 1000 and i < len(units) - 1:
-        n /= 1000
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
         i += 1
     if i == 0:
         return f"{int(n)} {units[i]}"
@@ -6225,7 +6225,7 @@ manage_single_inbound() {
         echo
         green "入站：${inbound_type}-${inbound_number}"
         green "类型：${inbound_type}"
-        green "配置：${config_file}"
+        green "路径：${config_file}"
         echo
         echo -e "${skyblue}流量统计${re}"
 if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
@@ -6249,7 +6249,7 @@ else
 fi
 echo -e "${skyblue}流量限制${re}"
 show_limit "$inbound_tag" "$traffic_user"
-green "────────────────"
+green "----------------------------------------------------------"
 red "s. 删除入站"
 green "1. 修改UUID"
 green "2. 修改端口"
