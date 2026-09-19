@@ -6337,15 +6337,19 @@ done
 }
 show_inbound_config() {
     local config_file="$1"
+    local config_content=""
     clear
     green "================ 入站配置 ================"
     echo
     if [ -f "$config_file" ]; then
         if command -v jq >/dev/null 2>&1; then
-            jq . "$config_file"
+            config_content=$(jq . "$config_file")
         else
-            cat "$config_file"
+            config_content=$(cat "$config_file")
         fi
+        echo
+        purple "$config_content"
+        echo
     else
         red "配置文件不存在"
     fi
@@ -6371,15 +6375,14 @@ show_inbound_url() {
     green "================ 节点连接 ================"
     echo
     green "入站：${inbound_type}-${inbound_number}"
+    echo	
+	if [ -f "$url_file" ]; then
     echo
-    if [ -f "$url_file" ]; then
-    echo
-    cat "$url_file"
+    purple "$(cat "$url_file")"
     echo
     else
     red "对应链接文件不存在"
     fi
-    echo
     green "================ 订阅链接 ================"
     echo
     if [ -f "$domain_conf" ]; then
