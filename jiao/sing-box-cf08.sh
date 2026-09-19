@@ -6220,38 +6220,34 @@ manage_single_inbound() {
         green "类型：${inbound_type}"
         green "配置：${config_file}"
         echo
-        echo -e "${skyblue}流量统计:${re}"
-        if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
-            local traffic
-            traffic="$(get_user_traffic "$traffic_user")"
-            local uplink
-            local downlink
-            local total
-            local connections
-            local period_uplink
-            local period_downlink
-            local period_total
-            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
-            echo "  上传:   $(format_bytes "$uplink")"
-            echo "  下载:   $(format_bytes "$downlink")"
-            echo "  总流量: $(format_bytes "$total")"
-            echo "  本周期: $(format_bytes "$period_total")"
-            echo "  连接数: $connections"
-        else
-            echo "  未统计"
-        fi
-        echo
-        echo -e "${skyblue}流量限制:${re}"
-        show_limit "$inbound_tag" "$traffic_user"
-        echo
-        green "--------------------------------------------"
-        echo
-        red "s. 删除入站"
-        green "1. 修改UUID"
-        green "2. 修改端口"
-        green "3. 流量限制"
-        green "4. 查看链接"
-        green "5. 查看配置"
+        echo -e "${skyblue}流量统计${re}"
+if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
+    local traffic
+    traffic="$(get_user_traffic "$traffic_user")"
+    local uplink
+    local downlink
+    local total
+    local connections
+    local period_uplink
+    local period_downlink
+    local period_total
+    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+    printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
+    printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
+    printf "连接数：%s\n" "$connections"
+else
+    echo "上传：未统计          总流量：未统计"
+    echo "下载：未统计          本周期：未统计"
+    echo "连接数：未统计"
+fi
+echo -e "${skyblue}流量限制${re}"
+show_limit "$inbound_tag" "$traffic_user"
+echo "s. 删除入站"
+echo "1. 修改UUID"
+echo "2. 修改端口"
+echo "3. 流量限制"
+echo "4. 查看链接"
+echo "5. 查看配置"
         case "$inbound_type" in
             vless-reality|grpc-reality|xhttp-reality)
                 green "6. 修改 Reality 域名"
