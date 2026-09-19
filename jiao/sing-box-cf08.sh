@@ -6206,12 +6206,19 @@ manage_single_inbound() {
     local engine=""
     local inbound_type=""
     local inbound_number=""
-    local inbound_tag=""
+        local inbound_tag=""
     local traffic_user=""
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
     inbound_tag=$(jq -r '.inbounds[0].tag // empty' "$config_file" 2>/dev/null)
     traffic_user=$(jq -r '.inbounds[0].users[0].name // empty' "$config_file" 2>/dev/null)
-    while true; do
+    if [ -z "$traffic_user" ] && [ -n "$inbound_tag" ] && [ -d "$LIMIT_DIR" ]; then
+        local limit_file=""
+        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${inbound_tag}__*.json" -print -quit 2>/dev/null)
+        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
+            traffic_user=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
+        fi
+    fi
+	while true; do
         clear
         green "================ 入站管理 ================"
         echo
