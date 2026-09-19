@@ -156,6 +156,7 @@ trojan_ws_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
+BASE_DIR="/etc/sing-box"
 DATA_DIR="$BASE_DIR/user_manager"
 LIMIT_DIR="$DATA_DIR/limits"
 TRAFFIC_DIR="$DATA_DIR/traffic"
