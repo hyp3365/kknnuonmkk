@@ -2840,56 +2840,50 @@ PY
 
 main_menu() {
     cleanup_backups
+    local file="$1"
+    local tag="$2"
+    local type="$3"
+    local port="$4"
+    local user="$5"
     while true; do
-        title "sing-box 用户管理"
+        title "流量设置"
         echo -e "  ${cyan}a)${re} 停止流量统计"
         echo -e "  ${cyan}b)${re} 重置流量统计脚本"
         echo
-        mapfile -t NODES < <(list_nodes)
-        if [ "${#NODES[@]}" -eq 0 ]; then
-            yellow "没有找到包含 users[] 的入站节点。"
-            echo
-            echo "配置目录：$CONF_DIR"
-            echo
-            pause
-            exit 0
-        fi
-        local i=1
-        for line in "${NODES[@]}"; do
-            IFS=$'\t' read -r file tag type count port <<< "$line"
-            printf "  ${green}%2d)${re} %-30s ${skyblue}用户:${re}%s\n" \
-                "$i" "$tag" "$count"
-            ((i++))
-        done
+        show_limit "$tag" "$user"
         echo
-        echo -e "  ${yellow}0)${re} 退出"
+        echo -e "  ${green}1)${re} 流量设置"
+        echo -e "  ${green}2)${re} 时间设置"
+        echo -e "  ${green}3)${re} 关闭流量限制"
+        echo -e "  ${yellow}0)${re} 返回"
         echo
-        read -rp "$(green "请选择节点: ")" choice
+        read -rp "$(green "请选择: ")" choice
         case "$choice" in
             a|A)
                 systemctl stop "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
                 green "流量统计服务已停止"
                 pause
-                continue
                 ;;
             b|B)
                 reset_traffic_script
-                continue
+                ;;
+            1)
+                set_limit "$tag" "$user"
+                ;;
+            2)
+                set_limit_period "$tag" "$user"
+                ;;
+            3)
+                disable_limit "$tag" "$user"
                 ;;
             0)
-                clear
-                exit 0
+                return
+                ;;
+            *)
+                red "无效选择"
+                sleep 1
                 ;;
         esac
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#NODES[@]}" ]; then
-            local index=$((choice-1))
-            IFS=$'\t' read -r file tag type count port <<< "${NODES[$index]}"
-            node_menu "$file" "$tag" "$type" "$port"
-        else
-            red "无效选择"
-            sleep 1
-        fi
     done
 }
-
-main_menu
+main_menu "$@"
