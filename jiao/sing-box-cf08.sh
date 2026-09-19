@@ -5155,8 +5155,6 @@ enable_ws_cdn() {
     local ws_path=""
     local origin_port=""
     local domain=""
-    local CFIP=""
-    local isp=""
     local zone_id=""
     local cf_ssl_mode="flexible"
     local cdn_url=""
@@ -5224,11 +5222,26 @@ if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
 fi
 cf_select_zone || return 1
 domain="$zone_domain"
-if [ -z "$domain" ] || [ -z "$zone_id" ]; then
+cf_select_zone || return 1
+reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
+prefix=$(echo "$prefix" | tr -d '[:space:]')
+prefix="${prefix#.}"
+prefix="${prefix%.}"
+if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    red "域名前缀格式无效！"
+    return 1
+fi
+if [[ -n "$prefix" ]]; then
+    domain="${prefix}.${zone_domain}"
+else
+    domain="$zone_domain"
+fi
+if [ -z "$domain" ] || [ -z "$selected_zone_id" ]; then
     red "未获取到 Cloudflare 域名或 Zone ID"
     sleep 1
     return 1
 fi
+zone_id="$selected_zone_id"
 green "Cloudflare 域名：$domain"
 green "Cloudflare Zone：$zone_id"
 if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
