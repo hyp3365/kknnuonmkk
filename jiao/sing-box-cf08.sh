@@ -8440,6 +8440,7 @@ SRVEOF
     save_nft_rules
     green "未运行端口规则清理完成！"
     sleep 1 && iptables_ssl
+	;;
         10)
     clear
     current_port=$(grep -RniE '^\s*Port\s+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | awk '{print $2}' | head -n 1)
