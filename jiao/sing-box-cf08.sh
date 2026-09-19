@@ -5589,6 +5589,19 @@ manage_hy2_obfs_menu() {
         esac
     done
 }
+TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+TRAFFIC_SCRIPT="/tmp/sing-box-name.sh"
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT_URL" 2>/dev/null
+fi
+if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
+    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
+fi
+if [ -s "$TRAFFIC_SCRIPT" ]; then
+    source "$TRAFFIC_SCRIPT"
+fi
 manage_single_inbound() {
     local selected="$1"
     local config_file=""
@@ -5608,6 +5621,7 @@ manage_single_inbound() {
         echo
         green "--------------------------------------------"
         echo
+        red "s. 删除入站"
         green "1. 修改UUID"
         green "2. 修改端口"
         green "3. 流量限制"
@@ -5616,9 +5630,9 @@ manage_single_inbound() {
         case "$inbound_type" in
             vless-reality|grpc-reality|xhttp-reality)
                 green "6. 修改 Reality 域名"
-                red "7. 删除入站"
                 ;;
             hysteria2)
+                green "6. 修改证书"
                 if hy2_port_hopping_enabled "$inbound_number"; then
                     green "7. 端口跳跃（已开启）"
                 else
@@ -5629,20 +5643,14 @@ manage_single_inbound() {
                 else
                     yellow "8. 混淆（未开启）"
                 fi
-                red "9. 删除入站"
                 ;;
-            tuic|anytls|anytls-reality|hysteria2)
+            tuic|anytls|anytls-reality)
                 green "6. 修改证书"
-                red "7. 删除入站"
                 ;;
             vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
                 green "6. 添加证书"
                 green "7. 修改证书"
                 green "8. 删除证书"
-                red "9. 删除入站"
-                ;;
-            *)
-                red "6. 删除入站"
                 ;;
         esac
         echo
@@ -5651,6 +5659,11 @@ manage_single_inbound() {
         echo
         read -rp "请选择: " choice
         case "$choice" in
+            s|S)
+                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                    return
+                fi
+                ;;
             1)
                 modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
@@ -5678,9 +5691,8 @@ manage_single_inbound() {
                         add_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                         ;;
                     *)
-                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-                            return
-                        fi
+                        red "当前入站没有此功能"
+                        sleep 1
                         ;;
                 esac
                 ;;
@@ -5689,16 +5701,12 @@ manage_single_inbound() {
                     hysteria2)
                         manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
                         ;;
-                    tuic|anytls|anytls-reality)
-                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    vless-reality|grpc-reality|xhttp-reality)
-                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-                            return
-                        fi
-                        ;;
                     vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
                         modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                        ;;
+                    *)
+                        red "当前入站没有此功能"
+                        sleep 1
                         ;;
                 esac
                 ;;
@@ -5710,14 +5718,9 @@ manage_single_inbound() {
                     vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
                         delete_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                         ;;
-                esac
-                ;;
-            9)
-                case "$inbound_type" in
-                    hysteria2|vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
-                        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-                            return
-                        fi
+                    *)
+                        red "当前入站没有此功能"
+                        sleep 1
                         ;;
                 esac
                 ;;
