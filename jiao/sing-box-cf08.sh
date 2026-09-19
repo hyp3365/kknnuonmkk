@@ -5100,17 +5100,21 @@ EOF
     esac
   done
 }
+
 update_sub_file() {
     local url_file
+    local tmp_file="/tmp/sing-box-sub.txt"
     mkdir -p "$URL_DIR"
-    : > "$SUB_FILE"
+    : > "$tmp_file"
     shopt -s nullglob
     for url_file in "$URL_DIR"/*.txt; do
         [ -f "$url_file" ] || continue
-        cat "$url_file" >> "$SUB_FILE"
-        echo >> "$SUB_FILE"
+        cat "$url_file" >> "$tmp_file"
+        echo >> "$tmp_file"
     done
     shopt -u nullglob
+    base64 -w0 "$tmp_file" > "$SUB_FILE" 2>/dev/null
+    rm -f "$tmp_file"
 }
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
@@ -5316,6 +5320,55 @@ add_inbound() {
   ]
 }
 EOF
+    allow_port "$xtls_reality/tcp" >/dev/null 2>&1
+	node_remark="${isp}vless_tcp_reality"
+    url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    restart_singbox
+    ;;
+	   hysteria2)
+	cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $hy2_port,
+	  "bbr_profile": "standard",
+      "users": [
+        {
+		  "name": "hysteria2-user1",
+          "password": "$uuid"
+        }
+      ],
+      "ignore_client_bandwidth": false,
+      "masquerade": "https://bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "min_version": "1.3",
+        "max_version": "1.3",
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$hy2_port/udp" >/dev/null 2>&1
+    node_remark="${isp}hysteria2"
+    url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    restart_singbox
+	;;
+EOF
     node_remark="${isp}vless_tcp_reality"
     url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
@@ -5324,7 +5377,6 @@ EOF
 	update_sub_file
     restart_singbox
     ;;
-        hysteria2) green "这里接入 Hysteria2 创建逻辑" ;;
         tuic) green "这里接入 TUIC 创建逻辑" ;;
         http-reality) green "这里接入 HTTP Reality 创建逻辑" ;;
         grpc-reality) green "这里接入 gRPC Reality 创建逻辑" ;;
