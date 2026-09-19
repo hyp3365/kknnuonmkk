@@ -5368,16 +5368,42 @@ EOF
 	update_sub_file
     restart_singbox
 	;;
+        tuic)
+	cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "tuic",
+      "tag": "tuic",
+      "listen": "::",
+      "listen_port": $tuic_port,
+      "users": [
+        {
+		  "name": "tuic-user1",
+          "uuid": "$uuid",
+          "password": "$password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "$cert_path",
+        "key_path": "$key_path"
+      }
+    }
+  ]
+}
 EOF
-    node_remark="${isp}vless_tcp_reality"
-    url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+    allow_port "$tuic_port/udp" >/dev/null 2>&1
+    node_remark="${isp}tuic_port"
+    url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
 	restart_service="singbox"
 	update_sub_file
     restart_singbox
-    ;;
-        tuic) green "这里接入 TUIC 创建逻辑" ;;
+	;;
         http-reality) green "这里接入 HTTP Reality 创建逻辑" ;;
         grpc-reality) green "这里接入 gRPC Reality 创建逻辑" ;;
         anytls) green "这里接入 AnyTLS 创建逻辑" ;;
