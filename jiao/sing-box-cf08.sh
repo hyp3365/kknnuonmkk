@@ -5146,6 +5146,150 @@ delete_v2ray_api_user() {
     }
     mv -f "$tmp" "$config"
 }
+enable_ws_cdn() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local uuid=""
+    local ws_path=""
+    local origin_port=""
+    local domain=""
+    local CFIP=""
+    local isp=""
+    local zone_id=""
+    local cf_ssl_mode="flexible"
+    local cdn_url=""
+    local node_remark_cdn=""
+    local url_file=""
+    if [ ! -f "$config_file" ]; then
+        red "入站配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
+    ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
+    origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
+    if [ -z "$uuid" ]; then
+        red "未检测到 UUID"
+        sleep 1
+        return 1
+    fi
+    if [ -z "$ws_path" ]; then
+        red "未检测到 WebSocket Path"
+        sleep 1
+        return 1
+    fi
+    if [ -z "$origin_port" ]; then
+        red "未检测到入站端口"
+        sleep 1
+        return 1
+    fi
+    generate_vars
+    if [ -z "$domain" ]; then
+        red "未获取到域名"
+        sleep 1
+        return 1
+    fi
+    if [ -z "$CFIP" ]; then
+        red "未获取到 Cloudflare IP"
+        sleep 1
+        return 1
+    fi
+    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        skyblue "请选择 Cloudflare 验证方式："
+        green " 1) Cloudflare API Token"
+        green " 2) Cloudflare Global API Key"
+        local cf_auth_type
+        reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
+        [[ -z "$cf_auth_type" ]] && cf_auth_type=1
+        case "$cf_auth_type" in
+            1)
+                cf_auth_token || return 1
+                ;;
+            2)
+                cf_auth_global || return 1
+                ;;
+            *)
+                red "无效选择！"
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        yellow "未获得有效的 Cloudflare API 凭据"
+        return 1
+    fi
+    zone_id=$(cf_find_zone "$domain")
+    if [ -z "$zone_id" ]; then
+        yellow "未找到 ${domain} 对应的 Cloudflare Zone"
+        yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
+        return 1
+    fi
+    green "Cloudflare Zone 检测成功：$zone_id"
+    if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+        green "Cloudflare DNS 配置成功"
+    else
+        yellow "警告：Cloudflare DNS 配置失败"
+    fi
+    if jq -e '.inbounds[0].tls' "$config_file" >/dev/null 2>&1; then
+        cf_ssl_mode="full"
+    else
+        cf_ssl_mode="flexible"
+    fi
+    if cf_set_ssl "$zone_id" "$cf_ssl_mode"; then
+        green "Cloudflare SSL 模式已设置为：$cf_ssl_mode"
+    else
+        yellow "警告：Cloudflare SSL 模式设置失败"
+    fi
+    if set_domain_origin_port "$zone_id" "$domain" "$origin_port"; then
+        green "Cloudflare CDN 回源规则配置成功"
+        green "回源端口：$origin_port"
+    else
+        yellow "警告：Cloudflare CDN 回源规则配置失败"
+    fi
+    node_remark_cdn="${isp}_${inbound_type}_cdn"
+    case "$inbound_type" in
+        vless-ws)
+            cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}%3Fed%3D2560#${node_remark_cdn}"
+            ;;
+        vmess-ws)
+            local vmess_json=""
+            vmess_json="{\"v\":\"2\",\"ps\":\"${node_remark_cdn}\",\"add\":\"${CFIP}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"auto\",\"host\":\"${domain}\",\"path\":\"${ws_path}\",\"tls\":\"tls\",\"sni\":\"${domain}\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
+            cdn_url="vmess://$(printf '%s' "$vmess_json" | base64 -w0)"
+            ;;
+        trojan-ws)
+            cdn_url="trojan://${uuid}@${CFIP}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}#${node_remark_cdn}"
+            ;;
+        *)
+            red "当前入站类型不支持 CDN：$inbound_type"
+            return 1
+            ;;
+    esac
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    mkdir -p "$URL_DIR"
+    if [ -f "$url_file" ]; then
+        sed -i "/#${node_remark_cdn}$/d" "$url_file"
+    fi
+    echo "$cdn_url" >> "$url_file"
+    if [ -f "${work_dir}/url.txt" ]; then
+        sed -i "/#${node_remark_cdn}$/d" "${work_dir}/url.txt"
+    fi
+    echo "$cdn_url" >> "${work_dir}/url.txt"
+    echo "" >> "${work_dir}/url.txt"
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+    green "============================================"
+    green "CDN 配置完成"
+    green "协议：${inbound_type}"
+    green "域名：${domain}"
+    green "Cloudflare IP：${CFIP}"
+    green "回源端口：${origin_port}"
+    green "SSL 模式：${cf_ssl_mode}"
+    green "CDN 节点链接："
+    echo "$cdn_url"
+    green "============================================"
+    read -rp "按回车返回..." _
+}
 
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
@@ -5251,6 +5395,94 @@ get_inbound_config_file() {
         echo "$CONF_DIR/${inbound_type}-${number}.json"
     fi
 }
+enable_vmess_ws_cdn() {
+    local config_file="$1"
+    local engine="$2"
+    local inbound_type="$3"
+    local inbound_number="$4"
+    local uuid=""
+    local vmess_path=""
+    local domain=""
+    local zone_id=""
+    local cf_auth_type=""
+    local vmess_remark_cdn=""
+    local VMESS_CDN=""
+    uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
+    vmess_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
+    domain=$(jq -r '.inbounds[0].tls.server_name // empty' "$config_file" 2>/dev/null)
+    if [[ -z "$domain" ]]; then
+        domain="${DOMAIN:-}"
+    fi
+    if [[ -z "$uuid" || -z "$vmess_path" ]]; then
+        red "无法从当前入站配置读取 UUID 或 WS Path。"
+        sleep 1
+        return 1
+    fi
+    if [[ -z "$domain" ]]; then
+        yellow "未检测到有效的域名变量，无法配置 CDN。"
+        sleep 1
+        return 1
+    fi
+    unset VMESS_CDN
+    if [[ -z "${CF_TOKEN:-}" && ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        skyblue "请选择 Cloudflare 验证方式："
+        green " 1) Cloudflare API Token"
+        green " 2) Cloudflare Global API Key"
+        reading "请输入选择 [1-2]（默认 1）: " cf_auth_type
+        [[ -z "$cf_auth_type" ]] && cf_auth_type=1
+        case "$cf_auth_type" in
+            1)
+                cf_auth_token || return 1
+                ;;
+            2)
+                cf_auth_global || return 1
+                ;;
+            *)
+                red "无效选择！"
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -n "${CF_TOKEN:-}" || ( -n "${CF_EMAIL:-}" && -n "${CF_KEY:-}" ) ]]; then
+        zone_id=$(cf_find_zone "$domain")
+        if [[ -n "$zone_id" ]]; then
+            green "Cloudflare Zone 检测成功：$zone_id"
+            if cf_upsert_dns "$zone_id" "$domain" "$server_ip"; then
+                green "Cloudflare DNS 配置成功"
+            else
+                yellow "警告：Cloudflare DNS 配置失败"
+            fi
+            if cf_set_ssl "$zone_id" "full"; then
+                green "Cloudflare SSL 模式已设置为 Full"
+            else
+                yellow "警告：Cloudflare SSL 模式设置失败"
+            fi
+            if set_domain_origin_port "$zone_id" "$domain" "$vmess_ws_port"; then
+                green "Cloudflare CDN 回源规则配置成功"
+                green "回源端口：$vmess_ws_port"
+            else
+                yellow "警告：Cloudflare CDN 回源规则配置失败"
+            fi
+            vmess_remark_cdn="${isp}vmess_ws_cdn"
+            VMESS_CDN="{\"v\":\"2\",\"ps\":\"${vmess_remark_cdn}\",\"add\":\"${CFIP}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"auto\",\"host\":\"${domain}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${domain}\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
+            VMESS_CDN_URL="vmess://$(echo -n "$VMESS_CDN" | base64 -w0)"
+            url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+            if [ -f "$url_file" ]; then
+                echo "$VMESS_CDN_URL" >> "$url_file"
+            else
+                echo "$VMESS_CDN_URL" > "$url_file"
+            fi
+            update_sub_file
+            green "Cloudflare CDN 节点添加成功"
+        else
+            yellow "未找到 ${domain} 对应的 Cloudflare Zone。"
+            yellow "请确认该域名已经添加到当前 Cloudflare 账户。"
+        fi
+    else
+        yellow "未获得有效的 Cloudflare API 凭据，已跳过 CDN 配置。"
+    fi
+    sleep 1
+}
 add_inbound_menu() {
     while true; do
         clear
@@ -5265,18 +5497,16 @@ add_inbound_menu() {
         green "7. AnyTLS Reality"
         green "8. SOCKS5"
         green "9. HTTP"
-        green "10. VLESS WS TLS"
-        green "11. VMess/VLESS/Trojan CDN"
-        green "12. Cloudflare Tunnel"
-        green "13. XHTTP Reality"
-        green "14. XHTTP CDN"
-        green "15. XHTTP CDN TLS"
-        green "16. XHTTP UDP TLS"
-        green "17. XHTTP TCP+UDP CDN TLS"
-        green "18. VLESS TCP TLS"
-        green "19. Naiveproxy"
-        green "20. VMess WS"
-        green "21. VLESS WS"
+        green "10. XHTTP Reality"
+        green "11. XHTTP CDN"
+        green "12. XHTTP CDN TLS"
+        green "13. XHTTP UDP TLS"
+        green "14. XHTTP TCP+UDP CDN TLS"
+        green "15. VLESS TCP TLS"
+        green "16. Naiveproxy"
+		green "17. Trojan WS"
+        green "18. VMess WS"
+        green "19. VLESS WS"
         echo
         green "--------------------------------------------"
         green "0. 返回"
@@ -5292,18 +5522,16 @@ add_inbound_menu() {
             7) add_inbound "anytls-reality" "sing-box" ;;
             8) add_inbound "socks5" "sing-box" ;;
             9) add_inbound "http" "sing-box" ;;
-            10) add_inbound "vless-ws-tls" "sing-box" ;;
-            11) add_inbound "cdn" "sing-box" ;;
-            12) add_inbound "argo" "sing-box" ;;
-            13) add_inbound "xhttp-reality" "xray" ;;
-            14) add_inbound "xhttp-cdn" "xray" ;;
-            15) add_inbound "xhttp-cdn-tls" "xray" ;;
-            16) add_inbound "xhttp-udp-tls" "xray" ;;
-            17) add_inbound "xhttp-tcpudp-cdn-tls" "xray" ;;
-            18) add_inbound "vless-tcp-tls" "sing-box" ;;
-            19) add_inbound "naiveproxy" "sing-box" ;;
-            20) add_inbound "vmess-ws" "sing-box" ;;
-            21) add_inbound "vless-ws" "sing-box" ;;
+            10) add_inbound "xhttp-reality" "xray" ;;
+            11) add_inbound "xhttp-cdn" "xray" ;;
+            12) add_inbound "xhttp-cdn-tls" "xray" ;;
+            13) add_inbound "xhttp-udp-tls" "xray" ;;
+            14) add_inbound "xhttp-tcpudp-cdn-tls" "xray" ;;
+            15) add_inbound "vless-tcp-tls" "sing-box" ;;
+            16) add_inbound "naiveproxy" "sing-box" ;;
+			17) add_inbound "trojan-ws" "sing-box" ;;
+			18) add_inbound "vmess-ws" "sing-box" ;;
+            19) add_inbound "vless-ws" "sing-box" ;;
             0) return ;;
             *) red "无效选项"; sleep 1 ;;
         esac
@@ -5392,7 +5620,7 @@ EOF
   "inbounds": [
     {
       "type": "hysteria2",
-      "tag": "hysteria2",
+      "tag": "hysteria2-${inbound_number}",
       "listen": "::",
       "listen_port": $hy2_port,
 	  "bbr_profile": "standard",
@@ -5450,7 +5678,7 @@ EOF
   "inbounds": [
     {
       "type": "tuic",
-      "tag": "tuic",
+      "tag": "tuic-${inbound_number}",
       "listen": "::",
       "listen_port": $tuic_port,
       "users": [
@@ -5472,7 +5700,7 @@ EOF
 }
 EOF
     allow_port "$tuic_port/udp" >/dev/null 2>&1
-    node_remark="${isp}tuic_port"
+    node_remark="${isp}tuic"
 	add_v2ray_api_user "tuic-user${inbound_number}"
     url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
@@ -5481,14 +5709,119 @@ EOF
 	update_sub_file
     restart_singbox
 	;;
-        http-reality) green "这里接入 HTTP Reality 创建逻辑" ;;
-        grpc-reality) green "这里接入 gRPC Reality 创建逻辑" ;;
+        http-reality)
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "http-reality-${inbound_number}",
+      "listen": "::",
+      "listen_port": $h2_reality,
+      "users": [
+        {
+		  "name": "http-reality-user${inbound_number}",
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      },
+      "transport": {
+        "type": "http"
+      },
+      "multiplex": {
+        "enabled": true,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 1000,
+          "down_mbps": 1000
+        }
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$h2_reality/tcp" >/dev/null 2>&1
+	node_remark="${isp}http_reality"
+	add_v2ray_api_user "http-reality-user${inbound_number}"
+    url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    restart_singbox
+    ;;
+        grpc-reality)
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "grpc-reality-${inbound_number}",
+      "listen": "::",
+      "listen_port": $grpc_reality,
+      "users": [
+        {
+		  "name": "grpc-reality-user${inbound_number}",
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "grpc"
+      },
+      "multiplex": {
+        "enabled": true,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 200,
+          "down_mbps": 200
+        }
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$grpc_reality/tcp" >/dev/null 2>&1
+	node_remark="${isp}grpc_reality"
+	add_v2ray_api_user "grpc-reality-user${inbound_number}"
+    url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    restart_singbox
+    ;;
         anytls) green "这里接入 AnyTLS 创建逻辑" ;;
         anytls-reality) green "这里接入 AnyTLS Reality 创建逻辑" ;;
         socks5) green "这里接入 SOCKS5 创建逻辑" ;;
         http) green "这里接入 HTTP 创建逻辑" ;;
-        vless-ws-tls) green "这里接入 VLESS WS TLS 创建逻辑" ;;
-        cdn) green "这里接入 CDN 创建逻辑" ;;
         argo) green "这里接入 Cloudflare Tunnel 创建逻辑" ;;
         xhttp-reality) green "这里接入 XHTTP Reality 创建逻辑" ;;
         xhttp-cdn) green "这里接入 XHTTP CDN 创建逻辑" ;;
@@ -5497,7 +5830,43 @@ EOF
         xhttp-tcpudp-cdn-tls) green "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑" ;;
         vless-tcp-tls) green "这里接入 VLESS TCP TLS 创建逻辑" ;;
         naiveproxy) green "这里接入 Naiveproxy 创建逻辑" ;;
-        vmess-ws) green "这里接入 VMess WS 创建逻辑" ;;
+        vmess-ws)
+vmess_path="/xtcssssess-ws"
+cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-${inbound_number}",
+      "listen": "::",
+      "listen_port": $vmess_ws_port,
+      "users": [
+        {
+		  "name": "vmess-ws-user${inbound_number}",
+          "uuid": "$uuid",
+          "alterId": 0
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$vmess_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+    vmess_remark="${isp}vmess_ws"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    url="vmess://$(echo -n "$VMESS" | base64 -w0)"    
+	add_v2ray_api_user "vmess-ws-user${inbound_number}"
+  	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+	restart_singbox
+   
         vless-ws) green "这里接入 VLESS WS 创建逻辑" ;;
         *) red "未知入站类型" ;;
     esac
@@ -5672,13 +6041,15 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-            tuic|anytls|anytls-reality)
+            tuic|anytls|anytls-reality|vless-tcp-tls)
                 green "6. 修改证书"
                 ;;
-            vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
-                green "6. 添加证书"
+			vless-ws|vmess-ws|trojan-ws)
+			    green "6. 添加证书"
                 green "7. 修改证书"
                 green "8. 删除证书"
+                green "9. 开启CDN"
+                green "10. 开启隧道"
                 ;;
         esac
         echo
@@ -5687,74 +6058,94 @@ manage_single_inbound() {
         echo
         read -rp "请选择: " choice
         case "$choice" in
-            s|S)
-                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-                    return
-                fi
+    s|S)
+        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+            return
+        fi
+        ;;
+    1)
+        modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
+        ;;
+    2)
+        modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+        ;;
+    3)
+        bash /etc/sing-box/sing-box-name.sh
+        ;;
+    4)
+        show_inbound_url "$inbound_type" "$inbound_number"
+        ;;
+    5)
+        show_inbound_config "$config_file"
+        ;;
+    6)
+        case "$inbound_type" in
+            vless-reality|grpc-reality|xhttp-reality)
+                modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            1)
-                modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            hysteria2|tuic|anytls|anytls-reality)
+                modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            2)
-                modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            vless-tcp-tls|vless-ws|vmess-ws|trojan-ws)
+                add_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            3)
-                bash /etc/sing-box/sing-box-name.sh
+            *)
+                red "当前入站没有此功能"
+                sleep 1
                 ;;
-            4)
-                show_inbound_url "$inbound_type" "$inbound_number"
+        esac
+        ;;
+    7)
+        case "$inbound_type" in
+            hysteria2)
+                manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            5)
-                show_inbound_config "$config_file"
+            vless-ws|vmess-ws|trojan-ws)
+                modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            6)
-                case "$inbound_type" in
-                    vless-reality|grpc-reality|xhttp-reality)
-                        modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    hysteria2|tuic|anytls|anytls-reality)
-                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
-                        add_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    *)
-                        red "当前入站没有此功能"
-                        sleep 1
-                        ;;
-                esac
+            *)
+                red "当前入站没有此功能"
+                sleep 1
                 ;;
-            7)
-                case "$inbound_type" in
-                    hysteria2)
-                        manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
-                        modify_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    *)
-                        red "当前入站没有此功能"
-                        sleep 1
-                        ;;
-                esac
+        esac
+        ;;
+    8)
+        case "$inbound_type" in
+            hysteria2)
+                manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            8)
-                case "$inbound_type" in
-                    hysteria2)
-                        manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    vless-ws-tls|vless-tcp-tls|vless-ws|vmess-ws|cdn)
-                        delete_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
-                        ;;
-                    *)
-                        red "当前入站没有此功能"
-                        sleep 1
-                        ;;
-                esac
+            vless-ws|vmess-ws|trojan-ws)
+                delete_inbound_certificate "$config_file" "$engine" "$inbound_type" "$inbound_number"
                 ;;
-            0)
-                return
+            *)
+                red "当前入站没有此功能"
+                sleep 1
                 ;;
+        esac
+        ;;
+    9)
+    case "$inbound_type" in
+        vless-ws|vmess-ws|trojan-ws)
+            enable_vmess_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            ;;
+        *)
+            red "当前入站没有此功能"
+            sleep 1
+            ;;
+    esac
+    ;;
+    10)
+        case "$inbound_type" in
+            vless-ws|vmess-ws|trojan-ws)
+                # 这里放开启隧道的函数
+                ;;
+            *)
+                red "当前入站没有此功能"
+                sleep 1
+                ;;
+        esac
+        ;;
+    0)
             *)
                 red "无效选项"
                 sleep 1
