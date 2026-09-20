@@ -517,12 +517,9 @@ def add_traffic(state, username, uplink=0, downlink=0):
     u["uplink"] = int(u.get("uplink", 0)) + uplink
     u["downlink"] = int(u.get("downlink", 0)) + downlink
     u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
-    u["period_base_uplink"] = int(u.get("period_base_uplink", 0) or 0)
-    u["period_base_downlink"] = int(u.get("period_base_downlink", 0) or 0)
-    u["period_base_total"] = int(u.get("period_base_total", 0) or 0)
-    u["period_uplink"] = max(0, int(u.get("uplink", 0) or 0) - u["period_base_uplink"])
-    u["period_downlink"] = max(0, int(u.get("downlink", 0) or 0) - u["period_base_downlink"])
-    u["period_total"] = max(0, int(u.get("total", 0) or 0) - u["period_base_total"])
+    u["period_uplink"] = int(u.get("period_uplink", 0) or 0) + uplink
+    u["period_downlink"] = int(u.get("period_downlink", 0) or 0) + downlink
+    u["period_total"] = u["period_uplink"] + u["period_downlink"]
 def sync_periods(state):
     changed = False
     now = datetime.now().astimezone()
@@ -616,12 +613,8 @@ def check_limits(state):
             continue
         u = state.get("users", {}).get(username, {})
         period = period_name(data)
-        if period in ("day", "month"):
-            current_total = int(u.get("period_total", 0) or 0)
-        else:
-            current_total = int(u.get("total", 0) or 0)
-        base_total = int(data.get("limit_base_total", 0) or 0)
-        used = max(0, current_total - base_total)
+        current_total = int(u.get("period_total", 0) or 0)
+        used = current_total
         if data.get("disabled_by_limit"):
             continue
         if used >= limit_bytes:
