@@ -7004,8 +7004,50 @@ manage_single_user() {
         echo "暂未设置"
         echo
         green "---------------- 用户协议 ----------------"
-        echo "暂未读取"
-        echo
+local user_protocols=()
+local protocol_file
+local protocol_tag
+local protocol_type
+local protocol_found
+shopt -s nullglob
+for protocol_file in "$CONF_DIR"/*.json; do
+    [ -f "$protocol_file" ] || continue
+    [ "$(basename "$protocol_file")" = "config.json" ] && continue
+    protocol_found=$(python3 - "$protocol_file" "$username" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    username = sys.argv[2]
+    for inbound in data.get("inbounds", []):
+        if not isinstance(inbound, dict):
+            continue
+        for user in inbound.get("users", []):
+            if isinstance(user, dict) and user.get("name") == username:
+                print(inbound.get("tag", ""))
+                raise SystemExit
+except Exception:
+    pass
+PY
+)
+    [ -n "$protocol_found" ] || continue
+    protocol_tag="$protocol_found"
+    if [[ ! " ${user_protocols[*]} " =~ " ${protocol_tag} " ]]; then
+        user_protocols+=("$protocol_tag")
+    fi
+done
+shopt -u nullglob
+if [ ${#user_protocols[@]} -eq 0 ]; then
+    echo "暂无协议"
+else
+    local protocol_index=1
+    for protocol_tag in "${user_protocols[@]}"; do
+        echo "${protocol_index}. ${protocol_tag}"
+        protocol_index=$((protocol_index + 1))
+    done
+fi
+echo
         green "----------------------------------------------------------"
         red "1. 删除用户"
         green "2. 流量限制"
@@ -7020,16 +7062,15 @@ manage_single_user() {
         read -rp "请选择: " choice
         case "$choice" in
             1)
-                yellow "删除用户功能暂未开发"
-                sleep 1
-                ;;
+               delete_user "$username"
+               ;;
             2)
-                yellow "流量限制功能暂未开发"
+               bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
+               ;;
+            3)
+              yellow "删除协议功能暂未开发"
                 sleep 1
                 ;;
-            3)
-              bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
-             ;;
             4)
                 yellow "删除协议功能暂未开发"
                 sleep 1
@@ -7220,6 +7261,145 @@ delete_inbound() {
     fi
     green "==============================================="
     green " 入站已移除：${inbound_type}-${inbound_number}"
+    green "==============================================="
+    echo
+    sleep 1
+    return 0
+}
+delete_user() {
+    local username="$1"
+    if [ -z "$username" ]; then
+        red "错误：用户名不能为空"
+        sleep 1
+        return 1
+    fi
+    echo
+    red "确定删除用户：${username}？"
+    yellow "此操作会从所有 sing-box 入站中删除该用户。"
+    yellow "入站配置文件本身不会删除。"
+    echo
+    read -rp "输入 y 确认删除: " confirm
+    [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
+    if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        red "错误：用户名格式无效"
+        sleep 1
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        red "错误：系统没有 python3"
+        sleep 1
+        return 1
+    fi
+    python3 - "$CONF_DIR" "$TRAFFIC_STATE" "$LIMIT_DIR" "$URL_DIR" "$username" <<'PY'
+import json
+import sys
+from pathlib import Path
+conf_dir = Path(sys.argv[1])
+traffic_state = Path(sys.argv[2])
+limit_dir = Path(sys.argv[3])
+url_dir = Path(sys.argv[4])
+username = sys.argv[5]
+def atomic_write(path, data):
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8"
+    )
+    tmp.chmod(0o600)
+    tmp.replace(path)
+deleted_from_inbounds = 0
+for fn in sorted(conf_dir.glob("*.json")):
+    if fn.name == "config.json":
+        continue
+    try:
+        cfg = json.loads(fn.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    if not isinstance(cfg, dict):
+        continue
+    changed = False
+    for inbound in cfg.get("inbounds", []):
+        if not isinstance(inbound, dict):
+            continue
+        users = inbound.get("users")
+        if not isinstance(users, list):
+            continue
+        new_users = []
+        for user in users:
+            if isinstance(user, dict) and user.get("name") == username:
+                deleted_from_inbounds += 1
+                changed = True
+            else:
+                new_users.append(user)
+        if changed:
+            inbound["users"] = new_users
+    if changed:
+        try:
+            atomic_write(fn, cfg)
+        except Exception:
+            pass
+config_file = conf_dir / "config.json"
+if config_file.exists():
+    try:
+        cfg = json.loads(config_file.read_text(encoding="utf-8"))
+        changed = False
+        experimental = cfg.get("experimental")
+        if isinstance(experimental, dict):
+            v2ray_api = experimental.get("v2ray_api")
+            if isinstance(v2ray_api, dict):
+                stats = v2ray_api.get("stats")
+                if isinstance(stats, dict):
+                    users = stats.get("users")
+                    if isinstance(users, list):
+                        new_users = [u for u in users if u != username]
+                        if new_users != users:
+                            stats["users"] = new_users
+                            changed = True
+        if changed:
+            atomic_write(config_file, cfg)
+    except Exception:
+        pass
+if traffic_state.exists():
+    try:
+        state = json.loads(traffic_state.read_text(encoding="utf-8"))
+        if isinstance(state, dict):
+            changed = False
+            users = state.get("users")
+            if isinstance(users, dict) and username in users:
+                del users[username]
+                changed = True
+            counters = state.get("stats_counters")
+            if isinstance(counters, dict) and username in counters:
+                del counters[username]
+                changed = True
+            if changed:
+                atomic_write(traffic_state, state)
+    except Exception:
+        pass
+limit_file = limit_dir / f"{username}.json"
+try:
+    if limit_file.exists():
+        limit_file.unlink()
+except Exception:
+    pass
+url_file = url_dir / f"user-{username}.txt"
+try:
+    if url_file.exists():
+        url_file.unlink()
+except Exception:
+    pass
+print(deleted_from_inbounds)
+PY
+    local result=$?
+    if [ "$result" -ne 0 ]; then
+        red "删除用户失败"
+        sleep 1
+        return 1
+    fi
+    systemctl reload sing-box
+    update_sub_file
+    green "==============================================="
+    green " 用户已删除：${username}"
     green "==============================================="
     echo
     sleep 1
