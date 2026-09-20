@@ -1371,21 +1371,17 @@ set_limit() {
 import sys
 import json
 import os
-
 number = float(sys.argv[1])
 unit = sys.argv[2]
 fn = sys.argv[3]
 user = sys.argv[4]
 state_file = sys.argv[5]
-
 if number <= 0:
     raise SystemExit("限制必须大于 0")
-
 if unit == "GB":
     limit_bytes = int(number * 1024 * 1024 * 1024)
 else:
     limit_bytes = int(number * 1024 * 1024)
-
 old = {}
 if os.path.exists(fn):
     try:
@@ -1393,30 +1389,25 @@ if os.path.exists(fn):
             old = json.load(f)
     except Exception:
         pass
-
 try:
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 except Exception:
     state = {}
-
 users = state.setdefault("users", {})
 u = users.get(user, {})
 if not isinstance(u, dict):
     u = {}
-
 u["period_uplink"] = 0
 u["period_downlink"] = 0
 u["period_total"] = 0
 users[user] = u
-
 tmp_state = state_file + ".tmp"
 with open(tmp_state, "w", encoding="utf-8") as f:
     json.dump(state, f, ensure_ascii=False, indent=2)
     f.write("\n")
 os.chmod(tmp_state, 0o600)
 os.replace(tmp_state, state_file)
-
 data = {
     "user": user,
     "limit_value": number,
@@ -1430,11 +1421,9 @@ data = {
     "saved_user": old.get("saved_user"),
     "config_file": old.get("config_file")
 }
-
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(fn, 0o600)
 PY
     then
@@ -1442,13 +1431,53 @@ PY
         pause
         return
     fi
+    local user_exists
+    user_exists="$("$PYTHON" - "$user" "$CONF_DIR" <<'PY'
+import sys
+import json
+from pathlib import Path
+user = sys.argv[1]
+conf_dir = Path(sys.argv[2])
+found = False
+for fn in conf_dir.glob("*.json"):
+    try:
+        with open(fn, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        continue
+    for inbound in cfg.get("inbounds", []):
+        for u in inbound.get("users", []):
+            if isinstance(u, dict) and u.get("name") == user:
+                found = True
+                break
+        if found:
+            break
+    if found:
+        break
+print("YES" if found else "NO")
+PY
+)"
+    if [ "$user_exists" = "NO" ]; then
+        if restore_user "$user"; then
+            if ! check_config; then
+                red "用户恢复后配置检查失败"
+                pause
+                return
+            fi
+            if ! reload_singbox; then
+                red "用户恢复后 sing-box 重载失败"
+                pause
+                return
+            fi
+            green "用户已恢复到入站"
+        fi
+    fi
     green "流量限制已设置：${number}${unit}"
     echo
     echo "当前时间周期："
     case "$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
-
 try:
     with open(sys.argv[1], encoding="utf-8") as f:
         print(json.load(f).get("period", "none"))
