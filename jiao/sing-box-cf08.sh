@@ -5522,12 +5522,12 @@ manage_nodes_menu() {
     mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR"
     while true; do
         clear
-        green "================ 入站管理 ================"
+        green "================= 入站管理 ================="
         echo
         green "a. 添加入站"
         green "b. 添加用户"
         echo
-        green "----------- 已添加用户 -----------"
+        green "---------------- 已添加用户 ----------------"
 local user_entries=()
 local user_index=1
 local user_file
@@ -6833,7 +6833,7 @@ manage_single_inbound() {
     traffic_user=$(jq -r '.inbounds[0].users[0].name // empty' "$config_file" 2>/dev/null)
     while true; do
         clear
-        green "================ 入站管理 ================"
+        green "================= 入站管理 ================="
         echo
         green "入站：${inbound_type}-${inbound_number}"
         green "类型：${inbound_type}"
@@ -6859,7 +6859,7 @@ manage_single_inbound() {
         fi
         echo -e "${skyblue}流量限制${re}"
         show_limit "$traffic_user"
-        green "----------------------------------------------------------"
+        green "-------------------------------------------"
         red "s. 删除入站"
         green "1. 修改UUID"
         green "2. 修改端口"
@@ -6888,7 +6888,7 @@ manage_single_inbound() {
                 ;;
         esac
         echo
-        green "--------------------------------------------"
+        green "-------------------------------------------"
         green "0. 返回"
         echo
         read -rp "请选择: " choice
@@ -7022,7 +7022,7 @@ else
     done
 fi
 echo
-        green "----------------------------------------------------------"
+        green "------------------------------------------"
         red "1. 删除用户"
         green "2. 流量限制"
         green "3. 添加协议"
@@ -7030,7 +7030,7 @@ echo
         green "5. 查看节点连接"
         green "6. 查看订阅连接"
         echo
-        green "--------------------------------------------"
+        green "------------------------------------------"
         green "0. 返回"
         echo
         read -rp "请选择: " choice
