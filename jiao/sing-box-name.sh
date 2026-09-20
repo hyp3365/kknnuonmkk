@@ -697,10 +697,6 @@ def process_stats(state, current_stats):
             add_traffic(state, username, delta_uplink, delta_downlink)
             changed = True
         counters[username] = {"uplink": current_uplink, "downlink": current_downlink}
-    for username in list(counters.keys()):
-        if username not in seen_users:
-            del counters[username]
-            changed = True
     return changed
 def update_connection_count(state):
     for username, data in state.setdefault("users", {}).items():
