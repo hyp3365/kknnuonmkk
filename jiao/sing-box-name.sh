@@ -1234,99 +1234,73 @@ show_user_traffic_inline() {
 }
 
 show_limit() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    local username="$1"
 
-    if [ ! -f "$lf" ]; then
-        echo -e "${skyblue}流量限制:${re} 未设置"
+    if [ -z "$username" ]; then
+        echo "暂未设置"
         return
     fi
 
-    "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
-import sys
-import json
-from datetime import datetime
+    local limit_file=""
+    local file
+    local file_user
 
-lf = sys.argv[1]
-state_file = sys.argv[2]
+    for file in "$LIMIT_DIR"/*.json; do
+        [ -f "$file" ] || continue
 
-try:
-    with open(lf, "r", encoding="utf-8") as f:
-        d = json.load(f)
-except Exception:
-    print("未设置")
-    raise SystemExit
+        file_user=$(jq -r '.user // empty' "$file" 2>/dev/null)
 
-if not d.get("enabled"):
-    print("已关闭")
-    raise SystemExit
+        if [ "$file_user" = "$username" ]; then
+            limit_file="$file"
+            break
+        fi
+    done
 
-value = d.get("limit_value")
-unit = d.get("limit_unit")
+    if [ -z "$limit_file" ]; then
+        echo "暂未设置"
+        return
+    fi
 
-if value is not None and unit:
-    try:
-        fv = float(value)
-        limit_text = f"{int(fv)} {unit}" if fv.is_integer() else f"{value} {unit}"
-    except Exception:
-        limit_text = f"{value} {unit}"
-else:
-    limit_text = "未知"
+    local enabled
+    local limit_bytes
+    local period
+    local period_start
+    local period_end
+    local disabled_by_limit
 
-period = d.get("period", "none")
+    enabled=$(jq -r '.enabled // false' "$limit_file" 2>/dev/null)
+    limit_bytes=$(jq -r '.limit_bytes // 0' "$limit_file" 2>/dev/null)
+    period=$(jq -r '.period // "none"' "$limit_file" 2>/dev/null)
+    period_start=$(jq -r '.period_start // empty' "$limit_file" 2>/dev/null)
+    period_end=$(jq -r '.period_end // empty' "$limit_file" 2>/dev/null)
+    disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$limit_file" 2>/dev/null)
 
-period_text = {
-    "day": "每天",
-    "month": "每月",
-    "none": "永久"
-}.get(period, "永久")
+    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
+        echo "暂未设置"
+        return
+    fi
 
-user = d.get("user")
-try:
-    with open(state_file, "r", encoding="utf-8") as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-u = state.get("users", {}).get(user, {})
-current_total = int(u.get("period_total", 0) or 0)
-used = current_total
-limit_bytes = int(d.get("limit_bytes", 0) or 0)
-def fmt(n):
-    n = float(n)
-    units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    i = 0
+    local used=0
 
-    while n >= 1024 and i < len(units) - 1:
-        n /= 1024
-        i += 1
+    if [ -f "$TRAFFIC_STATE" ]; then
+        used=$(jq -r --arg u "$username" \
+            '.users[$u].period_total // 0' \
+            "$TRAFFIC_STATE" 2>/dev/null)
+    fi
 
-    if i == 0:
-        return f"{int(n)} {units[i]}"
+    echo "限制：$(format_bytes "$limit_bytes")"
+    echo "已用：$(format_bytes "$used")"
+    echo "周期：${period}"
 
-    return f"{n:.2f} {units[i]}"
+    if [ -n "$period_start" ] && [ -n "$period_end" ]; then
+        echo "时间：${period_start} ~ ${period_end}"
+    fi
 
-print(f"已设置：{limit_text}")
-print(f"时间周期：{period_text}")
-print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
-
-if limit_bytes > used:
-    print(f"剩余流量：{fmt(limit_bytes - used)}")
-else:
-    print("剩余流量：0 B")
-
-if period in ("day", "month") and d.get("period_end"):
-    try:
-        dt = datetime.fromisoformat(d["period_end"])
-        print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
-    except Exception:
-        pass
-
-if d.get("disabled_by_limit"):
-    print("状态：已达到流量限制，用户已停用")
-else:
-    print("状态：正常")
-PY
+    if [ "$disabled_by_limit" = "true" ]; then
+        red "状态：已达到限制，用户已停用"
+    else
+        green "状态：正常"
+    fi
 }
 
 set_limit() {
