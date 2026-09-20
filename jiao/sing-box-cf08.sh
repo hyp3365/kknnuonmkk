@@ -6758,82 +6758,43 @@ print(uplink, downlink, total, connections, period_uplink, period_downlink, peri
 PY
 }
 show_limit() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
-    if [ ! -f "$lf" ]; then
-        echo -e "${skyblue}流量限制:${re} 未设置"
+    local username="$1"
+    local limit_file="$LIMIT_DIR/${username}.json"
+    if [ -z "$username" ] || [ ! -f "$limit_file" ]; then
+        echo "暂未设置"
         return
     fi
-    "$PYTHON" - "$lf" "$TRAFFIC_STATE" <<'PY'
-import sys
-import json
-from datetime import datetime
-lf = sys.argv[1]
-state_file = sys.argv[2]
-try:
-    with open(lf, "r", encoding="utf-8") as f:
-        d = json.load(f)
-except Exception:
-    print("未设置")
-    raise SystemExit
-if not d.get("enabled"):
-    print("已关闭")
-    raise SystemExit
-value = d.get("limit_value")
-unit = d.get("limit_unit")
-if value is not None and unit:
-    try:
-        fv = float(value)
-        limit_text = f"{int(fv)} {unit}" if fv.is_integer() else f"{value} {unit}"
-    except Exception:
-        limit_text = f"{value} {unit}"
-else:
-    limit_text = "未知"
-period = d.get("period", "none")
-period_text = {
-    "day": "每天",
-    "month": "每月",
-    "none": "永久"
-}.get(period, "永久")
-user = d.get("user")
-try:
-    with open(state_file, "r", encoding="utf-8") as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-u = state.get("users", {}).get(user, {})
-current_total = int(u.get("period_total", 0) or 0)
-used = current_total
-limit_bytes = int(d.get("limit_bytes", 0) or 0)
-def fmt(n):
-    n = float(n)
-    units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    i = 0
-    while n >= 1024 and i < len(units) - 1:
-        n /= 1024
-        i += 1
-    if i == 0:
-        return f"{int(n)} {units[i]}"
-    return f"{n:.2f} {units[i]}"
-print(f"已设置：{limit_text}")
-print(f"时间周期：{period_text}")
-print(f"本周期使用：{fmt(used)} / {fmt(limit_bytes)}")
-if limit_bytes > used:
-    print(f"剩余流量：{fmt(limit_bytes - used)}")
-else:
-    print("剩余流量：0 B")
-if period in ("day", "month") and d.get("period_end"):
-    try:
-        dt = datetime.fromisoformat(d["period_end"])
-        print(f"下次重置：{dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
-    except Exception:
-        pass
-if d.get("disabled_by_limit"):
-    print("状态：已达到流量限制，用户已停用")
-else:
-    print("状态：正常")
-PY
+    local enabled
+    local limit_bytes
+    local period
+    local period_start
+    local period_end
+    local disabled_by_limit
+    enabled=$(jq -r '.enabled // false' "$limit_file" 2>/dev/null)
+    limit_bytes=$(jq -r '.limit_bytes // 0' "$limit_file" 2>/dev/null)
+    period=$(jq -r '.period // "none"' "$limit_file" 2>/dev/null)
+    period_start=$(jq -r '.period_start // empty' "$limit_file" 2>/dev/null)
+    period_end=$(jq -r '.period_end // empty' "$limit_file" 2>/dev/null)
+    disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$limit_file" 2>/dev/null)
+    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
+        echo "暂未设置"
+        return
+    fi
+    local used=0
+    if [ -f "$TRAFFIC_STATE" ]; then
+        used=$(jq -r --arg u "$username" '.users[$u].period_total // 0' "$TRAFFIC_STATE" 2>/dev/null)
+    fi
+    echo "限制：$(format_bytes "$limit_bytes")"
+    echo "已用：$(format_bytes "$used")"
+    echo "周期：${period}"
+    if [ -n "$period_start" ] && [ -n "$period_end" ]; then
+        echo "时间：${period_start} ~ ${period_end}"
+    fi
+    if [ "$disabled_by_limit" = "true" ]; then
+        red "状态：已达到限制，用户已停用"
+    else
+        green "状态：正常"
+    fi
 }
 
     
@@ -6882,7 +6843,7 @@ else
     echo "下载：未统计          本周期：未统计"
 fi
 echo -e "${skyblue}流量限制${re}"
-show_limit "$inbound_tag" "$traffic_user"
+show_limit "$traffic_user"
 green "----------------------------------------------------------"
 red "s. 删除入站"
 green "1. 修改UUID"
@@ -6978,31 +6939,25 @@ manage_single_user() {
         green "用户：${username}"
         echo
         echo -e "${skyblue}流量统计${re}"
-        if [ -f "$TRAFFIC_STATE" ]; then
-            local traffic
-            local uplink
-            local downlink
-            local total
-            local connections
-            local period_uplink
-            local period_downlink
-            local period_total
-            traffic="$(get_user_traffic "$username" 2>/dev/null)"
-            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
-            if [ -n "$total" ]; then
-                printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
-                printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
-            else
-                echo "上传：未统计          总流量：未统计"
-                echo "下载：未统计          本周期：未统计"
-            fi
-        else
-            echo "上传：未统计          总流量：未统计"
-            echo "下载：未统计          本周期：未统计"
-        fi
-        echo -e "${skyblue}流量限制${re}"
-        echo "暂未设置"
-        echo
+if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
+    local traffic
+    traffic="$(get_user_traffic "$traffic_user")"
+    local uplink
+    local downlink
+    local total
+    local connections
+    local period_uplink
+    local period_downlink
+    local period_total
+    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+    printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
+    printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
+else
+    echo "上传：未统计          总流量：未统计"
+    echo "下载：未统计          本周期：未统计"
+fi
+echo -e "${skyblue}流量限制${re}"
+show_limit "$traffic_user"
         green "---------------- 用户协议 ----------------"
 local user_protocols=()
 local protocol_file
