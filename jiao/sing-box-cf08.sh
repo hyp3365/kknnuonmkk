@@ -6189,8 +6189,7 @@ EOF
       "users": [
         {
           "name": "vmess-ws-user${inbound_number}",
-          "uuid": "$uuid",
-          "alterId": 0
+          "uuid": "$uuid"
         }
       ],
       "transport": {
@@ -6247,8 +6246,7 @@ EOF
       "users": [
         {
           "name": "vless-ws-user${inbound_number}",
-          "uuid": "$uuid",
-          "alterId": 0
+          "uuid": "$uuid"
         }
       ],
       "transport": {
