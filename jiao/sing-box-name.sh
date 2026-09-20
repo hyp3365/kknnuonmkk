@@ -1298,12 +1298,15 @@ show_limit() {
     fi
 }
 set_limit() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
-
+    local user="$1"
+    if [ -z "$user" ]; then
+        red "错误：未获取到用户名"
+        pause
+        return 1
+    fi
+    local lf="$LIMIT_DIR/${user}.json"
     title "流量限制"
-    show_limit "$tag" "$user"
+    show_limit "$user"
     echo
     echo -e "${skyblue}支持:${re}"
     echo -e "  100MB   = 100MB"
@@ -1312,17 +1315,13 @@ set_limit() {
     echo
     local input
     read -rp "$(green "请输入流量限制: ")" input
-
     input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
-
     if [ "$input" = "0" ]; then
-        disable_limit "$tag" "$user"
+        disable_limit "$user"
         return
     fi
-
     local number
     local unit
-
     if [[ "$input" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         number="$input"
         unit="GB"
@@ -1338,8 +1337,7 @@ set_limit() {
         pause
         return
     fi
-
-    if ! "$PYTHON" - "$number" "$unit" "$lf" "$tag" "$user" "$TRAFFIC_STATE" <<'PY'
+    if ! "$PYTHON" - "$number" "$unit" "$lf" "$user" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 import os
@@ -1347,9 +1345,8 @@ import os
 number = float(sys.argv[1])
 unit = sys.argv[2]
 fn = sys.argv[3]
-tag = sys.argv[4]
-user = sys.argv[5]
-state_file = sys.argv[6]
+user = sys.argv[4]
+state_file = sys.argv[5]
 
 if number <= 0:
     raise SystemExit("限制必须大于 0")
@@ -1360,7 +1357,6 @@ else:
     limit_bytes = int(number * 1024 * 1024)
 
 old = {}
-
 if os.path.exists(fn):
     try:
         with open(fn, "r", encoding="utf-8") as f:
@@ -1374,13 +1370,16 @@ try:
 except Exception:
     state = {}
 
-u = state.get("users", {}).get(user, {})
-current_total = int(u.get("total", 0) or 0)
+users = state.setdefault("users", {})
+u = users.get(user, {})
+if not isinstance(u, dict):
+    u = {}
+
 u["period_uplink"] = 0
 u["period_downlink"] = 0
 u["period_total"] = 0
-users = state.setdefault("users", {})
 users[user] = u
+
 tmp_state = state_file + ".tmp"
 with open(tmp_state, "w", encoding="utf-8") as f:
     json.dump(state, f, ensure_ascii=False, indent=2)
@@ -1389,7 +1388,6 @@ os.chmod(tmp_state, 0o600)
 os.replace(tmp_state, state_file)
 
 data = {
-    "inbound_tag": tag,
     "user": user,
     "limit_value": number,
     "limit_unit": unit,
@@ -1414,12 +1412,9 @@ PY
         pause
         return
     fi
-
     green "流量限制已设置：${number}${unit}"
-
     echo
     echo "当前时间周期："
-
     case "$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
@@ -1441,16 +1436,18 @@ PY
             echo "不重置"
             ;;
     esac
-
     echo
     echo "本次限制从当前已使用流量之后开始计算。"
-
     pause
 }
 disable_limit() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    local user="$1"
+    if [ -z "$user" ]; then
+        red "错误：未获取到用户名"
+        pause
+        return 1
+    fi
+    local lf="$LIMIT_DIR/${user}.json"
     if [ ! -f "$lf" ]; then
         yellow "当前没有设置流量限制"
         pause
@@ -1584,9 +1581,13 @@ PY
     pause
 }
 set_limit_period() {
-    local tag="$1"
-    local user="$2"
-    local lf="$LIMIT_DIR/${tag}__${user}.json"
+    local user="$1"
+    if [ -z "$user" ]; then
+        red "错误：未获取到用户名"
+        pause
+        return 1
+    fi
+    local lf="$LIMIT_DIR/${user}.json"
     title "设置时间周期"
     if [ ! -f "$lf" ]; then
         red "请先设置流量限制"
