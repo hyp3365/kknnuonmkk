@@ -1470,6 +1470,7 @@ PY
     echo "本次限制从当前已使用流量之后开始计算。"
     pause
 }
+
 disable_limit() {
     local user="$1"
     if [ -z "$user" ]; then
@@ -1504,9 +1505,6 @@ data["limit_value"] = 0
 data["limit_unit"] = "GB"
 data["limit_bytes"] = 0
 data["disabled_by_limit"] = False
-data.pop("saved_user", None)
-data.pop("inbound_tag", None)
-data.pop("config_file", None)
 with open(lf, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -1516,11 +1514,6 @@ PY
 )"
     if [ $? -ne 0 ] || [ "$result" != "OK" ]; then
         red "解除流量限制失败"
-        pause
-        return
-    fi
-    if [ ! -f "$TRAFFIC_STATE" ]; then
-        red "流量统计状态文件不存在"
         pause
         return
     fi
@@ -1550,6 +1543,7 @@ PY
     fi
     pause
 }
+
 set_limit_period() {
     local user="$1"
     if [ -z "$user" ]; then
@@ -1579,25 +1573,24 @@ set_limit_period() {
         *) red "无效选择"; pause; return ;;
     esac
     local result
-    result="$("$PYTHON" - "$lf" "$period" "$TRAFFIC_STATE" "$CONF_DIR" <<'PY'
+    result="$("$PYTHON" - "$lf" "$period" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
-fn = sys.argv[1]
+fn = Path(sys.argv[1])
 period = sys.argv[2]
-state_file = sys.argv[3]
-conf_dir = Path(sys.argv[4])
+state_file = Path(sys.argv[3])
 try:
     with open(fn, "r", encoding="utf-8") as f:
         data = json.load(f)
 except Exception:
     data = {}
 user = data.get("user")
-tag = data.get("inbound_tag")
-saved_user = data.get("saved_user")
-config_file = data.get("config_file")
+if not user:
+    print("ERROR")
+    raise SystemExit(1)
 now = datetime.now().astimezone()
 if period == "day":
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1613,117 +1606,37 @@ else:
     end = None
 start_iso = start.isoformat() if start else None
 end_iso = end.isoformat() if end else None
-actual_exists = False
-actual_file = None
-candidates = []
-if config_file:
-    p = Path(config_file)
-    if p.exists():
-        candidates.append(p)
-if not candidates:
-    try:
-        candidates = list(conf_dir.glob("*.json"))
-    except Exception:
-        candidates = []
-for candidate in candidates:
-    try:
-        with open(candidate, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-    except Exception:
-        continue
-    for inbound in cfg.get("inbounds", []):
-        if inbound.get("tag") != tag:
-            continue
-        for u in inbound.get("users", []):
-            if isinstance(u, dict) and u.get("name") == user:
-                actual_exists = True
-                actual_file = candidate
-                break
-        if actual_exists:
-            break
-    if actual_exists:
-        break
-restored = False
-if not actual_exists and isinstance(saved_user, dict) and tag and user:
-    restore_file = actual_file
-    if restore_file is None and config_file:
-        p = Path(config_file)
-        if p.exists():
-            restore_file = p
-    if restore_file is None:
-        for candidate in candidates:
-            try:
-                with open(candidate, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-            except Exception:
-                continue
-            for inbound in cfg.get("inbounds", []):
-                if inbound.get("tag") == tag:
-                    restore_file = candidate
-                    break
-            if restore_file:
-                break
-    if restore_file is not None:
-        try:
-            with open(restore_file, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            target = None
-            for inbound in cfg.get("inbounds", []):
-                if inbound.get("tag") == tag:
-                    target = inbound
-                    break
-            if target is not None:
-                exists = False
-                for u in target.get("users", []):
-                    if isinstance(u, dict) and u.get("name") == user:
-                        exists = True
-                        break
-                if not exists:
-                    target.setdefault("users", []).append(saved_user)
-                    with open(restore_file, "w", encoding="utf-8") as f:
-                        json.dump(cfg, f, ensure_ascii=False, indent=2)
-                        f.write("\n")
-                    os.chmod(restore_file, 0o600)
-                    data["config_file"] = str(restore_file)
-                    restored = True
-        except Exception as e:
-            print(f"恢复用户失败: {e}", file=sys.stderr)
-            raise SystemExit(1)
 data["period"] = period
 data["period_start"] = start_iso
 data["period_end"] = end_iso
 data["enabled"] = True
-if restored:
-    data["disabled_by_limit"] = False
-    data.pop("saved_user", None)
 with open(fn, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
 os.chmod(fn, 0o600)
-if user:
-    try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except Exception:
-        state = {"users": {}, "connections": {}}
-    users = state.setdefault("users", {})
-    u = users.setdefault(user, {})
-    u["period"] = period
-    u["period_uplink"] = 0
-    u["period_downlink"] = 0
-    u["period_total"] = 0
-    u["period_start"] = start_iso
-    u["period_end"] = end_iso
-    tmp = state_file + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, state_file)
-print("RESTORED" if restored else "NORMAL")
+try:
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+except Exception:
+    state = {"users": {}, "connections": {}}
+users = state.setdefault("users", {})
+u = users.setdefault(user, {})
+u["period"] = period
+u["period_uplink"] = 0
+u["period_downlink"] = 0
+u["period_total"] = 0
+u["period_start"] = start_iso
+u["period_end"] = end_iso
+tmp = state_file.with_name(state_file.name + ".tmp")
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(state, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, state_file)
+print("OK")
 PY
 )"
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] || [ "$result" != "OK" ]; then
         red "时间周期设置失败"
         pause
         return
@@ -1733,7 +1646,14 @@ PY
         pause
         return
     fi
-    if [ "$result" = "RESTORED" ]; then
+    local disabled_by_limit
+    disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$lf" 2>/dev/null)
+    if [ "$disabled_by_limit" = "true" ]; then
+        if ! restore_user "$user"; then
+            red "周期设置成功，但用户恢复失败"
+            pause
+            return
+        fi
         if ! check_config; then
             red "用户恢复后配置检查失败"
             pause
@@ -1744,6 +1664,8 @@ PY
             pause
             return
         fi
+        jq '.disabled_by_limit = false' "$lf" > "${lf}.tmp" && mv "${lf}.tmp" "$lf"
+        chmod 600 "$lf"
         green "用户已恢复，时间周期同时重新设置"
     fi
     case "$period" in
