@@ -484,6 +484,9 @@ def ensure_user(state, username):
             "period_uplink": 0,
             "period_downlink": 0,
             "period_total": 0,
+            "period_base_uplink": 0,
+            "period_base_downlink": 0,
+            "period_base_total": 0,
             "period_start": start.isoformat() if start else None,
             "period_end": end.isoformat() if end else None
         }
@@ -492,6 +495,9 @@ def ensure_user(state, username):
         u.setdefault("uplink", 0)
         u.setdefault("downlink", 0)
         u.setdefault("total", 0)
+        u.setdefault("period_base_uplink", 0)
+        u.setdefault("period_base_downlink", 0)
+        u.setdefault("period_base_total", 0)
         u.setdefault("connections", 0)
         u.setdefault("period", current_period)
         u.setdefault("period_uplink", 0)
