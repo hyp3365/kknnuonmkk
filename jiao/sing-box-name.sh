@@ -1839,8 +1839,8 @@ main_menu() {
     done
 }
 
-if [ -n "$INBOUND_TAG" ]; then
-    main_menu "" "$INBOUND_TAG" "" "" "$TRAFFIC_USER"
+if [ -n "$1" ]; then
+    main_menu "" "$1" "" "" "$2"
 else
     main_menu "$@"
 fi
