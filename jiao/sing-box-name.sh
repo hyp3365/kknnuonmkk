@@ -532,7 +532,6 @@ def sync_periods(state):
         start, end = period_window(current_period, now)
         start_iso = start.isoformat() if start else None
         end_iso = end.isoformat() if end else None
-        end_iso = end.isoformat()
         stored_period = u.get("period")
         stored_start = u.get("period_start")
         stored_end = u.get("period_end")
@@ -548,7 +547,7 @@ def sync_periods(state):
             u["period_end"] = end_iso
             changed = True
             continue
-        if not stored_start or not stored_end:
+        if current_period in ("day", "month") and (not stored_start or not stored_end):
             u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
             u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
             u["period_base_total"] = int(u.get("total", 0) or 0)
@@ -563,7 +562,7 @@ def sync_periods(state):
             stored_end_dt = datetime.fromisoformat(stored_end)
         except Exception:
             stored_end_dt = None
-        if stored_end_dt is None or now >= stored_end_dt:
+        if current_period in ("day", "month") and (stored_end_dt is None or now >= stored_end_dt):
             u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
             u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
             u["period_base_total"] = int(u.get("total", 0) or 0)
@@ -572,7 +571,6 @@ def sync_periods(state):
             u["period_total"] = 0
             u["period_start"] = start_iso
             u["period_end"] = end_iso
-    changed = True
             changed = True
     for lf in limit_files():
         data = load_json(lf, {})
@@ -583,9 +581,9 @@ def sync_periods(state):
             continue
         period = period_name(data)
         start, end = period_window(period, now)
-        start_iso = start.isoformat()
-        end_iso = end.isoformat()
-        if data.get("period_start") != start_iso:
+        start_iso = start.isoformat() if start else None
+        end_iso = end.isoformat() if end else None
+        if period in ("day", "month") and data.get("period_start") != start_iso:
             if data.get("disabled_by_limit"):
                 if not restore_user(data):
                     log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
