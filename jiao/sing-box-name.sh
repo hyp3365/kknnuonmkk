@@ -234,13 +234,13 @@ def period_window(period, now=None):
     return None, None
 def period_name(meta):
     if not isinstance(meta, dict):
-        return "month"
+        return "none"
     period = meta.get("period")
     if period in ("day", "daily"):
         return "day"
     if period in ("month", "monthly"):
         return "month"
-    return "month"
+    return "none"
 def limit_files():
     try:
         return sorted(LIMIT_DIR.glob("*.json"))
