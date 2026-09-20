@@ -6828,19 +6828,10 @@ manage_single_inbound() {
     local engine=""
     local inbound_type=""
     local inbound_number=""
-        local inbound_tag=""
     local traffic_user=""
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
-    inbound_tag=$(jq -r '.inbounds[0].tag // empty' "$config_file" 2>/dev/null)
     traffic_user=$(jq -r '.inbounds[0].users[0].name // empty' "$config_file" 2>/dev/null)
-    if [ -z "$traffic_user" ] && [ -n "$inbound_tag" ] && [ -d "$LIMIT_DIR" ]; then
-        local limit_file=""
-        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${inbound_tag}__*.json" -print -quit 2>/dev/null)
-        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
-            traffic_user=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
-        fi
-    fi
-	while true; do
+    while true; do
         clear
         green "================ 入站管理 ================"
         echo
@@ -6849,32 +6840,32 @@ manage_single_inbound() {
         green "路径：${config_file}"
         echo
         echo -e "${skyblue}流量统计${re}"
-if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
-    local traffic
-    traffic="$(get_user_traffic "$traffic_user")"
-    local uplink
-    local downlink
-    local total
-    local connections
-    local period_uplink
-    local period_downlink
-    local period_total
-    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
-    printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
-    printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
-else
-    echo "上传：未统计          总流量：未统计"
-    echo "下载：未统计          本周期：未统计"
-fi
-echo -e "${skyblue}流量限制${re}"
-show_limit "$traffic_user"
-green "----------------------------------------------------------"
-red "s. 删除入站"
-green "1. 修改UUID"
-green "2. 修改端口"
-green "3. 流量限制"
-green "4. 查看链接"
-green "5. 查看配置"
+        if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
+            local traffic
+            traffic="$(get_user_traffic "$traffic_user")"
+            local uplink
+            local downlink
+            local total
+            local connections
+            local period_uplink
+            local period_downlink
+            local period_total
+            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+            printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
+            printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
+        else
+            echo "上传：未统计          总流量：未统计"
+            echo "下载：未统计          本周期：未统计"
+        fi
+        echo -e "${skyblue}流量限制${re}"
+        show_limit "$traffic_user"
+        green "----------------------------------------------------------"
+        red "s. 删除入站"
+        green "1. 修改UUID"
+        green "2. 修改端口"
+        green "3. 流量限制"
+        green "4. 查看链接"
+        green "5. 查看配置"
         case "$inbound_type" in
             vless-reality|grpc-reality|xhttp-reality)
                 green "6. 修改 Reality 域名"
@@ -6891,7 +6882,7 @@ green "5. 查看配置"
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-			vless-ws|vmess-ws|trojan-ws)
+            vless-ws|vmess-ws|trojan-ws)
                 green "6. 开启CDN"
                 green "7. 开启隧道"
                 ;;
@@ -6902,23 +6893,23 @@ green "5. 查看配置"
         echo
         read -rp "请选择: " choice
         case "$choice" in
-    s|S)
-        if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
-            return
-        fi
-        ;;
-    1)
-        modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
-        ;;
-    2)
-    modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
-    ;;
-    3)
-    bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
-    ;;
-    4)
-        show_inbound_url "$inbound_type" "$inbound_number"
-        ;;
+            s|S)
+                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                    return
+                fi
+                ;;
+            1)
+                modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                ;;
+            2)
+                modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                ;;
+            3)
+                bash /etc/sing-box/sing-box-name.sh "$traffic_user"
+                ;;
+            4)
+                show_inbound_url "$inbound_type" "$inbound_number"
+                ;;
     5)
         show_inbound_config "$config_file"
         ;;
