@@ -635,7 +635,7 @@ def check_limits(state):
             continue
         if not data.get("enabled"):
             if data.get("disabled_by_limit"):
-                if restore_user(data):
+                if restore_user(username):
                     data["disabled_by_limit"] = False
                     update_limit_file(lf, data)
             continue
@@ -646,15 +646,14 @@ def check_limits(state):
         if limit_bytes <= 0:
             continue
         u = state.get("users", {}).get(username, {})
-        period = period_name(data)
         current_total = int(u.get("period_total", 0) or 0)
         used = current_total
         if data.get("disabled_by_limit"):
             continue
         if used >= limit_bytes:
-           if disable_user(username):
-            data["disabled_by_limit"] = True
-            update_limit_file(lf, data)
+            if disable_user(username):
+                data["disabled_by_limit"] = True
+                update_limit_file(lf, data)
 def get_stats():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
