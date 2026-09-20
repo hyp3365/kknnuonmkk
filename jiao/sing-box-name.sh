@@ -500,23 +500,29 @@ def restore_user(username):
             cfg = load_json(fn, None)
             if not isinstance(cfg, dict):
                 continue
+            inbounds = cfg.get("inbounds", [])
+            if not isinstance(inbounds, list):
+                continue
             changed = False
             for saved in saved_users:
                 if not isinstance(saved, dict):
                     continue
-                tag = saved.get("inbound_tag", "")
+                inbound_index = saved.get("inbound_index")
                 saved_user = saved.get("user")
-                if not isinstance(saved_user, dict):
+                if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
                     continue
-                for inbound in cfg.get("inbounds", []):
-                    if inbound.get("tag") != tag:
-                        continue
-                    users = inbound.setdefault("users", [])
-                    if any(isinstance(u, dict) and u.get("name") == username for u in users):
-                        continue
-                    users.append(saved_user)
-                    changed = True
-                    restored_any = True
+                if inbound_index < 0 or inbound_index >= len(inbounds):
+                    log(f"恢复用户失败，入站索引无效: {username} -> {fn} [{inbound_index}]")
+                    continue
+                inbound = inbounds[inbound_index]
+                if not isinstance(inbound, dict):
+                    continue
+                users = inbound.setdefault("users", [])
+                if any(isinstance(u, dict) and u.get("name") == username for u in users):
+                    continue
+                users.append(saved_user)
+                changed = True
+                restored_any = True
             if changed:
                 if not atomic_write_json(fn, cfg, 0o600):
                     log(f"恢复用户保存配置失败: {username} -> {fn}")
