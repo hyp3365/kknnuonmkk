@@ -647,7 +647,7 @@ def sync_periods(state):
         if period in ("day", "month") and data.get("period_start") != start_iso:
             if data.get("disabled_by_limit"):
                 if not restore_user(username):
-                    log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
+                    log(f"周期已到但恢复用户失败: {username}")
                     continue
             data["period_start"] = start_iso
             data["period_end"] = end_iso
