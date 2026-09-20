@@ -1549,24 +1549,11 @@ PY
         pause
         return
     fi
-    if restore_user "$user"; then
-        if ! check_config; then
-            red "用户恢复后配置检查失败"
-            pause
-            return
-        fi
-        if ! reload_singbox; then
-            red "用户恢复后 sing-box 重载失败"
-            pause
-            return
-        fi
+        if /usr/bin/python3 /etc/sing-box/user_manager/traffic/singbox_traffic.py restore_user "$user" >/dev/null 2>&1; then
         green "流量限制已解除"
-        green "用户已恢复到入站"
-        green "V2Ray Stats 用户列表已同步"
     else
         green "流量限制已解除"
         echo "用户当前未恢复，可能没有可用的停用备份。"
-        green "V2Ray Stats 用户列表已同步"
     fi
     pause
 }
