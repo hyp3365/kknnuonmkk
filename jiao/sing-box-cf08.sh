@@ -6759,65 +6759,59 @@ PY
 }
 show_limit() {
     local username="$1"
-    local limit_file="$LIMIT_DIR/${username}.json"
-
-    echo "DEBUG: username=[$username]"
-    echo "DEBUG: limit_file=[$limit_file]"
-
-    if [ -z "$username" ] || [ ! -f "$limit_file" ]; then
-        echo "DEBUG: 限制文件不存在"
+    if [ -z "$username" ]; then
         echo "暂未设置"
         return
     fi
-
+    local limit_file=""
+    local file
+    local file_user
+    for file in "$LIMIT_DIR"/*.json; do
+        [ -f "$file" ] || continue
+        file_user=$(jq -r '.user // empty' "$file" 2>/dev/null)
+        if [ "$file_user" = "$username" ]; then
+            limit_file="$file"
+            break
+        fi
+    done
+    if [ -z "$limit_file" ]; then
+        echo "暂未设置"
+        return
+    fi
     local enabled
     local limit_bytes
     local period
     local period_start
     local period_end
     local disabled_by_limit
-
     enabled=$(jq -r '.enabled // false' "$limit_file" 2>/dev/null)
     limit_bytes=$(jq -r '.limit_bytes // 0' "$limit_file" 2>/dev/null)
     period=$(jq -r '.period // "none"' "$limit_file" 2>/dev/null)
     period_start=$(jq -r '.period_start // empty' "$limit_file" 2>/dev/null)
     period_end=$(jq -r '.period_end // empty' "$limit_file" 2>/dev/null)
     disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$limit_file" 2>/dev/null)
-
-    echo "DEBUG: enabled=[$enabled]"
-    echo "DEBUG: limit_bytes=[$limit_bytes]"
-    echo "DEBUG: period=[$period]"
-    echo "DEBUG: period_start=[$period_start]"
-    echo "DEBUG: period_end=[$period_end]"
-    echo "DEBUG: disabled_by_limit=[$disabled_by_limit]"
-
     if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
-        echo "DEBUG: 被 enabled 或 limit_bytes 判断拦截"
         echo "暂未设置"
         return
     fi
-
     local used=0
-
     if [ -f "$TRAFFIC_STATE" ]; then
-        used=$(jq -r --arg u "$username" '.users[$u].period_total // 0' "$TRAFFIC_STATE" 2>/dev/null)
+        used=$(jq -r --arg u "$username" \
+            '.users[$u].period_total // 0' \
+            "$TRAFFIC_STATE" 2>/dev/null)
     fi
-
     echo "限制：$(format_bytes "$limit_bytes")"
     echo "已用：$(format_bytes "$used")"
     echo "周期：${period}"
-
     if [ -n "$period_start" ] && [ -n "$period_end" ]; then
         echo "时间：${period_start} ~ ${period_end}"
     fi
-
     if [ "$disabled_by_limit" = "true" ]; then
         red "状态：已达到限制，用户已停用"
     else
         green "状态：正常"
     fi
 }
-
     
 manage_single_inbound() {
     local selected="$1"
