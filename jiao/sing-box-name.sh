@@ -517,25 +517,30 @@ def add_traffic(state, username, uplink=0, downlink=0):
     u["uplink"] = int(u.get("uplink", 0)) + uplink
     u["downlink"] = int(u.get("downlink", 0)) + downlink
     u["total"] = int(u.get("uplink", 0)) + int(u.get("downlink", 0))
-    u["period_uplink"] = int(u.get("period_uplink", 0)) + uplink
-    u["period_downlink"] = int(u.get("period_downlink", 0)) + downlink
-    u["period_total"] = int(u.get("period_uplink", 0)) + int(u.get("period_downlink", 0))
+    u["period_base_uplink"] = int(u.get("period_base_uplink", 0) or 0)
+    u["period_base_downlink"] = int(u.get("period_base_downlink", 0) or 0)
+    u["period_base_total"] = int(u.get("period_base_total", 0) or 0)
+    u["period_uplink"] = max(0, int(u.get("uplink", 0) or 0) - u["period_base_uplink"])
+    u["period_downlink"] = max(0, int(u.get("downlink", 0) or 0) - u["period_base_downlink"])
+    u["period_total"] = max(0, int(u.get("total", 0) or 0) - u["period_base_total"])
 def sync_periods(state):
     changed = False
     now = datetime.now().astimezone()
     users = state.setdefault("users", {})
     for username, u in users.items():
         current_period = get_user_period(username)
-        if current_period not in ("day", "month"):
-            current_period = "month"
         start, end = period_window(current_period, now)
-        start_iso = start.isoformat()
+        start_iso = start.isoformat() if start else None
+        end_iso = end.isoformat() if end else None
         end_iso = end.isoformat()
         stored_period = u.get("period")
         stored_start = u.get("period_start")
         stored_end = u.get("period_end")
         if stored_period != current_period:
             u["period"] = current_period
+            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
+            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
+            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
@@ -544,11 +549,14 @@ def sync_periods(state):
             changed = True
             continue
         if not stored_start or not stored_end:
-            u["period_start"] = start_iso
-            u["period_end"] = end_iso
+            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
+            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
+            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
+            u["period_start"] = start_iso
+            u["period_end"] = end_iso
             changed = True
             continue
         try:
@@ -556,11 +564,15 @@ def sync_periods(state):
         except Exception:
             stored_end_dt = None
         if stored_end_dt is None or now >= stored_end_dt:
+            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
+            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
+            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
             u["period_start"] = start_iso
             u["period_end"] = end_iso
+    changed = True
             changed = True
     for lf in limit_files():
         data = load_json(lf, {})
