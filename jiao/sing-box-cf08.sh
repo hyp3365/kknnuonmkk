@@ -5528,24 +5528,24 @@ manage_nodes_menu() {
         green "b. 添加用户"
         echo
         green "----------- 已添加用户 -----------"
-        local user_entries=()
-        local user_index=1
-        local user_file
-        shopt -s nullglob
-        for user_file in "$URL_DIR"/user-test-user-*.txt; do
-          [ -f "$user_file" ] || continue
-          local user_name
-          user_name=$(basename "$user_file" .txt)
-          user_name="${user_name#user-}"
-          user_entries+=("$user_name")
-          green "y${user_index}. ${user_name}"
-          user_index=$((user_index + 1))
-        done
-        shopt -u nullglob
-        if [ ${#users[@]} -eq 0 ]; then
-            yellow "暂无已添加用户"
-        fi
-        echo
+local user_entries=()
+local user_index=1
+local user_file
+shopt -s nullglob
+for user_file in "$URL_DIR"/user-test-user-*.txt; do
+    [ -f "$user_file" ] || continue
+    local user_name
+    user_name=$(basename "$user_file" .txt)
+    user_name="${user_name#user-}"
+    user_entries+=("$user_name")
+    green "y${user_index}. ${user_name}"
+    user_index=$((user_index + 1))
+done
+shopt -u nullglob
+if [ ${#user_entries[@]} -eq 0 ]; then
+    yellow "暂无已添加用户"
+fi
+echo
         green "---------------- 已添加入站 ----------------"
         local entries=()
         local index=1
@@ -5599,13 +5599,22 @@ manage_nodes_menu() {
                 continue
                 ;;
             *)
-                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#entries[@]}" ]; then
-                    manage_single_inbound "${entries[$((choice - 1))]}"
-                else
-                    red "无效选项"
-                    sleep 1
-                fi
-                ;;
+    if [[ "$choice" =~ ^y([0-9]+)$ ]]; then
+        local user_num="${BASH_REMATCH[1]}"
+        local user_pos=$((user_num - 1))
+        if [ "$user_pos" -ge 0 ] && [ "$user_pos" -lt "${#user_entries[@]}" ]; then
+            manage_single_user "${user_entries[$user_pos]}"
+        else
+            red "无效用户编号"
+            sleep 1
+        fi
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#entries[@]}" ]; then
+        manage_single_inbound "${entries[$((choice - 1))]}"
+    else
+        red "无效选项"
+        sleep 1
+    fi
+    ;;
         esac
     done
 }
