@@ -1465,18 +1465,8 @@ for fn in conf_dir.glob("*.json"):
 print("YES" if found else "NO")
 PY
 )"
-    if [ "$user_exists" = "NO" ]; then
-        if restore_user "$user"; then
-            if ! check_config; then
-                red "用户恢复后配置检查失败"
-                pause
-                return
-            fi
-            if ! reload_singbox; then
-                red "用户恢复后 sing-box 重载失败"
-                pause
-                return
-            fi
+        if [ "$user_exists" = "NO" ]; then
+        if /usr/bin/python3 /etc/sing-box/user_manager/traffic/singbox_traffic.py restore_user "$user" >/dev/null 2>&1; then
             green "用户已恢复到入站"
         fi
     fi
