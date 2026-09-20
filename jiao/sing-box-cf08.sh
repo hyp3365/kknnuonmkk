@@ -5389,6 +5389,7 @@ enable_ws_argo() {
     fi
     echo "$argo_url" >> "$url_file"
     update_sub_file
+	systemctl reload sing-box
     green "============================================"
     green "Cloudflare Tunnel 添加成功！"
     green "入站：${inbound_type}-${inbound_number}"
