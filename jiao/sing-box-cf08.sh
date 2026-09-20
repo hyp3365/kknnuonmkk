@@ -6517,12 +6517,8 @@ try:
 except Exception:
     state = {}
 u = state.get("users", {}).get(user, {})
-if period in ("day", "month"):
-    current_total = int(u.get("period_total", 0) or 0)
-else:
-    current_total = int(u.get("total", 0) or 0)
-base_total = int(d.get("limit_base_total", 0) or 0)
-used = max(0, current_total - base_total)
+current_total = int(u.get("period_total", 0) or 0)
+used = current_total
 limit_bytes = int(d.get("limit_bytes", 0) or 0)
 def fmt(n):
     n = float(n)
@@ -6595,11 +6591,9 @@ if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
     read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
     printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
     printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
-    printf "连接数：%s\n" "$connections"
 else
     echo "上传：未统计          总流量：未统计"
     echo "下载：未统计          本周期：未统计"
-    echo "连接数：未统计"
 fi
 echo -e "${skyblue}流量限制${re}"
 show_limit "$inbound_tag" "$traffic_user"
