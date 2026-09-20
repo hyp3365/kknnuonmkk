@@ -1550,7 +1550,7 @@ data["disabled_by_limit"] = False
 with open(lf, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-f.chmod(0o600)
+os.chmod(lf, 0o600)
 print("OK")
 PY
 )"
