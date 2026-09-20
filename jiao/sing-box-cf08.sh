@@ -7028,9 +7028,8 @@ manage_single_user() {
                 sleep 1
                 ;;
             3)
-                yellow "添加协议功能暂未开发"
-                sleep 1
-                ;;
+              bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
+             ;;
             4)
                 yellow "删除协议功能暂未开发"
                 sleep 1
