@@ -1790,7 +1790,6 @@ PY
     echo "本次设置会从当前时间重新计算本周期流量。"
     pause
 }
-
 main_menu() {
     cleanup_backups
     local file="$1"
@@ -1798,13 +1797,6 @@ main_menu() {
     local type="$3"
     local port="$4"
     local user="$5"
-    if [ -z "$user" ] && [ -n "$tag" ] && [ -d "$LIMIT_DIR" ]; then
-        local limit_file=""
-        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${tag}__*.json" -print -quit 2>/dev/null)
-        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
-            user=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
-        fi
-    fi
     while true; do
         title "流量设置"
         echo -e "  ${cyan}a)${re} 停止流量统计"
@@ -1828,13 +1820,13 @@ main_menu() {
                 reset_traffic_script
                 ;;
             1)
-                set_limit "$tag" "$user"
+                set_limit "$user"
                 ;;
             2)
-                set_limit_period "$tag" "$user"
+                set_limit_period "$user"
                 ;;
             3)
-                disable_limit "$tag" "$user"
+                disable_limit "$user"
                 ;;
             0)
                 return
@@ -1846,14 +1838,8 @@ main_menu() {
         esac
     done
 }
+
 if [ -n "$INBOUND_TAG" ]; then
-    if [ -z "$TRAFFIC_USER" ] && [ -d "$LIMIT_DIR" ]; then
-        limit_file=""
-        limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${INBOUND_TAG}__*.json" -print -quit 2>/dev/null)
-        if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
-            TRAFFIC_USER=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
-        fi
-    fi
     main_menu "" "$INBOUND_TAG" "" "" "$TRAFFIC_USER"
 else
     main_menu "$@"
