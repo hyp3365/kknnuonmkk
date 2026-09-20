@@ -5527,20 +5527,19 @@ manage_nodes_menu() {
         green "a. 添加入站"
         green "b. 添加用户"
         echo
-        green "---------------- 已添加用户 ----------------"
+        green "----------- 已添加用户 -----------"
+        local user_entries=()
         local user_index=1
         local user_file
-        local username
-        local -a users=()
         shopt -s nullglob
-        for user_file in "$URL_DIR"/user-*.txt; do
-            [ -f "$user_file" ] || continue
-            username=$(basename "$user_file" .txt)
-            username="${username#user-}"
-            [ -n "$username" ] || continue
-            users+=("$username")
-            green "${user_index}. ${username}"
-            user_index=$((user_index + 1))
+        for user_file in "$URL_DIR"/user-test-user-*.txt; do
+          [ -f "$user_file" ] || continue
+          local user_name
+          user_name=$(basename "$user_file" .txt)
+          user_name="${user_name#user-}"
+          user_entries+=("$user_name")
+          green "y${user_index}. ${user_name}"
+          user_index=$((user_index + 1))
         done
         shopt -u nullglob
         if [ ${#users[@]} -eq 0 ]; then
