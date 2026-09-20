@@ -6986,8 +6986,6 @@ fi
 
 echo -e "${skyblue}流量限制${re}"
 show_limit "$username"
-echo
-green "---------------- 用户协议 ----------------"
         green "---------------- 用户协议 ----------------"
 local user_protocols=()
 local protocol_file
