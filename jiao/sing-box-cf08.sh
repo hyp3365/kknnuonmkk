@@ -7048,11 +7048,8 @@ echo
                delete_user "$username"
                ;;
 			2)
-    echo "DEBUG: inbound_tag=[$inbound_tag]"
-    echo "DEBUG: username=[$username]"
-    read -rp "按回车继续..."
-    bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$username"
-    ;;
+               bash /etc/sing-box/sing-box-name.sh "$username"
+               ;;
             3)
               yellow "删除协议功能暂未开发"
                 sleep 1
