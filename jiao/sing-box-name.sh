@@ -1839,8 +1839,4 @@ main_menu() {
     done
 }
 
-if [ -n "$1" ]; then
-    main_menu "" "$1" "" "" "$2"
-else
-    main_menu "$@"
-fi
+main_menu "" "$1" "" "" "$2"
