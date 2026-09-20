@@ -1236,8 +1236,8 @@ show_user_traffic_inline() {
 show_limit() {
     local username="$1"
     if [ -z "$username" ]; then
-        echo "流量限制            流量周期"
-        echo "已用流量            流量状态"
+        echo "流量限制：未设置        流量周期：未设置"
+        echo "已用流量：未统计        流量状态：正常"
         return
     fi
     local limit_file=""
@@ -1252,8 +1252,8 @@ show_limit() {
         fi
     done
     if [ -z "$limit_file" ]; then
-        printf "%-20s %-20s\n" "流量限制" "流量周期"
-        printf "%-20s %-20s\n" "已用流量" "流量状态"
+        echo "流量限制：未设置        流量周期：未设置"
+        echo "已用流量：未统计        流量状态：正常"
         return
     fi
     local enabled
@@ -1265,15 +1265,11 @@ show_limit() {
     limit_bytes=$(jq -r '.limit_bytes // 0' "$limit_file" 2>/dev/null)
     period=$(jq -r '.period // "none"' "$limit_file" 2>/dev/null)
     disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$limit_file" 2>/dev/null)
-    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
-        printf "%-20s %-20s\n" "流量限制" "流量周期"
-        printf "%-20s %-20s\n" "已用流量" "流量状态"
-        return
-    fi
     if [ -f "$TRAFFIC_STATE" ]; then
-        used=$(jq -r --arg u "$username" \
-            '.users[$u].period_total // 0' \
-            "$TRAFFIC_STATE" 2>/dev/null)
+        used=$(jq -r --arg u "$username" '.users[$u].period_total // 0' "$TRAFFIC_STATE" 2>/dev/null)
+    fi
+    if ! [[ "$used" =~ ^[0-9]+$ ]]; then
+        used=0
     fi
     local period_cn
     case "$period" in
@@ -1287,20 +1283,20 @@ show_limit() {
             period_cn="未设置"
             ;;
     esac
-    local status_cn
-    if [ "$disabled_by_limit" = "true" ]; then
-        status_cn="已停用"
-    else
-        status_cn="正常"
+    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
+        echo "流量限制：未设置        流量周期：未设置"
+        printf "已用流量：%-12s " "$(format_bytes "$used")"
+        green "流量状态：正常"
+        return
     fi
-    printf "%-20s %-20s\n" \
-        "限制：$(format_bytes "$limit_bytes")" \
-        "周期：${period_cn}"
-    printf "%-20s %-20s\n" \
-        "已用：$(format_bytes "$used")" \
-        "状态：${status_cn}"
+    printf "流量限制：%-12s    流量周期：%s\n" "$(format_bytes "$limit_bytes")" "$period_cn"
+    printf "已用流量：%-12s    " "$(format_bytes "$used")"
+    if [ "$disabled_by_limit" = "true" ]; then
+        red "流量状态：已停用"
+    else
+        green "流量状态：正常"
+    fi
 }
-
 set_limit() {
     local tag="$1"
     local user="$2"
