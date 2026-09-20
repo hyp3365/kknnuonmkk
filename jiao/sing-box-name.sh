@@ -20,6 +20,7 @@ DATA_DIR="$BASE_DIR/user_manager"
 BACKUP_DIR="$DATA_DIR/backups"
 LIMIT_DIR="$DATA_DIR/limits"
 TRAFFIC_DIR="$DATA_DIR/traffic"
+DISABLED_USER_DIR="$DATA_DIR/disabled_users"
 TRAFFIC_SCRIPT="$TRAFFIC_DIR/singbox_traffic.py"
 TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
 TRAFFIC_LOG="$TRAFFIC_DIR/traffic.log"
@@ -323,67 +324,120 @@ def acquire_lock():
     except Exception as e:
         log(f"获取配置锁失败: {e}")
         return None
-def disable_user(limit_data):
-    tag = limit_data.get("inbound_tag")
-    username = limit_data.get("user")
-    if not tag or not username:
+def disable_user(username):
+    if not username:
         return False
     lock = acquire_lock()
     if lock is None:
         return False
+    backup_root = Path(DATA_DIR) / "disabled_users" / username
+    changed_files = []
     try:
-        fn, user = find_user(tag, username)
-        if fn is None:
-            saved = limit_data.get("saved_user")
-            if saved:
+        backup_root.mkdir(parents=True, exist_ok=True)
+        found = False
+        for fn in config_files():
+            if fn.name == "config.json":
+                continue
+            cfg = load_json(fn, None)
+            if not isinstance(cfg, dict):
+                continue
+            file_backup = []
+            file_changed = False
+            for inbound in cfg.get("inbounds", []):
+                users = inbound.get("users")
+                if not isinstance(users, list):
+                    continue
+                new_users = []
+                removed_users = []
+                for u in users:
+                    if isinstance(u, dict) and u.get("name") == username:
+                        removed_users.append({
+                            "inbound_tag": inbound.get("tag", ""),
+                            "user": u
+                        })
+                        file_changed = True
+                        found = True
+                    else:
+                        new_users.append(u)
+                if removed_users:
+                    inbound["users"] = new_users
+                    file_backup.extend(removed_users)
+            if not file_changed:
+                continue
+            backup_file = backup_root / fn.name
+            backup_data = {
+                "config_file": str(fn),
+                "users": file_backup
+            }
+            if not atomic_write_json(backup_file, backup_data, 0o600):
+                log(f"备份用户失败，未修改配置: {username} -> {fn}")
+                return False
+            if not atomic_write_json(fn, cfg, 0o600):
+                log(f"删除用户后保存配置失败: {username} -> {fn}")
+                return False
+            changed_files.append(fn)
+        if not found:
+            existing_backup = list(backup_root.glob("*.json"))
+            if existing_backup:
                 return True
-            log(f"达到流量限制，但找不到用户: {tag}/{username}")
+            log(f"达到流量限制，但找不到用户: {username}")
             return False
-        cfg = load_json(fn, None)
-        if not isinstance(cfg, dict):
-            return False
-        target = None
-        for inbound in cfg.get("inbounds", []):
-            if inbound.get("tag") == tag:
-                target = inbound
-                break
-        if target is None:
-            return False
-        saved_user = None
-        new_users = []
-        for u in target.get("users", []):
-            if u.get("name") == username:
-                saved_user = u
-            else:
-                new_users.append(u)
-        if saved_user is None:
-            return False
-        backup = backup_config(fn, "quota-disable")
-        if backup is None:
-            return False
-        target["users"] = new_users
-        atomic_write_json(fn, cfg, 0o600)
         if not check_config():
-            try:
-                with open(backup, "rb") as src, open(fn, "wb") as dst:
-                    dst.write(src.read())
-            except Exception:
-                pass
-            log(f"达到流量限制后配置检查失败，已恢复: {tag}/{username}")
+            log(f"达到流量限制后配置检查失败，恢复用户: {username}")
+            for fn in changed_files:
+                backup_file = backup_root / fn.name
+                if backup_file.exists():
+                    try:
+                        backup_data = load_json(backup_file, None)
+                        original_file = backup_data.get("config_file") if isinstance(backup_data, dict) else None
+                        if original_file and Path(original_file).exists():
+                            original_cfg = load_json(Path(original_file), None)
+                            if isinstance(original_cfg, dict):
+                                current_cfg = load_json(fn, None)
+                                if isinstance(current_cfg, dict):
+                                    for saved in backup_data.get("users", []):
+                                        tag = saved.get("inbound_tag", "")
+                                        saved_user = saved.get("user")
+                                        if not isinstance(saved_user, dict):
+                                            continue
+                                        for inbound in current_cfg.get("inbounds", []):
+                                            if inbound.get("tag") != tag:
+                                                continue
+                                            users = inbound.setdefault("users", [])
+                                            if not any(isinstance(u, dict) and u.get("name") == username for u in users):
+                                                users.append(saved_user)
+                                    atomic_write_json(fn, current_cfg, 0o600)
+                    except Exception:
+                        pass
             return False
         if not reload_singbox():
-            try:
-                with open(backup, "rb") as src, open(fn, "wb") as dst:
-                    dst.write(src.read())
-            except Exception:
-                pass
+            log(f"达到流量限制后sing-box重载失败，恢复用户: {username}")
+            for fn in changed_files:
+                backup_file = backup_root / fn.name
+                if not backup_file.exists():
+                    continue
+                try:
+                    backup_data = load_json(backup_file, None)
+                    current_cfg = load_json(fn, None)
+                    if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
+                        continue
+                    for saved in backup_data.get("users", []):
+                        tag = saved.get("inbound_tag", "")
+                        saved_user = saved.get("user")
+                        if not isinstance(saved_user, dict):
+                            continue
+                        for inbound in current_cfg.get("inbounds", []):
+                            if inbound.get("tag") != tag:
+                                continue
+                            users = inbound.setdefault("users", [])
+                            if not any(isinstance(u, dict) and u.get("name") == username for u in users):
+                                users.append(saved_user)
+                    atomic_write_json(fn, current_cfg, 0o600)
+                except Exception:
+                    pass
             reload_singbox()
-            log(f"达到流量限制后sing-box重载失败: {tag}/{username}")
             return False
-        limit_data["saved_user"] = saved_user
-        limit_data["config_file"] = str(fn)
-        limit_data["disabled_by_limit"] = True
-        log(f"用户已因流量达到限制而停用: {tag}/{username}")
+        log(f"用户已因流量达到限制而停用: {username}")
         return True
     finally:
         try:
@@ -392,72 +446,67 @@ def disable_user(limit_data):
         except Exception:
             pass
         lock.close()
-def restore_user(limit_data):
-    tag = limit_data.get("inbound_tag")
-    username = limit_data.get("user")
-    saved_user = limit_data.get("saved_user")
-    if not tag or not username or not isinstance(saved_user, dict):
+
+def restore_user(username):
+    if not username:
         return False
     lock = acquire_lock()
     if lock is None:
         return False
+    backup_root = Path(DATA_DIR) / "disabled_users" / username
     try:
-        fn = None
-        config_file = limit_data.get("config_file")
-        if config_file and Path(config_file).exists():
+        backup_files = sorted(backup_root.glob("*.json"))
+        if not backup_files:
+            log(f"周期恢复用户失败，找不到备份: {username}")
+            return False
+        restored_any = False
+        changed_files = []
+        for backup_file in backup_files:
+            backup_data = load_json(backup_file, None)
+            if not isinstance(backup_data, dict):
+                continue
+            config_file = backup_data.get("config_file")
+            saved_users = backup_data.get("users", [])
+            if not config_file or not isinstance(saved_users, list):
+                continue
             fn = Path(config_file)
-        if fn is None:
-            fn, _ = find_user(tag, username)
-        if fn is None:
-            for candidate in config_files():
-                cfg = load_json(candidate, {})
+            if not fn.exists():
+                log(f"恢复用户失败，配置文件不存在: {fn}")
+                continue
+            cfg = load_json(fn, None)
+            if not isinstance(cfg, dict):
+                continue
+            changed = False
+            for saved in saved_users:
+                if not isinstance(saved, dict):
+                    continue
+                tag = saved.get("inbound_tag", "")
+                saved_user = saved.get("user")
+                if not isinstance(saved_user, dict):
+                    continue
                 for inbound in cfg.get("inbounds", []):
-                    if inbound.get("tag") == tag:
-                        fn = candidate
-                        break
-                if fn:
-                    break
-        if fn is None:
-            log(f"周期重置需要恢复用户，但找不到inbound: {tag}/{username}")
-            return False
-        cfg = load_json(fn, None)
-        if not isinstance(cfg, dict):
-            return False
-        target = None
-        for inbound in cfg.get("inbounds", []):
-            if inbound.get("tag") == tag:
-                target = inbound
-                break
-        if target is None:
-            return False
-        for u in target.get("users", []):
-            if u.get("name") == username:
-                limit_data["config_file"] = str(fn)
-                return True
-        backup = backup_config(fn, "quota-restore")
-        if backup is None:
-            return False
-        target.setdefault("users", []).append(saved_user)
-        atomic_write_json(fn, cfg, 0o600)
+                    if inbound.get("tag") != tag:
+                        continue
+                    users = inbound.setdefault("users", [])
+                    if any(isinstance(u, dict) and u.get("name") == username for u in users):
+                        continue
+                    users.append(saved_user)
+                    changed = True
+                    restored_any = True
+            if changed:
+                if not atomic_write_json(fn, cfg, 0o600):
+                    log(f"恢复用户保存配置失败: {username} -> {fn}")
+                    return False
+                changed_files.append(fn)
+        if not restored_any:
+            return True
         if not check_config():
-            try:
-                with open(backup, "rb") as src, open(fn, "wb") as dst:
-                    dst.write(src.read())
-            except Exception:
-                pass
-            log(f"恢复用户时配置检查失败: {tag}/{username}")
+            log(f"恢复用户后配置检查失败: {username}")
             return False
         if not reload_singbox():
-            try:
-                with open(backup, "rb") as src, open(fn, "wb") as dst:
-                    dst.write(src.read())
-            except Exception:
-                pass
-            reload_singbox()
-            log(f"恢复用户时sing-box重载失败: {tag}/{username}")
+            log(f"恢复用户后sing-box重载失败: {username}")
             return False
-        limit_data["config_file"] = str(fn)
-        log(f"用户已恢复: {tag}/{username}")
+        log(f"用户已恢复: {username}")
         return True
     finally:
         try:
@@ -567,7 +616,7 @@ def sync_periods(state):
         end_iso = end.isoformat() if end else None
         if period in ("day", "month") and data.get("period_start") != start_iso:
             if data.get("disabled_by_limit"):
-                if not restore_user(data):
+                if not restore_user(username):
                     log(f"周期已到但恢复用户失败: {data.get('inbound_tag')}/{username}")
                     continue
             data["period_start"] = start_iso
@@ -603,8 +652,9 @@ def check_limits(state):
         if data.get("disabled_by_limit"):
             continue
         if used >= limit_bytes:
-            if disable_user(data):
-                update_limit_file(lf, data)
+           if disable_user(username):
+            data["disabled_by_limit"] = True
+            update_limit_file(lf, data)
 def get_stats():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
