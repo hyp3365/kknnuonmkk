@@ -6938,26 +6938,32 @@ manage_single_user() {
         echo
         green "用户：${username}"
         echo
-        echo -e "${skyblue}流量统计${re}"
-if [ -f "$TRAFFIC_STATE" ] && [ -n "$traffic_user" ]; then
-    local traffic
-    traffic="$(get_user_traffic "$traffic_user")"
-    local uplink
-    local downlink
-    local total
-    local connections
-    local period_uplink
-    local period_downlink
-    local period_total
-    read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
-    printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
-    printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
+echo -e "${skyblue}流量统计${re}"
+local traffic=""
+local uplink=""
+local downlink=""
+local total=""
+local period_total=""
+if [ -f "$TRAFFIC_STATE" ]; then
+    traffic="$(get_user_traffic "$username" 2>/dev/null)"
+    read -r uplink downlink total _ _ _ period_total <<< "$traffic"
+fi
+if [ -n "$total" ]; then
+    printf "上传：%-18s 总流量：%s\n" \
+        "$(format_bytes "$uplink")" \
+        "$(format_bytes "$total")"
+    printf "下载：%-18s 本周期：%s\n" \
+        "$(format_bytes "$downlink")" \
+        "$(format_bytes "$period_total")"
 else
     echo "上传：未统计          总流量：未统计"
     echo "下载：未统计          本周期：未统计"
 fi
+
 echo -e "${skyblue}流量限制${re}"
-show_limit "$traffic_user"
+show_limit "$username"
+echo
+green "---------------- 用户协议 ----------------"
         green "---------------- 用户协议 ----------------"
 local user_protocols=()
 local protocol_file
