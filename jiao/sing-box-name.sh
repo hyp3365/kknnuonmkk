@@ -1365,9 +1365,6 @@ except Exception:
 
 u = state.get("users", {}).get(user, {})
 current_total = int(u.get("total", 0) or 0)
-u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
-u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
-u["period_base_total"] = current_total
 u["period_uplink"] = 0
 u["period_downlink"] = 0
 u["period_total"] = 0
