@@ -534,9 +534,6 @@ def sync_periods(state):
         stored_end = u.get("period_end")
         if stored_period != current_period:
             u["period"] = current_period
-            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
-            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
-            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
@@ -545,9 +542,6 @@ def sync_periods(state):
             changed = True
             continue
         if current_period in ("day", "month") and (not stored_start or not stored_end):
-            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
-            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
-            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
@@ -560,9 +554,6 @@ def sync_periods(state):
         except Exception:
             stored_end_dt = None
         if current_period in ("day", "month") and (stored_end_dt is None or now >= stored_end_dt):
-            u["period_base_uplink"] = int(u.get("uplink", 0) or 0)
-            u["period_base_downlink"] = int(u.get("downlink", 0) or 0)
-            u["period_base_total"] = int(u.get("total", 0) or 0)
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
@@ -1253,26 +1244,15 @@ period_text = {
 }.get(period, "永久")
 
 user = d.get("user")
-
 try:
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 except Exception:
     state = {}
-
 u = state.get("users", {}).get(user, {})
-
-if period in ("day", "month"):
-    current_total = int(u.get("period_total", 0) or 0)
-else:
-    current_total = int(u.get("total", 0) or 0)
-
-base_total = int(d.get("limit_base_total", 0) or 0)
-
-used = max(0, current_total - base_total)
-
+current_total = int(u.get("period_total", 0) or 0)
+used = current_total
 limit_bytes = int(d.get("limit_bytes", 0) or 0)
-
 def fmt(n):
     n = float(n)
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
