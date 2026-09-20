@@ -1792,11 +1792,7 @@ PY
 }
 main_menu() {
     cleanup_backups
-    local file="$1"
-    local tag="$2"
-    local type="$3"
-    local port="$4"
-    local user="$5"
+    local user="$1"
     while true; do
         title "流量设置"
         echo -e "  ${cyan}a)${re} 停止流量统计"
@@ -1839,4 +1835,4 @@ main_menu() {
     done
 }
 
-main_menu "" "$1" "" "" "$2"
+main_menu "$@"
