@@ -528,7 +528,10 @@ def restore_user(username):
                 if not isinstance(inbound, dict):
                     continue
                 users = inbound.setdefault("users", [])
+                if not isinstance(users, list):
+                    continue
                 if any(isinstance(u, dict) and u.get("name") == username for u in users):
+                    restored_any = True
                     continue
                 users.append(saved_user)
                 changed = True
@@ -539,14 +542,17 @@ def restore_user(username):
                     return False
                 changed_files.append(fn)
         if not restored_any:
-            return True
+            log(f"恢复用户失败，备份中没有有效用户: {username}")
+            return False
         if not check_config():
             log(f"恢复用户后配置检查失败: {username}")
             return False
         if not reload_singbox():
             log(f"恢复用户后sing-box重载失败: {username}")
             return False
-        log(f"用户已恢复: {username}")
+        import shutil
+        shutil.rmtree(backup_root, ignore_errors=True)
+        log(f"用户已恢复并清理停用备份: {username}")
         return True
     finally:
         try:
@@ -555,6 +561,7 @@ def restore_user(username):
         except Exception:
             pass
         lock.close()
+        
 def update_limit_file(fn, data):
     atomic_write_json(fn, data, 0o600)
 def ensure_user(state, username):
@@ -829,7 +836,6 @@ def initialize_periods(state):
         if not username:
             continue
         period = period_name(data)
-        start, end = period_window(period, now)
         start, end = period_window(period, now)
         start_iso = start.isoformat() if start else None
         end_iso = end.isoformat() if end else None
@@ -1688,8 +1694,8 @@ main_menu() {
     local user="$1"
     while true; do
         title "流量设置"
-        echo -e "  ${cyan}a)${re} 停止流量统计"
-        echo -e "  ${cyan}b)${re} 重置流量统计脚本"
+        echo -e "  ${red}a)${re} 停止流量统计"
+        echo -e "  ${red}b)${re} 重置流量统计脚本"
         echo
         show_limit "$user"
         echo
