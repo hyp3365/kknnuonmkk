@@ -196,20 +196,41 @@ def log(msg):
 def atomic_write_json(path, data, mode=0o600):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
+
+    fd = None
+    tmp = None
+
     try:
+        fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
+
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = None
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
+
         os.chmod(tmp, mode)
         os.replace(tmp, path)
+
+        return True
+
+    except Exception as e:
+        log(f"写入JSON失败 {path}: {e}")
+        return False
+
     finally:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
+        if fd is not None:
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
 def load_json(path, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
