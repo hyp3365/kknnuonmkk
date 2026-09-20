@@ -1380,7 +1380,18 @@ except Exception:
     state = {}
 
 u = state.get("users", {}).get(user, {})
-current_period_total = int(u.get("period_total", 0) or 0)
+current_total = int(u.get("total", 0) or 0)
+u["period_uplink"] = 0
+u["period_downlink"] = 0
+u["period_total"] = 0
+users = state.setdefault("users", {})
+users[user] = u
+tmp_state = state_file + ".tmp"
+with open(tmp_state, "w", encoding="utf-8") as f:
+    json.dump(state, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+os.chmod(tmp_state, 0o600)
+os.replace(tmp_state, state_file)
 
 data = {
     "inbound_tag": tag,
