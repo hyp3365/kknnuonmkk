@@ -6716,12 +6716,6 @@ green "5. 查看配置"
             ;;
     esac
     ;;
-        *)
-            red "当前入站没有此功能"
-            sleep 1
-            ;;
-    esac
-    ;;
 0)
     return
     ;;
