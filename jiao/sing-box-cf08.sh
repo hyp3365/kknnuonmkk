@@ -6761,7 +6761,7 @@ show_limit() {
     local username="$1"
     if [ -z "$username" ]; then
         echo "流量限制：未设置        流量周期：未设置"
-        echo "已用：未统计            流量状态：正常"
+        echo "已用流量：未统计        流量状态：正常"
         return
     fi
     local limit_file=""
@@ -6777,7 +6777,7 @@ show_limit() {
     done
     if [ -z "$limit_file" ]; then
         echo "流量限制：未设置        流量周期：未设置"
-        echo "已用流量：未统计            流量状态：正常"
+        echo "已用流量：未统计        流量状态：正常"
         return
     fi
     local enabled
@@ -6795,11 +6795,6 @@ show_limit() {
     if ! [[ "$used" =~ ^[0-9]+$ ]]; then
         used=0
     fi
-    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
-        echo "流量限制：未设置        流量周期：未设置"
-        printf "已用流量：%-17s 流量状态：正常\n" "$(format_bytes "$used")"
-        return
-    fi
     local period_cn
     case "$period" in
         day|daily)
@@ -6812,14 +6807,19 @@ show_limit() {
             period_cn="未设置"
             ;;
     esac
-    local status_cn
-    if [ "$disabled_by_limit" = "true" ]; then
-        status_cn="已停用"
-    else
-        status_cn="正常"
+    if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
+        echo "流量限制：未设置        流量周期：未设置"
+        printf "已用流量：%-12s " "$(format_bytes "$used")"
+        green "流量状态：正常"
+        return
     fi
-    printf "流量限制：%-12s 流量周期：%s\n" "$(format_bytes "$limit_bytes")" "$period_cn"
-    printf "已用流量：%-17s 流量状态：%s\n" "$(format_bytes "$used")" "$status_cn"
+    printf "流量限制：%-12s    流量周期：%s\n" "$(format_bytes "$limit_bytes")" "$period_cn"
+    printf "已用流量：%-12s    " "$(format_bytes "$used")"
+    if [ "$disabled_by_limit" = "true" ]; then
+        red "流量状态：已停用"
+    else
+        green "流量状态：正常"
+    fi
 }
 
 manage_single_inbound() {
