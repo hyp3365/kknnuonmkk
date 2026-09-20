@@ -7047,8 +7047,8 @@ echo
             1)
                delete_user "$username"
                ;;
-            2)
-               bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$traffic_user"
+			2)
+               bash /etc/sing-box/sing-box-name.sh "$inbound_tag" "$username"
                ;;
             3)
               yellow "删除协议功能暂未开发"
@@ -11235,7 +11235,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.1===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.2===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
