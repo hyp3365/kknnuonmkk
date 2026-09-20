@@ -5315,127 +5315,91 @@ enable_ws_argo() {
     local inbound_number="$4"
     local uuid password ws_path origin_port
     local node_remark node_remark_enc
-    local argo_url
-    local url_file
-    local tunnel_was_configured=0
-    if [ "$engine" != "singbox" ] && [ "$engine" != "xray" ]; then
-        red "不支持的引擎：$engine"
-        return 1
-    fi
-    if [ ! -f "$config_file" ]; then
-        red "入站配置不存在：$config_file"
-        return 1
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-        red "未安装 jq！"
-        return 1
-    fi
+    local argo_url url_file
     uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
     password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
     if [ -z "$origin_port" ] || [ "$origin_port" = "null" ]; then
-        red "未读取到入站端口！"
-        return 1
-    fi
-    if ! [[ "$origin_port" =~ ^[0-9]+$ ]] || [ "$origin_port" -lt 1 ] || [ "$origin_port" -gt 65535 ]; then
-        red "入站端口无效：$origin_port"
+        red "未获取到入站端口！"
+        read -rp "按回车返回..." _
         return 1
     fi
     if [ -z "$ws_path" ] || [ "$ws_path" = "null" ]; then
         ws_path="/"
     fi
     [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
-    generate_vars
-    server_ip=$(get_realip)
-    if [ -z "$server_ip" ]; then
-        red "未获取到服务器 IP！"
+    skyblue "正在添加 Cloudflare Tunnel..."
+    green "当前入站：${inbound_type}-${inbound_number}"
+    green "本地端口：${origin_port}"
+    green "WS Path：${ws_path}"
+    echo
+    if ! cf_add_tunnel_route "$origin_port" "$ws_path"; then
+        red "Cloudflare Tunnel 路由添加失败！"
+        read -rp "按回车返回..." _
+        return 1
+    fi
+    domain="${ArgoDomain:-}"
+    if [ -z "$domain" ]; then
+        red "未获取到 Tunnel 域名！"
+        read -rp "按回车返回..." _
         return 1
     fi
     case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws)
+        vless-ws)
+            if [ -z "$uuid" ]; then
+                red "未获取到 UUID！"
+                read -rp "按回车返回..." _
+                return 1
+            fi
+            node_remark="${isp}_Tunnelvless_ws"
+            node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
+            argo_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
+            ;;
+        vmess-ws)
+            if [ -z "$uuid" ]; then
+                red "未获取到 UUID！"
+                read -rp "按回车返回..." _
+                return 1
+            fi
+            node_remark="${isp}_Tunnelvmess_ws"
+            VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+            argo_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+            ;;
+        trojan-ws)
+            if [ -z "$password" ]; then
+                red "未获取到 Trojan password！"
+                read -rp "按回车返回..." _
+                return 1
+            fi
+            node_remark="${isp}_Tunneltrojan_ws"
+            node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
+            argo_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 Tunnel：${inbound_type}"
-            green "仅支持：vless-ws、vmess-ws、trojan-ws"
+            read -rp "按回车返回..." _
             return 1
             ;;
     esac
-    skyblue "正在为当前入站添加 Cloudflare Tunnel..."
-    green "入站：${inbound_type}-${inbound_number}"
-    green "本地端口：${origin_port}"
-    green "WS Path：${ws_path}"
-    if [ -f "/etc/sing-box/conf/cloudflared.json" ]; then
-        tunnel_was_configured=1
-    fi
-    if ! cf_add_tunnel_route "$origin_port" "$ws_path"; then
-        red "Cloudflare Tunnel 路由添加失败！"
-        return 1
-    fi
-    if [ -z "${ArgoDomain:-}" ]; then
-        red "未获取到 Tunnel 域名！"
-        return 1
-    fi
-    domain="$ArgoDomain"
-    node_remark="${isp}_Tunnel${inbound_type}"
-    if [ -n "$uuid" ]; then
-        case "$inbound_type" in
-            vless-ws)
-                node_remark="${isp}_Tunnelvless_ws"
-                node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
-                argo_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
-                ;;
-            vmess-ws)
-                node_remark="${isp}_Tunnelvmess_ws"
-                VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-                argo_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
-                ;;
-            trojan-ws)
-                if [ -z "$password" ]; then
-                    red "Trojan 入站未读取到 password！"
-                    return 1
-                fi
-                node_remark="${isp}_Tunneltrojan_ws"
-                node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
-                argo_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
-                ;;
-        esac
-    else
-        red "未读取到当前入站 UUID！"
-        return 1
-    fi
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     mkdir -p "$URL_DIR"
     if [ -f "$url_file" ]; then
         sed -i '/_Tunnelvless_ws\|_Tunnelvmess_ws\|_Tunneltrojan_ws/d' "$url_file"
     fi
     echo "$argo_url" >> "$url_file"
-    if declare -F update_sub_file >/dev/null 2>&1; then
-        update_sub_file
-    elif [ -f "${work_dir}/url.txt" ]; then
-        base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
-    fi
-    if [ "$tunnel_was_configured" -eq 0 ] || [ -f "/etc/sing-box/conf/cloudflared.json" ]; then
-        if [ "$engine" = "singbox" ]; then
-            /etc/sing-box/sing-box check -C /etc/sing-box/conf >/dev/null 2>&1 || {
-                red "sing-box 配置检查失败！"
-                return 1
-            }
-            systemctl reload sing-box >/dev/null 2>&1 || {
-                red "sing-box 重载失败！"
-                return 1
-            }
-        fi
-    fi
-    green "--------------------------------------------------"
+    update_sub_file
+    green "============================================"
     green "Cloudflare Tunnel 添加成功！"
     green "入站：${inbound_type}-${inbound_number}"
-    green "本地：127.0.0.1:${origin_port}"
-    green "路径：${ws_path}"
     green "域名：${domain}"
-    green "$argo_url"
-    green "--------------------------------------------------"
-    return 0
+    green "路径：${ws_path}"
+    green "本地端口：127.0.0.1:${origin_port}"
+    echo
+    green "Tunnel 节点链接："
+    echo "$argo_url"
+    green "============================================"
+    read -rp "按回车返回..." _
 }
 get_inbound_cdn_domain() {
     local inbound_type="$1"
