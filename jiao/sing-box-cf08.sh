@@ -10757,6 +10757,8 @@ curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
 if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
     mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
 fi
+chmod 700 "$TRAFFIC_SCRIPT"
+"$TRAFFIC_SCRIPT" --init >/dev/null 2>&1 || true
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
