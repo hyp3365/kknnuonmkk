@@ -5501,17 +5501,18 @@ modify_inbound_port() {
     sleep 3
 }
 
+
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
         output=$(${work_dir}/sing-box generate reality-keypair)
         private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
         public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-		short_id=$(openssl rand -hex 6)
+        short_id=$(openssl rand -hex 6)
     fi
-	if systemctl is-active --quiet singbox-traffic.service; then
-    :
+    if systemctl is-active --quiet singbox-traffic.service; then
+        :
     else
-    systemctl start singbox-traffic.service >/dev/null 2>&1 || true
+        systemctl start singbox-traffic.service >/dev/null 2>&1 || true
     fi
     CONF_DIR="/etc/sing-box/conf"
     XRAY_CONF_DIR="/etc/xray/conf"
@@ -5524,6 +5525,27 @@ manage_nodes_menu() {
         green "================ 入站管理 ================"
         echo
         green "a. 添加入站"
+        green "b. 添加用户"
+        echo
+        green "---------------- 已添加用户 ----------------"
+        local user_index=1
+        local user_file
+        local username
+        local -a users=()
+        shopt -s nullglob
+        for user_file in "$URL_DIR"/user-*.txt; do
+            [ -f "$user_file" ] || continue
+            username=$(basename "$user_file" .txt)
+            username="${username#user-}"
+            [ -n "$username" ] || continue
+            users+=("$username")
+            green "${user_index}. ${username}"
+            user_index=$((user_index + 1))
+        done
+        shopt -u nullglob
+        if [ ${#users[@]} -eq 0 ]; then
+            yellow "暂无已添加用户"
+        fi
         echo
         green "---------------- 已添加入站 ----------------"
         local entries=()
@@ -5568,6 +5590,9 @@ manage_nodes_menu() {
             a|A)
                 add_inbound_menu
                 ;;
+            b|B)
+                add_user_menu
+                ;;
             0)
                 return
                 ;;
@@ -5602,6 +5627,259 @@ get_inbound_config_file() {
     else
         echo "$CONF_DIR/${inbound_type}-${number}.json"
     fi
+}
+add_user_menu() {
+    local CONF_DIR="/etc/sing-box/conf"
+    local URL_DIR="/etc/sing-box/url"
+    local MAIN_CONFIG="/etc/sing-box/conf/config.json"
+    mkdir -p "$URL_DIR"
+    local max_num=0
+    local f n
+    shopt -s nullglob
+    for f in "$URL_DIR"/user-test-user-*.txt; do
+        n=$(basename "$f" | sed -n 's/^user-test-user-\([0-9]\+\)\.txt$/\1/p')
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$max_num" ]; then
+            max_num="$n"
+        fi
+    done
+    shopt -u nullglob
+    local username="test-user-$((max_num + 1))"
+    local uuid
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    while true; do
+        clear
+        green "================ 添加用户 ================"
+        echo
+        green "用户名：$username"
+        green "UUID：$uuid"
+        echo
+        green "---------------- 选择入站 ----------------"
+        local entries=()
+        local index=1
+        local file filename inbound_type inbound_number
+        shopt -s nullglob
+        for file in "$CONF_DIR"/*.json; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            [ "$filename" = "config.json" ] && continue
+            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
+                inbound_type="${BASH_REMATCH[1]}"
+                inbound_number="${BASH_REMATCH[2]}"
+                entries+=("$file|$inbound_type|$inbound_number")
+                green "${index}. ${inbound_type}-${inbound_number}"
+                index=$((index + 1))
+            fi
+        done
+        shopt -u nullglob
+        if [ ${#entries[@]} -eq 0 ]; then
+            yellow "暂无可用入站"
+            sleep 1
+            return
+        fi
+        echo
+        green "请输入要添加的入站编号，可多选，例如：1 2 3"
+        green "输入 0 返回"
+        echo
+        read -rp "请选择: " choice
+        [ "$choice" = "0" ] && return
+        [ -z "$choice" ] && continue
+        local selected=()
+        local invalid=0
+        for n in $choice; do
+            if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
+                selected+=("${entries[$((n - 1))]}")
+            else
+                invalid=1
+            fi
+        done
+        if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
+            red "存在无效入站编号"
+            sleep 1
+            continue
+        fi
+        local selected_data=""
+        for f in "${selected[@]}"; do
+            if [ -n "$selected_data" ]; then
+                selected_data+=$'\n'
+            fi
+            selected_data+="$f"
+        done
+        SELECTED_DATA="$selected_data" USERNAME="$username" USER_UUID="$uuid" MAIN_CONFIG="$MAIN_CONFIG" URL_DIR="$URL_DIR" python3 - <<'PY'
+import os
+import json
+import base64
+import re
+import tempfile
+import shutil
+username=os.environ["USERNAME"]
+user_uuid=os.environ["USER_UUID"]
+main_config=os.environ["MAIN_CONFIG"]
+url_dir=os.environ["URL_DIR"]
+selected_data=os.environ["SELECTED_DATA"]
+selected=[x for x in selected_data.splitlines() if x.strip()]
+def find_users_container(obj):
+    if isinstance(obj, dict):
+        if isinstance(obj.get("users"), list):
+            return obj["users"]
+        for v in obj.values():
+            result=find_users_container(v)
+            if result is not None:
+                return result
+    elif isinstance(obj, list):
+        for v in obj:
+            result=find_users_container(v)
+            if result is not None:
+                return result
+    return None
+def add_user_to_config(path):
+    with open(path,"r",encoding="utf-8") as f:
+        data=json.load(f)
+    users=find_users_container(data)
+    if users is None:
+        raise RuntimeError("未找到 users 数组")
+    for u in users:
+        if isinstance(u,dict) and u.get("name")==username:
+            raise RuntimeError("用户已存在")
+    template=None
+    for u in users:
+        if isinstance(u,dict):
+            template=u
+            break
+    new_user={"name":username}
+    if template is not None:
+        if "uuid" in template and "password" in template:
+            new_user["uuid"]=user_uuid
+            new_user["password"]=template.get("password","")
+        elif "uuid" in template:
+            new_user["uuid"]=user_uuid
+        elif "password" in template:
+            new_user["password"]=user_uuid
+        elif "username" in template and "password" in template:
+            new_user["username"]=username
+            new_user["password"]=user_uuid
+        elif "username" in template:
+            new_user["username"]=username
+            if "password" in template:
+                new_user["password"]=user_uuid
+        else:
+            new_user["uuid"]=user_uuid
+    else:
+        new_user["uuid"]=user_uuid
+    users.append(new_user)
+    fd,tmp=tempfile.mkstemp(prefix=".singbox-user-",dir=os.path.dirname(path))
+    os.close(fd)
+    try:
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(data,f,ensure_ascii=False,indent=2)
+            f.write("\n")
+        os.chmod(tmp,os.stat(path).st_mode & 0o777)
+        os.replace(tmp,path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+def replace_link(line,protocol):
+    line=line.rstrip("\n")
+    if not line.strip():
+        return line
+    if protocol in ("tuic",):
+        return re.sub(r'^(tuic://)[^:@]+:',r'\g<1>'+user_uuid+':',line,count=1)
+    if protocol in ("vless",):
+        return re.sub(r'^(vless://)[^@]+@',r'\g<1>'+user_uuid+'@',line,count=1)
+    if protocol in ("hysteria2","hy2"):
+        return re.sub(r'^(hysteria2://|hy2://)[^@]+@',lambda m:m.group(1)+user_uuid+"@",line,count=1)
+    if protocol in ("anytls",):
+        return re.sub(r'^(anytls://)[^@]+@',r'\g<1>'+user_uuid+'@',line,count=1)
+    if protocol in ("vmess",):
+        m=re.match(r'^(vmess://)([^#\s]+)(.*)$',line)
+        if not m:
+            return line
+        try:
+            raw=base64.b64decode(m.group(2)+"===")
+            obj=json.loads(raw.decode("utf-8"))
+            obj["id"]=user_uuid
+            encoded=base64.b64encode(json.dumps(obj,ensure_ascii=False,separators=(", ", ": ")).encode("utf-8")).decode("ascii")
+            return m.group(1)+encoded+m.group(3)
+        except Exception:
+            return line
+    return line
+def copy_links(inbound_type,inbound_number):
+    src=os.path.join(url_dir,f"{inbound_type}-{inbound_number}.txt")
+    dst=os.path.join(url_dir,f"user-{username}.txt")
+    if not os.path.isfile(src):
+        return 0
+    count=0
+    protocol=inbound_type.lower()
+    with open(src,"r",encoding="utf-8",errors="ignore") as f:
+        lines=f.readlines()
+    mode="a" if os.path.exists(dst) and os.path.getsize(dst)>0 else "w"
+    with open(dst,mode,encoding="utf-8") as out:
+        if mode=="a":
+            out.write("\n")
+        for line in lines:
+            if not line.strip():
+                continue
+            out.write(replace_link(line,protocol)+"\n")
+            count+=1
+    return count
+for item in selected:
+    parts=item.split("|")
+    if len(parts)!=3:
+        raise RuntimeError("入站数据格式错误")
+    path,inbound_type,inbound_number=parts
+    add_user_to_config(path)
+try:
+    with open(main_config,"r",encoding="utf-8") as f:
+        data=json.load(f)
+except Exception:
+    data={}
+experimental=data.setdefault("experimental",{})
+v2ray_api=experimental.setdefault("v2ray_api",{})
+v2ray_api.setdefault("listen","127.0.0.1:9094")
+stats=v2ray_api.setdefault("stats",{})
+stats.setdefault("enabled",True)
+users=stats.setdefault("users",[])
+if username not in users:
+    users.append(username)
+fd,tmp=tempfile.mkstemp(prefix=".singbox-config-",dir=os.path.dirname(main_config))
+os.close(fd)
+try:
+    with open(tmp,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+    os.chmod(tmp,os.stat(main_config).st_mode & 0o777)
+    os.replace(tmp,main_config)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+total_links=0
+for item in selected:
+    _,inbound_type,inbound_number=item.split("|")
+    total_links+=copy_links(inbound_type,inbound_number)
+print(f"用户：{username}")
+print(f"UUID：{user_uuid}")
+print(f"入站数量：{len(selected)}")
+print(f"连接数量：{total_links}")
+print(f"连接文件：{os.path.join(url_dir,'user-'+username+'.txt')}")
+PY
+        local result=$?
+        if [ "$result" -eq 0 ]; then
+            green "用户创建成功"
+            echo
+            green "用户名：$username"
+            green "UUID：$uuid"
+            green "连接文件：$URL_DIR/user-$username.txt"
+            echo
+            if systemctl is-active --quiet sing-box; then
+                systemctl reload sing-box >/dev/null 2>&1 || true
+            fi
+            read -rp "按回车返回..." _
+            return
+        else
+            red "用户创建失败"
+            sleep 2
+            return
+        fi
+    done
 }
 add_inbound_menu() {
     while true; do
@@ -6682,6 +6960,90 @@ green "5. 查看配置"
     ;;
 esac
 done
+}
+manage_single_user() {
+    local username="$1"
+    while true; do
+        clear
+        green "================ 用户管理 ================"
+        echo
+        green "用户：${username}"
+        echo
+        echo -e "${skyblue}流量统计${re}"
+        if [ -f "$TRAFFIC_STATE" ]; then
+            local traffic
+            local uplink
+            local downlink
+            local total
+            local connections
+            local period_uplink
+            local period_downlink
+            local period_total
+            traffic="$(get_user_traffic "$username" 2>/dev/null)"
+            read -r uplink downlink total connections period_uplink period_downlink period_total <<< "$traffic"
+            if [ -n "$total" ]; then
+                printf "上传：%-18s 总流量：%s\n" "$(format_bytes "$uplink")" "$(format_bytes "$total")"
+                printf "下载：%-18s 本周期：%s\n" "$(format_bytes "$downlink")" "$(format_bytes "$period_total")"
+            else
+                echo "上传：未统计          总流量：未统计"
+                echo "下载：未统计          本周期：未统计"
+            fi
+        else
+            echo "上传：未统计          总流量：未统计"
+            echo "下载：未统计          本周期：未统计"
+        fi
+        echo -e "${skyblue}流量限制${re}"
+        echo "暂未设置"
+        echo
+        green "---------------- 用户协议 ----------------"
+        echo "暂未读取"
+        echo
+        green "----------------------------------------------------------"
+        red "1. 删除用户"
+        green "2. 流量限制"
+        green "3. 添加协议"
+        green "4. 删除协议"
+        green "5. 查看节点连接"
+        green "6. 查看订阅连接"
+        echo
+        green "--------------------------------------------"
+        green "0. 返回"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            1)
+                yellow "删除用户功能暂未开发"
+                sleep 1
+                ;;
+            2)
+                yellow "流量限制功能暂未开发"
+                sleep 1
+                ;;
+            3)
+                yellow "添加协议功能暂未开发"
+                sleep 1
+                ;;
+            4)
+                yellow "删除协议功能暂未开发"
+                sleep 1
+                ;;
+            5)
+                yellow "查看节点连接功能暂未开发"
+                sleep 1
+                ;;
+            6)
+                yellow "查看订阅连接功能暂未开发"
+                sleep 1
+                ;;
+            0)
+                return
+                ;;
+            *)
+                red "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
 }
 show_inbound_config() {
     local config_file="$1"
