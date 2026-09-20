@@ -164,6 +164,7 @@ import subprocess
 import time
 import signal
 import tempfile
+import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 BASE_DIR = Path("/etc/sing-box")
@@ -883,6 +884,13 @@ def main():
         pass
     log("singbox traffic collector stopped")
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "restore_user":
+        username = sys.argv[2]
+        if restore_user(username):
+            print("OK")
+            raise SystemExit(0)
+        print("FAIL")
+        raise SystemExit(1)
     main()
 PY
     chmod 700 "$tmp_script"
