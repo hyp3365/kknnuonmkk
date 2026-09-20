@@ -1809,7 +1809,7 @@ main_menu() {
         echo -e "  ${cyan}a)${re} 停止流量统计"
         echo -e "  ${cyan}b)${re} 重置流量统计脚本"
         echo
-        show_limit "$tag" "$user"
+        show_limit "$user"
         echo
         echo -e "  ${green}1)${re} 流量设置"
         echo -e "  ${green}2)${re} 时间设置"
@@ -1847,7 +1847,7 @@ main_menu() {
 }
 if [ -n "$INBOUND_TAG" ]; then
     if [ -z "$TRAFFIC_USER" ] && [ -d "$LIMIT_DIR" ]; then
-        local limit_file=""
+        limit_file=""
         limit_file=$(find "$LIMIT_DIR" -maxdepth 1 -type f -name "${INBOUND_TAG}__*.json" -print -quit 2>/dev/null)
         if [ -n "$limit_file" ] && [ -f "$limit_file" ]; then
             TRAFFIC_USER=$(jq -r '.user // empty' "$limit_file" 2>/dev/null)
