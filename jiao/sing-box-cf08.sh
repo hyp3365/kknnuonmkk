@@ -4104,7 +4104,7 @@ modify_inbound_uuid() {
     fi
     if [ ! -f "$url_file" ]; then
         red "链接文件不存在：$url_file"
-        restart_singbox
+        systemctl reload sing-box
         sleep 1
         return 1
     fi
@@ -4150,7 +4150,7 @@ modify_inbound_uuid() {
 	if [ "$engine" = "xray" ]; then
         restart_xray
     else
-        restart_singbox
+        systemctl reload sing-box
     fi
     sleep 2
     return 0
@@ -4228,7 +4228,7 @@ modify_reality_domain() {
     if [ "$engine" = "xray" ]; then
         restart_xray
     else
-        restart_singbox
+        systemctl reload sing-box
     fi
     echo
     green "==============================================="
@@ -4399,7 +4399,7 @@ hy2_port_hopping() {
         echo "hysteria2://${uuid}@${ip}:${listen_port}?${url_param}&alpn=h3&mport=${listen_port},${min_port}-${max_port}#${node_remark}" > "$url_file"
     fi
     update_sub_file
-    restart_singbox
+    systemctl reload sing-box
     hy2_link=$(cat "$url_file")
     echo
     green "Hysteria2-${inbound_number} 端口跳跃已开启"
@@ -4453,7 +4453,7 @@ disable_hy2_port_hopping() {
         update_sub_file
         hy2_link=$(cat "$url_file")
     fi
-    restart_singbox
+    systemctl reload sing-box
     echo
     green "[✔] ${inbound_type}-${inbound_number} 端口跳跃已关闭"
     if [ -n "$hy2_link" ]; then
@@ -4539,7 +4539,7 @@ PY
         sed -i -E "s/&alpn=h3/&obfs=gecko\&obfs-password=${obfs_pwd}\&obfs-min=512\&obfs-max=1200\&alpn=h3/" "$url_file"
     fi
     update_sub_file
-    restart_singbox
+    systemctl reload sing-box
     hy2_link=$(cat "$url_file")
     echo
     green "=================================================="
@@ -4603,7 +4603,7 @@ PY
         update_sub_file
         hy2_link=$(cat "$url_file")
     fi
-    restart_singbox
+    systemctl reload sing-box
     echo
     green "=================================================="
     green "${inbound_type}-${inbound_number} Hysteria2 Gecko 混淆已关闭"
@@ -5402,7 +5402,7 @@ modify_inbound_port() {
     fi
     allow_port "$new_port/tcp" >/dev/null 2>&1
     allow_port "$new_port/udp" >/dev/null 2>&1
-    restart_singbox
+    systemctl reload sing-box
     green "新端口：${new_port}"
     sleep 3
 }
@@ -5419,8 +5419,6 @@ manage_nodes_menu() {
     else
     systemctl start singbox-traffic.service >/dev/null 2>&1 || true
     fi
-	generate_vars
-    server_ip=$(get_realip)
     CONF_DIR="/etc/sing-box/conf"
     XRAY_CONF_DIR="/etc/xray/conf"
     URL_DIR="/etc/sing-box/url"
@@ -5582,6 +5580,8 @@ add_inbound() {
     echo
     case "$inbound_type" in
         vless-reality)
+	generate_vars
+    server_ip=$(get_realip)
     cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -5629,6 +5629,8 @@ EOF
     green "--------------------------------------------------"
     ;;
 	   hysteria2)
+	generate_vars
+    server_ip=$(get_realip)
 	echo -e "\n请选择 TLS 证书类型:"
     echo -e " 1) \e[32m使用自签名证书\e[0m"
     echo -e " 2) \e[32m使用真实域名证书\e[0m"
@@ -5691,6 +5693,8 @@ EOF
     green "--------------------------------------------------"
 	;;
         tuic)
+	generate_vars
+    server_ip=$(get_realip)
     echo -e "\n请选择 TLS 证书类型:"
     echo -e " 1) \e[32m使用自签名证书\e[0m"
     echo -e " 2) \e[32m使用真实域名证书\e[0m"
@@ -5750,6 +5754,8 @@ EOF
     green "--------------------------------------------------"
 	;;
         http-reality)
+	generate_vars
+    server_ip=$(get_realip)
     cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -5808,6 +5814,8 @@ EOF
     green "--------------------------------------------------"
     ;;
         grpc-reality)
+	generate_vars
+    server_ip=$(get_realip)
     cat > "$config_file" << EOF
 {
   "inbounds": [
@@ -5879,6 +5887,8 @@ EOF
         vless-tcp-tls) green "这里接入 VLESS TCP TLS 创建逻辑" ;;
         naiveproxy) green "这里接入 Naiveproxy 创建逻辑" ;;
         vmess-ws)
+	generate_vars
+    server_ip=$(get_realip)
     vmess_path="/xtcssssess-ws"
     cat > "$config_file" << EOF
 {
@@ -9031,21 +9041,21 @@ manage_singbox() {
            jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 0 else . end' \
            /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
            mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-           restart_singbox
+           systemctl reload sing-box
            green "隧道连接 IP 已切换为：自动"
            ;;
 5)
     jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 4 else . end' \
         /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
     mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-    restart_singbox
+    systemctl reload sing-box
     green "隧道连接 IP 已切换为：仅IPv4"
     ;;
 6)
     jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 6 else . end' \
         /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
     mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-    restart_singbox
+    systemctl reload sing-box
     green "隧道连接 IP 已切换为：仅IPv6"
     ;;
 7)
@@ -9298,7 +9308,7 @@ warp_manage() {
                 '.route.rules[$r_idx].outbound = $new_out' \
                 "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
             
-            restart_singbox
+            systemctl reload sing-box
             green "\n成功将该规则的出站修改为：${purple}${selected_out}${re}"
             sleep 1
         else
@@ -9658,7 +9668,7 @@ add_rule_menu() {
             .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
         ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
-        restart_singbox
+        systemctl reload sing-box
         green "\n✅ 规则 '${rule_tag}' 已成功设置为：[ 🚫 拦截 UDP 强制 TCP ]！"
         sleep 2; warp_manage
         return
@@ -9672,7 +9682,7 @@ add_rule_menu() {
             .route.rules += [{"inbound": [$inb], "rule_set": [$tag], "outbound": $out}]
         end
     ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
-    restart_singbox
+    systemctl reload sing-box
     green "\n预设规则 '${rule_tag}' 已添加！\n生效节点: [ ${selected_inbound_name} ]\n出站线路: [ ${selected_out} ]"
     sleep 2; warp_manage
 }
@@ -9715,7 +9725,7 @@ add_custom_domain_rule() {
                 .route.rules = [$new_r] + (.route.rules | map(select(. != $new_r)))
             ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
         fi
-        restart_singbox
+        systemctl reload sing-box
         green "\n✅ 规则 [ $custom_input ] 已成功设置为：[ 🚫 拦截 UDP 强制 TCP ]！"
         echo -e "   - 生效节点: [ ${skyblue}${selected_inbound_name}${re} ]"
         sleep 2
@@ -9751,7 +9761,7 @@ add_custom_domain_rule() {
             end
         ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
     fi
-    restart_singbox
+    systemctl reload sing-box
     green "\n✅ 规则 [ $custom_input ] 已成功添加！"
     echo -e "   - 生效节点: [ ${skyblue}${selected_inbound_name}${re} ]"
     echo -e "   - 出站线路: [ ${purple}${selected_out}${re} ]"
@@ -9797,7 +9807,7 @@ set_global_outbound() {
 }
 EOF
     rm -rf ${conf_dir}/endpoints.json
-    restart_singbox
+    systemctl reload sing-box
     green "\n已安全设置全局代理出站：${purple}${selected_out}${re}"
     yellow "✅ 所有外网流量将通过 ${selected_out} 转发。"
     yellow "✅ 局域网及 SSH 连接已自动绕过代理 (直连)，防止断网。"
@@ -9865,7 +9875,7 @@ EOF
   ]
 }
 EOF
-    restart_singbox
+    systemctl reload sing-box
     green "\n已恢复服务器原IP出站，所有流量走 direct。\n"
     sleep 2; warp_manage
 }
@@ -10024,7 +10034,7 @@ add_socks5_proxy() {
            mv "${outbound_file}.tmp" "$outbound_file"
 
     fi
-    restart_singbox
+    systemctl reload sing-box
     green "\n代理出站 '${tag}' 已成功添加！"
     sleep 1.5
     warp_manage
@@ -10138,7 +10148,7 @@ delete_socks5_proxy() {
             end
         ' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
 
-        restart_singbox
+        systemctl reload sing-box
         green "\n✅ 代理出站 '${tag}' 及其绑定的分流规则已彻底删除！"
         sleep 1.5
         delete_socks5_proxy
@@ -10191,7 +10201,7 @@ delete_rule_menu() {
     local index=$((del_input - 1))
     jq --argjson idx "$index" 'del(.route.rules[$idx])' "$route_file" > "${route_file}.tmp" && mv "${route_file}.tmp" "$route_file"
     
-    restart_singbox
+    systemctl reload sing-box
     green "第 ${del_input} 条分流规则已成功删除！"
     sleep 1.5
     warp_manage
