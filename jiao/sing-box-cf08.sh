@@ -5522,7 +5522,6 @@ add_inbound_menu() {
         green "6. AnyTLS"
         green "7. AnyTLS Reality"
         green "8. SOCKS5"
-        green "9. HTTP"
         green "10. XHTTP Reality"
         green "11. XHTTP CDN"
         green "12. XHTTP CDN TLS"
@@ -5530,7 +5529,7 @@ add_inbound_menu() {
         green "14. XHTTP TCP+UDP CDN TLS"
         green "15. VLESS TCP TLS"
         green "16. Naiveproxy"
-		green "17. Trojan WS"
+		
         green "18. VMess WS"
         green "19. VLESS WS"
         echo
@@ -5547,7 +5546,7 @@ add_inbound_menu() {
             6) add_inbound "anytls" "sing-box" ;;
             7) add_inbound "anytls-reality" "sing-box" ;;
             8) add_inbound "socks5" "sing-box" ;;
-            9) add_inbound "http" "sing-box" ;;
+           
             10) add_inbound "xhttp-reality" "xray" ;;
             11) add_inbound "xhttp-cdn" "xray" ;;
             12) add_inbound "xhttp-cdn-tls" "xray" ;;
@@ -5555,7 +5554,7 @@ add_inbound_menu() {
             14) add_inbound "xhttp-tcpudp-cdn-tls" "xray" ;;
             15) add_inbound "vless-tcp-tls" "sing-box" ;;
             16) add_inbound "naiveproxy" "sing-box" ;;
-			17) add_inbound "trojan-ws" "sing-box" ;;
+			
 			18) add_inbound "vmess-ws" "sing-box" ;;
             19) add_inbound "vless-ws" "sing-box" ;;
             0) return ;;
@@ -5874,18 +5873,214 @@ EOF
     echo "$url"
     green "--------------------------------------------------"
     ;;
-        anytls) green "这里接入 AnyTLS 创建逻辑" ;;
+        anytls)
+    generate_vars
+    server_ip=$(get_realip)
+    echo -e "\n请选择 TLS 证书类型:"
+    echo -e " 1) \e[32m使用自签名证书\e[0m"
+    echo -e " 2) \e[32m使用真实域名证书\e[0m"
+    read -rp "请输入数字 [1-2] (默认 1): " cert_type
+    [ -z "$cert_type" ] && cert_type=1
+    if [ "$cert_type" -eq 2 ]; then
+        if check_and_issue_ssl; then
+            cert_path="$cert_file"
+            key_path="$key_file"
+            url_param="sni=${domain}"
+        else
+            return 1
+        fi
+    else
+        cert_path="$work_dir/cert.pem"
+        key_path="$work_dir/private.key"
+        url_param="insecure=1&sni=www.bing.com&pinSHA256=${fingerprint}"
+    fi
+    cat > "$config_file" << EOF
+{
+    "inbounds":[
+        {
+            "type":"anytls",
+            "tag":"anytls-${inbound_number}",
+            "listen":"::",
+            "listen_port":$anytls_port,
+            "users":[
+                {
+				    "name": "anytls-user${inbound_number}",
+                    "password":"$password"
+                }
+            ],
+            "padding_scheme":[
+                "stop=6",
+                "0=30-50",
+                "1=80-400",
+                "2=400-500,c,500-1000,c,500-1000",
+                "3=9-9,500-1000",
+                "4=500-1000",
+                "5=500-1000"
+            ],
+            "tls":{
+                "enabled":true,
+                "certificate_path":"$cert_path",
+                "key_path":"$key_path"
+            }
+        }
+    ]
+}
+EOF
+	allow_port "$anytls_port/tcp" >/dev/null 2>&1
+	node_remark="${isp}anytls"
+	add_v2ray_api_user "anytls-user${inbound_number}"
+    url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
         anytls-reality) green "这里接入 AnyTLS Reality 创建逻辑" ;;
-        socks5) green "这里接入 SOCKS5 创建逻辑" ;;
-        http) green "这里接入 HTTP 创建逻辑" ;;
+        socks5)
+    generate_vars
+    server_ip=$(get_realip)
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-${inbound_number}",
+      "listen": "::",
+      "listen_port": $socks_port,
+      "users": [
+        {
+		  "name": "socks${inbound_number}",
+          "username": "$username",
+          "password": "$password"
+        }
+      ]
+    }
+  ]
+}
+EOF
+	node_remark="${isp}socks_port"
+	add_v2ray_api_user "socks${inbound_number}"
+    url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
         argo) green "这里接入 Cloudflare Tunnel 创建逻辑" ;;
         xhttp-reality) green "这里接入 XHTTP Reality 创建逻辑" ;;
         xhttp-cdn) green "这里接入 XHTTP CDN 创建逻辑" ;;
         xhttp-cdn-tls) green "这里接入 XHTTP CDN TLS 创建逻辑" ;;
         xhttp-udp-tls) green "这里接入 XHTTP UDP TLS 创建逻辑" ;;
         xhttp-tcpudp-cdn-tls) green "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑" ;;
-        vless-tcp-tls) green "这里接入 VLESS TCP TLS 创建逻辑" ;;
-        naiveproxy) green "这里接入 Naiveproxy 创建逻辑" ;;
+        vless-tcp-tls)
+	generate_vars
+    server_ip=$(get_realip)
+    check_and_issue_ssl || return 1
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-tcp-tls-${inbound_number}",
+      "listen": "::",
+      "listen_port": $vless_tcp_tls,
+      "users": [
+        {
+		  "name": "vless-tcp-tls-user${inbound_number}",
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "${domain:-$server_ip}",
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file"
+      }
+    }
+  ]
+}
+EOF
+	allow_port "$vless_tcp_tls/tcp" >/dev/null 2>&1
+	node_remark="${isp}vless_tcp_tls"
+	add_v2ray_api_user "vless_tcp_tls-user${inbound_number}"
+    url="vless://${uuid}@${domain:-$server_ip}:${vless_tcp_tls}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
+        naiveproxy)
+    check_and_issue_ssl || return 1
+    generate_vars
+    server_ip=$(get_realip)
+    echo ""
+    naive_port=$(get_available_port)
+    if [[ ! "$naive_port" =~ ^[0-9]+$ ]]; then
+        red "获取 Naive 端口失败：${naive_port:-<空>}"
+        return 1
+    fi
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "naive",
+      "tag": "naive-${inbound_number}",
+      "listen": "::",
+      "listen_port": $naive_port,
+      "users": [
+        {
+		  "name": "naive-user${inbound_number}",
+          "username": "$uuid",
+          "password": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file"
+      }
+    }
+  ]
+}
+EOF
+	allow_port "$naive_port/tcp" >/dev/null 2>&1
+    allow_port "$naive_port/udp" >/dev/null 2>&1
+    node_remark_h2="${isp}naive_h2"
+    node_remark_h3="${isp}naive_h3"
+    naive_server="${domain:-$server_ip}"
+    NAIVE_H2_URL="naive+https://${uuid}:${uuid}@${naive_server}:${naive_port}?security=tls&sni=${naive_server}&insecure=0#${node_remark_h2}"
+    NAIVE_H3_URL="naive+quic://${uuid}:${uuid}@${naive_server}:${naive_port}?congestion_control=bbr&security=tls&sni=${naive_server}&insecure=0#${node_remark_h3}"
+	add_v2ray_api_user "naive-user${inbound_number}"
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    {
+      echo "$NAIVE_H2_URL"
+	  echo
+      echo "$NAIVE_H3_URL"
+    } > "$url_file"  
+	restart_service="singbox"
+	update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green "节点链接："
+	echo  "$NAIVE_H2_URL"
+	echo  "$NAIVE_H3_URL"
+    green "--------------------------------------------------"
+    ;;
         vmess-ws)
 	generate_vars
     server_ip=$(get_realip)
@@ -5934,6 +6129,63 @@ EOF
     fi
     url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     add_v2ray_api_user "vmess-ws-user${inbound_number}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+    restart_service="singbox"
+    update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
+	vless-ws)
+	generate_vars
+    server_ip=$(get_realip)
+    vless_path="/xlltcssssess-ws"
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-${inbound_number}",
+      "listen": "::",
+      "listen_port": $vless_ws_port,
+      "users": [
+        {
+          "name": "vless-ws-user${inbound_number}",
+          "uuid": "$uuid",
+          "alterId": 0
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$vless_path",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF
+    local add_cert
+    local vless_tls="false"
+    reading "是否为此入站添加 TLS 证书？(y/回车跳过): " add_cert
+    if [[ "$add_cert" =~ ^[Yy]$ ]]; then
+        check_and_issue_ssl "" || return 1
+        jq --arg domain "$domain" --arg cert "$cert_file" --arg key "$key_file" \
+            '.inbounds[0].tls = {"enabled":true,"server_name":$domain,"certificate_path":$cert,"key_path":$key}' \
+            "$config_file" > "${config_file}.tmp" &&
+        mv -f "${config_file}.tmp" "$config_file"
+        vmess_tls="true"
+    fi
+    vless_remark="${isp}vless_ws"
+    if [[ "$vless_tls" == "true" ]]; then
+    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"
+    else
+    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"
+    fi
+    add_v2ray_api_user "vless-ws-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
     restart_service="singbox"
