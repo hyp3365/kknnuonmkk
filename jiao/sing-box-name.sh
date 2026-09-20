@@ -1660,28 +1660,6 @@ PY
         pause
         return
     fi
-    local disabled_by_limit
-    disabled_by_limit=$(jq -r '.disabled_by_limit // false' "$lf" 2>/dev/null)
-    if [ "$disabled_by_limit" = "true" ]; then
-        if ! restore_user "$user"; then
-            red "周期设置成功，但用户恢复失败"
-            pause
-            return
-        fi
-        if ! check_config; then
-            red "用户恢复后配置检查失败"
-            pause
-            return
-        fi
-        if ! reload_singbox; then
-            red "用户恢复后 sing-box 重载失败"
-            pause
-            return
-        fi
-        jq '.disabled_by_limit = false' "$lf" > "${lf}.tmp" && mv "${lf}.tmp" "$lf"
-        chmod 600 "$lf"
-        green "用户已恢复，时间周期同时重新设置"
-    fi
     case "$period" in
         day)
             green "时间周期已设置：每天重置"
