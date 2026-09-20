@@ -1484,103 +1484,43 @@ disable_limit() {
         return
     fi
     local result
-    result="$("$PYTHON" - "$lf" "$CONF_DIR" <<'PY'
+    result="$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
-import os
 from pathlib import Path
 lf = Path(sys.argv[1])
-conf_dir = Path(sys.argv[2])
 try:
     with open(lf, "r", encoding="utf-8") as f:
         data = json.load(f)
 except Exception:
     print("ERROR")
     raise SystemExit(1)
-tag = data.get("inbound_tag")
 user = data.get("user")
-saved_user = data.get("saved_user")
-config_file = data.get("config_file")
-if not tag or not user:
+if not user:
     print("ERROR")
     raise SystemExit(1)
-actual_file = None
-if config_file:
-    p = Path(config_file)
-    if p.exists():
-        actual_file = p
-if actual_file is None:
-    for fn in conf_dir.glob("*.json"):
-        try:
-            with open(fn, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            continue
-        for inbound in cfg.get("inbounds", []):
-            if inbound.get("tag") == tag:
-                actual_file = fn
-                break
-        if actual_file:
-            break
-if actual_file is None:
-    print("NO_INBOUND")
-    raise SystemExit(1)
-try:
-    with open(actual_file, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-except Exception:
-    print("ERROR")
-    raise SystemExit(1)
-target = None
-for inbound in cfg.get("inbounds", []):
-    if inbound.get("tag") == tag:
-        target = inbound
-        break
-if target is None:
-    print("NO_INBOUND")
-    raise SystemExit(1)
-exists = False
-for u in target.get("users", []):
-    if isinstance(u, dict) and u.get("name") == user:
-        exists = True
-        break
-restored = False
-if not exists:
-    if not isinstance(saved_user, dict):
-        print("NO_SAVED_USER")
-        raise SystemExit(1)
-    target.setdefault("users", []).append(saved_user)
-    with open(actual_file, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.chmod(actual_file, 0o600)
-    restored = True
 data["enabled"] = False
 data["limit_value"] = 0
 data["limit_unit"] = "GB"
 data["limit_bytes"] = 0
 data["disabled_by_limit"] = False
 data.pop("saved_user", None)
-data["config_file"] = str(actual_file)
+data.pop("inbound_tag", None)
+data.pop("config_file", None)
 with open(lf, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-os.chmod(lf, 0o600)
-print("RESTORED" if restored else "EXISTS")
+f.chmod(0o600)
+print("OK")
 PY
 )"
-    if [ $? -ne 0 ]; then
-        case "$result" in
-            NO_SAVED_USER)
-                red "找不到被停用用户的保存信息"
-                ;;
-            NO_INBOUND)
-                red "找不到对应入站"
-                ;;
-            *)
-                red "解除流量限制失败"
-                ;;
-        esac
+    if [ $? -ne 0 ] || [ "$result" != "OK" ]; then
+        red "解除流量限制失败"
+        pause
+        return
+    fi
+    if [ ! -f "$TRAFFIC_STATE" ]; then
+        red "流量统计状态文件不存在"
         pause
         return
     fi
@@ -1589,7 +1529,7 @@ PY
         pause
         return
     fi
-    if [ "$result" = "RESTORED" ]; then
+    if restore_user "$user"; then
         if ! check_config; then
             red "用户恢复后配置检查失败"
             pause
@@ -1605,7 +1545,7 @@ PY
         green "V2Ray Stats 用户列表已同步"
     else
         green "流量限制已解除"
-        echo "用户已经存在于入站，无需恢复。"
+        echo "用户当前未恢复，可能没有可用的停用备份。"
         green "V2Ray Stats 用户列表已同步"
     fi
     pause
