@@ -882,6 +882,9 @@ fi
 
 init_traffic
 init_traffic_service
+if [ "${1:-}" = "--init" ]; then
+    exit 0
+fi
 
 pause() {
     echo
