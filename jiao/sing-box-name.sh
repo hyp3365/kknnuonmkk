@@ -1399,7 +1399,7 @@ data = {
     "limit_value": number,
     "limit_unit": unit,
     "limit_bytes": limit_bytes,
-    "limit_base_total": current_period_total,
+    "limit_base_total": current_total,
     "period": old.get("period", "none"),
     "period_start": old.get("period_start"),
     "period_end": old.get("period_end"),
