@@ -365,7 +365,7 @@ def disable_user(username):
                 continue
             file_backup = []
             file_changed = False
-            for inbound in cfg.get("inbounds", []):
+            for inbound_index, inbound in enumerate(cfg.get("inbounds", [])):
                 users = inbound.get("users")
                 if not isinstance(users, list):
                     continue
@@ -373,7 +373,10 @@ def disable_user(username):
                 removed_users = []
                 for u in users:
                     if isinstance(u, dict) and u.get("name") == username:
-                        removed_users.append(u)
+                        removed_users.append({
+                            "inbound_index": inbound_index,
+                            "user": u
+                        })
                         file_changed = True
                         found = True
                     else:
@@ -412,21 +415,24 @@ def disable_user(username):
                     current_cfg = load_json(fn, None)
                     if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
                         continue
-                    for saved_user in backup_data.get("users", []):
-                        if not isinstance(saved_user, dict):
+                    for saved in backup_data.get("users", []):
+                        if not isinstance(saved, dict):
                             continue
-                        users_found = False
-                        for inbound in current_cfg.get("inbounds", []):
-                            users = inbound.setdefault("users", [])
-                            if any(isinstance(u, dict) and u.get("name") == username for u in users):
-                                users_found = True
-                                break
-                        if not users_found:
-                            for inbound in current_cfg.get("inbounds", []):
-                                users = inbound.setdefault("users", [])
-                                if isinstance(users, list):
-                                    users.append(saved_user)
-                                    break
+                        inbound_index = saved.get("inbound_index")
+                        saved_user = saved.get("user")
+                        if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
+                            continue
+                        inbounds = current_cfg.get("inbounds", [])
+                        if inbound_index < 0 or inbound_index >= len(inbounds):
+                            continue
+                        inbound = inbounds[inbound_index]
+                        if not isinstance(inbound, dict):
+                            continue
+                        users = inbound.setdefault("users", [])
+                        if not isinstance(users, list):
+                            continue
+                        if not any(isinstance(u, dict) and u.get("name") == username for u in users):
+                            users.append(saved_user)
                     atomic_write_json(fn, current_cfg, 0o600)
                 except Exception as e:
                     log(f"恢复用户失败: {username} -> {fn}: {e}")
@@ -442,21 +448,24 @@ def disable_user(username):
                     current_cfg = load_json(fn, None)
                     if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
                         continue
-                    for saved_user in backup_data.get("users", []):
-                        if not isinstance(saved_user, dict):
+                    for saved in backup_data.get("users", []):
+                        if not isinstance(saved, dict):
                             continue
-                        users_found = False
-                        for inbound in current_cfg.get("inbounds", []):
-                            users = inbound.setdefault("users", [])
-                            if any(isinstance(u, dict) and u.get("name") == username for u in users):
-                                users_found = True
-                                break
-                        if not users_found:
-                            for inbound in current_cfg.get("inbounds", []):
-                                users = inbound.setdefault("users", [])
-                                if isinstance(users, list):
-                                    users.append(saved_user)
-                                    break
+                        inbound_index = saved.get("inbound_index")
+                        saved_user = saved.get("user")
+                        if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
+                            continue
+                        inbounds = current_cfg.get("inbounds", [])
+                        if inbound_index < 0 or inbound_index >= len(inbounds):
+                            continue
+                        inbound = inbounds[inbound_index]
+                        if not isinstance(inbound, dict):
+                            continue
+                        users = inbound.setdefault("users", [])
+                        if not isinstance(users, list):
+                            continue
+                        if not any(isinstance(u, dict) and u.get("name") == username for u in users):
+                            users.append(saved_user)
                     atomic_write_json(fn, current_cfg, 0o600)
                 except Exception as e:
                     log(f"恢复用户失败: {username} -> {fn}: {e}")
