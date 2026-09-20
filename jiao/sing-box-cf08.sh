@@ -5500,6 +5500,319 @@ modify_inbound_port() {
     green "新端口：${new_port}"
     sleep 3
 }
+add_user_protocol() {
+    local username="$1"
+    local CONF_DIR="/etc/sing-box/conf"
+    local URL_DIR="/etc/sing-box/url"
+    local UUID_FILE="$URL_DIR/${username}-uuid"
+    local USER_URL="$URL_DIR/user-${username}.txt"
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return
+    fi
+    if [ ! -f "$UUID_FILE" ]; then
+        red "未找到用户 UUID 文件：$UUID_FILE"
+        sleep 1
+        return
+    fi
+    local uuid
+    uuid=$(sed -n '2p' "$UUID_FILE")
+    if [ -z "$uuid" ]; then
+        red "UUID 文件内容错误"
+        sleep 1
+        return
+    fi
+    while true; do
+        clear
+        green "================ 增加协议 ================"
+        echo
+        green "用户名：$username"
+        green "UUID：$uuid"
+        echo
+        green "--------------- 可添加协议 ---------------"
+        local entries=()
+        local index=1
+        local file filename inbound_type inbound_number has_user
+        shopt -s nullglob
+        for file in "$CONF_DIR"/*.json; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            [ "$filename" = "config.json" ] && continue
+            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
+                inbound_type="${BASH_REMATCH[1]}"
+                inbound_number="${BASH_REMATCH[2]}"
+                has_user=$(python3 - "$file" "$username" <<'PY'
+import sys,json
+fn=sys.argv[1]
+username=sys.argv[2]
+try:
+    with open(fn,encoding="utf-8") as f:
+        data=json.load(f)
+except:
+    print("0")
+    raise SystemExit
+def find_users(obj):
+    if isinstance(obj,dict):
+        if isinstance(obj.get("users"),list):
+            for u in obj["users"]:
+                if isinstance(u,dict) and u.get("name")==username:
+                    return True
+        for v in obj.values():
+            if find_users(v):
+                return True
+    elif isinstance(obj,list):
+        for v in obj:
+            if find_users(v):
+                return True
+    return False
+print("1" if find_users(data) else "0")
+PY
+)
+                if [ "$has_user" = "1" ]; then
+                    continue
+                fi
+                entries+=("$file|$inbound_type|$inbound_number")
+                green "${index}. ${inbound_type}-${inbound_number}"
+                index=$((index + 1))
+            fi
+        done
+        shopt -u nullglob
+        if [ ${#entries[@]} -eq 0 ]; then
+            yellow "暂无可添加的协议"
+            sleep 2
+            return
+        fi
+        echo
+        green "请输入要添加的协议编号，可多选，例如：1 2 3"
+        green "输入 0 返回"
+        echo
+        read -rp "请选择: " choice
+        [ "$choice" = "0" ] && return
+        [ -z "$choice" ] && continue
+        local selected=()
+        local invalid=0
+        for n in $choice; do
+            if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
+                selected+=("${entries[$((n - 1))]}")
+            else
+                invalid=1
+            fi
+        done
+        if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
+            red "存在无效协议编号"
+            sleep 1
+            continue
+        fi
+        SELECTED_DATA="$(printf '%s\n' "${selected[@]}")" USERNAME="$username" USER_UUID="$uuid" URL_DIR="$URL_DIR" USER_URL="$USER_URL" python3 - <<'PY'
+import os
+import json
+import base64
+import re
+import tempfile
+username=os.environ["USERNAME"]
+user_uuid=os.environ["USER_UUID"]
+url_dir=os.environ["URL_DIR"]
+user_url=os.environ["USER_URL"]
+selected=[x for x in os.environ["SELECTED_DATA"].splitlines() if x.strip()]
+def find_users_container(obj):
+    if isinstance(obj,dict):
+        if isinstance(obj.get("users"),list):
+            return obj["users"]
+        for v in obj.values():
+            r=find_users_container(v)
+            if r is not None:
+                return r
+    elif isinstance(obj,list):
+        for v in obj:
+            r=find_users_container(v)
+            if r is not None:
+                return r
+    return None
+def add_user(path):
+    with open(path,encoding="utf-8") as f:
+        data=json.load(f)
+    users=find_users_container(data)
+    if users is None:
+        raise RuntimeError(f"未找到 users 数组: {path}")
+    for u in users:
+        if isinstance(u,dict) and u.get("name")==username:
+            return
+    template=next((u for u in users if isinstance(u,dict)),None)
+    new={"name":username}
+    if template:
+        if "uuid" in template and "password" in template:
+            new["uuid"]=user_uuid
+            new["password"]=template.get("password","")
+        elif "uuid" in template:
+            new["uuid"]=user_uuid
+        elif "password" in template:
+            new["password"]=user_uuid
+        elif "username" in template:
+            new["username"]=username
+            if "password" in template:
+                new["password"]=user_uuid
+        else:
+            new["uuid"]=user_uuid
+    else:
+        new["uuid"]=user_uuid
+    users.append(new)
+    fd,tmp=tempfile.mkstemp(prefix=".user-",dir=os.path.dirname(path))
+    os.close(fd)
+    try:
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(data,f,ensure_ascii=False,indent=2)
+            f.write("\n")
+        os.chmod(tmp,os.stat(path).st_mode & 0o777)
+        os.replace(tmp,path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+def replace_link(line,protocol):
+    line=line.rstrip("\n")
+    if protocol=="tuic":
+        return re.sub(r'^(tuic://)[^:@]+:',lambda m:m.group(1)+user_uuid+":",line,count=1)
+    if protocol=="vless":
+        return re.sub(r'^(vless://)[^@]+@',lambda m:m.group(1)+user_uuid+"@",line,count=1)
+    if protocol in ("hysteria2","hy2"):
+        return re.sub(r'^(hysteria2://|hy2://)[^@]+@',lambda m:m.group(1)+user_uuid+"@",line,count=1)
+    if protocol=="anytls":
+        return re.sub(r'^(anytls://)[^@]+@',lambda m:m.group(1)+user_uuid+"@",line,count=1)
+    if protocol=="vmess":
+        m=re.match(r'^(vmess://)([^#\s]+)(.*)$',line)
+        if not m:
+            return line
+        try:
+            raw=base64.b64decode(m.group(2)+"===")
+            obj=json.loads(raw.decode("utf-8"))
+            obj["id"]=user_uuid
+            encoded=base64.b64encode(json.dumps(obj,ensure_ascii=False,separators=(", ", ": ")).encode()).decode()
+            return m.group(1)+encoded+m.group(3)
+        except:
+            return line
+    return line
+for item in selected:
+    path,protocol,number=item.split("|")
+    add_user(path)
+    src=os.path.join(url_dir,f"{protocol}-{number}.txt")
+    if os.path.isfile(src):
+        with open(src,encoding="utf-8",errors="ignore") as f:
+            lines=f.readlines()
+        with open(user_url,"a",encoding="utf-8") as out:
+            for line in lines:
+                if line.strip():
+                    out.write(replace_link(line,protocol)+"\n")
+print(f"已添加 {len(selected)} 个协议")
+PY
+        if [ $? -eq 0 ]; then
+            green "协议添加成功"
+            if systemctl is-active --quiet sing-box; then
+                systemctl reload sing-box >/dev/null 2>&1 || true
+            fi
+            sleep 1
+            return
+        else
+            red "协议添加失败"
+            sleep 2
+            return
+        fi
+    done
+}
+delete_user_protocol() {
+    local username="$1"
+    local CONF_DIR="/etc/sing-box/conf"
+    local URL_DIR="/etc/sing-box/url"
+    local USER_URL="$URL_DIR/user-${username}.txt"
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return
+    fi
+    clear
+    green "================ 删除全部协议 ================"
+    echo
+    green "用户名：$username"
+    echo
+    yellow "将删除该用户在所有入站配置中的用户名和 UUID"
+    echo
+    read -rp "确认删除全部协议？[y/N]: " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && return
+    USERNAME="$username" CONF_DIR="$CONF_DIR" USER_URL="$USER_URL" python3 - <<'PY'
+import os
+import json
+import glob
+import tempfile
+username=os.environ["USERNAME"]
+conf_dir=os.environ["CONF_DIR"]
+user_url=os.environ["USER_URL"]
+removed=0
+changed_files=0
+def remove_user_from_obj(obj):
+    global removed
+    changed=False
+    if isinstance(obj,dict):
+        if isinstance(obj.get("users"),list):
+            new_users=[]
+            for u in obj["users"]:
+                if isinstance(u,dict) and u.get("name")==username:
+                    removed+=1
+                    changed=True
+                    continue
+                new_users.append(u)
+            obj["users"]=new_users
+        for v in obj.values():
+            if remove_user_from_obj(v):
+                changed=True
+    elif isinstance(obj,list):
+        for v in obj:
+            if remove_user_from_obj(v):
+                changed=True
+    return changed
+for path in glob.glob(os.path.join(conf_dir,"*.json")):
+    if os.path.basename(path)=="config.json":
+        continue
+    try:
+        with open(path,encoding="utf-8") as f:
+            data=json.load(f)
+    except Exception:
+        continue
+    changed=remove_user_from_obj(data)
+    if not changed:
+        continue
+    fd,tmp=tempfile.mkstemp(prefix=".remove-user-",dir=os.path.dirname(path))
+    os.close(fd)
+    try:
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(data,f,ensure_ascii=False,indent=2)
+            f.write("\n")
+        os.chmod(tmp,os.stat(path).st_mode & 0o777)
+        os.replace(tmp,path)
+        changed_files+=1
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+if os.path.isfile(user_url):
+    os.remove(user_url)
+print(f"REMOVED={removed}")
+print(f"FILES={changed_files}")
+print(f"URL_REMOVED={'1' if not os.path.exists(user_url) else '0'}")
+PY
+    local result=$?
+    if [ "$result" -ne 0 ]; then
+        red "删除协议失败"
+        sleep 2
+        return 1
+    fi
+    if systemctl is-active --quiet sing-box; then
+        if ! systemctl reload sing-box >/dev/null 2>&1; then
+            red "sing-box 重载失败"
+            sleep 2
+            return 1
+        fi
+    fi
+    green "全部协议删除成功"
+    sleep 2
+}
 
 
 manage_nodes_menu() {
@@ -5723,6 +6036,10 @@ username=os.environ["USERNAME"]
 user_uuid=os.environ["USER_UUID"]
 main_config=os.environ["MAIN_CONFIG"]
 url_dir=os.environ["URL_DIR"]
+uuid_file=os.path.join(url_dir,f"{username}-uuid")
+with open(uuid_file,"w",encoding="utf-8") as f:
+    f.write(f"{username}\n{user_uuid}\n")
+os.chmod(uuid_file,0o600)
 selected_data=os.environ["SELECTED_DATA"]
 selected=[x for x in selected_data.splitlines() if x.strip()]
 def find_users_container(obj):
@@ -7042,13 +7359,11 @@ echo
                bash /etc/sing-box/sing-box-name.sh "$username"
                ;;
             3)
-              yellow "删除协议功能暂未开发"
-                sleep 1
-                ;;
+               add_user_protocol "$username"
+               ;;
             4)
-                yellow "删除协议功能暂未开发"
-                sleep 1
-                ;;
+              delete_user_protocol "$username"
+              ;;
             5)
                 yellow "查看节点连接功能暂未开发"
                 sleep 1
