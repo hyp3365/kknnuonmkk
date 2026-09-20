@@ -354,6 +354,37 @@ def disable_user(username):
         return False
     backup_root = Path(DATA_DIR) / "disabled_users" / username
     changed_files = []
+    def rollback_changes():
+        for fn in changed_files:
+            backup_file = backup_root / fn.name
+            if not backup_file.exists():
+                continue
+            try:
+                backup_data = load_json(backup_file, None)
+                current_cfg = load_json(fn, None)
+                if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
+                    continue
+                for saved in backup_data.get("users", []):
+                    if not isinstance(saved, dict):
+                        continue
+                    inbound_index = saved.get("inbound_index")
+                    saved_user = saved.get("user")
+                    if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
+                        continue
+                    inbounds = current_cfg.get("inbounds", [])
+                    if inbound_index < 0 or inbound_index >= len(inbounds):
+                        continue
+                    inbound = inbounds[inbound_index]
+                    if not isinstance(inbound, dict):
+                        continue
+                    users = inbound.setdefault("users", [])
+                    if not isinstance(users, list):
+                        continue
+                    if not any(isinstance(u, dict) and u.get("name") == username for u in users):
+                        users.append(saved_user)
+                atomic_write_json(fn, current_cfg, 0o600)
+            except Exception as e:
+                log(f"恢复用户失败: {username} -> {fn}: {e}")
     try:
         backup_root.mkdir(parents=True, exist_ok=True)
         found = False
@@ -406,69 +437,11 @@ def disable_user(username):
             return False
         if not check_config():
             log(f"达到流量限制后配置检查失败，恢复用户: {username}")
-            for fn in changed_files:
-                backup_file = backup_root / fn.name
-                if not backup_file.exists():
-                    continue
-                try:
-                    backup_data = load_json(backup_file, None)
-                    current_cfg = load_json(fn, None)
-                    if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
-                        continue
-                    for saved in backup_data.get("users", []):
-                        if not isinstance(saved, dict):
-                            continue
-                        inbound_index = saved.get("inbound_index")
-                        saved_user = saved.get("user")
-                        if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
-                            continue
-                        inbounds = current_cfg.get("inbounds", [])
-                        if inbound_index < 0 or inbound_index >= len(inbounds):
-                            continue
-                        inbound = inbounds[inbound_index]
-                        if not isinstance(inbound, dict):
-                            continue
-                        users = inbound.setdefault("users", [])
-                        if not isinstance(users, list):
-                            continue
-                        if not any(isinstance(u, dict) and u.get("name") == username for u in users):
-                            users.append(saved_user)
-                    atomic_write_json(fn, current_cfg, 0o600)
-                except Exception as e:
-                    log(f"恢复用户失败: {username} -> {fn}: {e}")
+            rollback_changes()
             return False
         if not reload_singbox():
             log(f"达到流量限制后sing-box重载失败，恢复用户: {username}")
-            for fn in changed_files:
-                backup_file = backup_root / fn.name
-                if not backup_file.exists():
-                    continue
-                try:
-                    backup_data = load_json(backup_file, None)
-                    current_cfg = load_json(fn, None)
-                    if not isinstance(backup_data, dict) or not isinstance(current_cfg, dict):
-                        continue
-                    for saved in backup_data.get("users", []):
-                        if not isinstance(saved, dict):
-                            continue
-                        inbound_index = saved.get("inbound_index")
-                        saved_user = saved.get("user")
-                        if not isinstance(inbound_index, int) or not isinstance(saved_user, dict):
-                            continue
-                        inbounds = current_cfg.get("inbounds", [])
-                        if inbound_index < 0 or inbound_index >= len(inbounds):
-                            continue
-                        inbound = inbounds[inbound_index]
-                        if not isinstance(inbound, dict):
-                            continue
-                        users = inbound.setdefault("users", [])
-                        if not isinstance(users, list):
-                            continue
-                        if not any(isinstance(u, dict) and u.get("name") == username for u in users):
-                            users.append(saved_user)
-                    atomic_write_json(fn, current_cfg, 0o600)
-                except Exception as e:
-                    log(f"恢复用户失败: {username} -> {fn}: {e}")
+            rollback_changes()
             reload_singbox()
             return False
         log(f"用户已因流量达到限制而停用: {username}")
