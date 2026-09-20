@@ -6985,7 +6985,7 @@ else
 fi
 
 echo -e "${skyblue}流量限制${re}"
-show_limit "$username"
+show_limit "$traffic_user"
 echo
 green "---------------- 用户协议 ----------------"
         green "---------------- 用户协议 ----------------"
