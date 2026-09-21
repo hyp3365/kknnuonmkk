@@ -5734,13 +5734,7 @@ selected_data+=$'\n'
 fi
 selected_data+="$f"
 done
-SELECTED_DATA="$selected_data" 
-USERNAME="$username" 
-USER_UUID="$uuid" 
-MAIN_CONFIG="$MAIN_CONFIG" 
-URL_DIR="$URL_DIR" 
-NGINX_CONF_DIR="$NGINX_CONF_DIR" 
-python3 - <<'PY'
+SELECTED_DATA="$selected_data" USERNAME="$username" USER_UUID="$uuid" MAIN_CONFIG="$MAIN_CONFIG" URL_DIR="$URL_DIR" NGINX_CONF_DIR="$NGINX_CONF_DIR" python3 - <<'PY'
 import os
 import json
 import base64
@@ -6027,6 +6021,12 @@ print(f"用户：{username}")
 print(f"UUID：{user_uuid}")
 print(f"入站数量：{len(selected)}")
 print(f"连接数量：{total_links}")
+print(f"用户目录：{user_dir}")
+print(f"UUID文件：{uuid_file}")
+print(f"连接文件：{links_file}")
+print(f"订阅文件：{sub_file}")
+print(f"订阅端口：{port}")
+print(f"订阅路径：{sub_path}")
 print(f"Nginx配置：{nginx_conf}")
 PY
 local result=$?
