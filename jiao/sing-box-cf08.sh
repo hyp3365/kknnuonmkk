@@ -137,6 +137,7 @@ client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
 uuid=$(cat /proc/sys/kernel/random/uuid)
+uuid99=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(get_available_port)
 tuic_port=$(get_available_port)
 socks_port=$(get_available_port)
@@ -6330,7 +6331,7 @@ add_inbound() {
         },
 		{
           "name": "tttttt",
-          "uuid": "tttttt",
+          "uuid": "$uuid99",
           "flow": "xtls-rprx-vision"
         }
       ],
@@ -6402,7 +6403,7 @@ EOF
         },
 		{
 		  "name": "tttttt",
-          "password": "$uuid"
+          "password": "$uuid99"
         }
       ],
       "ignore_client_bandwidth": false,
@@ -6470,7 +6471,7 @@ EOF
         },
 		{
 		  "name": "tttttt",
-          "uuid": "tttttt",
+          "uuid": "$uuid99",
           "password": "$password"
         }
       ],
@@ -6844,6 +6845,10 @@ EOF
         {
           "name": "vmess-ws-user${inbound_number}",
           "uuid": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "transport": {
@@ -6901,6 +6906,10 @@ EOF
         {
           "name": "vless-ws-user${inbound_number}",
           "uuid": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "transport": {
@@ -7438,9 +7447,13 @@ echo
     echo
     green "用户名：$username"
     green "订阅地址："
-    echo "$subscription_url"
+	echo
+	echo
+    green "$subscription_url"
+    echo
     echo
     green "节点连接："
+    echo
     cat "$links_file"
     echo
     read -rp "按回车返回..."
@@ -7491,7 +7504,6 @@ show_inbound_url() {
     local server_ip=""
     local lujing=""
     local base64_url=""
-    clear
     green "================ 节点连接 ================"
     echo
     green "入站：${inbound_type}-${inbound_number}"
@@ -7637,7 +7649,7 @@ delete_user() {
     fi
     echo
     red "确定删除用户：${username}？"
-    yellow "此操作会从所有 sing-box 入站中删除该用户。"
+    yellow "会从所有入站中删除该用户。"
     yellow "入站配置文件本身不会删除。"
     echo
     read -rp "输入 y 确认删除: " confirm
