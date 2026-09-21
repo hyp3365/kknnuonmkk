@@ -5744,7 +5744,7 @@ links_file = os.path.join(user_dir, username)
 sub_file = os.path.join(user_dir, f"{username}-sub")
 with open(uuid_file, "w", encoding="utf-8") as f:
     f.write(f"{username}\n{user_uuid}\n")
-os.chmod(uuid_file, 0o600)
+os.chmod(uuid_file, 0o644)
 selected_data = os.environ["SELECTED_DATA"]
 selected = [x for x in selected_data.splitlines() if x.strip()]
 def find_users_container(obj):
@@ -5888,7 +5888,7 @@ if os.path.isfile(links_file):
         links_data = f.read()
     with open(sub_file, "wb") as f:
         f.write(base64.b64encode(links_data))
-    os.chmod(sub_file, 0o600)
+    os.chmod(sub_file, 0o644)
 def port_available(port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -6010,18 +6010,7 @@ result = subprocess.run(
 )
 if result.returncode != 0:
     raise RuntimeError("Nginx reload 失败")
-print(f"用户：{username}")
-print(f"UUID：{user_uuid}")
-print(f"入站数量：{len(selected)}")
-print(f"连接数量：{total_links}")
-print(f"用户目录：{user_dir}")
-print(f"UUID文件：{uuid_file}")
-print(f"连接文件：{links_file}")
-print(f"订阅文件：{sub_file}")
-print(f"订阅端口：{port}")
-print(f"订阅路径：{sub_path}")
-print(f"Nginx配置：{nginx_conf}")
-PY
+	PY
         local result=$?
         if [ "$result" -eq 0 ]; then
             green "用户创建成功"
