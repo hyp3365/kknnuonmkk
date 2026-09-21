@@ -7448,7 +7448,7 @@ echo
 			1)
                bash /etc/sing-box/sing-box-name.sh "$username"
                ;;
-                2)
+            2)
         green "================ 订阅连接 ================"
         echo
         local user_dir="/etc/sing-box/url/$username"
@@ -7473,25 +7473,26 @@ echo
             sleep 1
             continue
         fi
-        local current_domain current_port subscription_url=""
+        local current_domain="" current_port="" subscription_url="" formatted_domain=""
         if [ -f "$NGINX_MAIN_CONF" ]; then
             current_domain=$(grep -iE '^\s*server_name\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
-            current_port=$(grep -iE '^\s*listen\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
+            current_port=$(grep -iE '^\s*listen\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | grep -oE '[0-9]+' | head -n 1)
         fi
-        if [ -n "$current_domain" ] && [ "$current_domain" != "_" ]; then
-            if [[ -n "$current_port" && "$current_port" != "443" ]]; then
-                subscription_url="https://${current_domain}:${current_port}${sub_path}"
-            else
-                subscription_url="https://${current_domain}${sub_path}"
-            fi
+        if [ -z "$current_domain" ] || [ "$current_domain" == "_" ]; then
+            red "错误: 未能在 $NGINX_MAIN_CONF 中找到有效的 server_name"
+            sleep 2
+            continue
+        fi
+        if [[ "$current_domain" == *:* && "$current_domain" != [*]* ]]; then
+            formatted_domain="[${current_domain}]"
         else
-            server_ip=$(get_realip)
-            current_port=${current_port:-443}
-            if [[ "$server_ip" == *:* ]]; then
-                subscription_url="https://[${server_ip}]:${current_port}${sub_path}"
-            else
-                subscription_url="https://${server_ip}:${current_port}${sub_path}"
-            fi
+            formatted_domain="$current_domain"
+        fi
+        current_port=${current_port:-443}
+        if [[ "$current_port" != "443" ]]; then
+            subscription_url="https://${formatted_domain}:${current_port}${sub_path}"
+        else
+            subscription_url="https://${formatted_domain}${sub_path}"
         fi
         echo
         green "用户名：$username"
@@ -7503,10 +7504,11 @@ echo
         echo
         green "节点连接："
         echo
-        green "$links_file"
+        cat "$links_file"
         echo
         read -rp "按回车返回..."
         ;;
+
             *)
                 red "无效选项"
                 sleep 1
