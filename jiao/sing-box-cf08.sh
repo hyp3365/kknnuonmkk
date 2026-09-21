@@ -5641,11 +5641,13 @@ get_inbound_config_file() {
     fi
 }
 
-add_user_menu() {
+Add_user_menu() {
 local CONF_DIR="/etc/sing-box/conf"
 local URL_DIR="/etc/sing-box/url"
 local MAIN_CONFIG="/etc/sing-box/conf/config.json"
 local NGINX_CONF_DIR="/etc/nginx/conf.d"
+local NGINX_USER_CONF_DIR="/etc/nginx/conf.d/singbox_users"
+local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
 
 # ================= 修复：动态订阅服务初始化 =================
 local SUB_SERVICE="/usr/local/bin/sing-box-subscription.py"
@@ -5653,7 +5655,83 @@ local SUB_SERVICE_UNIT="/etc/systemd/system/sing-box-subscription.service"
 local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
 local LIMIT_DIR="/etc/sing-box/user_manager/limits"
 
-mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$LIMIT_DIR"
+mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$NGINX_USER_CONF_DIR" "$LIMIT_DIR"
+
+# ================= 检查并初始化 Nginx SSL 主配置 =================
+local need_ssl_init=1
+if [[ -f "$NGINX_MAIN_CONF" ]]; then
+    local existing_domain
+    existing_domain=$(grep -iE '^\s*server_name\s+' "$NGINX_MAIN_CONF" | head -n 1 | awk '{print $2}' | tr -d ';')
+    if [[ -n "$existing_domain" && "$existing_domain" != "_" ]]; then
+        need_ssl_init=0
+    fi
+fi
+
+if [[ "$need_ssl_init" -eq 1 ]]; then
+    if ! check_and_issue_ssl ""; then
+        red "证书准备失败，无法继续添加用户。"
+        sleep 2
+        return
+    fi
+    if [[ -z "$domain" || -z "$cert_file" || -z "$key_file" ]]; then
+        red "未获取到有效的域名/IP或证书路径，取消添加用户。"
+        sleep 2
+        return
+    fi
+
+    echo
+    skyblue "============== 请选择订阅监听端口 =============="
+    echo " 1) 443 (默认)"
+    echo " 2) 2053"
+    echo " 3) 2083"
+    echo " 4) 2087"
+    echo " 5) 2096"
+    echo " 6) 8443"
+    skyblue "================================================"
+    local sub_port_choice sub_port=443
+    read -rp "请输入选择 [1-6]（默认 1）: " sub_port_choice
+    case "$sub_port_choice" in
+        2) sub_port=2053 ;;
+        3) sub_port=2083 ;;
+        4) sub_port=2087 ;;
+        5) sub_port=2096 ;;
+        6) sub_port=8443 ;;
+        *) sub_port=443 ;;
+    esac
+
+    cat > "$NGINX_MAIN_CONF" <<NGINX_EOF
+server {
+    listen ${sub_port} ssl;
+    listen [::]:${sub_port} ssl;
+    server_name ${domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    include /etc/nginx/conf.d/singbox_users/*.conf;
+
+    location / {
+        return 404;
+    }
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+NGINX_EOF
+
+    if ! nginx -t >/dev/null 2>&1; then
+        rm -f "$NGINX_MAIN_CONF"
+        red "Nginx 主配置文件生成失败，语法检查未通过！"
+        sleep 2
+        return
+    fi
+    systemctl reload nginx >/dev/null 2>&1
+fi
+# ==========================================================
 
 # 去除 if 判断，每次执行都强制覆盖，确保最新代码生效
 cat > "$SUB_SERVICE" <<'PY_EOF'
@@ -5860,14 +5938,13 @@ selected_data+=$'\n'
 fi
 selected_data+="$f"
 done
-SELECTED_DATA="$selected_data" USERNAME="$username" USER_UUID="$uuid" MAIN_CONFIG="$MAIN_CONFIG" URL_DIR="$URL_DIR" NGINX_CONF_DIR="$NGINX_CONF_DIR" python3 - <<'PY'
+SELECTED_DATA="$selected_data" USERNAME="$username" USER_UUID="$uuid" MAIN_CONFIG="$MAIN_CONFIG" URL_DIR="$URL_DIR" NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" python3 - <<'PY'
 import os
 import json
 import base64
 import re
 import tempfile
 import secrets
-import socket
 import subprocess
 import copy
 
@@ -5875,7 +5952,7 @@ username = os.environ["USERNAME"]
 user_uuid = os.environ["USER_UUID"]
 main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
-nginx_conf_dir = os.environ["NGINX_CONF_DIR"]
+nginx_user_conf_dir = os.environ["NGINX_USER_CONF_DIR"]
 user_dir = os.path.join(url_dir, username)
 os.makedirs(user_dir, exist_ok=True)
 os.chmod(user_dir, 0o755)
@@ -6101,55 +6178,6 @@ if os.path.isfile(links_file):
     os.chmod(sub_file, 0o644)
 # ==========================================================
 
-def port_available(port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind(("0.0.0.0", port))
-    except OSError:
-        return False
-    finally:
-        sock.close()
-    try:
-        sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        try:
-            sock6.bind(("::", port))
-        except OSError:
-            return False
-        finally:
-            sock6.close()
-    except OSError:
-        pass
-    return True
-
-def port_used_by_nginx_conf(port):
-    if not os.path.isdir(nginx_conf_dir):
-        return False
-    pattern = re.compile(r'\blisten\s+(?:\[::\]:)?' + str(port) + r'(?:\s|;|$)')
-    for name in os.listdir(nginx_conf_dir):
-        if not name.endswith(".conf"):
-            continue
-        path = os.path.join(nginx_conf_dir, name)
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                if pattern.search(f.read()):
-                    return True
-        except Exception:
-            continue
-    return False
-
-port = None
-for _ in range(200):
-    candidate = secrets.randbelow(20000) + 40000
-    if port_used_by_nginx_conf(candidate):
-        continue
-    if port_available(candidate):
-        port = candidate
-        break
-if port is None:
-    raise RuntimeError("无法生成可用的 Nginx 订阅端口")
-
 def generate_sub_path():
     while True:
         token = secrets.token_urlsafe(18)
@@ -6158,11 +6186,11 @@ def generate_sub_path():
             continue
         location = "/" + token
         duplicated = False
-        if os.path.isdir(nginx_conf_dir):
-            for name in os.listdir(nginx_conf_dir):
+        if os.path.isdir(nginx_user_conf_dir):
+            for name in os.listdir(nginx_user_conf_dir):
                 if not name.endswith(".conf"):
                     continue
-                path = os.path.join(nginx_conf_dir, name)
+                path = os.path.join(nginx_user_conf_dir, name)
                 if not os.path.isfile(path):
                     continue
                 try:
@@ -6176,16 +6204,13 @@ def generate_sub_path():
             return location
 
 sub_path = generate_sub_path()
-nginx_conf = os.path.join(nginx_conf_dir, f"{username}.conf")
+path_file = os.path.join(user_dir, f"{username}-path")
+with open(path_file, "w", encoding="utf-8") as f:
+    f.write(sub_path)
 
-nginx_content = f"""server {{
-listen {port};
-listen [::]:{port};
-server_name _;
-add_header X-Frame-Options DENY;
-add_header X-Content-Type-Options nosniff;
-add_header X-XSS-Protection "1; mode=block";
-location = {sub_path} {{
+nginx_conf = os.path.join(nginx_user_conf_dir, f"{username}.conf")
+
+nginx_content = f"""location = {sub_path} {{
 proxy_pass http://127.0.0.1:18080/sub/{username};
 proxy_http_version 1.1;
 proxy_set_header Host \$host;
@@ -6193,15 +6218,6 @@ proxy_set_header X-Real-IP \$remote_addr;
 proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 proxy_no_cache 1;
 proxy_cache_bypass 1;
-}}
-location / {{
-return 404;
-}}
-location ~ /. {{
-deny all;
-access_log off;
-log_not_found off;
-}}
 }}"""
 
 with open(nginx_conf, "w", encoding="utf-8") as f:
@@ -6222,10 +6238,25 @@ if result.returncode != 0:
 PY
 local result=$?
 if [ "$result" -eq 0 ]; then
+local sub_path_val=""
+if [ -f "$URL_DIR/$username/$username-path" ]; then
+    sub_path_val=$(cat "$URL_DIR/$username/$username-path")
+fi
+local current_domain current_port
+current_domain=$(grep -iE '^\s*server_name\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
+current_port=$(grep -iE '^\s*listen\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
+
 green "用户创建成功"
 echo
 green "用户名：$username"
 green "UUID：$uuid"
+if [[ -n "$current_domain" && -n "$sub_path_val" ]]; then
+    if [[ -n "$current_port" && "$current_port" != "443" ]]; then
+        green "订阅链接：https://${current_domain}:${current_port}${sub_path_val}"
+    else
+        green "订阅链接：https://${current_domain}${sub_path_val}"
+    fi
+fi
 green "用户目录：$URL_DIR/$username"
 green "订阅文件：$URL_DIR/$username/$username-sub"
 echo
@@ -6241,6 +6272,7 @@ return
 fi
 done
 }
+
 
 
 add_inbound_menu() {
@@ -7416,51 +7448,65 @@ echo
 			1)
                bash /etc/sing-box/sing-box-name.sh "$username"
                ;;
-            2)
-    green "================ 订阅连接 ================"
-    echo
-    server_ip=$(get_realip)
-    local user_dir="/etc/sing-box/url/$username"
-    local links_file="$user_dir/$username"
-    local sub_file="$user_dir/$username-sub"
-    local nginx_conf="/etc/nginx/conf.d/$username.conf"
-    local sub_port=""
-    local sub_path=""
-    local subscription_url=""
-    if [ ! -f "$links_file" ] || [ ! -f "$sub_file" ] || [ ! -f "$nginx_conf" ]; then
-        red "订阅文件不存在"
-        sleep 1
-        continue
-    fi
-    sub_port=$(awk '/^[[:space:]]*listen[[:space:]]+[0-9]+;/{gsub(/;/,"",$2); print $2; exit}' "$nginx_conf")
-    sub_path=$(sed -n 's/^[[:space:]]*location = \([^ ]*\) {.*/\1/p' "$nginx_conf" | head -1)
-    if [ -z "$sub_port" ] || [ -z "$sub_path" ]; then
-        red "无法读取订阅配置"
-        sleep 1
-        continue
-    fi
-    if [[ "$server_ip" == *:* ]]; then
-        subscription_url="http://[${server_ip}]:${sub_port}${sub_path}"
-    else
-        subscription_url="http://${server_ip}:${sub_port}${sub_path}"
-    fi
-    echo
-    green "用户名：$username"
-    green "订阅地址："
-	echo
-	echo
-    green "$subscription_url"
-    echo
-    echo
-    green "节点连接："
-    echo
-    cat "$links_file"
-    echo
-    read -rp "按回车返回..."
-    ;;
-            0)
-                return
-                ;;
+                2)
+        green "================ 订阅连接 ================"
+        echo
+        local user_dir="/etc/sing-box/url/$username"
+        local links_file="$user_dir/$username"
+        local sub_file="$user_dir/$username-sub"
+        local path_file="$user_dir/$username-path"
+        local nginx_user_conf="/etc/nginx/conf.d/singbox_users/$username.conf"
+        local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
+        if [ ! -f "$links_file" ] || [ ! -f "$sub_file" ] || [ ! -f "$nginx_user_conf" ]; then
+            red "订阅文件或 Nginx 用户配置不存在"
+            sleep 1
+            continue
+        fi
+        local sub_path=""
+        if [ -f "$path_file" ]; then
+            sub_path=$(cat "$path_file")
+        else
+            sub_path=$(sed -n 's/^[[:space:]]*location = \([^ ]*\) {.*/\1/p' "$nginx_user_conf" | head -1)
+        fi
+        if [ -z "$sub_path" ]; then
+            red "无法读取订阅路径配置"
+            sleep 1
+            continue
+        fi
+        local current_domain current_port subscription_url=""
+        if [ -f "$NGINX_MAIN_CONF" ]; then
+            current_domain=$(grep -iE '^\s*server_name\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
+            current_port=$(grep -iE '^\s*listen\s+' "$NGINX_MAIN_CONF" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d ';')
+        fi
+        if [ -n "$current_domain" ] && [ "$current_domain" != "_" ]; then
+            if [[ -n "$current_port" && "$current_port" != "443" ]]; then
+                subscription_url="https://${current_domain}:${current_port}${sub_path}"
+            else
+                subscription_url="https://${current_domain}${sub_path}"
+            fi
+        else
+            server_ip=$(get_realip)
+            current_port=${current_port:-443}
+            if [[ "$server_ip" == *:* ]]; then
+                subscription_url="https://[${server_ip}]:${current_port}${sub_path}"
+            else
+                subscription_url="https://${server_ip}:${current_port}${sub_path}"
+            fi
+        fi
+        echo
+        green "用户名：$username"
+        green "订阅地址："
+        echo
+        echo
+        green "$subscription_url"
+        echo
+        echo
+        green "节点连接："
+        echo
+        green "$links_file"
+        echo
+        read -rp "按回车返回..."
+        ;;
             *)
                 red "无效选项"
                 sleep 1
