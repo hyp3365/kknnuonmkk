@@ -5646,7 +5646,7 @@ local URL_DIR="/etc/sing-box/url"
 local MAIN_CONFIG="/etc/sing-box/conf/config.json"
 local NGINX_CONF_DIR="/etc/nginx/conf.d"
 
-# ================= 新增：动态订阅服务初始化 =================
+# ================= 修复：动态订阅服务初始化 =================
 local SUB_SERVICE="/usr/local/bin/sing-box-subscription.py"
 local SUB_SERVICE_UNIT="/etc/systemd/system/sing-box-subscription.service"
 local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
@@ -5654,12 +5654,13 @@ local LIMIT_DIR="/etc/sing-box/user_manager/limits"
 
 mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$LIMIT_DIR"
 
-if [ ! -f "$SUB_SERVICE" ]; then
-    cat > "$SUB_SERVICE" <<'PY_EOF'
+# 去除 if 判断，每次执行都强制覆盖，确保最新代码生效
+cat > "$SUB_SERVICE" <<'PY_EOF'
 import base64
 import json
 import os
 import re
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TRAFFIC_STATE = "/etc/sing-box/user_manager/traffic/state.json"
@@ -5709,10 +5710,15 @@ def make_subscription(username):
     
     if enabled and limit_bytes > 0:
         remaining = max(limit_bytes - used, 0)
-        traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余流量: {format_bytes(remaining)} | 已用: {format_bytes(used)}"
+        remark = f"📊 剩余流量: {format_bytes(remaining)} | 已用: {format_bytes(used)}"
     else:
-        traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余流量: 无限制 | 已用: {format_bytes(used)}"
+        remark = f"📊 剩余流量: 无限制 | 已用: {format_bytes(used)}"
     
+    # 加入 URL 编码，防止特殊字符导致客户端排序混乱或不显示
+    safe_remark = urllib.parse.quote(remark)
+    traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
+    
+    # 物理上强制拼接在第一行
     content = traffic_line + "\n" + links
     return base64.b64encode(content.encode("utf-8")).decode("ascii") + "\n"
 
@@ -5741,11 +5747,10 @@ class Handler(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
 PY_EOF
-    chmod 755 "$SUB_SERVICE"
-fi
+chmod 755 "$SUB_SERVICE"
 
-if [ ! -f "$SUB_SERVICE_UNIT" ]; then
-    cat > "$SUB_SERVICE_UNIT" <<'EOF'
+# 强制重写并重启服务
+cat > "$SUB_SERVICE_UNIT" <<'EOF'
 [Unit]
 Description=Sing-box Dynamic Subscription Service
 After=network.target
@@ -5760,10 +5765,10 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
-    chmod 644 "$SUB_SERVICE_UNIT"
-    systemctl daemon-reload
-    systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
-fi
+chmod 644 "$SUB_SERVICE_UNIT"
+systemctl daemon-reload
+systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
+systemctl restart sing-box-subscription.service >/dev/null 2>&1
 # ==========================================================
 
 local max_num=0
@@ -5863,6 +5868,7 @@ import tempfile
 import secrets
 import socket
 import subprocess
+import copy
 
 username = os.environ["USERNAME"]
 user_uuid = os.environ["USER_UUID"]
@@ -5916,7 +5922,7 @@ def add_user_to_config(path, tag):
     if existing_user is not None:
         if "uuid" in existing_user:
             existing_user["uuid"] = user_uuid
-        else:
+        if "password" in existing_user:
             existing_user["password"] = user_uuid
     else:
         template = None
@@ -5924,18 +5930,19 @@ def add_user_to_config(path, tag):
             if isinstance(u, dict):
                 template = u
                 break
-        new_user = {"name": username}
+        
         if template is not None:
-            if "uuid" in template:
+            new_user = copy.deepcopy(template)
+            new_user["name"] = username
+            if "uuid" in new_user:
                 new_user["uuid"] = user_uuid
-            elif "password" in template:
+            if "password" in new_user:
                 new_user["password"] = user_uuid
-            else:
-                new_user["uuid"] = user_uuid
         else:
-            if inbound.get("type") in ("tuic", "hysteria2", "hy2"):
+            new_user = {"name": username}
+            if inbound.get("type") in ("tuic", "hysteria2", "hy2", "anytls"):
                 new_user["password"] = user_uuid
-            else:
+            if inbound.get("type") in ("tuic", "vless", "vmess", "trojan"):
                 new_user["uuid"] = user_uuid
         users.append(new_user)
 
@@ -6041,12 +6048,55 @@ for item in selected:
     _, inbound_type, inbound_tag = item.split("|", 2)
     total_links += copy_links(inbound_type, inbound_tag)
 
+# =============== 修复：静态文件也置顶流量节点 ===============
 if os.path.isfile(links_file):
-    with open(links_file, "rb") as f:
-        links_data = f.read()
+    with open(links_file, "r", encoding="utf-8") as f:
+        links_text = f.read().strip()
+        
+    import urllib.parse
+    traffic_state = "/etc/sing-box/user_manager/traffic/state.json"
+    limit_dir = "/etc/sing-box/user_manager/limits"
+    used = 0
+    limit_bytes = 0
+    enabled = False
+    try:
+        with open(traffic_state, "r", encoding="utf-8") as f:
+            state = json.load(f)
+            used = int(state.get("users", {}).get(username, {}).get("total", 0) or 0)
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(limit_dir, f"{username}.json"), "r", encoding="utf-8") as f:
+            limit_data = json.load(f)
+            enabled = bool(limit_data.get("enabled", False))
+            limit_bytes = int(limit_data.get("limit_bytes", 0) or 0)
+    except Exception:
+        pass
+    
+    def format_b(val):
+        try:
+            val = float(val)
+        except Exception:
+            val = 0
+        if val >= 1024**3: return f"{val/1024**3:.2f} GB"
+        if val >= 1024**2: return f"{val/1024**2:.2f} MB"
+        if val >= 1024: return f"{val/1024:.2f} KB"
+        return f"{int(val)} B"
+        
+    if enabled and limit_bytes > 0:
+        rem = max(limit_bytes - used, 0)
+        remark = f"📊 剩余流量: {format_b(rem)} | 已用: {format_b(used)}"
+    else:
+        remark = f"📊 剩余流量: 无限制 | 已用: {format_b(used)}"
+        
+    safe_remark = urllib.parse.quote(remark)
+    traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
+    
+    final_text = traffic_line + "\n" + links_text
     with open(sub_file, "wb") as f:
-        f.write(base64.b64encode(links_data))
+        f.write(base64.b64encode(final_text.encode("utf-8")))
     os.chmod(sub_file, 0o644)
+# ==========================================================
 
 def port_available(port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -6125,7 +6175,6 @@ def generate_sub_path():
 sub_path = generate_sub_path()
 nginx_conf = os.path.join(nginx_conf_dir, f"{username}.conf")
 
-# =============== 修改：将 Nginx 静态分发改为反向代理 ===============
 nginx_content = f"""server {{
 listen {port};
 listen [::]:{port};
@@ -6136,9 +6185,9 @@ add_header X-XSS-Protection "1; mode=block";
 location = {sub_path} {{
 proxy_pass http://127.0.0.1:18080/sub/{username};
 proxy_http_version 1.1;
-proxy_set_header Host $host;
-proxy_set_header X-Real-IP $remote_addr;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header Host \$host;
+proxy_set_header X-Real-IP \$remote_addr;
+proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 proxy_no_cache 1;
 proxy_cache_bypass 1;
 }}
@@ -6151,8 +6200,6 @@ access_log off;
 log_not_found off;
 }}
 }}"""
-# ==============================================================
-
 with open(nginx_conf, "w", encoding="utf-8") as f:
     f.write(nginx_content)
 os.chmod(nginx_conf, 0o644)
@@ -6164,11 +6211,9 @@ if result.returncode != 0:
     except Exception:
         pass
     raise RuntimeError("Nginx 配置语法检查失败")
-
 result = subprocess.run(["systemctl", "reload", "nginx"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if result.returncode != 0:
     raise RuntimeError("Nginx reload 失败")
-
 print(f"Nginx配置：{nginx_conf}")
 PY
 local result=$?
@@ -6279,6 +6324,11 @@ add_inbound() {
           "name": "vless-reality-user${inbound_number}",
           "uuid": "$uuid",
           "flow": "xtls-rprx-vision"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "tttttt",
+          "flow": "xtls-rprx-vision"
         }
       ],
       "tls": {
@@ -6346,6 +6396,10 @@ EOF
         {
 		  "name": "hysteria2-user${inbound_number}",
           "password": "$uuid"
+        },
+		{
+		  "name": "tttttt",
+          "password": "$uuid"
         }
       ],
       "ignore_client_bandwidth": false,
@@ -6409,6 +6463,11 @@ EOF
         {
 		  "name": "tuic-user${inbound_number}",
           "uuid": "$uuid",
+          "password": "$password"
+        },
+		{
+		  "name": "tttttt",
+          "uuid": "tttttt",
           "password": "$password"
         }
       ],
