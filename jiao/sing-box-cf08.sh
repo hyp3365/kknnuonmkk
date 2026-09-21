@@ -5919,10 +5919,11 @@ def add_user_to_config(path, tag):
             existing_user = u
             break
 
+    # ================= 修复：只修改 uuid，无 uuid 时才修改 password =================
     if existing_user is not None:
         if "uuid" in existing_user:
             existing_user["uuid"] = user_uuid
-        if "password" in existing_user:
+        elif "password" in existing_user:
             existing_user["password"] = user_uuid
     else:
         template = None
@@ -5936,7 +5937,7 @@ def add_user_to_config(path, tag):
             new_user["name"] = username
             if "uuid" in new_user:
                 new_user["uuid"] = user_uuid
-            if "password" in new_user:
+            elif "password" in new_user:
                 new_user["password"] = user_uuid
         else:
             new_user = {"name": username}
@@ -5945,6 +5946,7 @@ def add_user_to_config(path, tag):
             if inbound.get("type") in ("tuic", "vless", "vmess", "trojan"):
                 new_user["uuid"] = user_uuid
         users.append(new_user)
+    # ==============================================================================
 
     fd, tmp = tempfile.mkstemp(prefix=".singbox-user-", dir=os.path.dirname(path))
     os.close(fd)
@@ -6200,6 +6202,7 @@ access_log off;
 log_not_found off;
 }}
 }}"""
+
 with open(nginx_conf, "w", encoding="utf-8") as f:
     f.write(nginx_content)
 os.chmod(nginx_conf, 0o644)
@@ -6211,10 +6214,10 @@ if result.returncode != 0:
     except Exception:
         pass
     raise RuntimeError("Nginx 配置语法检查失败")
+
 result = subprocess.run(["systemctl", "reload", "nginx"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if result.returncode != 0:
     raise RuntimeError("Nginx reload 失败")
-print(f"Nginx配置：{nginx_conf}")
 PY
 local result=$?
 if [ "$result" -eq 0 ]; then
@@ -7405,7 +7408,6 @@ echo
                bash /etc/sing-box/sing-box-name.sh "$username"
                ;;
             2)
-    clear
     green "================ 订阅连接 ================"
     echo
     server_ip=$(get_realip)
