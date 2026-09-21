@@ -5087,7 +5087,7 @@ EOF
         elif type restart_nginx >/dev/null 2>&1; then
             restart_nginx
         else 
-            systemctl reload nginx
+            systemctl restart nginx
         fi
         
         green "配置生成成功！"
@@ -5729,7 +5729,7 @@ NGINX_EOF
         sleep 2
         return
     fi
-    systemctl reload nginx >/dev/null 2>&1
+    systemctl restart nginx >/dev/null 2>&1
 fi
 # ==========================================================
 
@@ -7508,7 +7508,9 @@ echo
         echo
         read -rp "按回车返回..."
         ;;
-
+        0)
+        return
+        ;;
             *)
                 red "无效选项"
                 sleep 1
