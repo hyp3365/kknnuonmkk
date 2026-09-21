@@ -5531,13 +5531,15 @@ manage_nodes_menu() {
         green "---------------- 已添加用户 ----------------"
 local user_entries=()
 local user_index=1
-local user_file
+local user_dir
+local user_name
 shopt -s nullglob
-for user_file in "$URL_DIR"/user-test-user-*.txt; do
-    [ -f "$user_file" ] || continue
-    local user_name
-    user_name=$(basename "$user_file" .txt)
-    user_name="${user_name#user-}"
+for user_dir in "$URL_DIR"/*; do
+    [ -d "$user_dir" ] || continue
+    user_name=$(basename "$user_dir")
+    [ -f "$user_dir/$user_name-uuid" ] || continue
+    [ -f "$user_dir/$user_name" ] || continue
+    [ -f "$user_dir/$user_name-sub" ] || continue
     user_entries+=("$user_name")
     green "y${user_index}. ${user_name}"
     user_index=$((user_index + 1))
@@ -7176,26 +7178,24 @@ else
 fi
 echo
         green "------------------------------------------"
-        red "1. 删除用户"
-        green "2. 流量限制"
-        green "3. 查看节点连接"
-        green "4. 查看订阅连接"
+        red "s. 删除用户"
+        green "1. 流量限制"
+        green "2. 查看订阅连接"
         echo
         green "------------------------------------------"
         green "0. 返回"
         echo
         read -rp "请选择: " choice
         case "$choice" in
-            1)
+            s|S)
                delete_user "$username"
+               local result=$?
+               [ "$result" -eq 2 ] && return
                ;;
-			2)
+			1)
                bash /etc/sing-box/sing-box-name.sh "$username"
                ;;
-            3)
-                show_inbound_url "$inbound_type" "$inbound_number"
-                ;;
-            4)
+            2)
     clear
     green "================ 订阅连接 ================"
     echo
@@ -7444,6 +7444,7 @@ delete_user() {
     python3 - "$CONF_DIR" "$TRAFFIC_STATE" "$LIMIT_DIR" "$URL_DIR" "$username" <<'PY'
 import json
 import sys
+import shutil
 from pathlib import Path
 conf_dir = Path(sys.argv[1])
 traffic_state = Path(sys.argv[2])
@@ -7533,10 +7534,16 @@ try:
         limit_file.unlink()
 except Exception:
     pass
-url_file = url_dir / f"user-{username}.txt"
+user_dir = url_dir / username
 try:
-    if url_file.exists():
-        url_file.unlink()
+    if user_dir.exists() and user_dir.is_dir():
+        shutil.rmtree(user_dir)
+except Exception:
+    pass
+nginx_conf = Path("/etc/nginx/conf.d") / f"{username}.conf"
+try:
+    if nginx_conf.exists():
+        nginx_conf.unlink()
 except Exception:
     pass
 print(deleted_from_inbounds)
@@ -7547,14 +7554,19 @@ PY
         sleep 1
         return 1
     fi
-    systemctl reload sing-box
+    systemctl reload sing-box >/dev/null 2>&1
+    if command -v nginx >/dev/null 2>&1; then
+        if nginx -t >/dev/null 2>&1; then
+            systemctl reload nginx >/dev/null 2>&1
+        fi
+    fi
     update_sub_file
     green "==============================================="
     green " 用户已删除：${username}"
     green "==============================================="
     echo
-    sleep 1
-    return 0
+	sleep 1
+    return 2
 }
 
 #更新脚本
