@@ -1,9 +1,9 @@
 # 同步报告
-运行时间：2026-09-20 11:24:11
+运行时间：2026-09-21 11:19:10
 
 | 文件 | 描述 | 状态 |
 |------|------|------|
-| sing-box-1.14.0-linux-amd64.tar.gz | sing-box（30.17 MB） | ✅ 无变化 |
+| sing-box-1.14.1-linux-amd64.tar.gz | sing-box（30.20 MB） | 🆕 新增 |
 | jjoo.json | 自用（28.69 KB） | ✅ 无变化 |
 | suoha.sh | 一键梭哈脚本（25.01 KB） | ✅ 无变化 |
 | sing-box.sh | Sing-box全家桶隧道（314.59 KB） | ✅ 无变化 |
@@ -11,11 +11,10 @@
 | sing-box1.sh.sh | 佬王sing-box脚本（95.35 KB） | ✅ 无变化 |
 | ssh_tool.sh | SSH工具箱（276.75 KB） | ✅ 无变化 |
 | NekoBox-1.4.2-arm64-v8a.apk | nekobox（14.55 MB） | ✅ 无变化 |
-| Exclave-0.17.53-arm64-v8a.apk | Exclave（23.66 MB） | ✅ 无变化 |
-| Xray-linux-64.zip | xray服务器端（20.16 MB） | ✅ 无变化 |
+| Exclave-0.17.53-arm64-v8a.apk | Exclave | ❌ 下载失败（累计 1 次） |
 
 ## 统计
-- 新增：0
+- 新增：1
 - 更新：0
-- 跳过：10
-- 失败：0
+- 跳过：7
+- 失败：1
