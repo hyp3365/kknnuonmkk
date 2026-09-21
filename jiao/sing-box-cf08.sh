@@ -5649,7 +5649,6 @@ local NGINX_CONF_DIR="/etc/nginx/conf.d"
 local NGINX_USER_CONF_DIR="/etc/nginx/conf.d/singbox_users"
 local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
 
-# ================= 修复：动态订阅服务初始化 =================
 local SUB_SERVICE="/usr/local/bin/sing-box-subscription.py"
 local SUB_SERVICE_UNIT="/etc/systemd/system/sing-box-subscription.service"
 local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
@@ -5657,7 +5656,6 @@ local LIMIT_DIR="/etc/sing-box/user_manager/limits"
 
 mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$NGINX_USER_CONF_DIR" "$LIMIT_DIR"
 
-# ================= 检查并初始化 Nginx SSL 主配置 =================
 local need_ssl_init=1
 if [[ -f "$NGINX_MAIN_CONF" ]]; then
     local existing_domain
@@ -5732,8 +5730,6 @@ NGINX_EOF
     systemctl restart nginx >/dev/null 2>&1
 fi
 # ==========================================================
-
-# 去除 if 判断，每次执行都强制覆盖，确保最新代码生效
 cat > "$SUB_SERVICE" <<'PY_EOF'
 import base64
 import json
@@ -5827,8 +5823,6 @@ class Handler(BaseHTTPRequestHandler):
 ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
 PY_EOF
 chmod 755 "$SUB_SERVICE"
-
-# 强制重写并重启服务
 cat > "$SUB_SERVICE_UNIT" <<'EOF'
 [Unit]
 Description=Sing-box Dynamic Subscription Service
@@ -5849,7 +5843,6 @@ systemctl daemon-reload
 systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
 systemctl restart sing-box-subscription.service >/dev/null 2>&1
 # ==========================================================
-
 local max_num=0
 local f n
 shopt -s nullglob
@@ -5997,7 +5990,6 @@ def add_user_to_config(path, tag):
             existing_user = u
             break
 
-    # ================= 修复：只修改 uuid，无 uuid 时才修改 password =================
     if existing_user is not None:
         if "uuid" in existing_user:
             existing_user["uuid"] = user_uuid
@@ -6128,7 +6120,6 @@ for item in selected:
     _, inbound_type, inbound_tag = item.split("|", 2)
     total_links += copy_links(inbound_type, inbound_tag)
 
-# =============== 修复：静态文件也置顶流量节点 ===============
 if os.path.isfile(links_file):
     with open(links_file, "r", encoding="utf-8") as f:
         links_text = f.read().strip()
