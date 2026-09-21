@@ -5641,7 +5641,7 @@ get_inbound_config_file() {
     fi
 }
 
-Add_user_menu() {
+add_user_menu() {
 local CONF_DIR="/etc/sing-box/conf"
 local URL_DIR="/etc/sing-box/url"
 local MAIN_CONFIG="/etc/sing-box/conf/config.json"
