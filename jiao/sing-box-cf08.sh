@@ -5639,22 +5639,195 @@ get_inbound_config_file() {
         echo "$CONF_DIR/${inbound_type}-${number}.json"
     fi
 }
+
 add_user_menu() {
     local CONF_DIR="/etc/sing-box/conf"
     local URL_DIR="/etc/sing-box/url"
     local MAIN_CONFIG="/etc/sing-box/conf/config.json"
     local NGINX_CONF_DIR="/etc/nginx/conf.d"
-    mkdir -p "$URL_DIR" "$NGINX_CONF_DIR"
+    local DYNAMIC_SUB="/etc/sing-box/user_manager/dynamic-sub.py"
+    local DYNAMIC_SERVICE="/etc/systemd/system/sing-box-dynamic-sub.service"
+    local DYNAMIC_PORT="18080"
+    mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "/etc/sing-box/user_manager"
+    if [ ! -f "$DYNAMIC_SUB" ]; then
+        cat > "$DYNAMIC_SUB" <<'PY'
+#!/usr/bin/env python3
+import base64
+import json
+import os
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote
+URL_DIR = Path("/etc/sing-box/url")
+TRAFFIC_STATE = Path("/etc/sing-box/user_manager/traffic/state.json")
+LIMIT_DIR = Path("/etc/sing-box/user_manager/limits")
+def format_bytes(value):
+    try:
+        value = max(float(value), 0)
+    except Exception:
+        value = 0
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} B"
+            if value >= 100:
+                return f"{value:.0f} {unit}"
+            if value >= 10:
+                return f"{value:.2f} {unit}"
+            return f"{value:.2f} {unit}"
+        value /= 1024
+def get_traffic(username):
+    total = 0
+    try:
+        data = json.loads(
+            TRAFFIC_STATE.read_text(encoding="utf-8")
+        )
+        users = data.get("users")
+        if isinstance(users, dict):
+            user_data = users.get(username)
+            if isinstance(user_data, dict):
+                total = int(user_data.get("total", 0) or 0)
+    except Exception:
+        total = 0
+    return max(total, 0)
+def get_limit(username):
+    limit_file = LIMIT_DIR / f"{username}.json"
+    try:
+        data = json.loads(
+            limit_file.read_text(encoding="utf-8")
+        )
+        limit_bytes = int(data.get("limit_bytes", 0) or 0)
+        enabled = data.get("enabled", True)
+        if not enabled:
+            return 0
+        return max(limit_bytes, 0)
+    except Exception:
+        return 0
+def build_subscription(username):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", username):
+        raise ValueError("invalid username")
+    user_dir = URL_DIR / username
+    links_file = user_dir / username
+    if not user_dir.is_dir():
+        raise FileNotFoundError("user directory not found")
+    if not links_file.is_file():
+        raise FileNotFoundError("links file not found")
+    links = []
+    with links_file.open(
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                links.append(line)
+    total = get_traffic(username)
+    limit = get_limit(username)
+    if limit > 0:
+        remaining = max(limit - total, 0)
+        traffic_link = (
+            "vless://00000000-0000-0000-0000-000000000000"
+            "@127.0.0.1:10000"
+            "?encryption=none&security=none&type=tcp"
+            f"#📊 剩余: {format_bytes(remaining)} | 已用: {format_bytes(total)}"
+        )
+        links.insert(0, traffic_link)
+    content = "\n".join(links) + "\n"
+    return base64.b64encode(
+        content.encode("utf-8")
+    ).decode("ascii") + "\n"
+class SubscriptionHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = unquote(self.path)
+        match = re.fullmatch(
+            r"/sub/([A-Za-z0-9._-]+)",
+            path
+        )
+        if not match:
+            self.send_error(404)
+            return
+        username = match.group(1)
+        try:
+            content = build_subscription(username)
+            body = content.encode("utf-8")
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "text/plain; charset=utf-8"
+            )
+            self.send_header(
+                "Content-Length",
+                str(len(body))
+            )
+            self.send_header(
+                "Cache-Control",
+                "no-cache, no-store, must-revalidate"
+            )
+            self.send_header(
+                "Pragma",
+                "no-cache"
+            )
+            self.send_header(
+                "Expires",
+                "0"
+            )
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            self.send_error(404)
+    def log_message(self, format, *args):
+        return
+def main():
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 18080),
+        SubscriptionHandler
+    )
+    server.serve_forever()
+if __name__ == "__main__":
+    main()
+PY
+        chmod 755 "$DYNAMIC_SUB"
+    fi
+
+    if [ ! -f "$DYNAMIC_SERVICE" ]; then
+        cat > "$DYNAMIC_SERVICE" <<EOF
+[Unit]
+Description=sing-box Dynamic Subscription Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 $DYNAMIC_SUB
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+
+    systemctl daemon-reload
+    systemctl enable --now sing-box-dynamic-sub.service >/dev/null 2>&1
+
     local max_num=0
     local f n
+
     shopt -s nullglob
+
     for f in "$URL_DIR"/test-user-*; do
         [ -d "$f" ] || continue
+
         n=$(basename "$f" | sed -n 's/^test-user-\([0-9]\+\)$/\1/p')
+
         if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$max_num" ]; then
             max_num="$n"
         fi
     done
+
     shopt -u nullglob
     local username="test-user-$((max_num + 1))"
     local uuid
@@ -5699,13 +5872,16 @@ add_user_menu() {
         local selected=()
         local invalid=0
         for n in $choice; do
-            if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
+            if [[ "$n" =~ ^[0-9]+$ ]] &&
+               [ "$n" -ge 1 ] &&
+               [ "$n" -le "${#entries[@]}" ]; then
                 selected+=("${entries[$((n - 1))]}")
             else
                 invalid=1
             fi
         done
-        if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
+        if [ "$invalid" -eq 1 ] ||
+           [ "${#selected[@]}" -eq 0 ]; then
             red "存在无效入站编号"
             sleep 1
             continue
@@ -5723,6 +5899,7 @@ add_user_menu() {
         MAIN_CONFIG="$MAIN_CONFIG" \
         URL_DIR="$URL_DIR" \
         NGINX_CONF_DIR="$NGINX_CONF_DIR" \
+        DYNAMIC_PORT="$DYNAMIC_PORT" \
         python3 - <<'PY'
 import os
 import json
@@ -5737,16 +5914,29 @@ user_uuid = os.environ["USER_UUID"]
 main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
 nginx_conf_dir = os.environ["NGINX_CONF_DIR"]
+dynamic_port = os.environ["DYNAMIC_PORT"]
 user_dir = os.path.join(url_dir, username)
 os.makedirs(user_dir, exist_ok=True)
-uuid_file = os.path.join(user_dir, f"{username}-uuid")
-links_file = os.path.join(user_dir, username)
-sub_file = os.path.join(user_dir, f"{username}-sub")
+uuid_file = os.path.join(
+    user_dir,
+    f"{username}-uuid"
+)
+links_file = os.path.join(
+    user_dir,
+    username
+)
+sub_file = os.path.join(
+    user_dir,
+    f"{username}-sub"
+)
 with open(uuid_file, "w", encoding="utf-8") as f:
     f.write(f"{username}\n{user_uuid}\n")
 os.chmod(uuid_file, 0o644)
 selected_data = os.environ["SELECTED_DATA"]
-selected = [x for x in selected_data.splitlines() if x.strip()]
+selected = [
+    x for x in selected_data.splitlines()
+    if x.strip()
+]
 def find_users_container(obj):
     if isinstance(obj, dict):
         if isinstance(obj.get("users"), list):
@@ -5766,20 +5956,29 @@ def add_user_to_config(path):
         data = json.load(f)
     users = find_users_container(data)
     if users is None:
-        raise RuntimeError(f"未找到 users 数组: {path}")
+        raise RuntimeError(
+            f"未找到 users 数组: {path}"
+        )
     for u in users:
         if isinstance(u, dict) and u.get("name") == username:
-            raise RuntimeError(f"用户已存在: {username}")
+            raise RuntimeError(
+                f"用户已存在: {username}"
+            )
     template = None
     for u in users:
         if isinstance(u, dict):
             template = u
             break
-    new_user = {"name": username}
+    new_user = {
+        "name": username
+    }
     if template is not None:
         if "uuid" in template and "password" in template:
             new_user["uuid"] = user_uuid
-            new_user["password"] = template.get("password", "")
+            new_user["password"] = template.get(
+                "password",
+                ""
+            )
         elif "uuid" in template:
             new_user["uuid"] = user_uuid
         elif "password" in template:
@@ -5793,13 +5992,24 @@ def add_user_to_config(path):
     else:
         new_user["uuid"] = user_uuid
     users.append(new_user)
-    fd, tmp = tempfile.mkstemp(prefix=".singbox-user-", dir=os.path.dirname(path))
+    fd, tmp = tempfile.mkstemp(
+        prefix=".singbox-user-",
+        dir=os.path.dirname(path)
+    )
     os.close(fd)
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(
+                data,
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
             f.write("\n")
-        os.chmod(tmp, os.stat(path).st_mode & 0o777)
+        os.chmod(
+            tmp,
+            os.stat(path).st_mode & 0o777
+        )
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
@@ -5809,72 +6019,168 @@ def replace_link(line, protocol):
     if not line.strip():
         return line
     if protocol == "tuic":
-        return re.sub(r'^(tuic://)[^:@]+:', r'\g<1>' + user_uuid + ':', line, count=1)
+        return re.sub(
+            r'^(tuic://)[^:@]+:',
+            r'\g<1>' + user_uuid + ':',
+            line,
+            count=1
+        )
     if protocol == "vless":
-        return re.sub(r'^(vless://)[^@]+@', r'\g<1>' + user_uuid + '@', line, count=1)
+        return re.sub(
+            r'^(vless://)[^@]+@',
+            r'\g<1>' + user_uuid + '@',
+            line,
+            count=1
+        )
     if protocol in ("hysteria2", "hy2"):
-        return re.sub(r'^(hysteria2://|hy2://)[^@]+@', lambda m: m.group(1) + user_uuid + "@", line, count=1)
+        return re.sub(
+            r'^(hysteria2://|hy2://)[^@]+@',
+            lambda m: m.group(1) + user_uuid + "@",
+            line,
+            count=1
+        )
     if protocol == "anytls":
-        return re.sub(r'^(anytls://)[^@]+@', r'\g<1>' + user_uuid + '@', line, count=1)
+        return re.sub(
+            r'^(anytls://)[^@]+@',
+            r'\g<1>' + user_uuid + '@',
+            line,
+            count=1
+        )
     if protocol == "vmess":
-        m = re.match(r'^(vmess://)([^#\s]+)(.*)$', line)
+        m = re.match(
+            r'^(vmess://)([^#\s]+)(.*)$',
+            line
+        )
         if not m:
             return line
         try:
-            raw = base64.b64decode(m.group(2) + "===")
-            obj = json.loads(raw.decode("utf-8"))
+            raw = base64.b64decode(
+                m.group(2) + "==="
+            )
+            obj = json.loads(
+                raw.decode("utf-8")
+            )
             obj["id"] = user_uuid
             encoded = base64.b64encode(
-                json.dumps(obj, ensure_ascii=False, separators=(", ", ": ")).encode("utf-8")
+                json.dumps(
+                    obj,
+                    ensure_ascii=False,
+                    separators=(", ", ": ")
+                ).encode("utf-8")
             ).decode("ascii")
-            return m.group(1) + encoded + m.group(3)
+            return (
+                m.group(1)
+                + encoded
+                + m.group(3)
+            )
         except Exception:
             return line
     return line
 def copy_links(inbound_type, inbound_number):
-    src = os.path.join(url_dir, f"{inbound_type}-{inbound_number}.txt")
+    src = os.path.join(
+        url_dir,
+        f"{inbound_type}-{inbound_number}.txt"
+    )
     if not os.path.isfile(src):
         return 0
     count = 0
     protocol = inbound_type.lower()
-    with open(src, "r", encoding="utf-8", errors="ignore") as f:
+    with open(
+        src,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
         lines = f.readlines()
-    mode = "a" if os.path.exists(links_file) and os.path.getsize(links_file) > 0 else "w"
-    with open(links_file, mode, encoding="utf-8") as out:
+    mode = (
+        "a"
+        if os.path.exists(links_file)
+        and os.path.getsize(links_file) > 0
+        else "w"
+    )
+    with open(
+        links_file,
+        mode,
+        encoding="utf-8"
+    ) as out:
         if mode == "a":
             out.write("\n")
         for line in lines:
             if not line.strip():
                 continue
-            out.write(replace_link(line, protocol) + "\n")
+            out.write(
+                replace_link(
+                    line,
+                    protocol
+                ) + "\n"
+            )
             count += 1
     return count
 for item in selected:
     parts = item.split("|")
     if len(parts) != 3:
-        raise RuntimeError("入站数据格式错误")
+        raise RuntimeError(
+            "入站数据格式错误"
+        )
     path, inbound_type, inbound_number = parts
-    add_user_to_config(path)
+	add_user_to_config(path)
 try:
-    with open(main_config, "r", encoding="utf-8") as f:
+    with open(
+        main_config,
+        "r",
+        encoding="utf-8"
+    ) as f:
         data = json.load(f)
 except Exception:
     data = {}
-experimental = data.setdefault("experimental", {})
-v2ray_api = experimental.setdefault("v2ray_api", {})
-v2ray_api.setdefault("listen", "127.0.0.1:9094")
-stats = v2ray_api.setdefault("stats", {})
-stats.setdefault("enabled", True)
-users = stats.setdefault("users", [])
+experimental = data.setdefault(
+    "experimental",
+    {}
+)
+v2ray_api = experimental.setdefault(
+    "v2ray_api",
+    {}
+)
+v2ray_api.setdefault(
+    "listen",
+    "127.0.0.1:9094"
+)
+stats = v2ray_api.setdefault(
+    "stats",
+    {}
+)
+stats.setdefault(
+    "enabled",
+    True
+)
+users = stats.setdefault(
+    "users",
+    []
+)
 if username not in users:
     users.append(username)
-fd, tmp = tempfile.mkstemp(prefix=".singbox-config-", dir=os.path.dirname(main_config))
+fd, tmp = tempfile.mkstemp(
+    prefix=".singbox-config-",
+    dir=os.path.dirname(main_config)
+)
 os.close(fd)
 try:
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(
+        tmp,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
         f.write("\n")
-    os.chmod(tmp, os.stat(main_config).st_mode & 0o777)
+    os.chmod(
+        tmp,
+        os.stat(main_config).st_mode & 0o777
+    )
     os.replace(tmp, main_config)
 finally:
     if os.path.exists(tmp):
@@ -5882,25 +6188,49 @@ finally:
 total_links = 0
 for item in selected:
     _, inbound_type, inbound_number = item.split("|")
-    total_links += copy_links(inbound_type, inbound_number)
+    total_links += copy_links(
+        inbound_type,
+        inbound_number
+    )
 if os.path.isfile(links_file):
-    with open(links_file, "rb") as f:
+    with open(
+        links_file,
+        "rb"
+    ) as f:
         links_data = f.read()
-    with open(sub_file, "wb") as f:
-        f.write(base64.b64encode(links_data))
-    os.chmod(sub_file, 0o644)
+    with open(
+        sub_file,
+        "wb"
+    ) as f:
+        f.write(
+            base64.b64encode(links_data)
+        )
+    os.chmod(
+        sub_file,
+        0o644
+    )
 def port_available(port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_STREAM
+    )
     try:
-        sock.bind(("0.0.0.0", port))
+        sock.bind(
+            ("0.0.0.0", port)
+        )
     except OSError:
         return False
     finally:
         sock.close()
     try:
-        sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock6 = socket.socket(
+            socket.AF_INET6,
+            socket.SOCK_STREAM
+        )
         try:
-            sock6.bind(("::", port))
+            sock6.bind(
+                ("::", port)
+            )
         except OSError:
             return False
         finally:
@@ -5911,15 +6241,29 @@ def port_available(port):
 def port_used_by_nginx_conf(port):
     if not os.path.isdir(nginx_conf_dir):
         return False
-    pattern = re.compile(rf'\blisten\s+(?:\[::\]:)?{port}(?:\s|;|$)')
-    for name in os.listdir(nginx_conf_dir):
+    pattern = re.compile(
+        rf'\blisten\s+'
+        rf'(?:\[::\]:)?{port}'
+        rf'(?:\s|;|$)'
+    )
+    for name in os.listdir(
+        nginx_conf_dir
+    ):
         if not name.endswith(".conf"):
             continue
-        path = os.path.join(nginx_conf_dir, name)
+        path = os.path.join(
+            nginx_conf_dir,
+            name
+        )
         if not os.path.isfile(path):
             continue
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(
+                path,
+                "r",
+                encoding="utf-8",
+                errors="ignore"
+            ) as f:
                 if pattern.search(f.read()):
                     return True
         except Exception:
@@ -5927,61 +6271,106 @@ def port_used_by_nginx_conf(port):
     return False
 port = None
 for _ in range(200):
-    candidate = secrets.randbelow(25536) + 40000
+    candidate = (
+        secrets.randbelow(25536)
+        + 40000
+    )
     if port_used_by_nginx_conf(candidate):
         continue
     if port_available(candidate):
         port = candidate
         break
 if port is None:
-    raise RuntimeError("无法生成可用的 Nginx 订阅端口")
+    raise RuntimeError(
+        "无法生成可用的 Nginx 订阅端口"
+    )
+
 def generate_sub_path():
     while True:
         token = secrets.token_urlsafe(18)
-        token = re.sub(r'[^A-Za-z0-9_-]', '', token)
+
+        token = re.sub(
+            r'[^A-Za-z0-9_-]',
+            '',
+            token
+        )
+
         if len(token) < 16:
             continue
+
         location = "/" + token
+
         duplicated = False
-        if os.path.isdir(nginx_conf_dir):
-            for name in os.listdir(nginx_conf_dir):
+
+        if os.path.isdir(
+            nginx_conf_dir
+        ):
+            for name in os.listdir(
+                nginx_conf_dir
+            ):
                 if not name.endswith(".conf"):
                     continue
-                path = os.path.join(nginx_conf_dir, name)
+
+                path = os.path.join(
+                    nginx_conf_dir,
+                    name
+                )
+
                 if not os.path.isfile(path):
                     continue
+
                 try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        if f"location = {location}" in f.read():
+                    with open(
+                        path,
+                        "r",
+                        encoding="utf-8",
+                        errors="ignore"
+                    ) as f:
+                        if (
+                            f"location = {location}"
+                            in f.read()
+                        ):
                             duplicated = True
                             break
+
                 except Exception:
                     continue
+
         if not duplicated:
             return location
+
 sub_path = generate_sub_path()
+
 nginx_conf = os.path.join(
     nginx_conf_dir,
     f"{username}.conf"
 )
-nginx_content = f"""# sing-box 用户订阅配置
-server {{
+
+nginx_content = f"""server {{
     listen {port};
     listen [::]:{port};
     server_name _;
+
     add_header X-Frame-Options DENY;
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
+
     location = {sub_path} {{
-        alias {sub_file};
-        default_type 'text/plain; charset=utf-8';
+        proxy_pass http://127.0.0.1:{dynamic_port}/sub/{username};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+
         add_header Cache-Control "no-cache, no-store, must-revalidate";
         add_header Pragma "no-cache";
         add_header Expires "0";
     }}
+
     location / {{
         return 404;
     }}
+
     location ~ /\\. {{
         deny all;
         access_log off;
@@ -5989,28 +6378,46 @@ server {{
     }}
 }}
 """
-with open(nginx_conf, "w", encoding="utf-8") as f:
+
+with open(
+    nginx_conf,
+    "w",
+    encoding="utf-8"
+) as f:
     f.write(nginx_content)
-os.chmod(nginx_conf, 0o644)
+
+os.chmod(
+    nginx_conf,
+    0o644
+)
+
 result = subprocess.run(
     ["nginx", "-t"],
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL
 )
+
 if result.returncode != 0:
     try:
         os.unlink(nginx_conf)
     except Exception:
         pass
-    raise RuntimeError("Nginx 配置语法检查失败")
+
+    raise RuntimeError(
+        "Nginx 配置语法检查失败"
+    )
+
 result = subprocess.run(
     ["systemctl", "reload", "nginx"],
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL
 )
+
 if result.returncode != 0:
-    raise RuntimeError("Nginx reload 失败")
-	PY
+    raise RuntimeError(
+        "Nginx reload 失败"
+    )
+PY
         local result=$?
         if [ "$result" -eq 0 ]; then
             green "用户创建成功"
@@ -6032,6 +6439,7 @@ if result.returncode != 0:
         fi
     done
 }
+:::
 
 add_inbound_menu() {
     while true; do
