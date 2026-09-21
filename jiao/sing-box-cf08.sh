@@ -5649,14 +5649,18 @@ add_user_menu() {
     local LIMIT_DIR="/etc/sing-box/user_manager/limits"
     local SUB_SERVICE="/usr/local/bin/sing-box-subscription.py"
     local SUB_SERVICE_UNIT="/etc/systemd/system/sing-box-subscription.service"
-    mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$LIMIT_DIR"
-    if [ ! -f "$SUB_SERVICE" ]; then
+    local SUB_SERVICE_VERSION_FILE="/etc/sing-box/subscription-service.version"
+    local SUB_SERVICE_VERSION="2"
+    mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$LIMIT_DIR" "$(dirname "$SUB_SERVICE_VERSION_FILE")"
+    local sub_service_changed=0
+    local sub_service_unit_changed=0
+    if [ ! -f "$SUB_SERVICE" ] || [ "$(cat "$SUB_SERVICE_VERSION_FILE" 2>/dev/null)" != "$SUB_SERVICE_VERSION" ]; then
         cat > "$SUB_SERVICE" <<'PY'
 import base64
 import json
 import os
 import re
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
 LIMIT_DIR="/etc/sing-box/user_manager/limits"
 URL_DIR="/etc/sing-box/url"
@@ -5692,15 +5696,14 @@ def make_subscription(username):
     state=load_json(TRAFFIC_STATE)
     user_data=state.get("users",{}).get(username,{})
     used=int(user_data.get("total",0) or 0)
-    limit_file=os.path.join(LIMIT_DIR,f"{username}.json")
-    limit_data=load_json(limit_file)
+    limit_data=load_json(os.path.join(LIMIT_DIR,f"{username}.json"))
     enabled=bool(limit_data.get("enabled",False))
     limit_bytes=int(limit_data.get("limit_bytes",0) or 0)
     if enabled and limit_bytes>0:
         remaining=max(limit_bytes-used,0)
-        traffic_line=f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余流量: {format_bytes(remaining)} | 已用: {format_bytes(used)}"
+        traffic_line=f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余: {format_bytes(remaining)} | 已用: {format_bytes(used)}"
     else:
-        traffic_line=f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余流量: 无限制 | 已用: {format_bytes(used)}"
+        traffic_line=f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#📊 剩余: 未限制 | 已用: {format_bytes(used)}"
     content=traffic_line+"\n"+links
     return base64.b64encode(content.encode("utf-8")).decode("ascii")+"\n"
 class Handler(BaseHTTPRequestHandler):
@@ -5728,6 +5731,9 @@ class Handler(BaseHTTPRequestHandler):
 ThreadingHTTPServer(("127.0.0.1",18080),Handler).serve_forever()
 PY
         chmod 755 "$SUB_SERVICE"
+        printf '%s\n' "$SUB_SERVICE_VERSION" > "$SUB_SERVICE_VERSION_FILE"
+        chmod 644 "$SUB_SERVICE_VERSION_FILE"
+        sub_service_changed=1
     fi
     if [ ! -f "$SUB_SERVICE_UNIT" ]; then
         cat > "$SUB_SERVICE_UNIT" <<'EOF'
@@ -5744,8 +5750,20 @@ User=root
 WantedBy=multi-user.target
 EOF
         chmod 644 "$SUB_SERVICE_UNIT"
+        sub_service_unit_changed=1
+    fi
+    if [ "$sub_service_unit_changed" -eq 1 ]; then
         systemctl daemon-reload
-        systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
+    elif [ "$sub_service_changed" -eq 1 ]; then
+        systemctl daemon-reload
+    fi
+    if ! systemctl is-enabled --quiet sing-box-subscription.service 2>/dev/null; then
+        systemctl enable sing-box-subscription.service >/dev/null 2>&1
+    fi
+    if [ "$sub_service_changed" -eq 1 ] && systemctl is-active --quiet sing-box-subscription.service 2>/dev/null; then
+        systemctl restart sing-box-subscription.service >/dev/null 2>&1
+    elif ! systemctl is-active --quiet sing-box-subscription.service 2>/dev/null; then
+        systemctl start sing-box-subscription.service >/dev/null 2>&1
     fi
     local entries=()
     local index=1
@@ -5817,8 +5835,6 @@ PY
         sleep 1
         return
     fi
-    local server_ip
-    server_ip=$(curl -s4 https://api.ipify.org || curl -s4 https://ifconfig.me || echo "127.0.0.1")
     local user_dir="$URL_DIR/$username"
     local uuid_file="$user_dir/$username-uuid"
     local username_file="$user_dir/$username"
@@ -5826,7 +5842,6 @@ PY
     local nginx_conf="$NGINX_CONF_DIR/$username.conf"
     local uuid=""
     mkdir -p "$user_dir"
-    chmod 755 "$user_dir"
     if [ -f "$uuid_file" ]; then
         uuid="$(cat "$uuid_file")"
     else
@@ -5853,9 +5868,8 @@ if target is None:
 users=target.setdefault("users",[])
 for user in users:
     if isinstance(user,dict) and user.get("name")==username:
-        if "uuid" in user:
-            user["uuid"]=uuid
-        else:
+        user["uuid"]=uuid
+        if target.get("type") in ("tuic","hysteria2","hy2"):
             user["password"]=uuid
         break
 else:
@@ -5867,93 +5881,85 @@ with open(path,"w",encoding="utf-8") as f:
     json.dump(data,f,ensure_ascii=False,indent=2)
     f.write("\n")
 PY
-    local src_template=""
+    printf '%s\n' "$username" > "$username_file"
+    chmod 644 "$username_file"
+    local links_data=""
     if [ -f "$URL_DIR/$inbound_tag.txt" ]; then
-        src_template="$URL_DIR/$inbound_tag.txt"
+        links_data="$(cat "$URL_DIR/$inbound_tag.txt")"
     elif [ -f "$URL_DIR/$inbound_type.txt" ]; then
-        src_template="$URL_DIR/$inbound_type.txt"
+        links_data="$(cat "$URL_DIR/$inbound_type.txt")"
     fi
-    if [ -n "$src_template" ]; then
-        python3 - "$src_template" "$username_file" "$uuid" "$inbound_type" <<'PY'
-import sys
-import re
+    if [ -z "$links_data" ]; then
+        red "未找到节点链接模板：${inbound_tag}.txt / ${inbound_type}.txt"
+        rm -f "$username_file" "$sub_file"
+        sleep 2
+        return
+    fi
+    printf '%s\n' "$links_data" > "$username_file"
+    local server_ip=""
+    server_ip="$(get_realip)"
+    python3 - "$username_file" "$server_ip" "$uuid" "$username" <<'PY'
 import base64
 import json
-src_path, dst_path, user_uuid, protocol = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].lower()
-with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
-    lines = f.readlines()
-out_lines = []
-for line in lines:
-    line = line.rstrip("\n")
-    if not line.strip(): continue
-    if protocol == "tuic":
-        line = re.sub(r'^(tuic://)[^:@]+:', r'\g<1>' + user_uuid + ':', line, count=1)
-    elif protocol == "vless":
-        line = re.sub(r'^(vless://)[^@]+@', r'\g<1>' + user_uuid + '@', line, count=1)
-    elif protocol in ("hysteria2", "hy2"):
-        line = re.sub(r'^(hysteria2://|hy2://)[^@]+@', lambda m: m.group(1) + user_uuid + "@", line, count=1)
-    elif protocol == "vmess":
-        m = re.match(r'^(vmess://)([^#\s]+)(.*)$', line)
-        if m:
-            try:
-                raw = base64.b64decode(m.group(2) + "===")
-                obj = json.loads(raw.decode("utf-8"))
-                obj["id"] = user_uuid
-                encoded = base64.b64encode(json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
-                line = m.group(1) + encoded + m.group(3)
-            except Exception: pass
-    out_lines.append(line)
-with open(dst_path, "w", encoding="utf-8") as f:
-    f.write("\n".join(out_lines) + "\n")
-PY
-    else
-        python3 - "$selected_file" "$inbound_tag" "$username" "$uuid" "$server_ip" <<'PY' > "$username_file"
-import json
+import re
 import sys
-import urllib.parse
-path=sys.argv[1]
-tag=sys.argv[2]
-username=sys.argv[3]
-uuid=sys.argv[4]
-server=sys.argv[5]
-try:
-    with open(path,"r",encoding="utf-8") as f:
-        data=json.load(f)
-except Exception:
-    raise SystemExit
-for inbound in data.get("inbounds",[]):
-    if not isinstance(inbound,dict) or inbound.get("tag")!=tag:
+from pathlib import Path
+path=Path(sys.argv[1])
+server=sys.argv[2]
+uuid=sys.argv[3]
+username=sys.argv[4]
+uuid_re=re.compile(r"(?i)(?<![0-9a-f])(?P<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?![0-9a-f])")
+def replace_values(text):
+    text=text.replace("{SERVER}",server)
+    text=text.replace("${SERVER}",server)
+    text=text.replace("$SERVER",server)
+    text=text.replace("{UUID}",uuid)
+    text=text.replace("${UUID}",uuid)
+    text=text.replace("$UUID",uuid)
+    text=text.replace("{USERNAME}",username)
+    text=text.replace("${USERNAME}",username)
+    text=text.replace("$USERNAME",username)
+    text=text.replace("{PASSWORD}",uuid)
+    text=text.replace("${PASSWORD}",uuid)
+    text=text.replace("$PASSWORD",uuid)
+    text=uuid_re.sub(uuid,text)
+    return text
+raw=path.read_text(encoding="utf-8")
+result=[]
+for line in raw.splitlines():
+    line=line.strip()
+    if not line:
         continue
-    typ=str(inbound.get("type",""))
-    port=inbound.get("listen_port","")
-    tls=inbound.get("tls") or {}
-    server_name=""
-    if isinstance(tls,dict):
-        server_name=tls.get("server_name","")
-    transport=inbound.get("transport") or {}
-    path_value=transport.get("path","") if isinstance(transport,dict) else ""
-    if typ=="vless":
-        link=f"vless://{uuid}@{server}:{port}?encryption=none"
-        if tls:
-            link+="&security=tls"
-            if server_name:
-                link+="&sni="+urllib.parse.quote(str(server_name))
-        else:
-            link+="&security=none"
-        if path_value:
-            link+="&type=ws&path="+urllib.parse.quote(str(path_value))
-        link+="#"+urllib.parse.quote(username)
-        print(link)
-    elif typ=="vmess":
-        obj={"v":"2","ps":username,"add":server,"port":str(port),"id":uuid,"aid":"0","net":"ws","type":"none","host":"","path":path_value or "/","tls":"tls" if tls else ""}
-        print("vmess://"+__import__("base64").b64encode(json.dumps(obj,separators=(",",":")).encode()).decode())
-    elif typ in ("hysteria2","hy2"):
-        print(f"hysteria2://{uuid}@{server}:{port}#{urllib.parse.quote(username)}")
-    elif typ=="tuic":
-        print(f"tuic://{uuid}:{uuid}@{server}:{port}?congestion_control=bbr#{urllib.parse.quote(username)}")
-    break
+    if line.startswith("vmess://"):
+        payload=line.split("://",1)[1].strip()
+        payload += "=" * ((4-len(payload)%4)%4)
+        try:
+            decoded=base64.urlsafe_b64decode(payload).decode("utf-8")
+            try:
+                obj=json.loads(decoded)
+                if isinstance(obj,dict):
+                    if "id" in obj:
+                        obj["id"]=uuid
+                    if "uuid" in obj:
+                        obj["uuid"]=uuid
+                    if "ps" in obj:
+                        obj["ps"]=username
+                    if "add" in obj and str(obj["add"]) in ("{SERVER}","${SERVER}","$SERVER"):
+                        obj["add"]=server
+                    decoded=json.dumps(obj,ensure_ascii=False,separators=(",",":"))
+                else:
+                    decoded=replace_values(decoded)
+                encoded=base64.b64encode(decoded.encode("utf-8")).decode("ascii")
+                line="vmess://"+encoded
+            except Exception:
+                line="vmess://"+base64.b64encode(replace_values(decoded).encode("utf-8")).decode("ascii")
+        except Exception:
+            line=replace_values(line)
+    else:
+        line=replace_values(line)
+    result.append(line)
+path.write_text("\n".join(result)+"\n",encoding="utf-8")
 PY
-    fi
     chmod 644 "$username_file"
     python3 - "$username_file" "$sub_file" <<'PY'
 import base64
@@ -5967,48 +5973,26 @@ PY
     chmod 644 "$sub_file"
     local sub_port=""
     local sub_path=""
-    sub_port=$(python3 - "$NGINX_CONF_DIR" <<'PY'
-import secrets
-import socket
-import os
-import re
-import sys
-nginx_dir = sys.argv[1]
-def is_free(port):
-    for family in (socket.AF_INET, socket.AF_INET6):
-        try:
-            s = socket.socket(family, socket.SOCK_STREAM)
-            s.bind(("", port))
-            s.close()
-        except Exception:
-            return False
-    if os.path.isdir(nginx_dir):
-        pattern = re.compile(r'\blisten\s+(?:\[::\]:)?' + str(port) + r'(?:\s|;|$)')
-        for name in os.listdir(nginx_dir):
-            if name.endswith(".conf"):
-                try:
-                    with open(os.path.join(nginx_dir, name), "r", errors="ignore") as f:
-                        if pattern.search(f.read()): return False
-                except Exception: pass
-    return True
-for _ in range(200):
-    p = secrets.randbelow(20000) + 40000
-    if is_free(p):
-        print(p)
-        sys.exit(0)
-sys.exit(1)
-PY
-)
-    if [ -z "$sub_port" ]; then
-        red "无法分配可用的订阅端口"
-        return
-    fi
-    sub_path="/$(python3 - <<'PY'
-import secrets,string
-chars=string.ascii_letters+string.digits
-print(''.join(secrets.choice(chars) for _ in range(32)))
-PY
-)"
+    local nginx_port_used=""
+    local nginx_path_used=""
+    while true; do
+        sub_port="$(shuf -i 40000-65535 -n 1)"
+        if ss -Hln "sport = :$sub_port" 2>/dev/null | grep -q .; then
+            continue
+        fi
+        if ss -Hlnu "sport = :$sub_port" 2>/dev/null | grep -q .; then
+            continue
+        fi
+        nginx_port_used="$(grep -RhsE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${sub_port}[[:space:];]" "$NGINX_CONF_DIR" 2>/dev/null | head -1)"
+        [ -z "$nginx_port_used" ] || continue
+        break
+    done
+    while true; do
+        sub_path="/$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
+        [ "${#sub_path}" -eq 33 ] || continue
+        nginx_path_used="$(grep -RhsF "location = ${sub_path}" "$NGINX_CONF_DIR" 2>/dev/null | head -1)"
+        [ -z "$nginx_path_used" ] && break
+    done
     cat > "$nginx_conf" <<EOF
 server {
     listen ${sub_port};
@@ -6033,15 +6017,14 @@ server {
 }
 EOF
     chmod 644 "$nginx_conf"
-    nginx -t >/dev/null 2>&1 || {
-        rm -f "$nginx_conf"
+    if ! nginx -t >/dev/null 2>&1; then
         red "Nginx 配置检测失败"
+        rm -f "$nginx_conf"
+        sleep 2
         return
-    }
-    systemctl reload nginx >/dev/null 2>&1
-    if systemctl is-active --quiet sing-box; then
-        systemctl reload sing-box >/dev/null 2>&1 || systemctl restart sing-box >/dev/null 2>&1
     fi
+    systemctl reload nginx >/dev/null 2>&1
+    systemctl restart sing-box >/dev/null 2>&1
     echo
     green "用户创建成功"
     green "用户名：$username"
@@ -6051,7 +6034,6 @@ EOF
     echo
     read -rp "按回车返回..."
 }
-
 
 
 add_inbound_menu() {
