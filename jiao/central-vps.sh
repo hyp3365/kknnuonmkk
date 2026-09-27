@@ -2709,8 +2709,10 @@ PY
     done
 }
 
+
 add_central_user() {
-    local username=""
+    local mode="${1:-add}"
+    local username="${2:-}"
     local uuid=""
     local count=0
     local i=0
@@ -2726,25 +2728,60 @@ add_central_user() {
     mkdir -p "$user_dir"
     chmod 755 "$BASE_DIR" "$DATA_DIR" "$user_dir"
     echo
-    green "================ 添加用户 ================"
-    echo
-    read -rp "请输入用户名: " username
-    if [ -z "$username" ]; then
-        red "用户名不能为空"
-        sleep 1
-        return
+    if [ "$mode" = "update" ]; then
+        green "================ 更新用户 ================"
+        echo
+        if [ -z "$username" ]; then
+            red "用户名不能为空"
+            sleep 1
+            return 1
+        fi
+        if ! [[ "$username" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            red "用户名只能包含字母、数字、点、下划线和横线"
+            sleep 1
+            return 1
+        fi
+        if [ ! -d "$user_dir/$username" ]; then
+            red "用户不存在：$username"
+            sleep 1
+            return 1
+        fi
+        local central_user_dir="$user_dir/$username"
+        uuid=$(cat "$central_user_dir/uuid" 2>/dev/null || true)
+        if [ -z "$uuid" ]; then
+            red "用户 UUID 不存在"
+            sleep 1
+            return 1
+        fi
+        user_path=$(cat "$central_user_dir/path" 2>/dev/null || true)
+        if [ -z "$user_path" ]; then
+            red "用户路径不存在"
+            sleep 1
+            return 1
+        fi
+        else
+        green "================ 添加用户 ================"
+        echo
+        read -rp "请输入用户名: " username
+        if [ -z "$username" ]; then
+            red "用户名不能为空"
+            sleep 1
+            return 1
+        fi
+        if ! [[ "$username" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            red "用户名只能包含字母、数字、点、下划线和横线"
+            sleep 1
+            return 1
+        fi
+
+        if [ -d "$user_dir/$username" ]; then
+            red "用户已存在"
+            sleep 1
+            return 1
+        fi
+
+        uuid=$(cat /proc/sys/kernel/random/uuid)
     fi
-    if ! [[ "$username" =~ ^[A-Za-z0-9._-]+$ ]]; then
-        red "用户名只能包含字母、数字、点、下划线和横线"
-        sleep 1
-        return
-    fi
-    if [ -d "$user_dir/$username" ]; then
-        red "用户已存在"
-        sleep 1
-        return
-    fi
-    uuid=$(cat /proc/sys/kernel/random/uuid)
     count=$(get_vps_count)
     if [ "$count" -le 0 ]; then
         red "当前没有已添加的 VPS"
@@ -2800,29 +2837,33 @@ except Exception:
     if [ "$failed" -ne 0 ]; then
         rm -rf "$temp_dir"
         echo
-        red "用户添加失败，未创建中央用户目录"
+        red "用户添加失败，未创建用户目录"
         echo
         read -rp "按回车返回..." _
         return
     fi
-    user_path=$(python3 - <<'PY'
-import secrets
-import string
-chars=string.ascii_letters+string.digits
-print(''.join(secrets.choice(chars) for _ in range(16)))
-PY
-)
-    mkdir -p "$temp_dir/nodes"
-    printf '%s\n' "$username" > "$temp_dir/username"
-    printf '%s\n' "$uuid" > "$temp_dir/uuid"
-    printf '%s\n' "$user_path" > "$temp_dir/path"
-    chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path"
-    chmod 700 "$temp_dir/nodes"
-    if ! mv "$temp_dir" "$user_dir/$username"; then
-        red "创建中央用户目录失败"
+    local central_user_dir="$user_dir/$username"
+    if [ "$mode" = "update" ]; then
+        rm -rf "$central_user_dir/nodes"
+        mv "$temp_dir/nodes" "$central_user_dir/nodes"
+        printf '%s\n' "$username" > "$central_user_dir/username"
+        printf '%s\n' "$uuid" > "$central_user_dir/uuid"
+        printf '%s\n' "$user_path" > "$central_user_dir/path"
+        chmod 600 "$central_user_dir/username"
+        chmod 600 "$central_user_dir/uuid"
+        chmod 600 "$central_user_dir/path"
+        chmod 700 "$central_user_dir/nodes"
         rm -rf "$temp_dir"
-        read -rp "按回车返回..." _
-        return
+        temp_dir=""
+    else
+        if ! mv "$temp_dir" "$central_user_dir"; then
+            red "创建中央用户目录失败"
+            rm -rf "$temp_dir"
+            read -rp "按回车返回..." _
+            return 1
+        fi
+        temp_dir=""
+        chmod 755 "$central_user_dir"
     fi
     temp_dir=""
     local central_user_dir="$user_dir/$username"
@@ -2833,6 +2874,16 @@ PY
     green "UUID：$uuid"
     green "用户路径：$user_path"
     echo
+    if [ "$mode" = "update" ]; then
+    cert_domain=$(cat "$central_user_dir/domain" 2>/dev/null || true)
+    cert_file=$(cat "$central_user_dir/cert_file" 2>/dev/null || true)
+    key_file=$(cat "$central_user_dir/key_file" 2>/dev/null || true)
+    if [ -z "$cert_domain" ] || [ -z "$cert_file" ] || [ -z "$key_file" ]; then
+        red "原用户证书信息不完整"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    else
     green "================ 选择证书 ================"
     echo
     local cert_dirs=()
@@ -2874,6 +2925,7 @@ PY
     green "证书：$cert_dir"
     green "域名：$cert_domain"
     echo
+    fi
     green "================ 合并节点 ================"
     echo
     local merged_file="$central_user_dir/merged_nodes.txt"
