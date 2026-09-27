@@ -221,6 +221,7 @@ WG_PORT=int(sys.argv[4])
 WG_INTERFACE=sys.argv[5]
 WG_NETWORK=sys.argv[6]
 WG_CONFIG=sys.argv[7]
+TRAFFIC_LOCK="/etc/central-vps/data/.traffic.lock"
 def load():
     with open(FILE,"r",encoding="utf-8") as f:
         return json.load(f)
@@ -486,7 +487,19 @@ def check_user_limit(username,traffic):
             os.unlink(tmp)
         except Exception:
             pass
+import fcntl
+from contextlib import contextmanager
+@contextmanager
+def traffic_lock():
+    fd=os.open(TRAFFIC_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 def save_traffic_report(source_address,traffic_data):
+    with traffic_lock():
     if not isinstance(traffic_data,dict):
         return False,"invalid traffic data"
     db=load()
