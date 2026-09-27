@@ -5,5 +5,5 @@ bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/c
 
 sing-box四合一安装脚本
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/extended-vps/menu.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended-vps/menu.sh)
 ```
