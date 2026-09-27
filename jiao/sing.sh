@@ -56,6 +56,15 @@ get_latest_prerelease() {
 get_latest_v2rayapi() {
     curl -fsSL "https://api.github.com/repos/hyp3699/kknnuonmkk/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
+get_latest_xhttp_v2rayapi() {
+    curl -fsSL \
+        "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
+    jq -r '[.[] |
+        select(.prerelease==false) |
+        select(.draft==false) |
+        select(.tag_name | endswith("-xhttp"))
+    ][0].tag_name'
+}
 get_latest_argo() {
     curl -s "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
 }
@@ -250,6 +259,66 @@ update_v2rayapi() {
     fi
     rm -rf "$tmp"
 }
+update_xhttp_v2rayapi() {
+    local tag="$1"
+    [ -z "$tag" ] && return
+    local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-${ARCH}.tar.gz"
+    local tmp
+    tmp=$(mktemp -d)
+    echo -e "${BLUE}▶ 正在从 xhttp-V2Ray API Release 下载 [ ${tag} ]...${RESET}"
+    echo -e "${BLUE}▶ 下载地址: ${url}${RESET}"
+    if curl -fL -o "$tmp/sb.tgz" "$url"; then
+        if ! tar -xzf "$tmp/sb.tgz" -C "$tmp"; then
+            echo -e "${RED}❌ xhttp-V2Ray API 解压失败。${RESET}"
+            rm -rf "$tmp"
+            return 1
+        fi
+        local new_sb
+        new_sb=$(find "$tmp" -type f -name "sing-box" -perm -u+x | head -n 1)
+        if [ -z "$new_sb" ] || [ ! -f "$new_sb" ]; then
+            echo -e "${RED}❌ 下载包中没有找到 sing-box。${RESET}"
+            rm -rf "$tmp"
+            return 1
+        fi
+        chmod +x "$new_sb"
+        if ! "$new_sb" version >/dev/null 2>&1; then
+            echo -e "${RED}❌ 新下载的 xhttp-V2Ray API 编译版无法运行。${RESET}"
+            rm -rf "$tmp"
+            return 1
+        fi
+        [ -f "$SB_BIN" ] && cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
+        if ! cp "$new_sb" "$SB_BIN"; then
+            echo -e "${RED}❌ 替换 sing-box 失败。${RESET}"
+            rm -rf "$tmp"
+            return 1
+        fi
+        chown root:root "$SB_BIN"
+        chmod 755 "$SB_BIN"
+        echo -e "${BLUE}▶ xhttp-V2Ray API 版本需要 V2Ray API，检查并添加配置...${RESET}"
+        if ! configure_v2ray_api "enable"; then
+            echo -e "${RED}❌ V2Ray API 配置失败，正在恢复旧版本...${RESET}"
+            if [ -f "$SB_BIN.bak" ]; then
+                mv -f "$SB_BIN.bak" "$SB_BIN"
+                chmod +x "$SB_BIN"
+            fi
+            rm -rf "$tmp"
+            return 1
+        fi
+        rm -f "$SB_BIN.bak" 2>/dev/null
+        systemctl restart sing-box 2>/dev/null
+        sleep 1
+        if systemctl is-active --quiet sing-box; then
+            echo -e "${GREEN}✅ xhttp-V2Ray API 更新成功，sing-box 已正常运行!${RESET}"
+            echo -e "${GREEN}当前版本: $("$SB_BIN" version 2>/dev/null | head -n 1)${RESET}"
+        else
+            echo -e "${RED}❌ xhttp-V2Ray API 更新后 sing-box 没有正常运行，请检查日志。${RESET}"
+            journalctl -u sing-box -n 30 --no-pager
+        fi
+    else
+        echo -e "${RED}❌ xhttp-V2Ray API 下载失败，请检查网络环境。${RESET}"
+    fi
+    rm -rf "$tmp"
+}
 update_argo() {
     local tag
     tag=$(get_latest_argo)
@@ -298,11 +367,14 @@ while true; do
     v_stable=$(get_latest_stable)
     v_pre=$(get_latest_prerelease)
     v_v2rayapi=$(get_latest_v2rayapi)
+    v_xhttp_v2rayapi=$(get_latest_xhttp_v2rayapi)
     v_argo=$(get_latest_argo)
     echo -e "1) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方稳定版: ${v_stable:-获取中}${RESET} ]"
     echo -e "2) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方测试版: ${v_pre:-获取中}${RESET} ]"
     echo -e "3) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}V2Ray API 编译版: ${v_v2rayapi:-获取中}${RESET} ]"
-    echo -e "4) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
+    echo -e "4) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}xhttp-v2rayapi: ${v_xhttp_v2rayapi:-获取中}${RESET} ]"
+    echo -e "5) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
+    echo -e "0) ${RED}退出程序${RESET}"
     echo -e "0) ${RED}退出程序${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo
@@ -311,7 +383,8 @@ while true; do
         1) update_sb "$v_stable" ;;
         2) update_sb "$v_pre" ;;
         3) update_v2rayapi "$v_v2rayapi" ;;
-        4) update_argo ;;
+        4) update_xhttp_v2rayapi "$v_xhttp_v2rayapi" ;;
+        5) update_argo ;;
         0) exit 0 ;;
         *) echo -e "${RED}输入错误，请输入 0-4 之间的数字。${RESET}" ;;
     esac
