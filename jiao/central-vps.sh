@@ -2688,7 +2688,7 @@ PY
                 central_user_set_period "$username" || true
                 ;;
             3)
-                update_central_user
+                update_central_user "$username"
                 ;;
             4)
                 show_namess_url "$username"
