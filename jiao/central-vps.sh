@@ -3174,6 +3174,22 @@ fi
     read -rp "按回车返回..." _
 }
 
+update_central_user() {
+    local username="$1"
+    if [ ! -d "$DATA_DIR/users/$username" ]; then
+        red "用户不存在：$username"
+        sleep 1
+        return 1
+    fi
+    if ! delete_central_user "$username" update; then
+        return 1
+    fi
+    if ! add_central_user update "$username"; then
+        red "用户更新失败"
+        return 1
+    fi
+    return 0
+}
 
 install_central_subscription_service() {
 cat > /usr/local/bin/central-vps-subscription.py <<'PY'
@@ -3420,7 +3436,6 @@ except Exception:
     if [ "$failed" -ne 0 ]; then
         echo
         red "部分 VPS 删除失败"
-        yellow "中央用户数据未删除"
         echo
         read -rp "按回车返回..." _
         return 1
@@ -3754,7 +3769,7 @@ case "${1:-}" in
                 3)
                     manage_singbox ;;
                 4)
-                    update_script
+                    update_central_user
                     ;;
                 s|S)
                     delete_script
