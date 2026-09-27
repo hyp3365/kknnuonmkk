@@ -390,7 +390,25 @@ check_memory_usage() {
         fi
     done
 }
-
+#直接退出ssh以后 5分钟结束孤儿进程
+Configure_ssh_cleanup() {
+    local ssh_config="/etc/ssh/sshd_config"
+    local backup="/etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)"
+    cp -a "$ssh_config" "$backup" || return 1
+    sed -i \
+        -e '/^[[:space:]]*ClientAliveInterval[[:space:]]/d' \
+        -e '/^[[:space:]]*ClientAliveCountMax[[:space:]]/d' \
+        "$ssh_config"
+    printf '\nClientAliveInterval 60\nClientAliveCountMax 5\n' >> "$ssh_config"
+    if ! sshd -t 2>/dev/null; then
+        cp -af "$backup" "$ssh_config"
+        return 1
+    fi
+    if systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 clean_system() {
     clear
@@ -828,6 +846,7 @@ while true; do
    green "11. BBR3"
    green "12. 其他ipv6隧道"
    green "13. journald内存占用修改"
+   green "14. 自动结束ssh孤儿进程"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -986,6 +1005,9 @@ EOF
     echo
     sudo journalctl --disk-usage
     ;;
+	    14) 
+		    Configure_ssh_cleanup
+		    ;;
         0)
             echo "退出脚本"
             exit 0
