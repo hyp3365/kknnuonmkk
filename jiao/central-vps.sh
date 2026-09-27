@@ -3268,6 +3268,7 @@ fi
 
 delete_central_user() {
     local username="$1"
+    local mode="${2:-delete}"
     local count=0
     local i=0
     local name=""
@@ -3291,19 +3292,27 @@ delete_central_user() {
         return 1
     fi
 
-    echo
-    red "确定删除用户：$username？"
-    yellow "将从所有 VPS 的所有入站中删除该用户。"
-    yellow "中央保存的用户、节点和流量数据也会删除。"
-    echo
-    read -rp "输入 y 确认删除: " confirm
-    [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
-
+    if [ "$mode" = "update" ]; then
+        echo
+        yellow "正在更新用户：$username"
+        echo
+    else
+        echo
+        red "确定删除用户：$username？"
+        yellow "将从所有 VPS 的所有入站中删除该用户。"
+        echo
+        read -rp "输入 y 确认删除: " confirm
+        [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
+    fi
     count=$(get_vps_count)
 
     if [ "$count" -le 0 ]; then
+        if [ "$mode" = "update" ]; then
+            red "当前没有 VPS，无法更新用户"
+            return 1
+        fi
         rm -rf "$user_dir"
-        green "中央用户已删除"
+        green "用户已删除"
         sleep 1
         return 0
     fi
@@ -3367,6 +3376,15 @@ except Exception:
         echo
         read -rp "按回车返回..." _
         return 1
+    fi
+    if [ "$mode" = "update" ]; then
+        echo
+        green "========================================"
+        green " 用户更新"
+        green " 用户：$username"
+        green "========================================"
+        echo
+        return 0
     fi
     rm -f "/etc/nginx/conf.d/central_vps_users/$username.conf"
     rm -f "/etc/central-vps-sub/$username"
