@@ -274,6 +274,18 @@ uninstall_singbox() {
                 systemctl disable singbox-traffic.service 2>/dev/null || true
                 rm -f /etc/systemd/system/singbox-traffic.service
             fi
+			if command_exists systemctl; then
+                systemctl stop vps-traffic-stat.timer 2>/dev/null || true
+                systemctl disable vps-traffic-stat.timer 2>/dev/null || true
+                systemctl stop vps-traffic-stat.service 2>/dev/null || true
+                systemctl disable vps-traffic-stat.service 2>/dev/null || true
+
+                rm -f /etc/systemd/system/vps-traffic-stat.timer
+                rm -f /etc/systemd/system/vps-traffic-stat.service
+
+                systemctl daemon-reload 2>/dev/null || true
+                systemctl reset-failed 2>/dev/null || true
+            fi
             rm -f /etc/systemd/system/sing-box.service
             rm -f /etc/systemd/system/singbox-traffic.service
             if command_exists systemctl; then
