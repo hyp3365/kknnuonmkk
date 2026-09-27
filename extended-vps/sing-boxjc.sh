@@ -340,10 +340,10 @@ sing_main_menu() {
             1) show_latest_start_errors ;;
             2) show_logs "最近 50 条错误日志" "journalctl -u sing-box -n 50 --no-pager" ;;
             3) check_configs ;;
-            0) clear; exit 0 ;;
+            0) return ;;
             *) echo -e "${RED}请输入 0-3${NC}"; sleep 1 ;;
         esac
     done
 }
-install_dependencies
+
 
