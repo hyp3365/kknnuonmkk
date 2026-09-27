@@ -1169,6 +1169,7 @@ show_namess_url() {
     local node_file=""
     local node_name=""
     local found_any=false
+    local subscription_url=""
     green "================ 用户节点 ================"
     echo
     green "用户：${username}"
@@ -1194,6 +1195,14 @@ show_namess_url() {
     done < <(find "$nodes_dir" -maxdepth 1 -type f -printf '%p\n' 2>/dev/null | sort)
     if [ "$found_any" = false ]; then
         red "该用户暂无 VPS 节点"
+    fi
+    subscription_url=$(cat "$user_dir/subscription_url" 2>/dev/null || true)
+    echo
+    green "---------------- 用户订阅 ----------------"
+    if [ -n "$subscription_url" ]; then
+        purple "$subscription_url"
+    else
+        yellow "该用户暂无订阅链接"
     fi
     echo
     read -rp "按回车返回..." _
