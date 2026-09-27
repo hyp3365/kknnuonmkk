@@ -2688,7 +2688,7 @@ PY
                 central_user_set_period "$username" || true
                 ;;
             3)
-                central_user_update "$username"
+                update_central_user
                 ;;
             4)
                 show_namess_url "$username"
@@ -3769,7 +3769,7 @@ case "${1:-}" in
                 3)
                     manage_singbox ;;
                 4)
-                    update_central_user
+                    update_script
                     ;;
                 s|S)
                     delete_script
