@@ -346,4 +346,4 @@ sing_main_menu() {
     done
 }
 install_dependencies
-sing_main_menu
+
