@@ -2924,11 +2924,16 @@ EOF
         read -rp "按回车返回..." _
         return
     fi
-    if ! systemctl reload nginx; then
-        red "Nginx 重载失败"
-        rm -f "$nginx_user_conf"
-        read -rp "按回车返回..." _
-        return
+    if systemctl is-active --quiet nginx; then
+       systemctl reload nginx
+       else
+       systemctl start nginx
+    fi
+    if [ $? -ne 0 ]; then
+       red "Nginx 操作失败"
+       rm -f "$nginx_user_conf"
+       read -rp "按回车返回..." _
+       return
     fi
 cat > /usr/local/bin/central-vps-subscription.py <<'PY'
 #!/usr/bin/env python3
