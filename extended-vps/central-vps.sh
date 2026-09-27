@@ -212,8 +212,11 @@ import urllib.request
 import urllib.error
 import threading
 import time
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime,timezone,timedelta
 from http.server import HTTPServer,BaseHTTPRequestHandler
+
 FILE=sys.argv[1]
 PORT=int(sys.argv[2])
 WG_PUBLIC_FILE=sys.argv[3]
@@ -221,9 +224,22 @@ WG_PORT=int(sys.argv[4])
 WG_INTERFACE=sys.argv[5]
 WG_NETWORK=sys.argv[6]
 WG_CONFIG=sys.argv[7]
+TRAFFIC_LOCK="/etc/central-vps/data/.traffic.lock"
+
+@contextmanager
+def traffic_lock():
+    fd=os.open(TRAFFIC_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
 def load():
     with open(FILE,"r",encoding="utf-8") as f:
         return json.load(f)
+
 def save(data):
     tmp=FILE+".tmp"
     with open(tmp,"w",encoding="utf-8") as f:
@@ -232,11 +248,13 @@ def save(data):
         os.fsync(f.fileno())
     os.chmod(tmp,0o600)
     os.replace(tmp,FILE)
+
 def public_ip():
     try:
         return subprocess.check_output(["curl","-4","-fsS","--max-time","5","https://api.ipify.org"],text=True).strip()
     except Exception:
         return ""
+
 def persist_peer(public_key,wg_address):
     try:
         with open(WG_CONFIG,"r",encoding="utf-8") as f:
@@ -279,6 +297,7 @@ def persist_peer(public_key,wg_address):
     os.chmod(tmp,0o600)
     os.replace(tmp,WG_CONFIG)
     return True
+
 def agent_command(address,token,command):
     if not address or not token:
         return False
@@ -299,6 +318,7 @@ def agent_command(address,token,command):
         return int(result.get("returncode",1))==0
     except Exception:
         return False
+
 def delete_user_from_all_vps(username):
     db=load()
     vps_list=db.get("vps",[])
@@ -322,6 +342,7 @@ def delete_user_from_all_vps(username):
         if not agent_command(address,token,command):
             failed=True
     return not failed
+
 def restore_user_to_all_vps(username):
     db=load()
     vps_list=db.get("vps",[])
@@ -354,6 +375,7 @@ def restore_user_to_all_vps(username):
         if not agent_command(address,token,command):
             failed=True
     return not failed
+
 def get_current_period(period):
     now=datetime.now(timezone.utc)
     if period=="day":
@@ -368,6 +390,7 @@ def get_current_period(period):
             end=start.replace(month=start.month+1)
         return start.isoformat(),end.isoformat()
     return "",""
+
 def parse_period_end(value):
     if not value:
         return None
@@ -381,68 +404,71 @@ def parse_period_end(value):
         return dt.astimezone(timezone.utc)
     except Exception:
         return None
+
 def check_expired_periods():
-    users_dir=os.path.join(os.path.dirname(FILE),"users")
-    if not os.path.isdir(users_dir):
-        return
-    now=datetime.now(timezone.utc)
-    try:
-        usernames=os.listdir(users_dir)
-    except Exception:
-        return
-    for username in usernames:
-        if not username or not all(c.isalnum() or c in "._-" for c in username):
-            continue
-        user_dir=os.path.join(users_dir,username)
-        traffic_file=os.path.join(user_dir,"traffic.json")
-        if not os.path.isfile(traffic_file):
-            continue
+    with traffic_lock():
+        users_dir=os.path.join(os.path.dirname(FILE),"users")
+        if not os.path.isdir(users_dir):
+            return
+        now=datetime.now(timezone.utc)
         try:
-            with open(traffic_file,"r",encoding="utf-8") as f:
-                traffic=json.load(f)
+            usernames=os.listdir(users_dir)
         except Exception:
-            continue
-        if not isinstance(traffic,dict):
-            continue
-        period=traffic.get("period","")
-        if period not in ("day","month"):
-            continue
-        period_end=parse_period_end(traffic.get("period_end",""))
-        if period_end is not None and now<period_end:
-            continue
-        period_start,period_end_text=get_current_period(period)
-        if not period_start or not period_end_text:
-            continue
-        was_disabled=bool(traffic.get("disabled_by_limit",False))
-        limit=traffic.get("limit",{})
-        if not isinstance(limit,dict):
-            limit={}
-        traffic["period_upload"]=0
-        traffic["period_download"]=0
-        traffic["period_total"]=0
-        restored=True
-        if was_disabled and bool(limit.get("enabled",False)):
-            restored=restore_user_to_all_vps(username)
-        if restored:
-            traffic["period_start"]=period_start
-            traffic["period_end"]=period_end_text
-            traffic["disabled_by_limit"]=False
-        else:
-            traffic["period_start"]=period_start
-            traffic["disabled_by_limit"]=True
-        tmp=traffic_file+".tmp"
-        try:
-            with open(tmp,"w",encoding="utf-8") as f:
-                json.dump(traffic,f,ensure_ascii=False,indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.chmod(tmp,0o600)
-            os.replace(tmp,traffic_file)
-        except Exception:
+            return
+        for username in usernames:
+            if not username or not all(c.isalnum() or c in "._-" for c in username):
+                continue
+            user_dir=os.path.join(users_dir,username)
+            traffic_file=os.path.join(user_dir,"traffic.json")
+            if not os.path.isfile(traffic_file):
+                continue
             try:
-                os.unlink(tmp)
+                with open(traffic_file,"r",encoding="utf-8") as f:
+                    traffic=json.load(f)
             except Exception:
-                pass
+                continue
+            if not isinstance(traffic,dict):
+                continue
+            period=traffic.get("period","")
+            if period not in ("day","month"):
+                continue
+            period_end=parse_period_end(traffic.get("period_end",""))
+            if period_end is not None and now<period_end:
+                continue
+            period_start,period_end_text=get_current_period(period)
+            if not period_start or not period_end_text:
+                continue
+            was_disabled=bool(traffic.get("disabled_by_limit",False))
+            limit=traffic.get("limit",{})
+            if not isinstance(limit,dict):
+                limit={}
+            traffic["period_upload"]=0
+            traffic["period_download"]=0
+            traffic["period_total"]=0
+            restored=True
+            if was_disabled and bool(limit.get("enabled",False)):
+                restored=restore_user_to_all_vps(username)
+            if restored:
+                traffic["period_start"]=period_start
+                traffic["period_end"]=period_end_text
+                traffic["disabled_by_limit"]=False
+            else:
+                traffic["period_start"]=period_start
+                traffic["disabled_by_limit"]=True
+            tmp=traffic_file+".tmp"
+            try:
+                with open(tmp,"w",encoding="utf-8") as f:
+                    json.dump(traffic,f,ensure_ascii=False,indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.chmod(tmp,0o600)
+                os.replace(tmp,traffic_file)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+
 def check_user_limit(username,traffic):
     if not isinstance(traffic,dict):
         return
@@ -486,188 +512,192 @@ def check_user_limit(username,traffic):
             os.unlink(tmp)
         except Exception:
             pass
+
 def save_traffic_report(source_address,traffic_data):
-    if not isinstance(traffic_data,dict):
-        return False,"invalid traffic data"
-    db=load()
-    vps_item=None
-    for x in db.get("vps",[]):
-        if not isinstance(x,dict):
-            continue
-        address=x.get("wg_address","")
-        if address:
-            address=address.split("/")[0]
-        if address==source_address:
-            vps_item=x
-            break
-    if vps_item is None:
-        return False,"unknown vps"
-    vps_name=vps_item.get("name","")
-    if not vps_name:
-        return False,"vps name missing"
-    users_dir=os.path.join(os.path.dirname(FILE),"users")
-    os.makedirs(users_dir,mode=0o700,exist_ok=True)
-    for username,data in traffic_data.items():
-        if not isinstance(username,str) or not username:
-            continue
-        if not all(c.isalnum() or c in "._-" for c in username):
-            continue
-        if not isinstance(data,dict):
-            continue
-        user_dir=os.path.join(users_dir,username)
-        if not os.path.isdir(user_dir):
-            continue
-        username_file=os.path.join(user_dir,"username")
-        uuid_file=os.path.join(user_dir,"uuid")
-        if not os.path.isfile(username_file):
-            continue
-        if not os.path.isfile(uuid_file):
-            continue
-        traffic_file=os.path.join(user_dir,"traffic.json")
-        try:
-            if os.path.isfile(traffic_file):
-                with open(traffic_file,"r",encoding="utf-8") as f:
-                    traffic=json.load(f)
-            else:
-                traffic={}
-        except Exception:
-            traffic={}
-        if not isinstance(traffic,dict):
-            traffic={}
-        vps_store=traffic.get("vps",{})
-        if not isinstance(vps_store,dict):
-            vps_store={}
-            traffic["vps"]=vps_store
-        try:
-            current_upload=max(0,int(data.get("upload",0) or 0))
-        except Exception:
-            current_upload=0
-        try:
-            current_download=max(0,int(data.get("download",0) or 0))
-        except Exception:
-            current_download=0
-        try:
-            current_total=max(0,int(data.get("total",0) or 0))
-        except Exception:
-            current_total=0
-        old_vps=vps_store.get(vps_name,{})
-        if not isinstance(old_vps,dict):
-            old_vps={}
-        has_last_snapshot=(
-            "last_upload" in old_vps
-            and "last_download" in old_vps
-            and "last_total" in old_vps
-        )
-        if not has_last_snapshot:
-            delta_upload=0
-            delta_download=0
-            delta_total=0
-        else:
-            try:
-                last_upload=max(0,int(old_vps.get("last_upload",0) or 0))
-            except Exception:
-                last_upload=current_upload
-            try:
-                last_download=max(0,int(old_vps.get("last_download",0) or 0))
-            except Exception:
-                last_download=current_download
-            try:
-                last_total=max(0,int(old_vps.get("last_total",0) or 0))
-            except Exception:
-                last_total=current_total
-            if current_upload>=last_upload:
-                delta_upload=current_upload-last_upload
-            else:
-                delta_upload=0
-            if current_download>=last_download:
-                delta_download=current_download-last_download
-            else:
-                delta_download=0
-            if current_total>=last_total:
-                delta_total=current_total-last_total
-            else:
-                delta_total=0
-        vps_store[vps_name]={
-            "wg_address":source_address,
-            "upload":current_upload,
-            "download":current_download,
-            "total":current_total,
-            "last_upload":current_upload,
-            "last_download":current_download,
-            "last_total":current_total
-        }
-        total_upload=0
-        total_download=0
-        total=0
-        for vps_data in vps_store.values():
-            if not isinstance(vps_data,dict):
+    with traffic_lock():
+        if not isinstance(traffic_data,dict):
+            return False,"invalid traffic data"
+        db=load()
+        vps_item=None
+        for x in db.get("vps",[]):
+            if not isinstance(x,dict):
                 continue
+            address=x.get("wg_address","")
+            if address:
+                address=address.split("/")[0]
+            if address==source_address:
+                vps_item=x
+                break
+        if vps_item is None:
+            return False,"unknown vps"
+        vps_name=vps_item.get("name","")
+        if not vps_name:
+            return False,"vps name missing"
+        users_dir=os.path.join(os.path.dirname(FILE),"users")
+        os.makedirs(users_dir,mode=0o700,exist_ok=True)
+        for username,data in traffic_data.items():
+            if not isinstance(username,str) or not username:
+                continue
+            if not all(c.isalnum() or c in "._-" for c in username):
+                continue
+            if not isinstance(data,dict):
+                continue
+            user_dir=os.path.join(users_dir,username)
+            if not os.path.isdir(user_dir):
+                continue
+            username_file=os.path.join(user_dir,"username")
+            uuid_file=os.path.join(user_dir,"uuid")
+            if not os.path.isfile(username_file):
+                continue
+            if not os.path.isfile(uuid_file):
+                continue
+            traffic_file=os.path.join(user_dir,"traffic.json")
             try:
-                total_upload+=max(0,int(vps_data.get("upload",0) or 0))
+                if os.path.isfile(traffic_file):
+                    with open(traffic_file,"r",encoding="utf-8") as f:
+                        traffic=json.load(f)
+                else:
+                    traffic={}
             except Exception:
-                pass
+                traffic={}
+            if not isinstance(traffic,dict):
+                traffic={}
+            vps_store=traffic.get("vps",{})
+            if not isinstance(vps_store,dict):
+                vps_store={}
+            traffic["vps"]=vps_store
             try:
-                total_download+=max(0,int(vps_data.get("download",0) or 0))
+                current_upload=max(0,int(data.get("upload",0) or 0))
             except Exception:
-                pass
+                current_upload=0
             try:
-                total+=max(0,int(vps_data.get("total",0) or 0))
+                current_download=max(0,int(data.get("download",0) or 0))
             except Exception:
-                pass
-        traffic["upload"]=total_upload
-        traffic["download"]=total_download
-        traffic["total"]=total
-        limit=traffic.get("limit",{})
-        if not isinstance(limit,dict):
-            limit={}
-        if bool(limit.get("enabled",False)):
+                current_download=0
             try:
-                period_upload=max(0,int(traffic.get("period_upload",0) or 0))
+                current_total=max(0,int(data.get("total",0) or 0))
             except Exception:
-                period_upload=0
+                current_total=0
+            old_vps=vps_store.get(vps_name,{})
+            if not isinstance(old_vps,dict):
+                old_vps={}
+            has_last_snapshot=(
+                "last_upload" in old_vps
+                and "last_download" in old_vps
+                and "last_total" in old_vps
+            )
+            if not has_last_snapshot:
+                delta_upload=0
+                delta_download=0
+                delta_total=0
+            else:
+                try:
+                    last_upload=max(0,int(old_vps.get("last_upload",0) or 0))
+                except Exception:
+                    last_upload=current_upload
+                try:
+                    last_download=max(0,int(old_vps.get("last_download",0) or 0))
+                except Exception:
+                    last_download=current_download
+                try:
+                    last_total=max(0,int(old_vps.get("last_total",0) or 0))
+                except Exception:
+                    last_total=current_total
+                if current_upload>=last_upload:
+                    delta_upload=current_upload-last_upload
+                else:
+                    delta_upload=0
+                if current_download>=last_download:
+                    delta_download=current_download-last_download
+                else:
+                    delta_download=0
+                if current_total>=last_total:
+                    delta_total=current_total-last_total
+                else:
+                    delta_total=0
+            vps_store[vps_name]={
+                "wg_address":source_address,
+                "upload":current_upload,
+                "download":current_download,
+                "total":current_total,
+                "last_upload":current_upload,
+                "last_download":current_download,
+                "last_total":current_total
+            }
+            total_upload=0
+            total_download=0
+            total=0
+            for vps_data in vps_store.values():
+                if not isinstance(vps_data,dict):
+                    continue
+                try:
+                    total_upload+=max(0,int(vps_data.get("upload",0) or 0))
+                except Exception:
+                    pass
+                try:
+                    total_download+=max(0,int(vps_data.get("download",0) or 0))
+                except Exception:
+                    pass
+                try:
+                    total+=max(0,int(vps_data.get("total",0) or 0))
+                except Exception:
+                    pass
+            traffic["upload"]=total_upload
+            traffic["download"]=total_download
+            traffic["total"]=total
+            limit=traffic.get("limit",{})
+            if not isinstance(limit,dict):
+                limit={}
+            if bool(limit.get("enabled",False)):
+                try:
+                    period_upload=max(0,int(traffic.get("period_upload",0) or 0))
+                except Exception:
+                    period_upload=0
+                try:
+                    period_download=max(0,int(traffic.get("period_download",0) or 0))
+                except Exception:
+                    period_download=0
+                try:
+                    period_total=max(0,int(traffic.get("period_total",0) or 0))
+                except Exception:
+                    period_total=0
+                traffic["period_upload"]=period_upload+delta_upload
+                traffic["period_download"]=period_download+delta_download
+                traffic["period_total"]=period_total+delta_total
+            else:
+                try:
+                    traffic["period_upload"]=max(0,int(traffic.get("period_upload",0) or 0))
+                except Exception:
+                    traffic["period_upload"]=0
+                try:
+                    traffic["period_download"]=max(0,int(traffic.get("period_download",0) or 0))
+                except Exception:
+                    traffic["period_download"]=0
+                try:
+                    traffic["period_total"]=max(0,int(traffic.get("period_total",0) or 0))
+                except Exception:
+                    traffic["period_total"]=0
+            tmp=traffic_file+".tmp"
             try:
-                period_download=max(0,int(traffic.get("period_download",0) or 0))
+                with open(tmp,"w",encoding="utf-8") as f:
+                    json.dump(traffic,f,ensure_ascii=False,indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.chmod(tmp,0o600)
+                os.replace(tmp,traffic_file)
             except Exception:
-                period_download=0
-            try:
-                period_total=max(0,int(traffic.get("period_total",0) or 0))
-            except Exception:
-                period_total=0
-            traffic["period_upload"]=period_upload+delta_upload
-            traffic["period_download"]=period_download+delta_download
-            traffic["period_total"]=period_total+delta_total
-        else:
-            try:
-                traffic["period_upload"]=max(0,int(traffic.get("period_upload",0) or 0))
-            except Exception:
-                traffic["period_upload"]=0
-            try:
-                traffic["period_download"]=max(0,int(traffic.get("period_download",0) or 0))
-            except Exception:
-                traffic["period_download"]=0
-            try:
-                traffic["period_total"]=max(0,int(traffic.get("period_total",0) or 0))
-            except Exception:
-                traffic["period_total"]=0
-        tmp=traffic_file+".tmp"
-        try:
-            with open(tmp,"w",encoding="utf-8") as f:
-                json.dump(traffic,f,ensure_ascii=False,indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.chmod(tmp,0o600)
-            os.replace(tmp,traffic_file)
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except Exception:
-                pass
-            return False,"failed to save traffic"
-        check_user_limit(username,traffic)
-    return True,"ok"
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+                return False,"failed to save traffic"
+            check_user_limit(username,traffic)
+        return True,"ok"
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,format,*args):
         pass
+
     def send_json(self,code,data):
         raw=json.dumps(data,ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -675,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
     def do_POST(self):
         if self.path=="/api/traffic/report":
             try:
@@ -699,9 +730,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json(500,{"ok":False,"error":str(e)})
             return
+
         if self.path!="/api/register":
             self.send_json(404,{"ok":False,"error":"not found"})
             return
+
         try:
             length=int(self.headers.get("Content-Length","0"))
             if length<=0 or length>10240:
@@ -791,6 +824,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         except Exception as e:
             self.send_json(500,{"ok":False,"error":str(e)})
+
 def period_checker():
     while True:
         try:
@@ -798,6 +832,7 @@ def period_checker():
         except Exception:
             pass
         time.sleep(180)
+
 threading.Thread(target=period_checker,daemon=True).start()
 server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
