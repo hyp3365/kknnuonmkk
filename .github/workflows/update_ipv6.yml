@@ -5,8 +5,10 @@ on:
     # 每天 UTC 00:10 执行
     - cron: "10 0 * * *"
 
+  # GitHub 页面可以手动运行
   workflow_dispatch:
 
+# 允许 GitHub Actions 向仓库提交文件
 permissions:
   contents: write
 
@@ -15,29 +17,87 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      # =========================
+      # 1. 拉取仓库
+      # =========================
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =========================
+      # 2. 安装 Python
+      # =========================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: 获取 IPv6
+      # =========================
+      # 3. 显示当前环境
+      # =========================
+      - name: Show environment
+        run: |
+          echo "当前目录："
+          pwd
+
+          echo
+          echo "仓库文件："
+          ls -lah
+
+      # =========================
+      # 4. 获取 IPv6
+      # =========================
+      - name: Fetch IPv6
         run: |
           python update_ipv6.py
 
-      - name: 提交更新
+      # =========================
+      # 5. 检查生成结果
+      # =========================
+      - name: Check IPv6 files
+        run: |
+          echo "================================"
+          echo "CloudFront-ipv6.txt"
+          echo "================================"
+
+          if [ -f "CloudFront-ipv6.txt" ]; then
+            echo "文件存在"
+            echo "记录数量：$(wc -l < CloudFront-ipv6.txt)"
+            echo
+            tail -20 CloudFront-ipv6.txt
+          else
+            echo "文件不存在"
+          fi
+
+          echo
+          echo "================================"
+          echo "CloudFlare-ipv6.txt"
+          echo "================================"
+
+          if [ -f "CloudFlare-ipv6.txt" ]; then
+            echo "文件存在"
+            echo "记录数量：$(wc -l < CloudFlare-ipv6.txt)"
+            echo
+            tail -20 CloudFlare-ipv6.txt
+          else
+            echo "文件不存在"
+          fi
+
+      # =========================
+      # 6. 提交数据
+      # =========================
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add CloudFront-ipv6.txt CloudFlare-ipv6.txt
+          # 自动添加所有新增、修改、删除的文件
+          git add -A
 
+          # 判断有没有变化
           if git diff --cached --quiet; then
-            echo "数据没有变化"
+            echo "没有数据变化，不需要提交"
           else
             git commit -m "Update IPv6 records"
             git push
           fi
-          
