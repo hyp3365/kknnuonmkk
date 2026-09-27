@@ -325,7 +325,7 @@ check_configs() {
         fi
     fi
 }
-main_menu() {
+sing_main_menu() {
     while true; do
         clear
         echo -e "${CYAN}======================================${NC}"
@@ -346,4 +346,4 @@ main_menu() {
     done
 }
 install_dependencies
-main_menu
+sing_main_menu
