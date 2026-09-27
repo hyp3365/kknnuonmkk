@@ -4,7 +4,7 @@
 # 主菜单
 # ============================================================
 MODULE_DIR="/etc/sing-box"
-GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended-vps"
+GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/extended-vps"
 MODULES=(
     menu.sh
 	nftables.sh
@@ -15,7 +15,6 @@ MODULES=(
 	nginx.sh
 	name.sh
 	cf.sh
-	sing-boxjc.sh
 	install.sh
 )
 
