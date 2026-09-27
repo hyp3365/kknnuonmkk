@@ -537,7 +537,7 @@ def save_traffic_report(source_address,traffic_data):
         vps_store=traffic.get("vps",{})
         if not isinstance(vps_store,dict):
             vps_store={}
-            traffic["vps"]=vps_store
+        traffic["vps"]=vps_store
         try:
             current_upload=max(0,int(data.get("upload",0) or 0))
         except Exception:
