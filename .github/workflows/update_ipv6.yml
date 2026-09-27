@@ -1,0 +1,43 @@
+name: Update IPv6 Records
+
+on:
+  schedule:
+    # 每天 UTC 00:10 执行
+    - cron: "10 0 * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: 获取 IPv6
+        run: |
+          python update_ipv6.py
+
+      - name: 提交更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add CloudFront-ipv6.txt CloudFlare-ipv6.txt
+
+          if git diff --cached --quiet; then
+            echo "数据没有变化"
+          else
+            git commit -m "Update IPv6 records"
+            git push
+          fi
+          
