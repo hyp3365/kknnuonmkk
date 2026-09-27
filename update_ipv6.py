@@ -6,11 +6,8 @@ from pathlib import Path
 
 
 SOURCES = {
-    "https://www.wetest.vip/page/cloudfront/total_v6.html":
-        "CloudFront-ipv6.txt",
-
-    "https://www.wetest.vip/page/cloudflare/total_v6.html":
-        "CloudFlare-ipv6.txt",
+    "https://www.wetest.vip/page/cloudfront/total_v6.html": "CloudFront-ipv6.txt",
+    "https://www.wetest.vip/page/cloudflare/total_v6.html": "CloudFlare-ipv6.txt",
 }
 
 
@@ -45,15 +42,14 @@ def fetch_ipv6(url):
             ip = ipaddress.IPv6Address(item)
             ipv6_list.append(str(ip))
         except ValueError:
-            pass
+            continue
 
     return ipv6_list
 
 
 def update_file(filename, ipv6_list, today):
-    path = Path(filename)
+    path = Path.cwd() / filename
 
-    # 30天范围：今天 + 前29天
     cutoff = today - timedelta(days=29)
 
     old_lines = []
@@ -83,7 +79,7 @@ def update_file(filename, ipv6_list, today):
         if record_date >= cutoff:
             new_lines.append(line)
 
-    # 添加今天的所有 IPv6
+    # 今天的数据全部追加
     for ip in ipv6_list:
         new_lines.append(
             f"{today} {ip}"
@@ -94,25 +90,29 @@ def update_file(filename, ipv6_list, today):
         encoding="utf-8"
     )
 
-    print(
-        f"{filename}: "
-        f"今天 {len(ipv6_list)} 条，"
-        f"当前共 {len(new_lines)} 条"
-    )
+    print(f"保存文件: {path}")
+    print(f"今天 IPv6: {len(ipv6_list)}")
+    print(f"当前记录: {len(new_lines)}")
 
 
 def main():
     today = datetime.utcnow().date()
 
+    print(f"今天日期: {today}")
+    print(f"工作目录: {Path.cwd()}")
+
     for url, filename in SOURCES.items():
+
         print()
-        print(f"正在访问：{url}")
+        print("=" * 60)
+        print(f"访问: {url}")
+        print(f"文件: {filename}")
 
         try:
             ipv6_list = fetch_ipv6(url)
 
             if not ipv6_list:
-                print(f"警告：{filename} 没有获取到 IPv6")
+                print("没有获取到 IPv6，跳过")
                 continue
 
             update_file(
@@ -122,9 +122,8 @@ def main():
             )
 
         except Exception as e:
-            print(f"{filename} 获取失败：{e}")
+            print(f"获取失败: {e}")
 
 
 if __name__ == "__main__":
     main()
-
