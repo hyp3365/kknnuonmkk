@@ -1,5 +1,6 @@
 import re
 import urllib.request
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,7 +9,6 @@ SITES = {
     "https://www.wetest.vip/page/cloudflare/total_v6.html": "CloudFlare-ipv6.txt",
 }
 
-# 北京时间
 CST = timezone(timedelta(hours=8))
 today = datetime.now(CST).date()
 today_str = today.strftime("%Y-%m-%d")
@@ -19,6 +19,7 @@ print("=" * 70)
 print(f"日期：{today_str}")
 
 for url, filename in SITES.items():
+
     print()
     print("=" * 70)
     print(f"网站：{url}")
@@ -28,20 +29,31 @@ for url, filename in SITES.items():
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0"}
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            }
         )
 
         with urllib.request.urlopen(req, timeout=30) as response:
             html = response.read().decode("utf-8", errors="ignore")
 
-        # 提取每一行 | 前面的 IPv6
-        ipv6_list = re.findall(
-            r'^\s*(?:\|?\s*)([0-9a-fA-F:]*:[0-9a-fA-F:]+)\s*\|',
-            html,
-            re.MULTILINE
+        print(f"网页大小：{len(html)} bytes")
+
+        # 先找到所有可能的 IPv6 字符串
+        candidates = re.findall(
+            r'[0-9a-fA-F:]{2,}',
+            html
         )
 
-        print(f"网页大小：{len(html)} bytes")
+        ipv6_list = []
+
+        for value in candidates:
+            try:
+                ip = ipaddress.IPv6Address(value)
+                ipv6_list.append(str(ip))
+            except ValueError:
+                pass
+
         print(f"提取 IPv6：{len(ipv6_list)}")
 
         if not ipv6_list:
@@ -50,12 +62,14 @@ for url, filename in SITES.items():
 
         file = Path(filename)
 
-        # 读取旧记录
+        # 原有数据
         old_lines = []
         if file.exists():
-            old_lines = file.read_text(encoding="utf-8").splitlines()
+            old_lines = file.read_text(
+                encoding="utf-8"
+            ).splitlines()
 
-        # 添加今天的数据
+        # 今天的数据，不去重
         new_lines = [
             f"{today_str} {ip}"
             for ip in ipv6_list
@@ -63,7 +77,7 @@ for url, filename in SITES.items():
 
         all_lines = old_lines + new_lines
 
-        # 只保留最近30天
+        # 保留最近30天
         cutoff = today - timedelta(days=29)
 
         result = []
@@ -76,7 +90,8 @@ for url, filename in SITES.items():
 
             try:
                 record_date = datetime.strptime(
-                    parts[0], "%Y-%m-%d"
+                    parts[0],
+                    "%Y-%m-%d"
                 ).date()
             except ValueError:
                 continue
@@ -89,9 +104,9 @@ for url, filename in SITES.items():
             encoding="utf-8"
         )
 
-        print(f"写入：{len(new_lines)} 条")
-        print(f"保留：{len(result)} 条")
-        print(f"文件：{file}")
+        print(f"今天新增：{len(new_lines)}")
+        print(f"当前保留：{len(result)}")
+        print(f"保存文件：{filename}")
 
     except Exception as e:
         print(f"获取失败：{e}")
