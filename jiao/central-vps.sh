@@ -3057,7 +3057,9 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now central-vps-subscription.service
+if ! systemctl is-active --quiet central-vps-subscription.service; then
+    systemctl enable --now central-vps-subscription.service
+fi
     echo
     green "========================================"
     green "           用户添加完成"
@@ -3359,6 +3361,39 @@ update_script() {
     fi
     mv -f "$tmp" "$LOCAL_SCRIPT"
     chmod 700 "$LOCAL_SCRIPT"
+if systemctl list-unit-files | grep -q '^central-vps-subscription.service'; then
+    systemctl stop central-vps-subscription.service 2>/dev/null || true
+    local sub_py_tmp="/usr/local/bin/central-vps-subscription.py.tmp"
+    rm -f "$sub_py_tmp"
+    if curl -fsSL --connect-timeout 5 --max-time 30 \
+        "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/central-vps-subscription.py" \
+        -o "$sub_py_tmp"; then
+        chmod 700 "$sub_py_tmp"
+        mv -f "$sub_py_tmp" /usr/local/bin/central-vps-subscription.py
+        cat > /etc/systemd/system/central-vps-subscription.service <<'EOF'
+[Unit]
+Description=Central VPS Subscription Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/central-vps-subscription.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable central-vps-subscription.service >/dev/null 2>&1 || true
+        systemctl start central-vps-subscription.service
+    else
+        rm -f "$sub_py_tmp"
+        red "订阅服务 Python 文件下载失败"
+        systemctl start central-vps-subscription.service 2>/dev/null || true
+    fi
+fi
     green "脚本更新成功"
     systemctl restart central-vps 2>/dev/null || true
     green "API 已重新加载最新脚本"
@@ -3385,6 +3420,10 @@ delete_script() {
     [ "$confirm" = "y" ] || return
     systemctl stop central-vps.service >/dev/null 2>&1 || true
     systemctl disable central-vps.service >/dev/null 2>&1 || true
+    systemctl stop central-vps-subscription.service >/dev/null 2>&1 || true
+    systemctl disable central-vps-subscription.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/central-vps-subscription.service
+    rm -f /usr/local/bin/central-vps-subscription.py
     systemctl stop "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
     systemctl disable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
     if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
