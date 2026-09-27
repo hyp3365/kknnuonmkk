@@ -383,6 +383,7 @@ def parse_period_end(value):
     except Exception:
         return None
 def check_expired_periods():
+    with traffic_lock():
     users_dir=os.path.join(os.path.dirname(FILE),"users")
     if not os.path.isdir(users_dir):
         return
