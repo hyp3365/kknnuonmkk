@@ -15,6 +15,7 @@ MODULES=(
 	nginx.sh
 	name.sh
 	cf.sh
+	sing-boxjc.sh
 	install.sh
 )
 
