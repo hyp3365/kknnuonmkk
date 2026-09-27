@@ -2725,6 +2725,9 @@ add_central_user() {
     local failed=0
     local user_dir="$DATA_DIR/users"
     local user_path=""
+    local cert_domain=""
+    local cert_file=""
+    local key_file=""
     mkdir -p "$user_dir"
     chmod 755 "$BASE_DIR" "$DATA_DIR" "$user_dir"
     echo
@@ -2842,19 +2845,16 @@ except Exception:
         read -rp "按回车返回..." _
         return
     fi
-    local central_user_dir="$user_dir/$username"
     if [ "$mode" = "update" ]; then
-        rm -rf "$central_user_dir/nodes"
-        mv "$temp_dir/nodes" "$central_user_dir/nodes"
-        printf '%s\n' "$username" > "$central_user_dir/username"
-        printf '%s\n' "$uuid" > "$central_user_dir/uuid"
-        printf '%s\n' "$user_path" > "$central_user_dir/path"
-        chmod 600 "$central_user_dir/username"
-        chmod 600 "$central_user_dir/uuid"
-        chmod 600 "$central_user_dir/path"
-        chmod 700 "$central_user_dir/nodes"
+    rm -rf "$central_user_dir/nodes"
+    if ! mv "$temp_dir/nodes" "$central_user_dir/nodes"; then
+        red "更新节点目录失败"
         rm -rf "$temp_dir"
-        temp_dir=""
+        return 1
+    fi
+    chmod 700 "$central_user_dir/nodes"
+    rm -rf "$temp_dir"
+    temp_dir=""
     else
         if ! mv "$temp_dir" "$central_user_dir"; then
             red "创建中央用户目录失败"
@@ -2866,7 +2866,6 @@ except Exception:
         chmod 755 "$central_user_dir"
     fi
     temp_dir=""
-    local central_user_dir="$user_dir/$username"
     chmod 755 "$central_user_dir"
     echo
     green "用户添加成功"
@@ -2888,9 +2887,6 @@ except Exception:
     echo
     local cert_dirs=()
     local cert_dir=""
-    local cert_file=""
-    local key_file=""
-    local cert_domain=""
     local cert_index=1
     local cert_choice=""
     for cert_dir in /root/cert/* /etc/nginx/cert/*; do
