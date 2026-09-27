@@ -3076,6 +3076,145 @@ fi
     read -rp "按回车返回..." _
 }
 
+
+install_central_subscription_service() {
+    cat > /usr/local/bin/central-vps-subscription.py <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+BASE_DIR=Path("/etc/central-vps")
+USER_DIR=BASE_DIR/"data"/"users"
+SUB_DIR=Path("/etc/central-vps-sub")
+HOST="127.0.0.1"
+PORT=18088
+def find_user(request_path):
+    request_path=request_path.strip("/")
+    if not request_path:
+        return None
+    try:
+        for user_dir in USER_DIR.iterdir():
+            if not user_dir.is_dir():
+                continue
+            path_file=user_dir/"path"
+            if not path_file.is_file():
+                continue
+            try:
+                user_path=path_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            if user_path == request_path:
+                return user_dir.name
+    except Exception:
+        return None
+    return None
+def load_traffic(username):
+    traffic_file=USER_DIR/username/"traffic.json"
+    try:
+        with traffic_file.open("r",encoding="utf-8") as f:
+            data=json.load(f)
+    except Exception:
+        return None
+    return data
+def format_userinfo(data):
+    period_upload=int(data.get("period_upload",0) or 0)
+    period_download=int(data.get("period_download",0) or 0)
+    limit=data.get("limit")
+    if isinstance(limit,dict) and limit.get("enabled") and int(limit.get("limit_bytes",0) or 0)>0:
+        total=int(limit.get("limit_bytes",0) or 0)
+        return f"upload={period_upload}; download={period_download}; total={total}"
+    return f"upload={period_upload}; download={period_download}; total=0"
+class Handler(BaseHTTPRequestHandler):
+    server_version="CentralVPSSubscription/1.0"
+    def log_message(self,format,*args):
+        return
+        def do_GET(self):
+        username = find_user(self.path.split("?", 1)[0])
+        if not username:
+            self.send_error(404)
+            return
+        subscription_file = SUB_DIR / username
+        if not subscription_file.is_file():
+            self.send_error(404)
+            return
+        try:
+            raw = subscription_file.read_bytes()
+            decoded = __import__("base64").b64decode(raw).decode("utf-8")
+        except Exception:
+            self.send_error(500)
+            return
+        traffic = load_traffic(username)
+        if traffic is not None:
+            traffic_node = build_traffic_node(traffic)
+            decoded = traffic_node + "\n" + decoded.lstrip()
+        content = __import__("base64").b64encode(decoded.encode("utf-8"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        if traffic is not None:
+            self.send_header("Subscription-Userinfo", format_userinfo(traffic))
+        self.end_headers()
+        self.wfile.write(content)
+def format_size(value):
+    value=float(value or 0)
+    units=["B","KB","MB","GB","TB","PB"]
+    for unit in units:
+        if value < 1024 or unit == "PB":
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            if value >= 100:
+                return f"{value:.0f}{unit}"
+            if value >= 10:
+                return f"{value:.1f}{unit}"
+            return f"{value:.2f}{unit}"
+        value /= 1024
+    return "0B"
+def build_traffic_node(data):
+    period_total=int(data.get("period_total",0) or 0)
+    limit=data.get("limit")
+    if isinstance(limit,dict) and limit.get("enabled") and int(limit.get("limit_bytes",0) or 0)>0:
+        limit_bytes=int(limit.get("limit_bytes",0) or 0)
+        remaining=max(0,limit_bytes-period_total)
+        remark=f"📊 周期流量: {format_size(limit_bytes)} | 已用流量: {format_size(period_total)} | 剩余流量: {format_size(remaining)}"
+    else:
+        remark=f"📊 总流量: 无限 | 已用流量: {format_size(period_total)} | 剩余流量: 无限制"
+    return f"vless://00000000-0000-0000-0000-000000000000@0.0.0.0:0?encryption=none&type=tcp#{remark}"
+if __name__=="__main__":
+    SUB_DIR.mkdir(parents=True,exist_ok=True)
+    os.chmod(SUB_DIR,0o755)
+    server=ThreadingHTTPServer((HOST,PORT),Handler)
+    server.serve_forever()
+PY
+chmod 700 /usr/local/bin/central-vps-subscription.py
+cat > /etc/systemd/system/central-vps-subscription.service <<'EOF'
+[Unit]
+Description=Central VPS Subscription Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/central-vps-subscription.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+
+if ! systemctl is-enabled --quiet central-vps-subscription.service; then
+    systemctl enable central-vps-subscription.service >/dev/null 2>&1 || true
+fi
+if ! systemctl is-active --quiet central-vps-subscription.service; then
+    systemctl start central-vps-subscription.service
+fi
+}
+
+
 delete_central_user() {
     local username="$1"
     local count=0
@@ -3366,36 +3505,21 @@ update_script() {
     mv -f "$tmp" "$LOCAL_SCRIPT"
     chmod 700 "$LOCAL_SCRIPT"
 if systemctl list-unit-files | grep -q '^central-vps-subscription.service'; then
-    systemctl stop central-vps-subscription.service 2>/dev/null || true
-    local sub_py_tmp="/usr/local/bin/central-vps-subscription.py.tmp"
-    rm -f "$sub_py_tmp"
-    if curl -fsSL --connect-timeout 5 --max-time 30 \
-        "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/central-vps-subscription.py" \
-        -o "$sub_py_tmp"; then
-        chmod 700 "$sub_py_tmp"
-        mv -f "$sub_py_tmp" /usr/local/bin/central-vps-subscription.py
-        cat > /etc/systemd/system/central-vps-subscription.service <<'EOF'
-[Unit]
-Description=Central VPS Subscription Service
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/central-vps-subscription.py
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        systemctl daemon-reload
+    green "正在更新订阅服务..."
+    systemctl stop central-vps-subscription.service >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/central-vps-subscription.py
+    rm -f /etc/systemd/system/central-vps-subscription.service
+    systemctl daemon-reload
+    if install_central_subscription_service; then
         systemctl enable central-vps-subscription.service >/dev/null 2>&1 || true
-        systemctl start central-vps-subscription.service
+
+        if systemctl start central-vps-subscription.service; then
+            green "订阅服务已重新生成并启动"
+        else
+            red "订阅服务启动失败"
+        fi
     else
-        rm -f "$sub_py_tmp"
-        red "订阅服务 Python 文件下载失败"
-        systemctl start central-vps-subscription.service 2>/dev/null || true
+        red "订阅服务文件生成失败"
     fi
 fi
     green "脚本更新成功"
@@ -3488,7 +3612,7 @@ case "${1:-}" in
         while true; do
             clear
             green "========================================"
-            green "          VPS 管理脚本3"
+            green "          VPS 管理脚本4"
             green "========================================"
             echo
             green "1. 添加 VPS"
