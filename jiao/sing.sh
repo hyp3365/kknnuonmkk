@@ -264,58 +264,80 @@ update_xhttp_v2rayapi() {
     [ -z "$tag" ] && return
     local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-${ARCH}.tar.gz"
     local tmp
+    local new_sb
     tmp=$(mktemp -d)
     echo -e "${BLUE}▶ 正在从 xhttp-V2Ray API Release 下载 [ ${tag} ]...${RESET}"
-    echo -e "${BLUE}▶ 下载地址: ${url}${RESET}"
-    if curl -fL -o "$tmp/sb.tgz" "$url"; then
-        if ! tar -xzf "$tmp/sb.tgz" -C "$tmp"; then
-            echo -e "${RED}❌ xhttp-V2Ray API 解压失败。${RESET}"
-            rm -rf "$tmp"
-            return 1
-        fi
-        local new_sb
-        new_sb=$(find "$tmp" -type f -name "sing-box" -perm -u+x | head -n 1)
-        if [ -z "$new_sb" ] || [ ! -f "$new_sb" ]; then
-            echo -e "${RED}❌ 下载包中没有找到 sing-box。${RESET}"
-            rm -rf "$tmp"
-            return 1
-        fi
-        chmod +x "$new_sb"
-        if ! "$new_sb" version >/dev/null 2>&1; then
-            echo -e "${RED}❌ 新下载的 xhttp-V2Ray API 编译版无法运行。${RESET}"
-            rm -rf "$tmp"
-            return 1
-        fi
-        [ -f "$SB_BIN" ] && cp "$SB_BIN" "$SB_BIN.bak" 2>/dev/null
-        if ! cp "$new_sb" "$SB_BIN"; then
-            echo -e "${RED}❌ 替换 sing-box 失败。${RESET}"
-            rm -rf "$tmp"
-            return 1
-        fi
-        chown root:root "$SB_BIN"
-        chmod 755 "$SB_BIN"
-        echo -e "${BLUE}▶ xhttp-V2Ray API 版本需要 V2Ray API，检查并添加配置...${RESET}"
-        if ! configure_v2ray_api "enable"; then
-            echo -e "${RED}❌ V2Ray API 配置失败，正在恢复旧版本...${RESET}"
-            if [ -f "$SB_BIN.bak" ]; then
-                mv -f "$SB_BIN.bak" "$SB_BIN"
-                chmod +x "$SB_BIN"
-            fi
-            rm -rf "$tmp"
-            return 1
-        fi
-        rm -f "$SB_BIN.bak" 2>/dev/null
-        systemctl restart sing-box 2>/dev/null
-        sleep 1
-        if systemctl is-active --quiet sing-box; then
-            echo -e "${GREEN}✅ xhttp-V2Ray API 更新成功，sing-box 已正常运行!${RESET}"
-            echo -e "${GREEN}当前版本: $("$SB_BIN" version 2>/dev/null | head -n 1)${RESET}"
-        else
-            echo -e "${RED}❌ xhttp-V2Ray API 更新后 sing-box 没有正常运行，请检查日志。${RESET}"
-            journalctl -u sing-box -n 30 --no-pager
-        fi
-    else
+    if ! curl -fL -o "$tmp/sb.tgz" "$url"; then
         echo -e "${RED}❌ xhttp-V2Ray API 下载失败，请检查网络环境。${RESET}"
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! tar -xzf "$tmp/sb.tgz" -C "$tmp"; then
+        echo -e "${RED}❌ xhttp-V2Ray API 解压失败。${RESET}"
+        rm -rf "$tmp"
+        return 1
+    fi
+    new_sb=$(find "$tmp" -type f -name "sing-box" | head -n 1)
+    if [ -z "$new_sb" ] || [ ! -f "$new_sb" ]; then
+        echo -e "${RED}❌ 下载包中没有找到 sing-box。${RESET}"
+        rm -rf "$tmp"
+        return 1
+    fi
+    chmod +x "$new_sb"
+    if ! "$new_sb" version >/dev/null 2>&1; then
+        echo -e "${RED}❌ 新下载的 xhttp-V2Ray API 编译版无法运行。${RESET}"
+        rm -rf "$tmp"
+        return 1
+    fi
+    echo -e "${GREEN}▶ 新版本文件检查通过。${RESET}"
+    if [ -f "$SB_BIN" ]; then
+        cp -af "$SB_BIN" "$SB_BIN.bak" 2>/dev/null || {
+            echo -e "${RED}❌ 备份当前 sing-box 失败。${RESET}"
+            rm -rf "$tmp"
+            return 1
+        }
+    fi
+    echo -e "${BLUE}▶ 正在停止 sing-box...${RESET}"
+    systemctl stop sing-box 2>/dev/null
+    echo -e "${BLUE}▶ 正在替换 sing-box...${RESET}"
+    if ! mv -f "$new_sb" "$SB_BIN"; then
+        echo -e "${RED}❌ 替换 sing-box 失败，正在恢复旧版本...${RESET}"
+
+        if [ -f "$SB_BIN.bak" ]; then
+            cp -af "$SB_BIN.bak" "$SB_BIN"
+            chmod 755 "$SB_BIN"
+        fi
+        systemctl start sing-box 2>/dev/null
+        rm -rf "$tmp"
+        return 1
+    fi
+    chown root:root "$SB_BIN"
+    chmod 755 "$SB_BIN"
+    echo -e "${BLUE}▶ xhttp-V2Ray API 需要 V2Ray API，检查并添加配置...${RESET}"
+    if ! configure_v2ray_api "enable"; then
+        echo -e "${RED}❌ V2Ray API 配置失败，正在恢复旧版本...${RESET}"
+        rm -f "$SB_BIN"
+        if [ -f "$SB_BIN.bak" ]; then
+            mv -f "$SB_BIN.bak" "$SB_BIN"
+            chmod 755 "$SB_BIN"
+        fi
+        systemctl start sing-box 2>/dev/null
+        rm -rf "$tmp"
+        return 1
+    fi
+    rm -f "$SB_BIN.bak" 2>/dev/null
+    echo -e "${BLUE}▶ 正在启动 xhttp-V2Ray API 版 sing-box...${RESET}"
+    systemctl start sing-box 2>/dev/null
+    sleep 1
+    if systemctl is-active --quiet sing-box; then
+        echo -e "${GREEN}✅ xhttp-V2Ray API 更新成功，sing-box 已正常运行!${RESET}"
+        echo
+        echo -e "${GREEN}版本信息:${RESET}"
+        "$SB_BIN" version 2>/dev/null | head -n 1
+    else
+        echo -e "${RED}❌ xhttp-V2Ray API 更新后 sing-box 没有正常运行。${RESET}"
+        echo
+        journalctl -u sing-box -n 30 --no-pager
     fi
     rm -rf "$tmp"
 }
