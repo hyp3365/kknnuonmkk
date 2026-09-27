@@ -397,7 +397,6 @@ while true; do
     echo -e "4) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}xhttp-v2rayapi: ${v_xhttp_v2rayapi:-获取中}${RESET} ]"
     echo -e "5) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
     echo -e "0) ${RED}退出程序${RESET}"
-    echo -e "0) ${RED}退出程序${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo
     read -p "请输入序号并回车: " choice
