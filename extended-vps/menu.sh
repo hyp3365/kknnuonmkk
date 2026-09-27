@@ -451,7 +451,7 @@ while true; do
 	    
 		99) 
            clear
-		   main_menu
+		   sing_main_menu
 		   ;;
 		0) exit 0 ;;
         *) red "无效的选项" ;;
