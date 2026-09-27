@@ -3968,49 +3968,89 @@ manage_xray() {
     done
 }
 
-# 卸载 sing-box
 uninstall_singbox() {
-   reading "确定要卸载 sing-box 吗? (y/n): " choice
-   case "${choice}" in
-       y|Y)
-           yellow "正在卸载 sing-box"
-           if command_exists rc-service; then
-                rc-service sing-box stop
-                rm /etc/init.d/sing-box 
-                rc-update del sing-box default
-           else               
-		        # 停止 sing-box
-                systemctl stop "${server_name}"		
-                systemctl disable "${server_name}"
-                # 重新加载 systemd
-                systemctl daemon-reload || true
-
+    local server_name="sing-box"
+    local work_dir="/etc/sing-box"
+    local log_dir="${work_dir}/logs"
+    reading "确定要卸载 sing-box 吗? (y/n): " choice
+    case "${choice}" in
+        y|Y)
+            yellow "正在卸载 sing-box"
+            if command_exists rc-service; then
+                rc-service sing-box stop 2>/dev/null || true
+                rc-update del sing-box default 2>/dev/null || true
+                rm -f /etc/init.d/sing-box
+            elif command_exists systemctl; then
+                systemctl stop "${server_name}" 2>/dev/null || true
+                systemctl disable "${server_name}" 2>/dev/null || true
             fi
-           # 删除配置文件和日志
-           rm -rf "${work_dir}" || true
-           rm -rf "${log_dir}" || true
-           rm -rf /etc/systemd/system/sing-box.service > /dev/null 2>&1
-           rm  -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           # 卸载Nginx
-           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
+            if command_exists systemctl; then
+                systemctl stop singbox-traffic.service 2>/dev/null || true
+                systemctl disable singbox-traffic.service 2>/dev/null || true
+                rm -f /etc/systemd/system/singbox-traffic.service
+            fi
+			if command_exists systemctl; then
+                systemctl stop vps-traffic-stat.timer 2>/dev/null || true
+                systemctl disable vps-traffic-stat.timer 2>/dev/null || true
+                systemctl stop vps-traffic-stat.service 2>/dev/null || true
+                systemctl disable vps-traffic-stat.service 2>/dev/null || true
+
+                rm -f /etc/systemd/system/vps-traffic-stat.timer
+                rm -f /etc/systemd/system/vps-traffic-stat.service
+
+                systemctl daemon-reload 2>/dev/null || true
+                systemctl reset-failed 2>/dev/null || true
+            fi
+            rm -f /etc/systemd/system/sing-box.service
+            rm -f /etc/systemd/system/singbox-traffic.service
+            if command_exists systemctl; then
+                systemctl daemon-reload 2>/dev/null || true
+            fi
+            rm -rf "${work_dir}"
+            rm -rf "${log_dir}"
+            rm -f /usr/bin/sb
+            rm -f /usr/bin/b
+            rm -f /etc/nginx/conf.d/sing-box.conf
+            rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+            rm -rf /etc/nginx/conf.d/singbox_users
+
+            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}，回车将跳过卸载Nginx): ${re}" choice
             case "${choice}" in
                 y|Y)
-				    stop_nginx
-                    manage_packages uninstall nginx
-					rm -f /etc/nginx/conf.d/sing-box.conf
-                    rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+                    yellow "\n正在停止 Nginx"
+                    if command_exists rc-service; then
+                        rc-service nginx stop 2>/dev/null || true
+                        rc-update del nginx default 2>/dev/null || true
+                    elif command_exists systemctl; then
+                        systemctl stop nginx 2>/dev/null || true
+                        systemctl disable nginx 2>/dev/null || true
+                    fi
+                    yellow "正在卸载 Nginx"
+                    if command_exists apt-get; then
+                        apt-get purge -y nginx nginx-common nginx-core 2>/dev/null || true
+                        apt-get autoremove -y 2>/dev/null || true
+                    elif command_exists apk; then
+                        apk del nginx 2>/dev/null || true
+                    elif command_exists dnf; then
+                        dnf remove -y nginx 2>/dev/null || true
+                    elif command_exists yum; then
+                        yum remove -y nginx 2>/dev/null || true
+                    elif command_exists pacman; then
+                        pacman -Rns --noconfirm nginx 2>/dev/null || true
+                    fi
+                    rm -rf /etc/nginx
                     ;;
-                 *) 
-                    yellow "取消卸载Nginx\n\n"
+                *)
+                    yellow "取消卸载 Nginx\n\n"
                     ;;
             esac
-
-            green "\nsing-box 卸载成功\n\n" && exit 0
-           ;;
-       *)
-           purple "已取消卸载操作\n\n"
-           ;;
-   esac
+            green "\nsing-box 卸载成功\n\n"
+            exit 0
+            ;;
+        *)
+            purple "已取消卸载操作\n\n"
+            ;;
+    esac
 }
 
 # 适配alpine运行argo报错用户组和dns的问题
