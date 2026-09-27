@@ -2981,7 +2981,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version="CentralVPSSubscription/1.0"
     def log_message(self,format,*args):
         return
-        def do_GET(self):
+
+    def do_GET(self):
         username = find_user(self.path.split("?", 1)[0])
         if not username:
             self.send_error(404)
@@ -3078,7 +3079,7 @@ fi
 
 
 install_central_subscription_service() {
-    cat > /usr/local/bin/central-vps-subscription.py <<'PY'
+cat > /usr/local/bin/central-vps-subscription.py <<'PY'
 #!/usr/bin/env python3
 import json
 import os
@@ -3129,7 +3130,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version="CentralVPSSubscription/1.0"
     def log_message(self,format,*args):
         return
-        def do_GET(self):
+
+    def do_GET(self):
         username = find_user(self.path.split("?", 1)[0])
         if not username:
             self.send_error(404)
