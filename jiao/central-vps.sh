@@ -2889,10 +2889,10 @@ PY
 location = /$user_path {
     proxy_pass http://127.0.0.1:18088/$user_path;
     proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_buffering off;
     proxy_cache off;
 }
@@ -2981,33 +2981,33 @@ class Handler(BaseHTTPRequestHandler):
     server_version="CentralVPSSubscription/1.0"
     def log_message(self,format,*args):
         return
-    def do_GET(self):
-        username=find_user(self.path.split("?",1)[0])
+        def do_GET(self):
+        username = find_user(self.path.split("?", 1)[0])
         if not username:
             self.send_error(404)
             return
-        subscription_file=SUB_DIR/username
+        subscription_file = SUB_DIR / username
         if not subscription_file.is_file():
             self.send_error(404)
             return
         try:
-    raw=subscription_file.read_bytes()
-    decoded=__import__("base64").b64decode(raw).decode("utf-8")
-except Exception:
-    self.send_error(500)
-    return
-traffic=load_traffic(username)
-if traffic is not None:
-    traffic_node=build_traffic_node(traffic)
-    decoded=traffic_node+"\n"+decoded.lstrip()
-content=__import__("base64").b64encode(decoded.encode("utf-8"))
-        self.send_response(200)
-        self.send_header("Content-Type","text/plain")
-        self.send_header("Content-Length",str(len(content)))
-        self.send_header("Cache-Control","no-store, no-cache, must-revalidate")
-        self.send_header("Pragma","no-cache")
+            raw = subscription_file.read_bytes()
+            decoded = __import__("base64").b64decode(raw).decode("utf-8")
+        except Exception:
+            self.send_error(500)
+            return
+        traffic = load_traffic(username)
         if traffic is not None:
-            self.send_header("Subscription-Userinfo",format_userinfo(traffic))
+            traffic_node = build_traffic_node(traffic)
+            decoded = traffic_node + "\n" + decoded.lstrip()
+        content = __import__("base64").b64encode(decoded.encode("utf-8"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        if traffic is not None:
+            self.send_header("Subscription-Userinfo", format_userinfo(traffic))
         self.end_headers()
         self.wfile.write(content)
 def format_size(value):
@@ -3057,8 +3057,12 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
+
+if ! systemctl is-enabled --quiet central-vps-subscription.service; then
+    systemctl enable central-vps-subscription.service >/dev/null 2>&1 || true
+fi
 if ! systemctl is-active --quiet central-vps-subscription.service; then
-    systemctl enable --now central-vps-subscription.service
+    systemctl start central-vps-subscription.service
 fi
     echo
     green "========================================"
