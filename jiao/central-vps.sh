@@ -3034,7 +3034,7 @@ def build_traffic_node(data):
         remark=f"📊 周期流量: {format_size(limit_bytes)} | 已用流量: {format_size(period_total)} | 剩余流量: {format_size(remaining)}"
     else:
         remark=f"📊 总流量: 无限 | 已用流量: {format_size(period_total)} | 剩余流量: 无限制"
-    return f"vless://00000000-0000-0000-0000-000000000000@0.0.0.0:0?encryption=none&type=tcp#{remark}"
+    return f"vless://00000000-0000-0000-0000-000000000000@0.0.0.0:0?encryption=none&security=tls&sni=e.c&type=tcp#{remark}"
 if __name__=="__main__":
     SUB_DIR.mkdir(parents=True,exist_ok=True)
     os.chmod(SUB_DIR,0o755)
@@ -3183,7 +3183,7 @@ def build_traffic_node(data):
         remark=f"📊 周期流量: {format_size(limit_bytes)} | 已用流量: {format_size(period_total)} | 剩余流量: {format_size(remaining)}"
     else:
         remark=f"📊 总流量: 无限 | 已用流量: {format_size(period_total)} | 剩余流量: 无限制"
-    return f"vless://00000000-0000-0000-0000-000000000000@0.0.0.0:0?encryption=none&type=tcp#{remark}"
+    return f"vless://00000000-0000-0000-0000-000000000000@0.0.0.0:0?encryption=none&security=tls&sni=e.c&type=tcp#{remark}"
 if __name__=="__main__":
     SUB_DIR.mkdir(parents=True,exist_ok=True)
     os.chmod(SUB_DIR,0o755)
