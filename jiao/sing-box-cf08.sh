@@ -11589,6 +11589,10 @@ ensure_micro() {
 }
 edit_singbox_files() {
     local current_dir="/etc/sing-box"
+	
+	local shortcut_a="/etc/sing-box"
+    local shortcut_b="/etc/nginx"
+    local shortcut_c="/root"
     local choice=""
     local selected=""
     local items=()
@@ -11604,10 +11608,10 @@ edit_singbox_files() {
     while true; do
         clear
         green "================ 文件管理 ================"
-        green "快捷目录："
-        echo "a. /etc/sing-box/conf"
-        echo "b. /etc/nginx"
-        echo "c. /root/"
+		green "快捷目录："
+        echo "a. $shortcut_a"
+        echo "b. $shortcut_b"
+        echo "c. $shortcut_c"
         red "====== "当前目录：$current_dir" ======="
         items=()
         i=1
@@ -11705,27 +11709,32 @@ edit_singbox_files() {
     continue
     ;;
             a|A)
-                current_dir="/etc/sing-box"
-                continue
-                ;;
-            b|B)
-                if [ -d "/etc/sing-box/conf" ]; then
-                    current_dir="/etc/sing-box/conf"
-                else
-                    green "目录不存在：/etc/sing-box/conf"
-                    sleep 1
-                fi
-                continue
-                ;;
-            c|C)
-                if [ -d "/etc/sing-box/user_manager" ]; then
-                    current_dir="/etc/sing-box/user_manager"
-                else
-                    green "目录不存在：/etc/sing-box/user_manager"
-                    sleep 1
-                fi
-                continue
-                ;;
+    if [ -d "$shortcut_a" ]; then
+        current_dir="$shortcut_a"
+    else
+        green "目录不存在：$shortcut_a"
+        sleep 1
+    fi
+    continue
+    ;;
+b|B)
+    if [ -d "$shortcut_b" ]; then
+        current_dir="$shortcut_b"
+    else
+        green "目录不存在：$shortcut_b"
+        sleep 1
+    fi
+    continue
+    ;;
+c|C)
+    if [ -d "$shortcut_c" ]; then
+        current_dir="$shortcut_c"
+    else
+        green "目录不存在：$shortcut_c"
+        sleep 1
+    fi
+    continue
+    ;;
             z|Z)
                 current_dir=$(dirname "$current_dir")
                 continue
