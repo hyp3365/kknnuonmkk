@@ -11573,17 +11573,14 @@ edit_singbox_files() {
     local selected_rest=""
     local selected_path=""
     local confirm=""
-    local offset=0
-    local index=0
     while true; do
         clear
         green "================ 文件管理 ================"
         echo
-        green "当前目录："
-        echo "$current_dir"
+        green "当前目录：$current_dir"
         echo
         green "快捷目录："
-        echo "a. /etc/nginx"
+        echo "a. /etc/sing-box"
         echo "b. /etc/sing-box/conf"
         echo "c. /etc/sing-box/user_manager"
         echo
@@ -11638,12 +11635,7 @@ edit_singbox_files() {
                 continue
                 ;;
             z|Z)
-                if [ "$current_dir" = "/etc/sing-box" ]; then
-                    green "已经是最上级目录"
-                    sleep 1
-                else
-                    current_dir=$(dirname "$current_dir")
-                fi
+                current_dir=$(dirname "$current_dir")
                 continue
                 ;;
             0)
@@ -11667,8 +11659,7 @@ edit_singbox_files() {
             clear
             green "================ 文件内容 ================"
             echo
-            green "文件路径："
-            echo "$selected_path"
+            green "文件路径：$selected_path"
             echo
             if [ -f "$selected_path" ]; then
                 cat "$selected_path"
