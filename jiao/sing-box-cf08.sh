@@ -4896,6 +4896,7 @@ enable_ws_argo() {
     local uuid password ws_path origin_port
     local node_remark node_remark_enc
     local argo_url url_file
+	generate_vars
     uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
     password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
@@ -4964,7 +4965,7 @@ enable_ws_argo() {
             fi
             node_remark="${isp}Tunnel-vless-xhttp"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
-            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
+            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 Tunnel：${inbound_type}"
@@ -6604,7 +6605,7 @@ EOF
         mv -f "${config_file}.tmp" "$config_file"
         xhttp_tls="true"
     fi
-    xhttp_remark="${isp}xhttp"
+    node_remark="${isp}xhttp"
     if [[ "$xhttp_tls" == "true" ]]; then
         url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     else
