@@ -11565,7 +11565,6 @@ edit_singbox_files() {
     local selected=""
     local items=()
     local file=""
-    local content=""
     local i=1
     local type=""
     local rest=""
@@ -11574,14 +11573,17 @@ edit_singbox_files() {
     local selected_rest=""
     local selected_path=""
     local confirm=""
+    local offset=0
+    local index=0
     while true; do
         clear
         green "================ 文件管理 ================"
         echo
-        echo "当前目录：$current_dir"
+        green "当前目录："
+        echo "$current_dir"
         echo
         green "快捷目录："
-        echo "a. /etc/sing-box"
+        echo "a. /etc/nginx"
         echo "b. /etc/sing-box/conf"
         echo "c. /etc/sing-box/user_manager"
         echo
@@ -11591,7 +11593,7 @@ edit_singbox_files() {
         i=1
         while IFS= read -r file; do
             items+=("$file")
-        done < <(find "$current_dir" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) -printf '%y|%f|%p\n' 2>/dev/null | sort -t'|' -k1,1r -k2,2)
+        done < <(find "$current_dir" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) -printf '%y|%f|%p\n' 2>/dev/null | sort -t'|' -k1,1 -k2,2)
         if [ "${#items[@]}" -eq 0 ]; then
             green "当前目录为空"
         else
@@ -11608,17 +11610,13 @@ edit_singbox_files() {
             done
         fi
         echo
-        green "0. 返回"
+        green "z. 返回上一级"
+        green "0. 退出文件管理"
         echo
         read -rp "请选择: " choice
         case "$choice" in
             a|A)
-                if [ -d "/etc/sing-box" ]; then
-                    current_dir="/etc/sing-box"
-                else
-                    green "目录不存在：/etc/sing-box"
-                    sleep 1
-                fi
+                current_dir="/etc/sing-box"
                 continue
                 ;;
             b|B)
@@ -11639,14 +11637,19 @@ edit_singbox_files() {
                 fi
                 continue
                 ;;
-        esac
-        if [ "$choice" = "0" ]; then
-            if [ "$current_dir" = "/etc/sing-box" ]; then
+            z|Z)
+                if [ "$current_dir" = "/etc/sing-box" ]; then
+                    green "已经是最上级目录"
+                    sleep 1
+                else
+                    current_dir=$(dirname "$current_dir")
+                fi
+                continue
+                ;;
+            0)
                 return
-            fi
-            current_dir=$(dirname "$current_dir")
-            continue
-        fi
+                ;;
+        esac
         if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#items[@]}" ]; then
             green "无效选择"
             sleep 1
@@ -11664,7 +11667,8 @@ edit_singbox_files() {
             clear
             green "================ 文件内容 ================"
             echo
-            echo "文件：$selected_path"
+            green "文件路径："
+            echo "$selected_path"
             echo
             if [ -f "$selected_path" ]; then
                 cat "$selected_path"
@@ -11674,7 +11678,7 @@ edit_singbox_files() {
             echo
             green "e. 编辑"
             green "s. 删除"
-            green "0. 返回"
+            green "0. 返回文件列表"
             echo
             read -rp "请选择: " choice
             case "$choice" in
