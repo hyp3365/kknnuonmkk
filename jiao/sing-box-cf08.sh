@@ -7503,27 +7503,15 @@ edit_inbound() {
     echo
     read -rp "按回车返回..." _
 }
+
 delete_user_traffic_data() {
     local username="$1"
     [ -n "$username" ] || return 0
-    local state_file="/etc/sing-box/user_manager/traffic/state.json"
+    local delete_dir="/etc/sing-box/user_manager/traffic/delete_requests"
     local limit_file="/etc/sing-box/user_manager/limits/${username}.json"
-    if [ -f "$state_file" ] && command -v jq >/dev/null 2>&1; then
-        local tmp_file
-        tmp_file=$(mktemp)
-        if jq --arg u "$username" '
-            del(.users[$u]) |
-            del(.stats_counters[$u]) |
-            del(.connections[$u])
-        ' "$state_file" > "$tmp_file"; then
-            chmod 600 "$tmp_file"
-            mv -f "$tmp_file" "$state_file"
-        else
-            rm -f "$tmp_file"
-            red "删除 ${username} 的流量数据失败"
-            return 1
-        fi
-    fi
+    mkdir -p "$delete_dir"
+    chmod 700 "$delete_dir"
+    touch "$delete_dir/$username"
     rm -f "$limit_file"
     return 0
 }
