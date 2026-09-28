@@ -4951,7 +4951,7 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunnelvless_ws"
+            node_remark="${isp}Tunnel-vless-ws"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
             argo_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
@@ -4961,7 +4961,7 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunnelvmess_ws"
+            node_remark="${isp}Tunnel-vmess-ws"
             VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
             argo_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
             ;;
@@ -4971,9 +4971,19 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunneltrojan_ws"
+            node_remark="${isp}Tunnel-trojan-ws"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
             argo_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
+            ;;
+	  vless-xhttp)
+            if [ -z "$uuid" ]; then
+                red "未获取到 UUID！"
+                read -rp "按回车返回..." _
+                return 1
+            fi
+            node_remark="${isp}Tunnel-vless-xhttp"
+            node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
+            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 Tunnel：${inbound_type}"
