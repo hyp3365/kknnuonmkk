@@ -102,26 +102,7 @@ ip_address() {
     [[ "$ipv6_address" =~ : ]] || ipv6_address=""
 }
 
-# 定义常量
-uuid=$(cat /proc/sys/kernel/random/uuid)
-uuid99=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(get_available_port)
-tuic_port=$(get_available_port)
-socks_port=$(get_available_port)
-http_port=$(get_available_port)
-anytls_port=$(get_available_port)
-xtls_reality=$(get_available_port)
-vless_tcp_tls=$(get_available_port)
-anytls_reality=$(get_available_port)
-naive_port=$(get_available_port)
-h2_reality=$(get_available_port)
-hy2_port=$(get_available_port)
-grpc_reality=$(get_available_port)
-xhttp_port=$(get_available_port)
-xray_xhttp_reality=$(get_available_port)
-vless_ws_port=$(get_available_port)
-vmess_ws_port=$(get_available_port)
-trojan_ws_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
@@ -151,12 +132,6 @@ ip_address() {
 }
 
 manage_nodes_menu() {
-    if [ -z "$private_key" ]; then
-        output=$(${work_dir}/sing-box generate reality-keypair)
-        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-        short_id=$(openssl rand -hex 6)
-    fi
     if systemctl is-active --quiet singbox-traffic.service; then
         :
     else
@@ -1111,8 +1086,33 @@ add_inbound() {
     local engine="$2"
     local inbound_number
     local config_file
+	uuid=$(cat /proc/sys/kernel/random/uuid)
+    uuid99=$(cat /proc/sys/kernel/random/uuid)
+    tuic_port=$(get_available_port)
+    socks_port=$(get_available_port)	
+    anytls_port=$(get_available_port)
+    xtls_reality=$(get_available_port)
+    vless_tcp_tls=$(get_available_port)
+    anytls_reality=$(get_available_port)
+    naive_port=$(get_available_port)
+    h2_reality=$(get_available_port)
+    hy2_port=$(get_available_port)
+    grpc_reality=$(get_available_port)
+    xhttp_port=$(get_available_port)
+    xray_xhttp_reality=$(get_available_port)
+    vless_ws_port=$(get_available_port)
+    vmess_ws_port=$(get_available_port)
+    trojan_ws_port=$(get_available_port)
+	if [ -z "$private_key" ]; then
+        output=$(${work_dir}/sing-box generate reality-keypair)
+        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+        short_id=$(openssl rand -hex 6)
+    fi
+    username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     inbound_number=$(get_next_inbound_number "$inbound_type")
-    config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "$engine")
+    config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number"
     green "================ 添加入站 ================"
     echo
     green "入站类型：${inbound_type}"
@@ -2171,10 +2171,7 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-			vless-xhttp)
-                green "6. 开启CDN"
-                ;;
-            vless-ws|vmess-ws|trojan-ws)
+            vless-ws|vmess-ws|trojan-ws|vless-xhttp)
                 green "6. 开启CDN"
                 green "7. 开启隧道"
                 ;;
@@ -2222,7 +2219,7 @@ manage_single_inbound() {
        
     7)
     case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws)
+        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
@@ -2525,32 +2522,43 @@ edit_inbound() {
 delete_user_traffic_data() {
     local username="$1"
     [ -n "$username" ] || return 0
-    local state_file="/etc/sing-box/user_manager/traffic/state.json"
+    local delete_dir="/etc/sing-box/user_manager/traffic/delete_requests"
     local limit_file="/etc/sing-box/user_manager/limits/${username}.json"
-    if [ -f "$state_file" ] && command -v jq >/dev/null 2>&1; then
-        local tmp_file
-        tmp_file=$(mktemp)
-        if jq --arg u "$username" '
-            del(.users[$u]) |
-            del(.stats_counters[$u]) |
-            del(.connections[$u])
-        ' "$state_file" > "$tmp_file"; then
-            chmod 600 "$tmp_file"
-            mv -f "$tmp_file" "$state_file"
-        else
-            rm -f "$tmp_file"
-            red "删除 ${username} 的流量数据失败"
-            return 1
-        fi
-    fi
+    mkdir -p "$delete_dir"
+    chmod 700 "$delete_dir"
+    touch "$delete_dir/$username"
     rm -f "$limit_file"
     return 0
+}
+reset_v2ray_api_user_stats() {
+    local username="$1"
+    [ -n "$username" ] || return 0
+    [ -x "/etc/sing-box/user_manager/traffic/grpcurl" ] || return 0
+    [ -f "/etc/sing-box/user_manager/traffic/stats.proto" ] || return 0
+    local request
+    request=$(jq -n \
+        --arg pattern "user>>>${username}>>>traffic>>>.*" \
+        '{
+            pattern: $pattern,
+            reset: true,
+            regexp: true
+        }'
+    )
+    /etc/sing-box/user_manager/traffic/grpcurl \
+        -plaintext \
+        -import-path /etc/sing-box/user_manager/traffic \
+        -proto /etc/sing-box/user_manager/traffic/stats.proto \
+        -d "$request" \
+        127.0.0.1:9094 \
+        v2ray.core.app.stats.command.StatsService/QueryStats \
+        >/dev/null 2>&1
 }
 delete_inbound() {
     local config_file="$1"
     local engine="$2"
     local inbound_type="$3"
     local inbound_number="$4"
+	local traffic_user="$5"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     local inbound_port=""
     local v2ray_api_user=""
@@ -2579,10 +2587,7 @@ delete_inbound() {
         fi
         ;;
     esac
-    if command -v jq >/dev/null 2>&1; then
-    v2ray_api_user=$(jq -r '.. | objects | .name? // empty' "$config_file" 2>/dev/null | head -n1)
-    fi
-
+    v2ray_api_user="$traffic_user"
     if command -v jq >/dev/null 2>&1; then
         inbound_port=$(jq -r '.. | objects | select(has("listen_port")) | .listen_port' "$config_file" 2>/dev/null | head -n1)
     fi
@@ -2609,14 +2614,15 @@ delete_inbound() {
         fi
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
-    rm -f "$config_file"
-    rm -f "$url_file"
     if [ -n "$v2ray_api_user" ]; then
+    reset_v2ray_api_user_stats "$v2ray_api_user"
     delete_v2ray_api_user "$v2ray_api_user"
     if ! delete_user_traffic_data "$v2ray_api_user"; then
         red "警告：${v2ray_api_user} 的流量数据清理失败"
     fi
     fi
+	rm -f "$config_file"
+    rm -f "$url_file"
     update_sub_file
     systemctl reload sing-box
     green "==============================================="
@@ -2626,6 +2632,7 @@ delete_inbound() {
     sleep 1
     return 0
 }
+
 
 delete_user() {
     local username="$1"
