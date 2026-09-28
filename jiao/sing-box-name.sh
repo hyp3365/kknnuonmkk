@@ -545,7 +545,43 @@ def restore_user(username):
         except Exception:
             pass
         lock.close()
-        
+def process_delete_requests(state):
+    delete_dir = TRAFFIC_DIR / "delete_requests"
+    try:
+        delete_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        log(f"创建 delete_requests 目录失败: {e}")
+        return False
+    changed = False
+    try:
+        request_files = list(delete_dir.iterdir())
+    except Exception as e:
+        log(f"读取 delete_requests 失败: {e}")
+        return False
+    for request_file in request_files:
+        if not request_file.is_file():
+            continue
+        username = request_file.name
+        if not username or "/" in username:
+            try:
+                request_file.unlink()
+            except Exception:
+                pass
+            continue
+        try:
+            state.setdefault("users", {}).pop(username, None)
+            state.setdefault("stats_counters", {}).pop(username, None)
+            state.setdefault("connections", {}).pop(username, None)
+            try:
+                request_file.unlink()
+            except Exception as e:
+                log(f"删除 delete request 失败: {username}: {e}")
+            changed = True
+            log(f"用户流量数据已删除: {username}")
+        except Exception as e:
+            log(f"处理 delete request 失败: {username}: {type(e).__name__}: {e}")
+    return changed
+    
 def update_limit_file(fn, data):
     atomic_write_json(fn, data, 0o600)
 def ensure_user(state, username):
