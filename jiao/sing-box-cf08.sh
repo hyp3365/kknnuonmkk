@@ -7515,6 +7515,29 @@ delete_user_traffic_data() {
     rm -f "$limit_file"
     return 0
 }
+reset_v2ray_api_user_stats() {
+    local username="$1"
+    [ -n "$username" ] || return 0
+    [ -x "/etc/sing-box/user_manager/traffic/grpcurl" ] || return 0
+    [ -f "/etc/sing-box/user_manager/traffic/stats.proto" ] || return 0
+    local request
+    request=$(jq -n \
+        --arg pattern "user>>>${username}>>>traffic>>>.*" \
+        '{
+            pattern: $pattern,
+            reset: true,
+            regexp: true
+        }'
+    )
+    /etc/sing-box/user_manager/traffic/grpcurl \
+        -plaintext \
+        -import-path /etc/sing-box/user_manager/traffic \
+        -proto /etc/sing-box/user_manager/traffic/stats.proto \
+        -d "$request" \
+        127.0.0.1:9094 \
+        v2ray.core.app.stats.command.StatsService/QueryStats \
+        >/dev/null 2>&1
+}
 delete_inbound() {
     local config_file="$1"
     local engine="$2"
@@ -7549,10 +7572,7 @@ delete_inbound() {
         fi
         ;;
     esac
-    if command -v jq >/dev/null 2>&1; then
     v2ray_api_user="$traffic_user"
-    fi
-
     if command -v jq >/dev/null 2>&1; then
         inbound_port=$(jq -r '.. | objects | select(has("listen_port")) | .listen_port' "$config_file" 2>/dev/null | head -n1)
     fi
@@ -7579,14 +7599,15 @@ delete_inbound() {
         fi
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
-    rm -f "$config_file"
-    rm -f "$url_file"
     if [ -n "$v2ray_api_user" ]; then
+    reset_v2ray_api_user_stats "$v2ray_api_user"
     delete_v2ray_api_user "$v2ray_api_user"
     if ! delete_user_traffic_data "$v2ray_api_user"; then
         red "警告：${v2ray_api_user} 的流量数据清理失败"
     fi
     fi
+	rm -f "$config_file"
+    rm -f "$url_file"
     update_sub_file
     systemctl reload sing-box
     green "==============================================="
