@@ -831,6 +831,7 @@ fi
     green "============================================"
     read -rp "按回车返回..." _
 }
+
 enable_ws_argo() {
     local config_file="$1"
     local engine="$2"
@@ -839,6 +840,7 @@ enable_ws_argo() {
     local uuid password ws_path origin_port
     local node_remark node_remark_enc
     local argo_url url_file
+	generate_vars
     uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
     password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
@@ -875,7 +877,7 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunnelvless_ws"
+            node_remark="${isp}Tunnel-vless-ws"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
             argo_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
@@ -885,7 +887,7 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunnelvmess_ws"
+            node_remark="${isp}Tunnel-vmess-ws"
             VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
             argo_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
             ;;
@@ -895,9 +897,19 @@ enable_ws_argo() {
                 read -rp "按回车返回..." _
                 return 1
             fi
-            node_remark="${isp}_Tunneltrojan_ws"
+            node_remark="${isp}Tunnel-trojan-ws"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
             argo_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
+            ;;
+	  vless-xhttp)
+            if [ -z "$uuid" ]; then
+                red "未获取到 UUID！"
+                read -rp "按回车返回..." _
+                return 1
+            fi
+            node_remark="${isp}Tunnel-vless-xhttp"
+            node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
+            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 Tunnel：${inbound_type}"
@@ -908,7 +920,7 @@ enable_ws_argo() {
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     mkdir -p "$URL_DIR"
     if [ -f "$url_file" ]; then
-        sed -i '/_Tunnelvless_ws\|_Tunnelvmess_ws\|_Tunneltrojan_ws/d' "$url_file"
+        sed -i '/Tunnel-vless-ws\|Tunnel-vmess-ws\|Tunnel-vless-xhttp\|Tunnel-trojan-ws/d' "$url_file"
     fi
     echo "$argo_url" >> "$url_file"
     update_sub_file
@@ -925,6 +937,7 @@ enable_ws_argo() {
     green "============================================"
     read -rp "按回车返回..." _
 }
+
 get_inbound_cdn_domain() {
     local inbound_type="$1"
     local inbound_number="$2"
