@@ -7167,7 +7167,7 @@ manage_single_inbound() {
         read -rp "请选择: " choice
         case "$choice" in
             s|S)
-                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number"; then
+                if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user"; then
                     return
                 fi
                 ;;
@@ -7532,6 +7532,7 @@ delete_inbound() {
     local engine="$2"
     local inbound_type="$3"
     local inbound_number="$4"
+	local traffic_user="$5"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     local inbound_port=""
     local v2ray_api_user=""
@@ -7561,7 +7562,7 @@ delete_inbound() {
         ;;
     esac
     if command -v jq >/dev/null 2>&1; then
-    v2ray_api_user=$(jq -r '.. | objects | .name? // empty' "$config_file" 2>/dev/null | head -n1)
+    v2ray_api_user="$traffic_user"
     fi
 
     if command -v jq >/dev/null 2>&1; then
