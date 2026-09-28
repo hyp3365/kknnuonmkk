@@ -10369,7 +10369,9 @@ manage_singbox() {
     skyblue "-------------------"
     green "2. 停止sing-box服务"
     skyblue "-------------------"
-    green "3. 重启sing-box服务"
+    green "3. 重载sing-box服务"
+    skyblue "-------------------"
+	red "s. 重启sing-box服务"
     skyblue "-------------------"
     green "4. Tunnel 隧道连接 IP：自动"
     green "5. Tunnel 隧道连接 IP：仅IPv4"
@@ -10383,7 +10385,15 @@ manage_singbox() {
     case "${choice}" in
         1) start_singbox ;;  
         2) stop_singbox ;;
-        3) restart_singbox ;;
+		3) systemctl reload sing-box;;
+        s|S) read -rp "确定要重启 sing-box 服务吗？输入 y 确认: " confirm
+             if [[ "$confirm" =~ ^[Yy]$ ]]; then
+             restart_singbox
+             else
+             green "已取消重启"
+             sleep 1
+             fi
+              ;;
 		4)
            jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 0 else . end' \
            /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
@@ -11556,27 +11566,39 @@ edit_singbox_files() {
     local items=()
     local file=""
     local content=""
-    local result=""
-    local errors=()
     local i=1
+    local type=""
+    local rest=""
+    local name=""
+    local selected_type=""
+    local selected_rest=""
+    local selected_path=""
+    local confirm=""
     while true; do
         clear
         green "================ 文件管理 ================"
         echo
         echo "当前目录：$current_dir"
         echo
+        green "快捷目录："
+        echo "a. /etc/sing-box"
+        echo "b. /etc/sing-box/conf"
+        echo "c. /etc/sing-box/user_manager"
+        echo
+        green "================ 当前目录 ================"
+        echo
         items=()
         i=1
         while IFS= read -r file; do
             items+=("$file")
-        done < <(find "$current_dir" -mindepth 1 -maxdepth 1 -printf '%y|%f|%p\n' 2>/dev/null | sort -k1,1r -k2,2)
+        done < <(find "$current_dir" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) -printf '%y|%f|%p\n' 2>/dev/null | sort -t'|' -k1,1r -k2,2)
         if [ "${#items[@]}" -eq 0 ]; then
             green "当前目录为空"
         else
             for file in "${items[@]}"; do
-                local type="${file%%|*}"
-                local rest="${file#*|}"
-                local name="${rest%%|*}"
+                type="${file%%|*}"
+                rest="${file#*|}"
+                name="${rest%%|*}"
                 if [ "$type" = "d" ]; then
                     green "${i}. [目录] $name"
                 else
@@ -11586,71 +11608,43 @@ edit_singbox_files() {
             done
         fi
         echo
-        green "c. 检查全部 JSON 配置"
         green "0. 返回"
         echo
         read -rp "请选择: " choice
+        case "$choice" in
+            a|A)
+                if [ -d "/etc/sing-box" ]; then
+                    current_dir="/etc/sing-box"
+                else
+                    green "目录不存在：/etc/sing-box"
+                    sleep 1
+                fi
+                continue
+                ;;
+            b|B)
+                if [ -d "/etc/sing-box/conf" ]; then
+                    current_dir="/etc/sing-box/conf"
+                else
+                    green "目录不存在：/etc/sing-box/conf"
+                    sleep 1
+                fi
+                continue
+                ;;
+            c|C)
+                if [ -d "/etc/sing-box/user_manager" ]; then
+                    current_dir="/etc/sing-box/user_manager"
+                else
+                    green "目录不存在：/etc/sing-box/user_manager"
+                    sleep 1
+                fi
+                continue
+                ;;
+        esac
         if [ "$choice" = "0" ]; then
             if [ "$current_dir" = "/etc/sing-box" ]; then
                 return
             fi
             current_dir=$(dirname "$current_dir")
-            continue
-        fi
-        if [[ "$choice" =~ ^[Cc]$ ]]; then
-            clear
-            green "================ JSON 配置检查 ================"
-            echo
-            errors=()
-            while IFS= read -r file; do
-                result=$(/etc/sing-box/sing-box check -c "$file" 2>&1)
-                if [ $? -eq 0 ]; then
-                    green "[正确] $(basename "$file")"
-                else
-                    green "[错误] $(basename "$file")"
-                    errors+=("$file")
-                    echo "$result"
-                    echo
-                fi
-            done < <(find "/etc/sing-box/conf" -maxdepth 1 -type f -name "*.json" -print | sort)
-            echo
-            if [ "${#errors[@]}" -eq 0 ]; then
-                green "全部 JSON 配置文件检查通过"
-                echo
-                read -rp "按回车返回..." _
-                continue
-            fi
-            green "发现 ${#errors[@]} 个配置文件存在错误"
-            echo
-            for i in "${!errors[@]}"; do
-                green "$((i + 1)). ${errors[$i]}"
-            done
-            echo
-            green "0. 返回"
-            echo
-            read -rp "请选择要修改的错误配置文件: " choice
-            if [ "$choice" = "0" ]; then
-                continue
-            fi
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#errors[@]}" ]; then
-                clear
-                green "================ 配置文件 ================"
-                echo
-                echo "文件：${errors[$((choice - 1))]}"
-                echo
-                content=$(cat "${errors[$((choice - 1))]}")
-                printf '%s\n' "$content"
-                echo
-                green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
-                green "0. 退出"
-                echo
-                read -rp "请选择: " choice
-                case "$choice" in
-                    e|E)
-                        nano "${errors[$((choice - 1))]}"
-                        ;;
-                esac
-            fi
             continue
         fi
         if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#items[@]}" ]; then
@@ -11659,42 +11653,73 @@ edit_singbox_files() {
             continue
         fi
         selected="${items[$((choice-1))]}"
-        local selected_type="${selected%%|*}"
-        local selected_rest="${selected#*|}"
-        local selected_path="${selected_rest#*|}"
+        selected_type="${selected%%|*}"
+        selected_rest="${selected#*|}"
+        selected_path="${selected_rest#*|}"
         if [ "$selected_type" = "d" ]; then
             current_dir="$selected_path"
-        else
-            while true; do
-                clear
-                green "================ 文件内容 ================"
-                echo
-                echo "文件：$selected_path"
-                echo
-                if [ -f "$selected_path" ]; then
-                    cat "$selected_path"
-                else
-                    green "文件不存在"
-                fi
-                echo
-                green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
-                green "0. 退出"
-                echo
-                read -rp "请选择: " choice
-                case "$choice" in
-                    e|E)
-                        nano "$selected_path"
-                        ;;
-                    0)
-                        break
-                        ;;
-                    *)
-                        green "无效选择"
-                        sleep 1
-                        ;;
-                esac
-            done
+            continue
         fi
+        while true; do
+            clear
+            green "================ 文件内容 ================"
+            echo
+            echo "文件：$selected_path"
+            echo
+            if [ -f "$selected_path" ]; then
+                cat "$selected_path"
+            else
+                green "文件不存在"
+            fi
+            echo
+            green "e. 编辑"
+            green "s. 删除"
+            green "0. 返回"
+            echo
+            read -rp "请选择: " choice
+            case "$choice" in
+                e|E)
+                    if [ -f "$selected_path" ]; then
+                        nano "$selected_path"
+                    else
+                        green "文件不存在"
+                        sleep 1
+                    fi
+                    ;;
+                s|S)
+                    if [ ! -e "$selected_path" ]; then
+                        green "文件不存在"
+                        sleep 1
+                        continue
+                    fi
+                    echo
+                    green "即将删除："
+                    echo "$selected_path"
+                    echo
+                    read -rp "确定删除？输入 y 确认，其他任意键取消: " confirm
+                    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                        if rm -f -- "$selected_path"; then
+                            green "删除成功"
+                            sleep 1
+                            break
+                        else
+                            green "删除失败"
+                            sleep 1
+                        fi
+                    else
+                        green "已取消删除"
+                        sleep 1
+                    fi
+                    ;;
+                0)
+                    break
+                    ;;
+                *)
+                    green "无效选择"
+                    sleep 1
+                    ;;
+            esac
+        done
     done
 }
 # 主菜单
