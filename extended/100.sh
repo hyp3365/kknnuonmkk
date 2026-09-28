@@ -218,7 +218,9 @@ manage_singbox() {
     skyblue "-------------------"
     green "2. 停止sing-box服务"
     skyblue "-------------------"
-    green "3. 重启sing-box服务"
+	green "3. 重载sing-box服务"
+    skyblue "-------------------"
+	red "s. 重启sing-box服务"
     skyblue "-------------------"
     green "4. Tunnel 隧道连接 IP：自动"
     green "5. Tunnel 隧道连接 IP：仅IPv4"
@@ -232,7 +234,15 @@ manage_singbox() {
     case "${choice}" in
         1) start_singbox ;;  
         2) stop_singbox ;;
-        3) restart_singbox ;;
+		3) systemctl reload sing-box;;
+        s|S) read -rp "确定要重启 sing-box 服务吗？输入 y 确认: " confirm
+             if [[ "$confirm" =~ ^[Yy]$ ]]; then
+             restart_singbox
+             else
+             green "已取消重启"
+             sleep 1
+             fi
+              ;;
 		4)
            jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 0 else . end' \
            /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
