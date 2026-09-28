@@ -5938,9 +5938,14 @@ proxy_cache_bypass 1;
             pass
         raise RuntimeError("Nginx 配置语法检查失败")
 
-result = subprocess.run(["systemctl", "reload", "nginx"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-if result.returncode != 0:
-    raise RuntimeError("Nginx reload 失败")
+if not central_mode:
+    result = subprocess.run(
+        ["systemctl", "reload", "nginx"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Nginx reload 失败")
 PY
 local result=$?
 if [ "$result" -eq 0 ]; then
