@@ -7145,10 +7145,7 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-			vless-xhttp)
-                green "6. 开启CDN"
-                ;;
-            vless-ws|vmess-ws|trojan-ws)
+            vless-ws|vmess-ws|trojan-ws|vless-xhttp)
                 green "6. 开启CDN"
                 green "7. 开启隧道"
                 ;;
@@ -7196,7 +7193,7 @@ manage_single_inbound() {
        
     7)
     case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws)
+        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
