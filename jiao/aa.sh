@@ -218,35 +218,157 @@ add_swap() {
 
 #查看内存占用排行
 check_memory_usage() {
-    # 辅助函数：自动清理与程序相关的 systemd 服务文件
-    clean_systemd_service() {
-        local cmd_name="$1"
-        # 匹配可能包含该程序名的 .service 文件
-        local service_files=$(find /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system -maxdepth 2 -iname "*${cmd_name}*.service" 2>/dev/null)
-
-        if [ -n "$service_files" ]; then
-            echo -e "\033[33m[!] 检测到关联的 systemd 自启动服务文件：\033[0m"
-            echo "$service_files"
-            read -p "是否同步停止、删除这些服务文件并重载 systemd？[y/N]: " confirm_svc
-            if [[ "$confirm_svc" =~ ^[Yy]$ ]]; then
-                echo "$service_files" | while read -r file; do
-                    [ -z "$file" ] && continue
-                    local svc_name=$(basename "$file")
-                    # 尝试停止并禁用服务
-                    systemctl stop "$svc_name" 2>/dev/null
-                    systemctl disable "$svc_name" 2>/dev/null
-                    # 删除服务文件
-                    rm -f "$file"
-                    echo -e "\033[32m[+] 已清理服务文件: $file\033[0m"
-                done
-                # 刷新 systemd 配置
-                systemctl daemon-reload
-                echo -e "\033[32m[+] 已成功重载 systemd 配置 (daemon-reload)。\033[0m"
-            fi
+	clean_systemd_service() {
+    local cmd_name="$1"
+    local service_files
+    service_files=$(find /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system \
+        -maxdepth 2 -type f -iname "*${cmd_name}*.service" 2>/dev/null)
+    if [ -z "$service_files" ]; then
+        echo -e "\033[36m[*] 未检测到与 $cmd_name 相关的 systemd 服务文件。\033[0m"
+        return 0
+    fi
+    echo -e "\033[33m[!] 检测到关联的 systemd 自启动服务文件：\033[0m"
+    echo "$service_files"
+    echo
+    while read -r file; do
+        [ -z "$file" ] && continue
+        local svc_name
+        svc_name=$(basename "$file")
+        echo "============================================"
+        echo -e "\033[35m服务分析：$svc_name\033[0m"
+        echo "服务文件：$file"
+        echo "--------------------------------------------"
+        echo -e "\033[36m[启动命令]\033[0m"
+        local exec_lines
+        exec_lines=$(grep -E '^[[:space:]]*ExecStart(Pre|Post)?=' "$file" 2>/dev/null)
+        if [ -n "$exec_lines" ]; then
+            echo "$exec_lines" | sed 's/^/  /'
         else
-            echo -e "\033[36m[*] 未检测到与 $cmd_name 相关的 systemd 服务文件。\033[0m"
+            echo "  未找到 ExecStart"
         fi
-    }
+        local script_paths=""
+        script_paths=$(grep -E '^[[:space:]]*ExecStart(Pre|Post)?=' "$file" 2>/dev/null \
+            | grep -oE '/[^[:space:]]+\.sh([[:space:]]|$)' \
+            | sed 's/[[:space:]]*$//' \
+            | sort -u)
+        if [ -n "$script_paths" ]; then
+            echo
+            echo -e "\033[36m[关联启动脚本]\033[0m"
+            while read -r script; do
+                [ -z "$script" ] && continue
+                if [ -f "$script" ]; then
+                    echo -e "  \033[32m$script\033[0m"
+                    local script_owner
+                    script_owner=$(stat -c '%U:%G' "$script" 2>/dev/null)
+                    local script_time
+                    script_time=$(stat -c '%y' "$script" 2>/dev/null)
+                    [ -n "$script_owner" ] && echo "    所有者: $script_owner"
+                    [ -n "$script_time" ] && echo "    修改时间: $script_time"
+                else
+                    echo -e "  \033[31m$script（文件不存在）\033[0m"
+                fi
+            done <<< "$script_paths"
+        fi
+        echo
+        echo -e "\033[36m[服务环境]\033[0m"
+        local work_dir
+        work_dir=$(grep -E '^[[:space:]]*WorkingDirectory=' "$file" 2>/dev/null)
+        if [ -n "$work_dir" ]; then
+            echo "  $work_dir"
+        fi
+        local env_file
+        env_file=$(grep -E '^[[:space:]]*EnvironmentFile=' "$file" 2>/dev/null)
+        if [ -n "$env_file" ]; then
+            echo "  $env_file"
+        fi
+        local service_user
+        service_user=$(grep -E '^[[:space:]]*User=' "$file" 2>/dev/null)
+        if [ -n "$service_user" ]; then
+            echo "  $service_user"
+        fi
+        echo
+        echo -e "\033[36m[当前状态]\033[0m"
+        local service_state
+        service_state=$(systemctl is-active "$svc_name" 2>/dev/null)
+        echo "  状态: ${service_state:-unknown}"
+        local service_pid
+        service_pid=$(systemctl show "$svc_name" -p MainPID --value 2>/dev/null)
+        if [[ "$service_pid" =~ ^[0-9]+$ ]] && [ "$service_pid" -gt 0 ] \
+            && [ -d "/proc/$service_pid" ]; then
+            echo
+            echo -e "\033[36m[当前运行进程]\033[0m"
+            echo "  PID: $service_pid"
+            local running_exe
+            running_exe=$(readlink -f "/proc/$service_pid/exe" 2>/dev/null)
+            if [ -n "$running_exe" ]; then
+                echo "  EXE: $running_exe"
+            fi
+            local running_cmd
+            running_cmd=$(tr '\0' ' ' < "/proc/$service_pid/cmdline" 2>/dev/null)
+            if [ -n "$running_cmd" ]; then
+                echo "  CMD: $running_cmd"
+            fi
+        fi
+        echo
+        echo -e "\033[36m[可能的创建脚本]\033[0m"
+        local creator_found=0
+        local search_name="$svc_name"
+        local search_path="$file"
+        local search_dirs=(
+            /usr/local/bin
+            /usr/local/sbin
+            /usr/bin
+            /usr/sbin
+            /opt
+            /etc
+            /root
+            /tmp
+        )
+        for search_dir in "${search_dirs[@]}"; do
+            [ -d "$search_dir" ] || continue
+            while read -r creator; do
+                [ -z "$creator" ] && continue
+                [ "$creator" = "$file" ] && continue
+                if [ -f "$creator" ]; then
+                    echo -e "  \033[32m发现可能创建脚本: $creator\033[0m"
+                    grep -nE "$search_name|$search_path" "$creator" 2>/dev/null \
+                        | head -n 5 \
+                        | sed 's/^/    /'
+                    creator_found=1
+                fi
+            done < <(
+                find "$search_dir" -type f \
+                    \( -name "*.sh" -o -name "*.bash" -o -name "*.service" \) \
+                    -readable 2>/dev/null \
+                    | head -n 3000
+            )
+        done
+        if [ "$creator_found" -eq 0 ]; then
+            echo "  未找到明确的创建脚本。"
+            echo "  （systemd 本身不会记录 service 文件最初由哪个脚本创建）"
+        fi
+        echo
+        echo -e "\033[36m[systemd 完整配置]\033[0m"
+        systemctl cat "$svc_name" 2>/dev/null
+        echo
+        echo "============================================"
+        echo
+    done <<< "$service_files"
+    read -p "是否同步停止、删除这些服务文件并重载 systemd？[y/N]: " confirm_svc
+    if [[ "$confirm_svc" =~ ^[Yy]$ ]]; then
+        echo "$service_files" | while read -r file; do
+            [ -z "$file" ] && continue
+            local svc_name
+            svc_name=$(basename "$file")
+            systemctl stop "$svc_name" 2>/dev/null
+            systemctl disable "$svc_name" 2>/dev/null
+            rm -f "$file"
+            echo -e "\033[32m[+] 已清理服务文件: $file\033[0m"
+        done
+        systemctl daemon-reload
+        echo -e "\033[32m[+] 已成功重载 systemd 配置 (daemon-reload)。\033[0m"
+    fi
+}
 
     while true; do
         clear
@@ -382,8 +504,8 @@ check_memory_usage() {
                     ;;
             esac
             
-            echo "3秒后自动刷新页面..."
-            sleep 3
+            echo "1秒后自动刷新页面..."
+            sleep 1
         else
             echo -e "\033[31m无效的输入！\033[0m"
             sleep 1
