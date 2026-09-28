@@ -143,38 +143,6 @@ to_chinese() {
     esac
 }
 
-# 获取ip
-get_realip() {
-    local ip=""
-    local v6=""
-    ip=$(curl -4 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-    if [ -z "$ip" ]; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-        return 1
-    fi
-    if curl -4 -sL --connect-timeout 3 --max-time 5 \
-        http://ipinfo.io/org 2>/dev/null |
-        grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 \
-            ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-    fi
-    echo "$ip"
-}
-ip_address() {
-    ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
-    ipv6_address=$(curl -6 -sS -L -m 3 https://ipv6.ip.sb 2>/dev/null | tr -d '[:space:]')
-    [[ "$ipv4_address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ipv4_address=""
-    [[ "$ipv6_address" =~ : ]] || ipv6_address=""
-}
-
 
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
