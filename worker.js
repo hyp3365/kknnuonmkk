@@ -1,5 +1,3 @@
-#节点优选ipv6地址
-
 const IPV6_LIST_URL = 'https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
 
 async function fetchIPv6List() {
@@ -152,7 +150,7 @@ function htmlPage(message = '', result = '') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>生成</title>
+<title>IPV6优选</title>
 <style>
 body {
     margin: 0;
@@ -210,10 +208,10 @@ button:hover {
 </head>
 <body>
 <div class="container">
-<h2>生成</h2>
+<h2>IPV6优选</h2>
 <form method="POST">
 <textarea name="subscription" placeholder="输入 VMess / VLESS 订阅连接">${escapeHtml(message)}</textarea>
-<button type="submit">生成</button>
+<button type="submit">生成IPV6优选连接</button>
 </form>
 ${result ? `<textarea class="result" readonly>${escapeHtml(result)}</textarea>` : ''}
 </div>
