@@ -1027,7 +1027,10 @@ def main():
             sync_periods(state)
             update_connection_count(state)
             check_limits(state)
-            current_stats = get_stats()
+            if process_delete_requests(state):
+                save_state(state)
+                last_save = time.monotonic()
+            current_stats = get_stats()  
             if current_stats is not None:
                 if process_reset_requests(state, current_stats):
                     save_state(state)
