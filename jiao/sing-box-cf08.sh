@@ -11559,6 +11559,34 @@ delete_rule_menu() {
     sleep 1.5
     warp_manage
 }
+
+ensure_micro() {
+    if command -v micro >/dev/null 2>&1; then
+        return 0
+    fi
+    green "未检测到 Micro，正在自动安装..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y >/dev/null 2>&1
+        apt-get install -y micro >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y micro >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y micro >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache micro >/dev/null 2>&1
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -Sy --noconfirm micro >/dev/null 2>&1
+    else
+        red "无法自动安装 Micro"
+        return 1
+    fi
+    if ! command -v micro >/dev/null 2>&1; then
+        red "Micro 安装失败"
+        return 1
+    fi
+    green "Micro 安装完成"
+    return 0
+}
 edit_singbox_files() {
     local current_dir="/etc/sing-box"
     local choice=""
@@ -11731,20 +11759,35 @@ edit_singbox_files() {
                 green "文件不存在"
             fi
             echo
-            green "e. 编辑"
+			green "m. Micro编辑  保存：Ctrl + S   退出：Ctrl + Q"
+            green "e. nano编辑   保存：Ctrl + O，然后回车  退出：Ctrl + X"
             green "s. 删除"
             green "0. 返回文件列表"
             echo
             read -rp "请选择: " choice
             case "$choice" in
-                e|E)
-                    if [ -f "$selected_path" ]; then
-                        nano "$selected_path"
-                    else
-                        green "文件不存在"
-                        sleep 1
-                    fi
-                    ;;
+			    m|M)
+    if [ -f "$selected_path" ]; then
+        if ensure_micro; then
+            micro "$selected_path"
+        else
+            sleep 1
+        fi
+    else
+        green "文件不存在"
+        sleep 1
+    fi
+    ;;
+				e|E)
+    if [ -f "$selected_path" ]; then
+        export LANG="${LANG:-C.UTF-8}"
+        export LC_ALL="${LC_ALL:-C.UTF-8}"
+        nano "$selected_path"
+    else
+        green "文件不存在"
+        sleep 1
+    fi
+    ;;
                 s|S)
                     if [ ! -e "$selected_path" ]; then
                         green "文件不存在"
