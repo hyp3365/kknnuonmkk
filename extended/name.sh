@@ -1594,7 +1594,7 @@ EOF
         mv -f "${config_file}.tmp" "$config_file"
         xhttp_tls="true"
     fi
-    xhttp_remark="${isp}xhttp"
+    node_remark="${isp}xhttp"
     if [[ "$xhttp_tls" == "true" ]]; then
         url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     else
