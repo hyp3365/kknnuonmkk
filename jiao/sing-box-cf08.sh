@@ -132,25 +132,6 @@ config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
-uuid=$(cat /proc/sys/kernel/random/uuid)
-uuid99=$(cat /proc/sys/kernel/random/uuid)
-nginx_port=$(get_available_port)
-tuic_port=$(get_available_port)
-socks_port=$(get_available_port)
-http_port=$(get_available_port)
-anytls_port=$(get_available_port)
-xtls_reality=$(get_available_port)
-vless_tcp_tls=$(get_available_port)
-anytls_reality=$(get_available_port)
-naive_port=$(get_available_port)
-h2_reality=$(get_available_port)
-hy2_port=$(get_available_port)
-grpc_reality=$(get_available_port)
-xhttp_port=$(get_available_port)
-xray_xhttp_reality=$(get_available_port)
-vless_ws_port=$(get_available_port)
-vmess_ws_port=$(get_available_port)
-trojan_ws_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
@@ -5113,12 +5094,6 @@ modify_inbound_port() {
 
 
 manage_nodes_menu() {
-    if [ -z "$private_key" ]; then
-        output=$(${work_dir}/sing-box generate reality-keypair)
-        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
-        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
-        short_id=$(openssl rand -hex 6)
-    fi
     if systemctl is-active --quiet singbox-traffic.service; then
         :
     else
@@ -6075,6 +6050,31 @@ add_inbound() {
     local engine="$2"
     local inbound_number
     local config_file
+	uuid=$(cat /proc/sys/kernel/random/uuid)
+    uuid99=$(cat /proc/sys/kernel/random/uuid)
+    tuic_port=$(get_available_port)
+    socks_port=$(get_available_port)	
+    anytls_port=$(get_available_port)
+    xtls_reality=$(get_available_port)
+    vless_tcp_tls=$(get_available_port)
+    anytls_reality=$(get_available_port)
+    naive_port=$(get_available_port)
+    h2_reality=$(get_available_port)
+    hy2_port=$(get_available_port)
+    grpc_reality=$(get_available_port)
+    xhttp_port=$(get_available_port)
+    xray_xhttp_reality=$(get_available_port)
+    vless_ws_port=$(get_available_port)
+    vmess_ws_port=$(get_available_port)
+    trojan_ws_port=$(get_available_port)
+	if [ -z "$private_key" ]; then
+        output=$(${work_dir}/sing-box generate reality-keypair)
+        private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
+        public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
+        short_id=$(openssl rand -hex 6)
+    fi
+    username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
     inbound_number=$(get_next_inbound_number "$inbound_type")
     config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "$engine")
     green "================ 添加入站 ================"
@@ -11701,7 +11701,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.7===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.8===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
