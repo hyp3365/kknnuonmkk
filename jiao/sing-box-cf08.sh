@@ -4994,7 +4994,7 @@ enable_ws_argo() {
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     mkdir -p "$URL_DIR"
     if [ -f "$url_file" ]; then
-        sed -i '/_Tunnelvless_ws\|_Tunnelvmess_ws\|_Tunneltrojan_ws/d' "$url_file"
+        sed -i '/Tunnel-vless-ws\|Tunnel-vmess-ws\|Tunnel-vless-xhttp\|Tunnel-trojan-ws/d' "$url_file"
     fi
     echo "$argo_url" >> "$url_file"
     update_sub_file
