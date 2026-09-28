@@ -11576,16 +11576,11 @@ edit_singbox_files() {
     while true; do
         clear
         green "================ 文件管理 ================"
-        echo
-        green "当前目录：$current_dir"
-        echo
         green "快捷目录："
-        echo "a. /etc/sing-box"
-        echo "b. /etc/sing-box/conf"
-        echo "c. /etc/sing-box/user_manager"
-        echo
-        green "================ 当前目录 ================"
-        echo
+        echo "a. /etc/sing-box/conf"
+        echo "b. /etc/nginx"
+        echo "c. /root/"
+        red "====== "当前目录：$current_dir" ======="
         items=()
         i=1
         while IFS= read -r file; do
@@ -11599,7 +11594,7 @@ edit_singbox_files() {
                 rest="${file#*|}"
                 name="${rest%%|*}"
                 if [ "$type" = "d" ]; then
-                    green "${i}. [目录] $name"
+                    red "${i}. [目录] $name"
                 else
                     green "${i}. [文件] $name"
                 fi
