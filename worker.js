@@ -14,7 +14,7 @@ async function fetchIPv6List() {
     }
 
     const text = await response.text();
-    const ipv6List = [];
+    const dateGroups = {};
 
     for (const line of text.split(/\r?\n/)) {
         const parts = line.trim().split(/\s+/);
@@ -23,19 +23,46 @@ async function fetchIPv6List() {
             continue;
         }
 
+        const date = parts[0];
         const ipv6 = parts[parts.length - 1];
+
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            continue;
+        }
 
         if (!ipv6.includes(':')) {
             continue;
         }
 
-        if (!ipv6List.includes(ipv6)) {
-            ipv6List.push(ipv6);
+        if (!dateGroups[date]) {
+            dateGroups[date] = [];
+        }
+
+        if (!dateGroups[date].includes(ipv6)) {
+            dateGroups[date].push(ipv6);
         }
     }
 
-    if (ipv6List.length === 0) {
+    const dates = Object.keys(dateGroups);
+
+    if (dates.length === 0) {
         throw new Error('IPv6 地址列表为空');
+    }
+
+    dates.sort((a, b) => b.localeCompare(a));
+
+    const ipv6List = [];
+
+    for (const date of dates) {
+        for (const ipv6 of dateGroups[date]) {
+            if (!ipv6List.includes(ipv6)) {
+                ipv6List.push(ipv6);
+            }
+
+            if (ipv6List.length >= 30) {
+                return ipv6List;
+            }
+        }
     }
 
     return ipv6List;
