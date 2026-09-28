@@ -11603,10 +11603,79 @@ edit_singbox_files() {
         fi
         echo
         green "z. 返回上一级"
+		green "x. 新建文件"
         green "0. 退出文件管理"
         echo
         read -rp "请选择: " choice
         case "$choice" in
+		    x|X)
+    read -rp "请输入文件名: " name
+    if [ -z "$name" ]; then
+        green "文件名不能为空"
+        sleep 1
+        continue
+    fi
+    selected_path="$current_dir/$name"
+    if [ -e "$selected_path" ]; then
+        green "文件已存在：$selected_path"
+        sleep 1
+        continue
+    fi
+    local temp_file="/tmp/singbox_new_file_$$"
+    : > "$temp_file"
+    clear
+    green "================ 新建文件 ================"
+    echo
+    echo "文件：$selected_path"
+    echo
+    green "请粘贴文件内容："
+    echo "--------------------------------"
+    green "粘贴完成后按 Ctrl + D 结束输入"
+    echo
+    cat > "$temp_file"
+    while true; do
+        clear
+        green "================ 新建文件 ================"
+        echo
+        echo "文件：$selected_path"
+        echo
+        green "文件内容："
+        echo "--------------------------------"
+        cat "$temp_file"
+        echo "--------------------------------"
+        echo
+        green "s. 保存文件"
+        green "q. 保存并退出"
+        green "0. 不保存退出"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            s|S)
+                cp -f "$temp_file" "$selected_path"
+                green "文件保存成功"
+                sleep 1
+                ;;
+            q|Q)
+                cp -f "$temp_file" "$selected_path"
+                rm -f "$temp_file"
+                green "文件保存成功"
+                sleep 1
+                break
+                ;;
+            0)
+                rm -f "$temp_file"
+                green "已取消，新建文件未保存"
+                sleep 1
+                break
+                ;;
+            *)
+                green "无效选择"
+                sleep 1
+                ;;
+        esac
+    done
+    continue
+    ;;
             a|A)
                 current_dir="/etc/sing-box"
                 continue
