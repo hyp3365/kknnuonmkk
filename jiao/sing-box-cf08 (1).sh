@@ -9050,7 +9050,7 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
-                        2)
+                       2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
             if [ -z "$raw_rules" ]; then
@@ -9248,23 +9248,38 @@ nft add chain inet filter script_blocked 2>/dev/null
 if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
     nft insert rule inet filter input jump script_blocked 2>/dev/null
 fi
-purge_port_rules "$curr_port"
-for proto in tcp udp; do
-    while read -r h; do
-        [ -z "$h" ] && continue
-        nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
-    done < <(
-        nft -a list chain inet filter script_blocked 2>/dev/null |
-        awk -v proto="$proto" -v port="$curr_port" '
-            $0 ~ proto " dport " port " drop" {
-                for (i=1;i<=NF;i++)
-                    if ($i=="handle") print $(i+1)
-            }
-        '
-    )
-done
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_input handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_input 2>/dev/null |
+    awk -v port="$curr_port" '
+        $0 ~ /dport/ && $0 ~ ("dport " port " ") {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_blocked 2>/dev/null |
+    awk -v port="$curr_port" '
+        ($0 ~ ("tcp dport " port " drop")) ||
+        ($0 ~ ("udp dport " port " drop")) {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
 local add_failed=0
                         case "${ip_choice}" in
+						    0)
+                                for proto in "${proto_list[@]}"; do
+                                add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
                             1)
                                 if [ -z "$custom_ips" ]; then
                                     for proto in "${proto_list[@]}"; do
@@ -9328,6 +9343,9 @@ local add_failed=0
                             fi
                             save_nft_rules
                             flush_port_conntrack "$curr_port"
+							local verify_rule
+                            verify_rule=$(nft list chain inet filter script_input 2>/dev/null |
+                            grep -E "dport $curr_port .* accept")
                             green "成功：已重新配置端口 $curr_port (${proto_list[*]})"
                         else
                             red "错误：添加新规则失败！请检查 IP 格式或 nftables 语法。"
@@ -9882,36 +9900,27 @@ SRVEOF
             ;;                  
 9)
         yellow "正在扫描所有 nftables 端口规则..."
-    yellow "Hysteria2 端口跳跃规则将自动排除。"
-
     local cleaned=0
-
-    # 1. 预先一次性获取所有正在监听的 TCP/UDP 端口 (格式: proto:port，例如 tcp:80 或 udp:53)
-    local listening_ports
     listening_ports=$(ss -H -lntu 2>/dev/null | awk '{
-        proto=$1
-        addr=$5
-        sub(/.*:/, "", addr)
-        if (proto ~ /^(tcp|udp)$/ && addr ~ /^[0-9]+$/) {
-            print proto ":" addr
-        }
+    proto=$1
+    addr=$5
+    sub(/.*:/, "", addr)
+    if (proto == "tcp6") proto="tcp"
+    if (proto == "udp6") proto="udp"
+    if (proto ~ /^(tcp|udp)$/ && addr ~ /^[0-9]+$/) {
+        print proto ":" addr
+    }
     }' | sort -u)
-
     local family table chain type port handle
-
-    # 2. 解析并逐条比对 nftables 规则
     while read -r family table chain type port handle; do
-        [[ "$family" =~ ^(ip|ip6|inet)$ ]] || continue
+    [[ "$family" =~ ^(ip|ip6|inet)$ ]] || continue
+    [[ "$chain" != "forward" ]] || continue
         [[ "$port" =~ ^[0-9]+$ ]] || continue
         [[ "$handle" =~ ^[0-9]+$ ]] || continue
-
-        # 排除 Hysteria2 NAT 表，避免误删 Hy2 端口跳跃规则
         if [[ "$table" == "hysteria_nat" ]]; then
             yellow "跳过 Hy2 端口跳跃规则: $family $table $chain $type $port"
             continue
         fi
-
-        # 3. 精确校验该协议 (tcp/udp) 和端口是否在监听列表中
         if ! grep -q -x "${type}:${port}" <<< "$listening_ports"; then
             if nft delete rule "$family" "$table" "$chain" handle "$handle" 2>/dev/null; then
                 green "已清理未运行规则: $family $table $chain $type $port (handle $handle)"
@@ -9921,7 +9930,7 @@ SRVEOF
     done < <(
         nft -a -nn list ruleset 2>/dev/null |
         awk '
-            # 匹配 table (允许行首包含缩进)
+		
             /^[ \t]*table (ip|ip6|inet) / {
                 family=$2
                 table=$3
@@ -9930,7 +9939,6 @@ SRVEOF
                 next
             }
 
-            # 匹配 chain (允许行首包含缩进)
             /^[ \t]*chain / {
                 sub(/^[ \t]*chain[ \t]+/, "")
                 chain=$1
@@ -9938,7 +9946,6 @@ SRVEOF
                 next
             }
 
-            # 匹配包含 tcp/udp dport 和 handle 的规则 (不限制 dport 的位置)
             /^[ \t]*(.*[ \t])?(tcp|udp)[ \t]+dport[ \t]+/ {
                 type=""
                 port=""
