@@ -1259,6 +1259,7 @@ iptables_ssl() {
                 fi
             fi
             sleep 1 && iptables_ssl ;;
+			
                         2)
             clear
             local raw_rules=$(nft -a list chain inet filter script_input 2>/dev/null | grep 'dport')
@@ -1457,23 +1458,38 @@ nft add chain inet filter script_blocked 2>/dev/null
 if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
     nft insert rule inet filter input jump script_blocked 2>/dev/null
 fi
-purge_port_rules "$curr_port"
-for proto in tcp udp; do
-    while read -r h; do
-        [ -z "$h" ] && continue
-        nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
-    done < <(
-        nft -a list chain inet filter script_blocked 2>/dev/null |
-        awk -v proto="$proto" -v port="$curr_port" '
-            $0 ~ proto " dport " port " drop" {
-                for (i=1;i<=NF;i++)
-                    if ($i=="handle") print $(i+1)
-            }
-        '
-    )
-done
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_input handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_input 2>/dev/null |
+    awk -v port="$curr_port" '
+        $0 ~ /dport/ && $0 ~ ("dport " port " ") {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_blocked 2>/dev/null |
+    awk -v port="$curr_port" '
+        ($0 ~ ("tcp dport " port " drop")) ||
+        ($0 ~ ("udp dport " port " drop")) {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
 local add_failed=0
                         case "${ip_choice}" in
+						    0)
+                                for proto in "${proto_list[@]}"; do
+                                add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
                             1)
                                 if [ -z "$custom_ips" ]; then
                                     for proto in "${proto_list[@]}"; do
@@ -1537,6 +1553,9 @@ local add_failed=0
                             fi
                             save_nft_rules
                             flush_port_conntrack "$curr_port"
+							local verify_rule
+                            verify_rule=$(nft list chain inet filter script_input 2>/dev/null |
+                            grep -E "dport $curr_port .* accept")
                             green "成功：已重新配置端口 $curr_port (${proto_list[*]})"
                         else
                             red "错误：添加新规则失败！请检查 IP 格式或 nftables 语法。"
