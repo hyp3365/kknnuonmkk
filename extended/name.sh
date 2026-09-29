@@ -1065,6 +1065,7 @@ add_inbound() {
     hy2_port=$(get_available_port)
     grpc_reality=$(get_available_port)
     xhttp_port=$(get_available_port)
+	xhttp_udptls_port=$(get_available_port)
     xray_xhttp_reality=$(get_available_port)
     vless_ws_port=$(get_available_port)
     vmess_ws_port=$(get_available_port)
@@ -1622,7 +1623,7 @@ EOF
       "type": "vless",
       "tag": "vless-xhttp-udptls-${inbound_number}",
       "listen": "::",
-      "listen_port": $xhttp_port,
+      "listen_port": $xhttp_udptls_port,
       "users": [
         {
           "name": "vless-xhttp-udptls-user${inbound_number}",
@@ -1639,7 +1640,8 @@ EOF
         "key_path": "$key_file",
 		"alpn": [
           "h3"
-         ],
+          ]
+	  },
       "transport": {
         "type": "xhttp",
         "path": "$xhttp_path"
@@ -1648,9 +1650,10 @@ EOF
   ]
 }
 EOF
-    allow_port "$vless_tcp_tls/tcp" >/dev/null 2>&1
+    allow_port "$xhttp_udptls_port/tcp" >/dev/null 2>&1
+	allow_port "$xhttp_udptls_port/udp" >/dev/null 2>&1
     node_remark="${isp}xhttp-udptsl"
-    url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
+    url="vless://${uuid}@${server_ip}:${xhttp_udptls_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     add_v2ray_api_user "vless-xhttp-udptsl-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
