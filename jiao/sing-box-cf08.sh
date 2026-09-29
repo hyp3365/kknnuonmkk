@@ -7691,7 +7691,6 @@ delete_user() {
     echo
     red "确定删除用户：${username}？"
     yellow "会从所有入站中删除该用户。"
-    yellow "入站配置文件本身不会删除。"
     echo
     read -rp "输入 y 确认删除: " confirm
     [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
@@ -7839,9 +7838,11 @@ PY
     green "==============================================="
     echo
     sleep 1
+	return 2
     fi
 	return 0
 }
+
 
 #更新脚本
 update_script() {
