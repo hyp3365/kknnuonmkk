@@ -6653,7 +6653,8 @@ EOF
         "key_path": "$key_file",
 		"alpn": [
           "h3"
-         ],
+         ]
+	  }
       "transport": {
         "type": "xhttp",
         "path": "$xhttp_path"
@@ -10432,7 +10433,11 @@ manage_singbox() {
     case "${choice}" in
         1) start_singbox ;;  
         2) stop_singbox ;;
-		3) systemctl reload sing-box;;
+		3) systemctl reload sing-box
+		   green "正在重载"
+           sleep 1
+		   green "重载完成"
+			;;
         s|S) read -rp "确定要重启 sing-box 服务吗？输入 y 确认: " confirm
              if [[ "$confirm" =~ ^[Yy]$ ]]; then
              restart_singbox
