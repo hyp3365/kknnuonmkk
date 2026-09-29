@@ -1010,7 +1010,7 @@ add_inbound_menu() {
         green "10. XHTTP Reality"
         green "11. VLESS XHTTP"
      
-        green "13. XHTTP UDP TLS"
+        green "12. XHTTP UDP TLS"
         green "14. XHTTP TCP+UDP CDN TLS"
         green "15. VLESS TCP TLS"
         green "16. Naiveproxy"
@@ -1035,7 +1035,7 @@ add_inbound_menu() {
             10) add_inbound "xhttp-reality" ;;
             11) add_inbound "vless-xhttp" ;;
             
-            13) add_inbound "xhttp-udp-tls" ;;
+            12) add_inbound "xhttp-udp-tls" ;;
             14) add_inbound "xhttp-tcpudp-cdn-tls" ;;
             15) add_inbound "vless-tcp-tls" ;;
             16) add_inbound "naiveproxy" ;;
@@ -1596,9 +1596,9 @@ EOF
     fi
     node_remark="${isp}xhttp"
     if [[ "$xhttp_tls" == "true" ]]; then
-        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
     else
-        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&path=${xhttp_path}#${node_remark}"
     fi
     add_v2ray_api_user "vless-xhttp-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
@@ -1610,8 +1610,57 @@ EOF
     green "$url"
     green "--------------------------------------------------"
     ;;
-        xhttp-udp-tls) green "这里接入 XHTTP UDP TLS 创建逻辑" ;;
-        xhttp-tcpudp-cdn-tls) green "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑" ;;
+        xhttp-udp-tls)
+    generate_vars
+    server_ip=$(get_realip)
+	check_and_issue_ssl "" || return 1
+    xhttp_path="/$(openssl rand -hex 6)-xhttp"
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-xhttp-udptls-${inbound_number}",
+      "listen": "::",
+      "listen_port": $xhttp_port,
+      "users": [
+        {
+          "name": "vless-xhttp-udptls-user${inbound_number}",
+          "uuid": "$uuid"
+        },
+        {
+          "name": "tttttt",
+          "uuid": "$uuid99"
+        }
+      ],
+	  "tls": {
+        "enabled": true,
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file",
+		"alpn": [
+          "h3"
+         ],
+      "transport": {
+        "type": "xhttp",
+        "path": "$xhttp_path"
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$vless_tcp_tls/tcp" >/dev/null 2>&1
+    node_remark="${isp}xhttp-udptsl"
+    url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
+    add_v2ray_api_user "vless-xhttp-udptsl-user${inbound_number}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+    update_sub_file
+    systemctl reload sing-box
+    green "--------------------------------------------------"
+    green " 节点链接: "
+    green "$url"
+    green "--------------------------------------------------"
+    ;;
         vless-tcp-tls)
 	generate_vars
     server_ip=$(get_realip)
