@@ -9403,6 +9403,11 @@ done < <(
 )
 local add_failed=0
                         case "${ip_choice}" in
+						    0)
+                                for proto in "${proto_list[@]}"; do
+                                add_safe_rule "$proto dport $curr_port accept" || add_failed=1
+                                done
+                                ;;
                             1)
                                 if [ -z "$custom_ips" ]; then
                                     for proto in "${proto_list[@]}"; do
@@ -11909,7 +11914,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.9===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.0===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
