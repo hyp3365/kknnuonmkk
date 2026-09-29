@@ -4210,13 +4210,6 @@ disable_open_sub() {
     while true; do
     local nginx_status=$(check_nginx 2>/dev/null)
     
-    if [ $singbox_installed -eq 2 ]; then
-        yellow "sing-box 尚未安装！"
-        sleep 1
-        menu
-        return
-    fi
-
     clear
     echo ""
     green "=== 节点订阅管理 ===\n"
