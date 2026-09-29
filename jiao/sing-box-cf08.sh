@@ -6654,7 +6654,7 @@ EOF
 		"alpn": [
           "h3"
          ]
-	  }
+	  },
       "transport": {
         "type": "xhttp",
         "path": "$xhttp_path"
@@ -6664,8 +6664,9 @@ EOF
 }
 EOF
     allow_port "$vless_tcp_tls/tcp" >/dev/null 2>&1
+	allow_port "$vless_tcp_tls/udp" >/dev/null 2>&1
     node_remark="${isp}xhttp-udptsl"
-    url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
+    url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     add_v2ray_api_user "vless-xhttp-udptsl-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
@@ -9375,21 +9376,31 @@ nft add chain inet filter script_blocked 2>/dev/null
 if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
     nft insert rule inet filter input jump script_blocked 2>/dev/null
 fi
-purge_port_rules "$curr_port"
-for proto in tcp udp; do
-    while read -r h; do
-        [ -z "$h" ] && continue
-        nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
-    done < <(
-        nft -a list chain inet filter script_blocked 2>/dev/null |
-        awk -v proto="$proto" -v port="$curr_port" '
-            $0 ~ proto " dport " port " drop" {
-                for (i=1;i<=NF;i++)
-                    if ($i=="handle") print $(i+1)
-            }
-        '
-    )
-done
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_input handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_input 2>/dev/null |
+    awk -v port="$curr_port" '
+        $0 ~ /dport/ && $0 ~ ("dport " port " ") {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
+while read -r h; do
+    [ -z "$h" ] && continue
+    nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+done < <(
+    nft -a list chain inet filter script_blocked 2>/dev/null |
+    awk -v port="$curr_port" '
+        ($0 ~ ("tcp dport " port " drop")) ||
+        ($0 ~ ("udp dport " port " drop")) {
+            for (i=1;i<=NF;i++)
+                if ($i=="handle") print $(i+1)
+        }
+    '
+)
 local add_failed=0
                         case "${ip_choice}" in
                             1)
@@ -9455,6 +9466,9 @@ local add_failed=0
                             fi
                             save_nft_rules
                             flush_port_conntrack "$curr_port"
+							local verify_rule
+                            verify_rule=$(nft list chain inet filter script_input 2>/dev/null |
+                            grep -E "dport $curr_port .* accept")
                             green "成功：已重新配置端口 $curr_port (${proto_list[*]})"
                         else
                             red "错误：添加新规则失败！请检查 IP 格式或 nftables 语法。"
@@ -11895,7 +11909,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.8===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.9===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
