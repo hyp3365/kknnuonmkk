@@ -130,10 +130,10 @@ function validateConfig(uuid,type,path,sni){
     if(type!=='xhttp'&&type!=='vless'&&type!=='vmess'){
         throw new Error('只支持 xhttp、vless 和 vmess');
     }
-    if(!path)throw new Error('PATH 不能为空');
+    if(!path)throw new Error('路径不能为空');
     if(!path.startsWith('/'))path='/'+path;
-    if(path==='/')throw new Error('PATH 不能为空');
-    if(!sni)throw new Error('SNI 不能为空');
+    if(path==='/')throw new Error('路径不能为空');
+    if(!sni)throw new Error('域名不能为空');
     return{
         uuid,
         type,
@@ -216,7 +216,7 @@ function htmlPage(message='',result=''){
 body{margin:0;padding:20px;background:#f5f5f5;font-family:Arial,sans-serif}
 .container{max-width:700px;margin:40px auto;background:white;padding:25px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
 h2{margin-top:0}
-input{width:100%;box-sizing:border-box;padding:12px;margin-top:10px;border:1px solid #ccc;border-radius:8px;font-size:14px}
+input,select{width:100%;box-sizing:border-box;padding:12px;margin-top:10px;border:1px solid #ccc;border-radius:8px;font-size:14px;background:white}
 button{width:100%;margin-top:15px;padding:12px;border:0;border-radius:8px;background:#111;color:white;font-size:16px;cursor:pointer}
 textarea{width:100%;box-sizing:border-box;margin-top:15px;padding:12px;border:1px solid #ccc;border-radius:8px;resize:vertical}
 .result{height:100px}
@@ -227,9 +227,14 @@ textarea{width:100%;box-sizing:border-box;margin-top:15px;padding:12px;border:1p
 <h2>IPv6</h2>
 <form method="POST">
 <input name="uuid" placeholder="UUID" required>
-<input name="type" placeholder="xhttp、vless 或 vmess" required>
-<input name="path" placeholder="PATH，例如 sssisuiu" required>
-<input name="sni" placeholder="SNI，例如 www.iij.ad.jp" required>
+<select name="type" required>
+<option value="" disabled selected>请选择类型</option>
+<option value="xhttp">XHTTP</option>
+<option value="vless">VLESS</option>
+<option value="vmess">VMess</option>
+</select>
+<input name="path" placeholder="路径" required>
+<input name="sni" placeholder="域名" required>
 <button type="submit">生成</button>
 </form>
 ${message?`<div>${escapeHtml(message)}</div>`:''}
