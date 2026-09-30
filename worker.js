@@ -1,283 +1,345 @@
-const IPV6_LIST_URL = 'https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
+const IPV6_LIST_URL='https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
+const WS_SUB_PROTOCOL='grpc';
 
-async function fetchIPv6List() {
-    const response = await fetch(IPV6_LIST_URL, {
-        headers: {
-            'User-Agent': 'Cloudflare-Worker'
-        }
-    });
-
-    if (!response.ok) {
-        throw new Error(`IPv6 地址列表获取失败：HTTP ${response.status}`);
+async function fetchIPv6List(){
+    const response=await fetch(IPV6_LIST_URL,{headers:{'User-Agent':'Cloudflare-Worker'}});
+    if(!response.ok)throw new Error(`IPv6 地址列表获取失败：HTTP ${response.status}`);
+    const text=await response.text();
+    const dateGroups={};
+    for(const line of text.split(/\r?\n/)){
+        const parts=line.trim().split(/\s+/);
+        if(parts.length<2)continue;
+        const date=parts[0];
+        const ipv6=parts[parts.length-1];
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date))continue;
+        if(!ipv6.includes(':'))continue;
+        if(!dateGroups[date])dateGroups[date]=[];
+        if(!dateGroups[date].includes(ipv6))dateGroups[date].push(ipv6);
     }
-
-    const text = await response.text();
-    const dateGroups = {};
-
-    for (const line of text.split(/\r?\n/)) {
-        const parts = line.trim().split(/\s+/);
-
-        if (parts.length < 2) {
-            continue;
-        }
-
-        const date = parts[0];
-        const ipv6 = parts[parts.length - 1];
-
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            continue;
-        }
-
-        if (!ipv6.includes(':')) {
-            continue;
-        }
-
-        if (!dateGroups[date]) {
-            dateGroups[date] = [];
-        }
-
-        if (!dateGroups[date].includes(ipv6)) {
-            dateGroups[date].push(ipv6);
+    const dates=Object.keys(dateGroups);
+    if(dates.length===0)throw new Error('IPv6 地址列表为空');
+    dates.sort((a,b)=>b.localeCompare(a));
+    const ipv6List=[];
+    for(const date of dates){
+        for(const ipv6 of dateGroups[date]){
+            if(!ipv6List.includes(ipv6))ipv6List.push(ipv6);
+            if(ipv6List.length>=30)return ipv6List;
         }
     }
-
-    const dates = Object.keys(dateGroups);
-
-    if (dates.length === 0) {
-        throw new Error('IPv6 地址列表为空');
-    }
-
-    dates.sort((a, b) => b.localeCompare(a));
-
-    const ipv6List = [];
-
-    for (const date of dates) {
-        for (const ipv6 of dateGroups[date]) {
-            if (!ipv6List.includes(ipv6)) {
-                ipv6List.push(ipv6);
-            }
-
-            if (ipv6List.length >= 30) {
-                return ipv6List;
-            }
-        }
-    }
-
     return ipv6List;
 }
 
-function decodeBase64(text) {
-    try {
-        const binary = atob(text.replace(/\s/g, ''));
-        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-        return new TextDecoder().decode(bytes);
-    } catch {
-        return '';
+function base64Encode(text){
+    const bytes=new TextEncoder().encode(text);
+    let binary='';
+    for(let i=0;i<bytes.length;i+=0x8000){
+        binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
     }
-}
-
-function extractLinks(input) {
-    input = input.trim();
-
-    let links = input
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line.startsWith('vmess://') || line.startsWith('vless://'));
-
-    if (links.length > 0) {
-        return links;
-    }
-
-    const decoded = decodeBase64(input);
-
-    if (decoded) {
-        links = decoded
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line => line.startsWith('vmess://') || line.startsWith('vless://'));
-
-        if (links.length > 0) {
-            return links;
-        }
-    }
-
-    throw new Error('没有找到有效的 VMess 或 VLESS 连接');
-}
-
-function replaceServerAddress(connection, ipv6) {
-    const match = connection.match(/^(vmess|vless):\/\/([^@]+)@([^:/]+|\[[^\]]+\])(:\d+)(.*)$/);
-
-    if (!match) {
-        throw new Error('连接格式错误');
-    }
-
-    const protocol = match[1];
-    const userInfo = match[2];
-    const port = match[4];
-    const rest = match[5];
-
-    return `${protocol}://${userInfo}@[${ipv6}]${port}${rest}`;
-}
-
-function base64Encode(text) {
-    const bytes = new TextEncoder().encode(text);
-    let binary = '';
-
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    }
-
     return btoa(binary);
 }
 
-async function generateSubscription(input) {
-    const links = extractLinks(input);
-    const ipv6List = await fetchIPv6List();
-    const result = [];
+function base64UrlEncode(bytes){
+    let binary='';
+    for(const byte of bytes){
+        binary+=String.fromCharCode(byte);
+    }
+    return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
 
-    for (const link of links) {
-        for (const ipv6 of ipv6List) {
-            result.push(replaceServerAddress(link, ipv6));
+function base64UrlDecode(value){
+    const normalized=value.replace(/-/g,'+').replace(/_/g,'/');
+    const padded=normalized+'='.repeat((4-normalized.length%4)%4);
+    const binary=atob(padded);
+    const bytes=new Uint8Array(binary.length);
+    for(let i=0;i<binary.length;i++){
+        bytes[i]=binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+async function getCryptoKey(secret){
+    if(!secret){
+        throw new Error('TOKEN_SECRET 未配置');
+    }
+    const hash=await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(secret)
+    );
+    return crypto.subtle.importKey(
+        'raw',
+        hash,
+        {
+            name:'AES-GCM'
+        },
+        false,
+        ['encrypt','decrypt']
+    );
+}
+
+async function createToken(data,secret){
+    const key=await getCryptoKey(secret);
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const plaintext=new TextEncoder().encode(JSON.stringify(data));
+    const encrypted=await crypto.subtle.encrypt(
+        {
+            name:'AES-GCM',
+            iv
+        },
+        key,
+        plaintext
+    );
+    const encryptedBytes=new Uint8Array(encrypted);
+    const tokenBytes=new Uint8Array(iv.length+encryptedBytes.length);
+    tokenBytes.set(iv,0);
+    tokenBytes.set(encryptedBytes,iv.length);
+    return base64UrlEncode(tokenBytes);
+}
+
+async function decodeToken(token,secret){
+    try{
+        const data=base64UrlDecode(token);
+        if(data.length<13)throw new Error('Token 无效');
+        const iv=data.slice(0,12);
+        const encrypted=data.slice(12);
+        const key=await getCryptoKey(secret);
+        const decrypted=await crypto.subtle.decrypt(
+            {
+                name:'AES-GCM',
+                iv
+            },
+            key,
+            encrypted
+        );
+        const text=new TextDecoder().decode(decrypted);
+        const config=JSON.parse(text);
+        if(!config||!config.uuid||!config.type||!config.path||!config.sni){
+            throw new Error('Token 数据无效');
+        }
+        return config;
+    }catch(error){
+        throw new Error('订阅 Token 无效');
+    }
+}
+
+function validateUUID(uuid){
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(uuid);
+}
+
+function validateConfig(uuid,type,path,sni){
+    if(!validateUUID(uuid))throw new Error('UUID 格式错误');
+    if(type!=='xhttp'&&type!=='vless'&&type!=='vmess'){
+        throw new Error('只支持 xhttp、vless 和 vmess');
+    }
+    if(!path)throw new Error('PATH 不能为空');
+    if(!path.startsWith('/'))path='/'+path;
+    if(path==='/')throw new Error('PATH 不能为空');
+    if(!sni)throw new Error('SNI 不能为空');
+    return{
+        uuid,
+        type,
+        path,
+        sni
+    };
+}
+
+function generateXhttpLink(uuid,ipv6,path,sni){
+    const params=new URLSearchParams();
+    params.set('encryption','none');
+    params.set('security','tls');
+    params.set('sni',sni);
+    params.set('alpn','h3');
+    params.set('type','xhttp');
+    params.set('path',path);
+    params.set('host',sni);
+    return`vless://${uuid}@[${ipv6}]:443?${params.toString()}`;
+}
+
+function generateVlessWsLink(uuid,ipv6,path,sni){
+    const params=new URLSearchParams();
+    params.set('encryption','none');
+    params.set('security','tls');
+    params.set('sni',sni);
+    params.set('type','ws');
+    params.set('path',path);
+    params.set('host',sni);
+    params.set('max_early_data','2048');
+    params.set('early_data_header_name','Sec-WebSocket-Protocol');
+    return`vless://${uuid}@[${ipv6}]:443?${params.toString()}`;
+}
+
+function generateVmessWsLink(uuid,ipv6,path,sni){
+    const config={
+        v:"2",
+        ps:`${sni}-${ipv6}`,
+        add:ipv6,
+        port:"443",
+        id:uuid,
+        aid:"0",
+        scy:"auto",
+        net:"ws",
+        type:"none",
+        host:sni,
+        path:path,
+        tls:"tls",
+        sni:sni,
+        alpn:"",
+        fp:"",
+        max_early_data:2048,
+        early_data_header_name:"Sec-WebSocket-Protocol"
+    };
+    return`vmess://${base64Encode(JSON.stringify(config))}`;
+}
+
+async function generateSubscription(uuid,type,path,sni){
+    const ipv6List=await fetchIPv6List();
+    const result=[];
+    for(const ipv6 of ipv6List){
+        if(type==='xhttp'){
+            result.push(generateXhttpLink(uuid,ipv6,path,sni));
+        }else if(type==='vless'){
+            result.push(generateVlessWsLink(uuid,ipv6,path,sni));
+        }else{
+            result.push(generateVmessWsLink(uuid,ipv6,path,sni));
         }
     }
-
     return result.join('\n');
 }
 
-function htmlPage(message = '', result = '') {
-    return `<!DOCTYPE html>
+function htmlPage(message='',result=''){
+    return`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IPV6优选</title>
+<title>IPv6</title>
 <style>
-body {
-    margin: 0;
-    padding: 20px;
-    background: #f5f5f5;
-    font-family: Arial,sans-serif;
-}
-.container {
-    max-width: 700px;
-    margin: 40px auto;
-    background: white;
-    padding: 25px;
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0,0,0,.08);
-}
-h2 {
-    margin-top: 0;
-}
-textarea {
-    width: 100%;
-    height: 180px;
-    box-sizing: border-box;
-    padding: 12px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    resize: vertical;
-    font-size: 14px;
-}
-button {
-    width: 100%;
-    margin-top: 15px;
-    padding: 12px;
-    border: 0;
-    border-radius: 8px;
-    background: #111;
-    color: white;
-    font-size: 16px;
-    cursor: pointer;
-}
-button:hover {
-    opacity: .85;
-}
-.message {
-    margin-top: 15px;
-    padding: 10px;
-    border-radius: 6px;
-    background: #f0f0f0;
-    word-break: break-all;
-}
-.result {
-    margin-top: 15px;
-    height: 120px;
-}
+body{margin:0;padding:20px;background:#f5f5f5;font-family:Arial,sans-serif}
+.container{max-width:700px;margin:40px auto;background:white;padding:25px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+h2{margin-top:0}
+input{width:100%;box-sizing:border-box;padding:12px;margin-top:10px;border:1px solid #ccc;border-radius:8px;font-size:14px}
+button{width:100%;margin-top:15px;padding:12px;border:0;border-radius:8px;background:#111;color:white;font-size:16px;cursor:pointer}
+textarea{width:100%;box-sizing:border-box;margin-top:15px;padding:12px;border:1px solid #ccc;border-radius:8px;resize:vertical}
+.result{height:100px}
 </style>
 </head>
 <body>
 <div class="container">
-<h2>IPV6优选</h2>
+<h2>IPv6</h2>
 <form method="POST">
-<textarea name="subscription" placeholder="输入 VMess / VLESS 订阅连接">${escapeHtml(message)}</textarea>
-<button type="submit">生成IPV6优选连接</button>
+<input name="uuid" placeholder="UUID" required>
+<input name="type" placeholder="xhttp、vless 或 vmess" required>
+<input name="path" placeholder="PATH，例如 sssisuiu" required>
+<input name="sni" placeholder="SNI，例如 www.iij.ad.jp" required>
+<button type="submit">生成</button>
 </form>
-${result ? `<textarea class="result" readonly>${escapeHtml(result)}</textarea>` : ''}
+${message?`<div>${escapeHtml(message)}</div>`:''}
+${result?`<textarea class="result" readonly onclick="this.select()">${escapeHtml(result)}</textarea>`:''}
 </div>
 </body>
 </html>`;
 }
 
-function escapeHtml(text) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+function escapeHtml(text){
+    return String(text)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#039;');
 }
 
-export default {
-    async fetch(request) {
-        const url = new URL(request.url);
-
-        if (url.pathname !== '/') {
-            return new Response('Not Found', {
-                status: 404
-            });
+function subscriptionResponse(data){
+    return new Response(data,{
+        status:200,
+        headers:{
+            'Content-Type':'text/plain; charset=utf-8',
+            'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma':'no-cache',
+            'Access-Control-Allow-Origin':'*'
         }
+    });
+}
 
-        if (request.method === 'GET') {
-            return new Response(htmlPage(), {
-                headers: {
-                    'Content-Type': 'text/html; charset=utf-8'
-                }
-            });
-        }
-
-        if (request.method === 'POST') {
-            try {
-                const form = await request.formData();
-                const subscription = String(form.get('subscription') || '').trim();
-
-                if (!subscription) {
-                    return new Response(htmlPage('请输入 VMess 或 VLESS 订阅连接'), {
-                        headers: {
-                            'Content-Type': 'text/html; charset=utf-8'
+export default{
+    async fetch(request,env){
+        const url=new URL(request.url);
+        if(request.method==='GET'&&url.pathname!=='/'){
+            try{
+                const token=url.pathname.slice(1);
+                if(!token)throw new Error('订阅 Token 不能为空');
+                const config=await decodeToken(token,env.TOKEN_SECRET);
+                const validated=validateConfig(
+                    config.uuid,
+                    config.type,
+                    config.path,
+                    config.sni
+                );
+                const result=await generateSubscription(
+                    validated.uuid,
+                    validated.type,
+                    validated.path,
+                    validated.sni
+                );
+                return subscriptionResponse(base64Encode(result));
+            }catch(error){
+                return new Response(
+                    error.message||'订阅生成失败',
+                    {
+                        status:400,
+                        headers:{
+                            'Content-Type':'text/plain; charset=utf-8',
+                            'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0',
+                            'Pragma':'no-cache',
+                            'Access-Control-Allow-Origin':'*'
                         }
-                    });
-                }
-
-                const result = await generateSubscription(subscription);
-
-                return new Response(htmlPage('', result), {
-                    headers: {
-                        'Content-Type': 'text/html; charset=utf-8'
                     }
-                });
-            } catch (error) {
-                return new Response(htmlPage(error.message || '生成失败'), {
-                    status: 400,
-                    headers: {
-                        'Content-Type': 'text/html; charset=utf-8'
-                    }
-                });
+                );
             }
         }
-
-        return new Response('Method Not Allowed', {
-            status: 405
-        });
+        if(url.pathname!=='/')return new Response('Not Found',{status:404});
+        if(request.method==='GET'){
+            return new Response(htmlPage(),{
+                headers:{
+                    'Content-Type':'text/html; charset=utf-8'
+                }
+            });
+        }
+        if(request.method==='POST'){
+            try{
+                const form=await request.formData();
+                const uuid=String(form.get('uuid')||'').trim();
+                const type=String(form.get('type')||'').trim().toLowerCase();
+                let path=String(form.get('path')||'').trim();
+                const sni=String(form.get('sni')||'').trim();
+                if(!path.startsWith('/'))path='/'+path;
+                const config=validateConfig(
+                    uuid,
+                    type,
+                    path,
+                    sni
+                );
+                const token=await createToken(config,env.TOKEN_SECRET);
+                const subscriptionUrl=`${url.origin}/${token}`;
+                return new Response(
+                    htmlPage('',subscriptionUrl),
+                    {
+                        headers:{
+                            'Content-Type':'text/html; charset=utf-8'
+                        }
+                    }
+                );
+            }catch(error){
+                return new Response(
+                    htmlPage('',error.message||'生成失败'),
+                    {
+                        status:400,
+                        headers:{
+                            'Content-Type':'text/html; charset=utf-8'
+                        }
+                    }
+                );
+            }
+        }
+        return new Response('Method Not Allowed',{status:405});
     }
 };
