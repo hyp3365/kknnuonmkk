@@ -330,7 +330,7 @@ export default{
                     sni
                 );
                 const token=await createToken(config,env.TOKEN_SECRET);
-                const subscriptionUrl=`${url.origin}/${token}`;
+                const subscriptionUrl=`${url.origin}/${token}?count=30`;
                 return new Response(
                     htmlPage('',subscriptionUrl),
                     {
