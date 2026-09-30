@@ -133,7 +133,7 @@ function htmlPage(message='',result=''){
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IPv6 动态订阅</title>
+<title>IPv6</title>
 <style>
 body{margin:0;padding:20px;background:#f5f5f5;font-family:Arial,sans-serif}
 .container{max-width:700px;margin:40px auto;background:white;padding:25px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
@@ -147,13 +147,13 @@ textarea{width:100%;box-sizing:border-box;margin-top:15px;padding:12px;border:1p
 </head>
 <body>
 <div class="container">
-<h2>IPv6 动态订阅</h2>
+<h2>IPv6</h2>
 <form method="POST">
 <input name="uuid" placeholder="UUID" required>
 <input name="type" placeholder="xhttp、vless 或 vmess" required>
 <input name="path" placeholder="PATH，例如 sssisuiu" required>
 <input name="sni" placeholder="SNI，例如 www.iij.ad.jp" required>
-<button type="submit">生成订阅链接</button>
+<button type="submit">生成</button>
 </form>
 ${result?`<textarea class="result" readonly onclick="this.select()">${escapeHtml(result)}</textarea>`:''}
 </div>
