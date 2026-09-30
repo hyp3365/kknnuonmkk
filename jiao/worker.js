@@ -1,6 +1,17 @@
-const IPV6_LIST_URL = 'https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
+const IPV6_LIST_URL =
+    'https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
+
+// WS 节点的 Sec-WebSocket-Protocol
+// 如果你的实际值不是这个，只需要修改这里
+const WS_SUB_PROTOCOL = 'grpc';
+
+
+// ==================================================
+// 获取最新 IPv6
+// ==================================================
 
 async function fetchIPv6List() {
+
     const response = await fetch(IPV6_LIST_URL, {
         headers: {
             'User-Agent': 'Cloudflare-Worker'
@@ -8,13 +19,17 @@ async function fetchIPv6List() {
     });
 
     if (!response.ok) {
-        throw new Error(`IPv6 地址列表获取失败：HTTP ${response.status}`);
+        throw new Error(
+            `IPv6 地址列表获取失败：HTTP ${response.status}`
+        );
     }
 
     const text = await response.text();
+
     const dateGroups = {};
 
     for (const line of text.split(/\r?\n/)) {
+
         const parts = line.trim().split(/\s+/);
 
         if (parts.length < 2) {
@@ -47,16 +62,20 @@ async function fetchIPv6List() {
         throw new Error('IPv6 地址列表为空');
     }
 
+    // 最新日期优先
     dates.sort((a, b) => b.localeCompare(a));
 
     const ipv6List = [];
 
     for (const date of dates) {
+
         for (const ipv6 of dateGroups[date]) {
+
             if (!ipv6List.includes(ipv6)) {
                 ipv6List.push(ipv6);
             }
 
+            // 最多 30 个
             if (ipv6List.length >= 30) {
                 return ipv6List;
             }
@@ -67,40 +86,23 @@ async function fetchIPv6List() {
 }
 
 
-// ==================== Base64 解码 ====================
-
-function decodeBase64(text) {
-    try {
-        let normalized = text
-            .replace(/\s/g, '')
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
-        while (normalized.length % 4 !== 0) {
-            normalized += '=';
-        }
-
-        const binary = atob(normalized);
-
-        const bytes = Uint8Array.from(
-            binary,
-            c => c.charCodeAt(0)
-        );
-
-        return new TextDecoder().decode(bytes);
-    } catch {
-        return '';
-    }
-}
-
-
-// ==================== Base64 编码 ====================
+// ==================================================
+// Base64
+// ==================================================
 
 function base64Encode(text) {
-    const bytes = new TextEncoder().encode(text);
+
+    const bytes =
+        new TextEncoder().encode(text);
+
     let binary = '';
 
-    for (let i = 0; i < bytes.length; i += 0x8000) {
+    for (
+        let i = 0;
+        i < bytes.length;
+        i += 0x8000
+    ) {
+
         binary += String.fromCharCode(
             ...bytes.subarray(i, i + 0x8000)
         );
@@ -110,129 +112,323 @@ function base64Encode(text) {
 }
 
 
-// ==================== Base64URL 编码 ====================
-// 用于把用户输入放进 /sub?data=xxxxx
+// ==================================================
+// URL 编码
+// ==================================================
 
-function base64UrlEncode(text) {
-    return base64Encode(text)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/g, '');
+function encode(value) {
+    return encodeURIComponent(value);
 }
 
 
-// ==================== Base64URL 解码 ====================
+// ==================================================
+// UUID 校验
+// ==================================================
 
-function base64UrlDecode(text) {
-    try {
-        let normalized = text
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
+function validateUUID(uuid) {
 
-        while (normalized.length % 4 !== 0) {
-            normalized += '=';
-        }
-
-        return decodeBase64(normalized);
-    } catch {
-        return '';
-    }
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+        .test(uuid);
 }
 
 
-// ==================== 提取 VMess / VLESS ====================
+// ==================================================
+// 解析订阅路径
+//
+// /UUID/xhttp/PATH/SNI
+// /UUID/ws/PATH/SNI
+//
+// ==================================================
 
-function extractLinks(input) {
-    input = input.trim();
+function parseSubscriptionPath(pathname) {
 
-    let links = input
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line =>
-            line.startsWith('vmess://') ||
-            line.startsWith('vless://')
+    const parts =
+        pathname
+            .split('/')
+            .filter(Boolean);
+
+    if (parts.length !== 4) {
+
+        throw new Error(
+            '订阅地址格式错误，应为：/UUID/xhttp/PATH/SNI 或 /UUID/ws/PATH/SNI'
         );
-
-    if (links.length > 0) {
-        return links;
     }
 
-    const decoded = decodeBase64(input);
+    const uuid =
+        decodeURIComponent(parts[0]);
 
-    if (decoded) {
-        links = decoded
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line =>
-                line.startsWith('vmess://') ||
-                line.startsWith('vless://')
-            );
+    const type =
+        decodeURIComponent(parts[1]).toLowerCase();
 
-        if (links.length > 0) {
-            return links;
-        }
+    const path =
+        '/' + decodeURIComponent(parts[2]);
+
+    const sni =
+        decodeURIComponent(parts[3]);
+
+
+    if (!validateUUID(uuid)) {
+
+        throw new Error(
+            'UUID 格式错误'
+        );
     }
 
-    throw new Error('没有找到有效的 VMess 或 VLESS 连接');
+
+    if (
+        type !== 'xhttp' &&
+        type !== 'ws'
+    ) {
+
+        throw new Error(
+            '只支持 xhttp 和 ws'
+        );
+    }
+
+
+    if (!path || path === '/') {
+
+        throw new Error(
+            'PATH 不能为空'
+        );
+    }
+
+
+    if (!sni) {
+
+        throw new Error(
+            'SNI 不能为空'
+        );
+    }
+
+
+    return {
+        uuid,
+        type,
+        path,
+        sni
+    };
 }
 
 
-// ==================== 替换服务器 IPv6 ====================
+// ==================================================
+// 生成 XHTTP CDN 节点
+//
+// CDN TLS
+// 非 Reality
+//
+// IPv6       = 实际连接地址
+// host       = SNI
+// sni        = SNI
+// alpn       = h3
+// ==================================================
 
-function replaceServerAddress(connection, ipv6) {
-    const match = connection.match(
-        /^(vmess|vless):\/\/([^@]+)@([^:/]+|\[[^\]]+\])(:\d+)(.*)$/
+function generateXhttpLink(
+    uuid,
+    ipv6,
+    path,
+    sni
+) {
+
+    const params =
+        new URLSearchParams();
+
+    params.set(
+        'encryption',
+        'none'
     );
 
-    if (!match) {
-        throw new Error('连接格式错误');
-    }
+    params.set(
+        'security',
+        'tls'
+    );
 
-    const protocol = match[1];
-    const userInfo = match[2];
-    const port = match[4];
-    const rest = match[5];
+    params.set(
+        'sni',
+        sni
+    );
 
-    return `${protocol}://${userInfo}@[${ipv6}]${port}${rest}`;
+    params.set(
+        'alpn',
+        'h3'
+    );
+
+    params.set(
+        'type',
+        'xhttp'
+    );
+
+    params.set(
+        'path',
+        path
+    );
+
+    params.set(
+        'host',
+        sni
+    );
+
+
+    return (
+        `vless://${uuid}` +
+        `@[${ipv6}]:443?` +
+        `${params.toString()}`
+    );
 }
 
 
-// ==================== 生成 IPv6 节点 ====================
+// ==================================================
+// 生成 WS CDN 节点
+//
+// CDN TLS
+// 非 Reality
+//
+// IPv6       = 实际连接地址
+// host       = SNI
+// sni        = SNI
+// ==================================================
 
-async function generateSubscription(input) {
-    const links = extractLinks(input);
-    const ipv6List = await fetchIPv6List();
+function generateWsLink(
+    uuid,
+    ipv6,
+    path,
+    sni
+) {
+
+    const params =
+        new URLSearchParams();
+
+    params.set(
+        'encryption',
+        'none'
+    );
+
+    params.set(
+        'security',
+        'tls'
+    );
+
+    params.set(
+        'sni',
+        sni
+    );
+
+    params.set(
+        'type',
+        'ws'
+    );
+
+    params.set(
+        'path',
+        path
+    );
+
+    params.set(
+        'host',
+        sni
+    );
+
+    params.set(
+        'Sec-WebSocket-Protocol',
+        WS_SUB_PROTOCOL
+    );
+
+
+    return (
+        `vless://${uuid}` +
+        `@[${ipv6}]:443?` +
+        `${params.toString()}`
+    );
+}
+
+
+// ==================================================
+// 生成订阅
+// ==================================================
+
+async function generateSubscription(
+    uuid,
+    type,
+    path,
+    sni
+) {
+
+    // 每一次客户端更新订阅
+    // 都重新读取 GitHub IPv6 文件
+
+    const ipv6List =
+        await fetchIPv6List();
 
     const result = [];
 
-    for (const link of links) {
-        for (const ipv6 of ipv6List) {
-            result.push(
-                replaceServerAddress(link, ipv6)
-            );
+
+    for (const ipv6 of ipv6List) {
+
+        let link;
+
+
+        if (type === 'xhttp') {
+
+            link =
+                generateXhttpLink(
+                    uuid,
+                    ipv6,
+                    path,
+                    sni
+                );
+
+        } else {
+
+            link =
+                generateWsLink(
+                    uuid,
+                    ipv6,
+                    path,
+                    sni
+                );
         }
+
+
+        result.push(link);
     }
+
 
     return result.join('\n');
 }
 
 
-// ==================== HTML ====================
+// ==================================================
+// HTML
+// ==================================================
 
-function htmlPage(message = '', result = '') {
+function htmlPage(
+    message = '',
+    result = ''
+) {
+
     return `<!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
+
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IPV6优选</title>
+
+<meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+>
+
+<title>IPv6 动态订阅</title>
+
 <style>
+
 body {
     margin: 0;
     padding: 20px;
     background: #f5f5f5;
-    font-family: Arial,sans-serif;
+    font-family: Arial, sans-serif;
 }
+
 .container {
     max-width: 700px;
     margin: 40px auto;
@@ -241,19 +437,21 @@ body {
     border-radius: 12px;
     box-shadow: 0 2px 12px rgba(0,0,0,.08);
 }
+
 h2 {
     margin-top: 0;
 }
-textarea {
+
+input {
     width: 100%;
-    height: 180px;
     box-sizing: border-box;
     padding: 12px;
+    margin-top: 10px;
     border: 1px solid #ccc;
     border-radius: 8px;
-    resize: vertical;
     font-size: 14px;
 }
+
 button {
     width: 100%;
     margin-top: 15px;
@@ -265,61 +463,98 @@ button {
     font-size: 16px;
     cursor: pointer;
 }
-button:hover {
-    opacity: .85;
+
+textarea {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 15px;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    resize: vertical;
 }
+
+.result {
+    height: 100px;
+}
+
 .message {
     margin-top: 15px;
     padding: 10px;
-    border-radius: 6px;
     background: #f0f0f0;
+    border-radius: 6px;
     word-break: break-all;
 }
-.result {
-    margin-top: 15px;
-    height: 120px;
-}
+
 </style>
+
 </head>
 
 <body>
 
 <div class="container">
 
-<h2>IPV6优选</h2>
+<h2>IPv6 动态订阅</h2>
 
 <form method="POST">
 
-<textarea
-    name="subscription"
-    placeholder="输入 VMess / VLESS 订阅连接"
->${escapeHtml(message)}</textarea>
+<input
+    name="uuid"
+    placeholder="UUID"
+    required
+>
+
+<input
+    name="type"
+    placeholder="xhttp 或 ws"
+    required
+>
+
+<input
+    name="path"
+    placeholder="PATH，例如 sssisuiu"
+    required
+>
+
+<input
+    name="sni"
+    placeholder="SNI，例如 www.iij.ad.jp"
+    required
+>
 
 <button type="submit">
-生成IPV6优选连接
+生成订阅链接
 </button>
 
 </form>
 
-${result ? `
+${
+    result
+        ? `
 <textarea
     class="result"
     readonly
     onclick="this.select()"
 >${escapeHtml(result)}</textarea>
-` : ''}
+`
+        : ''
+}
 
 </div>
 
 </body>
+
 </html>`;
 }
 
 
-// ==================== HTML 转义 ====================
+// ==================================================
+// HTML 转义
+// ==================================================
 
 function escapeHtml(text) {
-    return text
+
+    return String(text)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -328,92 +563,69 @@ function escapeHtml(text) {
 }
 
 
-// ==================== Worker ====================
+// ==================================================
+// Worker
+// ==================================================
 
 export default {
 
     async fetch(request) {
 
-        const url = new URL(request.url);
+        const url =
+            new URL(request.url);
 
 
         // ==================================================
-        // 动态订阅接口
+        // 动态订阅
         //
-        // 客户端每次更新：
-        //
-        // /sub?data=xxxxxxxx
-        //
-        // 都会重新获取最新 IPv6 列表
+        // /UUID/xhttp/PATH/SNI
+        // /UUID/ws/PATH/SNI
         // ==================================================
 
-        if (url.pathname === '/sub') {
-
-            if (request.method !== 'GET') {
-                return new Response('Method Not Allowed', {
-                    status: 405
-                });
-            }
+        if (
+            request.method === 'GET' &&
+            url.pathname !== '/'
+        ) {
 
             try {
 
-                const data = url.searchParams.get('data');
-
-                if (!data) {
-                    return new Response(
-                        'Missing subscription data',
-                        {
-                            status: 400,
-                            headers: {
-                                'Content-Type': 'text/plain; charset=utf-8'
-                            }
-                        }
+                const config =
+                    parseSubscriptionPath(
+                        url.pathname
                     );
-                }
 
 
-                // 还原用户最开始提交的内容
-                const originalInput = base64UrlDecode(data);
-
-                if (!originalInput) {
-                    return new Response(
-                        '订阅数据解析失败',
-                        {
-                            status: 400,
-                            headers: {
-                                'Content-Type': 'text/plain; charset=utf-8'
-                            }
-                        }
+                const result =
+                    await generateSubscription(
+                        config.uuid,
+                        config.type,
+                        config.path,
+                        config.sni
                     );
-                }
 
 
-                // 每次访问都重新生成
-                // 因此客户端每次更新订阅都会获取最新 IPv6
-                const result = await generateSubscription(
-                    originalInput
-                );
-
-
-                // 返回标准 Base64 订阅
-                const encodedResult = base64Encode(result);
+                const encoded =
+                    base64Encode(result);
 
 
                 return new Response(
-                    encodedResult,
+                    encoded,
                     {
                         status: 200,
-                        headers: {
-                            'Content-Type': 'text/plain; charset=utf-8',
 
-                            // 防止中间缓存旧节点
+                        headers: {
+
+                            'Content-Type':
+                                'text/plain; charset=utf-8',
+
                             'Cache-Control':
                                 'no-store, no-cache, must-revalidate, max-age=0',
 
-                            'Pragma': 'no-cache',
+                            'Pragma':
+                                'no-cache',
 
-                            // 允许客户端跨域读取
-                            'Access-Control-Allow-Origin': '*'
+                            'Access-Control-Allow-Origin':
+                                '*'
                         }
                     }
                 );
@@ -421,9 +633,11 @@ export default {
             } catch (error) {
 
                 return new Response(
-                    error.message || '订阅生成失败',
+                    error.message ||
+                    '订阅生成失败',
                     {
                         status: 400,
+
                         headers: {
                             'Content-Type':
                                 'text/plain; charset=utf-8',
@@ -431,7 +645,8 @@ export default {
                             'Cache-Control':
                                 'no-store, no-cache, must-revalidate, max-age=0',
 
-                            'Access-Control-Allow-Origin': '*'
+                            'Access-Control-Allow-Origin':
+                                '*'
                         }
                     }
                 );
@@ -440,13 +655,17 @@ export default {
 
 
         // ==================================================
-        // 原来的首页
+        // 首页
         // ==================================================
 
         if (url.pathname !== '/') {
-            return new Response('Not Found', {
-                status: 404
-            });
+
+            return new Response(
+                'Not Found',
+                {
+                    status: 404
+                }
+            );
         }
 
 
@@ -476,54 +695,60 @@ export default {
 
             try {
 
-                const form = await request.formData();
+                const form =
+                    await request.formData();
 
-                const subscription =
+
+                const uuid =
                     String(
-                        form.get('subscription') || ''
+                        form.get('uuid') || ''
                     ).trim();
 
 
-                if (!subscription) {
+                const type =
+                    String(
+                        form.get('type') || ''
+                    ).trim().toLowerCase();
 
-                    return new Response(
-                        htmlPage(
-                            '请输入 VMess 或 VLESS 订阅连接'
-                        ),
-                        {
-                            headers: {
-                                'Content-Type':
-                                    'text/html; charset=utf-8'
-                            }
-                        }
-                    );
+
+                let path =
+                    String(
+                        form.get('path') || ''
+                    ).trim();
+
+
+                const sni =
+                    String(
+                        form.get('sni') || ''
+                    ).trim();
+
+
+                if (!path.startsWith('/')) {
+                    path = '/' + path;
                 }
 
 
-                // ==================================================
-                // 这里不再生成 IPv6 节点
-                //
-                // 只验证输入是否有效
-                // ==================================================
-
-                extractLinks(subscription);
+                const pathname =
+                    `/${encodeURIComponent(uuid)}` +
+                    `/${encodeURIComponent(type)}` +
+                    `${encodeURIComponent(path.slice(1))}` +
+                    `/${encodeURIComponent(sni)}`;
 
 
-                // ==================================================
-                // 把用户输入编码进动态订阅 URL
-                // ==================================================
-
-                const data =
-                    base64UrlEncode(subscription);
+                parseSubscriptionPath(
+                    pathname
+                );
 
 
                 const subscriptionUrl =
-                    `${url.origin}/sub?data=${data}`;
+                    `${url.origin}${pathname}`;
 
 
-                // 页面显示动态订阅链接
                 return new Response(
-                    htmlPage('', subscriptionUrl),
+                    htmlPage(
+                        '',
+                        subscriptionUrl
+                    ),
                     {
                         headers: {
                             'Content-Type':
@@ -536,10 +761,13 @@ export default {
 
                 return new Response(
                     htmlPage(
-                        error.message || '生成失败'
+                        '',
+                        error.message ||
+                        '生成失败'
                     ),
                     {
                         status: 400,
+
                         headers: {
                             'Content-Type':
                                 'text/html; charset=utf-8'
