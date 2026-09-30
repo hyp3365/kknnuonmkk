@@ -1,7 +1,7 @@
 const IPV6_LIST_URL='https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
 const WS_SUB_PROTOCOL='grpc';
 
-async function fetchIPv6List(){
+async function fetchIPv6List(count){
     const response=await fetch(IPV6_LIST_URL,{headers:{'User-Agent':'Cloudflare-Worker'}});
     if(!response.ok)throw new Error(`IPv6 地址列表获取失败：HTTP ${response.status}`);
     const text=await response.text();
@@ -23,7 +23,7 @@ async function fetchIPv6List(){
     for(const date of dates){
         for(const ipv6 of dateGroups[date]){
             if(!ipv6List.includes(ipv6))ipv6List.push(ipv6);
-            if(ipv6List.length>=30)return ipv6List;
+            if(ipv6List.length>=count)return ipv6List;
         }
     }
     return ipv6List;
@@ -190,8 +190,8 @@ function generateVmessWsLink(uuid,ipv6,path,sni){
     return`vmess://${base64Encode(JSON.stringify(config))}`;
 }
 
-async function generateSubscription(uuid,type,path,sni){
-    const ipv6List=await fetchIPv6List();
+async function generateSubscription(uuid,type,path,sni,count){
+    const ipv6List=await fetchIPv6List(count);
     const result=[];
     for(const ipv6 of ipv6List){
         if(type==='xhttp'){
@@ -279,11 +279,17 @@ export default{
                     config.path,
                     config.sni
                 );
+                const countValue=url.searchParams.get('count');
+                const count=countValue?parseInt(countValue,10):30;
+                if(!Number.isInteger(count)||count<1||count>200){
+                    throw new Error('节点数量必须是1-200之间的整数');
+                }
                 const result=await generateSubscription(
                     validated.uuid,
                     validated.type,
                     validated.path,
-                    validated.sni
+                    validated.sni,
+                    count
                 );
                 return subscriptionResponse(base64Encode(result));
             }catch(error){
