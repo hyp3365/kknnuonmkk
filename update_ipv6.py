@@ -7,6 +7,9 @@ SITES = {
     "https://www.wetest.vip/page/cloudflare/total_v6.html": "CloudFlare-ipv6.txt",
 }
 
+OUTPUT_DIR = Path("ipv6")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 CST = timezone(timedelta(hours=8))
 today = datetime.now(CST).date()
 today_str = today.strftime("%Y-%m-%d")
@@ -93,7 +96,7 @@ for url, filename in SITES.items():
             print("没有正确获取到15个 IPv6，跳过本次更新")
             continue
 
-        file = Path(filename)
+        file = OUTPUT_DIR / filename
 
         old_lines = []
 
