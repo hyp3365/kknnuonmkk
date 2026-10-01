@@ -147,7 +147,7 @@ for url, filename in SITES.items():
             print(f"{today_str} {ip}")
 
         print()
-        print(f"保存完成：{filename}")
+        print(f"保存完成：{file}")
 
     except Exception as e:
         print(f"获取失败：{e}")
