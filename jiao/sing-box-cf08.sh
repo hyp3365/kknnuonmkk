@@ -9621,7 +9621,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 CONF_DIR="/etc/port_manager"
 TARGET_PATH="/usr/local/bin/port_menu.sh"
-IFB_INTERFACE="ifb-port-manager"
+IFB_INTERFACE="ifb0"
 
 if [ "$EUID" -ne 0 ]; then
     echo -e "\033[31m[-] 错误: 请使用 root 权限运行此脚本\033[0m"
@@ -9743,37 +9743,44 @@ check_and_block() {
 }
 
 init_ifb() {
-    if ! modprobe ifb numifbs=1 2>/dev/null; then
-        if ! ip link show "$IFB_INTERFACE" >/dev/null 2>&1; then
+    if ! ip link show "$IFB_INTERFACE" >/dev/null 2>&1; then
+        if ! modprobe ifb 2>/dev/null; then
             echo -e "\033[31m[-] 无法加载 ifb 内核模块！\033[0m"
             return 1
         fi
     fi
+
     if ! ip link show "$IFB_INTERFACE" >/dev/null 2>&1; then
         if ! ip link add "$IFB_INTERFACE" type ifb 2>/dev/null; then
             echo -e "\033[31m[-] 创建 IFB 接口失败！\033[0m"
             return 1
         fi
     fi
+
     if ! ip link set "$IFB_INTERFACE" up 2>/dev/null; then
         echo -e "\033[31m[-] 启用 IFB 接口失败！\033[0m"
         return 1
     fi
+
     if ! tc qdisc show dev "$INTERFACE" 2>/dev/null | grep -q "ingress"; then
         if ! tc qdisc add dev "$INTERFACE" handle ffff: ingress 2>/dev/null; then
             echo -e "\033[31m[-] 创建 ingress qdisc 失败！\033[0m"
             return 1
         fi
     fi
+
     tc filter del dev "$INTERFACE" parent ffff: 2>/dev/null || true
+
     if ! tc filter add dev "$INTERFACE" parent ffff: protocol ip u32 match u32 0 0 action mirred egress redirect dev "$IFB_INTERFACE"; then
         echo -e "\033[31m[-] 创建 IPv4 ingress 重定向规则失败！\033[0m"
         return 1
     fi
+
     if ! tc filter add dev "$INTERFACE" parent ffff: protocol ipv6 u32 match u32 0 0 action mirred egress redirect dev "$IFB_INTERFACE"; then
         echo -e "\033[31m[-] 创建 IPv6 ingress 重定向规则失败！\033[0m"
         return 1
     fi
+
     return 0
 }
 
@@ -10156,17 +10163,24 @@ while true; do
             fi
 
             echo -e "\n\033[36m>>> 直接按回车跳过流量限制 <<<\033[0m"
-            read -p "请输入流量上限(MB): " quota
-            if [ -z "$quota" ]; then
-                quota="UNLIMITED"
-                echo -e " -> \033[33m已设为: 不限制流量\033[0m"
-            elif ! [[ "$quota" =~ ^[0-9]+$ ]]; then
-                echo -e "\033[31m[-] 流量上限必须是数字！\033[0m"
-                read -p "按回车键继续..."
-                continue
-            else
-                echo -e " -> \033[32m已设为: ${quota} MB\033[0m"
-            fi
+read -p "请输入流量上限(如 100=100MB，1gb=1GB): " quota
+if [ -z "$quota" ]; then
+    quota="UNLIMITED"
+    echo -e " -> \033[33m已设为: 不限制流量\033[0m"
+elif [[ "$quota" =~ ^[0-9]+$ ]]; then
+    quota="$quota"
+    echo -e " -> \033[32m已设为: ${quota} MB\033[0m"
+elif [[ "$quota" =~ ^([0-9]+)[mM][bB]$ ]]; then
+    quota="${BASH_REMATCH[1]}"
+    echo -e " -> \033[32m已设为: ${quota} MB\033[0m"
+elif [[ "$quota" =~ ^([0-9]+)[gG][bB]$ ]]; then
+    quota=$((BASH_REMATCH[1] * 1024))
+    echo -e " -> \033[32m已设为: $((quota / 1024)) GB\033[0m"
+else
+    echo -e "\033[31m[-] 流量上限格式错误！例如: 100、500mb、1gb\033[0m"
+    read -p "按回车键继续..."
+    continue
+fi
 
             echo -e "\n\033[36m>>> 直接输入数字即可 (默认单位 Mbps)，直接按回车跳过网速限制 <<<\033[0m"
             read -p "请输入网速上限(如输入 5 代表 5Mbps): " rate_num
@@ -12133,10 +12147,9 @@ menu() {
    
    clear
    echo ""
-   green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.0===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.1===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
