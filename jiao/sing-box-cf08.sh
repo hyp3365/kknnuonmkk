@@ -9797,7 +9797,9 @@ rebuild_tc_filters() {
     local rc=0
     local flower_checked=0
     tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null || true
+    tc filter del dev "$INTERFACE" parent 1:0 prio 2 2>/dev/null || true
     tc filter del dev "$IFB_INTERFACE" parent 1:0 prio 1 2>/dev/null || true
+    tc filter del dev "$IFB_INTERFACE" parent 1:0 prio 2 2>/dev/null || true
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
         local p=$(basename "$conf" .conf)
@@ -9826,12 +9828,12 @@ rebuild_tc_filters() {
             fi
 
             if [ "$flower_checked" -eq 2 ]; then
-                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 1 flower ip_proto tcp src_port "$p" flowid 1:$HEX 2>/dev/null; then
+                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto tcp src_port "$p" flowid 1:$HEX 2>/dev/null; then
                     echo -e "\033[31m[-] 端口 $p IPv6 TCP 上传 filter 创建失败！\033[0m"
                     rc=1
                 fi
                 
-                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 1 flower ip_proto udp src_port "$p" flowid 1:$HEX 2>/dev/null; then
+                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto udp src_port "$p" flowid 1:$HEX 2>/dev/null; then
                     echo -e "\033[31m[-] 端口 $p IPv6 UDP 上传 filter 创建失败！\033[0m"
                     rc=1
                 fi
@@ -9848,12 +9850,12 @@ rebuild_tc_filters() {
             fi
 
             if [ "$flower_checked" -eq 2 ]; then
-                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 1 flower ip_proto tcp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
+                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto tcp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
                     echo -e "\033[31m[-] 端口 $p IPv6 TCP 下载 filter 创建失败！\033[0m"
                     rc=1
                 fi
                 
-                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 1 flower ip_proto udp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
+                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto udp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
                     echo -e "\033[31m[-] 端口 $p IPv6 UDP 下载 filter 创建失败！\033[0m"
                     rc=1
                 fi
@@ -12149,7 +12151,7 @@ menu() {
    echo ""
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.1===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.2===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
