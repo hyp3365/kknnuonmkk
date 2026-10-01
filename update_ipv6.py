@@ -88,9 +88,6 @@ def get_ip(url):
         except ValueError:
             continue
 
-        if len(result) == 15:
-            break
-
     return result
 
 
@@ -106,10 +103,6 @@ for url, filename in SITES.items():
 
         print(f"提取 IP：{len(ip_list)}")
 
-        if len(ip_list) != 15:
-            print("没有正确获取到15个 IP，跳过本次更新")
-            continue
-
         file = OUTPUT_DIR / filename
 
         old_lines = []
@@ -119,7 +112,7 @@ for url, filename in SITES.items():
                 encoding="utf-8"
             ).splitlines()
 
-        # 今天追加15个
+        # 今天追加获取到的所有 IP
         new_lines = [
             f"{today_str} {ip}"
             for ip in ip_list
