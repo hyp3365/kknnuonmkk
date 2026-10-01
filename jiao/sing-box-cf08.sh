@@ -9990,9 +9990,6 @@ apply_limit() {
 
     echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"\nSTORED_TOTAL=\"0\"\nLAST_IPT_BYTES=\"0\"" > "$CONF_DIR/${p}.conf"
 
-    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
-    tc class del dev "$IFB_INTERFACE" classid 1:$HEX 2>/dev/null
-
     if [ "$r" != "UNLIMITED" ]; then
         if ! init_ifb; then
             return 1
@@ -10013,7 +10010,7 @@ apply_limit() {
             fi
         fi
 
-        if ! tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
+        if ! tc class replace dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
             echo -e "\033[31m[-] 端口 $p 上传限速 class 创建失败！\033[0m"
             return 1
         fi
@@ -10033,7 +10030,7 @@ apply_limit() {
             fi
         fi
 
-        if ! tc class add dev "$IFB_INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
+        if ! tc class replace dev "$IFB_INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
             echo -e "\033[31m[-] 端口 $p 下载限速 class 创建失败！\033[0m"
             return 1
         fi
@@ -10059,10 +10056,12 @@ remove_limit() {
     local HEX=$(printf "%x" "$p")
     local CHAIN_NAME="LIMIT_P_${p}"
 
-    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
-    tc class del dev "$IFB_INTERFACE" classid 1:$HEX 2>/dev/null
     rm -f "$CONF_DIR/${p}.conf"
+
     rebuild_tc_filters
+
+    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null || true
+    tc class del dev "$IFB_INTERFACE" classid 1:$HEX 2>/dev/null || true
 
     nft flush chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
     nft delete chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
@@ -12151,7 +12150,7 @@ menu() {
    echo ""
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.2===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.3===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
