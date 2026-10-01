@@ -1,9 +1,12 @@
 import urllib.request
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SITES = {
+    "https://www.wetest.vip/page/cloudfront/total_v4.html": "CloudFront-ipv4.txt",
     "https://www.wetest.vip/page/cloudfront/total_v6.html": "CloudFront-ipv6.txt",
+    "https://www.wetest.vip/page/cloudflare/total_v4.html": "CloudFlare-ipv4.txt",
     "https://www.wetest.vip/page/cloudflare/total_v6.html": "CloudFlare-ipv6.txt",
 }
 
@@ -15,7 +18,7 @@ today = datetime.now(CST).date()
 today_str = today.strftime("%Y-%m-%d")
 
 
-def get_ipv6(url):
+def get_ip(url):
     req = urllib.request.Request(
         url,
         headers={
@@ -59,20 +62,31 @@ def get_ipv6(url):
     if start == -1:
         return []
 
+    # 根据 URL 判断 IPv4 / IPv6
+    is_ipv6 = "_v6" in url
+
     result = []
 
-    # 从统计优选列表后面找 IPv6
+    # 从统计优选列表后面找 IP
     for line in lines[start + 1:]:
-        # 第一列就是 IPv6
-        if ":" in line and "|" not in line:
-            parts = line.split()
+        parts = line.split()
 
-            if parts and ":" in parts[0]:
-                ip = parts[0]
+        if not parts:
+            continue
 
-                # IPv6 至少包含两个 :
-                if ip.count(":") >= 2:
-                    result.append(ip)
+        ip = parts[0]
+
+        try:
+            addr = ipaddress.ip_address(ip)
+
+            if is_ipv6 and addr.version == 6:
+                result.append(ip)
+
+            elif not is_ipv6 and addr.version == 4:
+                result.append(ip)
+
+        except ValueError:
+            continue
 
         if len(result) == 15:
             break
@@ -88,12 +102,12 @@ for url, filename in SITES.items():
     print("=" * 70)
 
     try:
-        ipv6_list = get_ipv6(url)
+        ip_list = get_ip(url)
 
-        print(f"提取 IPv6：{len(ipv6_list)}")
+        print(f"提取 IP：{len(ip_list)}")
 
-        if len(ipv6_list) != 15:
-            print("没有正确获取到15个 IPv6，跳过本次更新")
+        if len(ip_list) != 15:
+            print("没有正确获取到15个 IP，跳过本次更新")
             continue
 
         file = OUTPUT_DIR / filename
@@ -108,7 +122,7 @@ for url, filename in SITES.items():
         # 今天追加15个
         new_lines = [
             f"{today_str} {ip}"
-            for ip in ipv6_list
+            for ip in ip_list
         ]
 
         all_lines = old_lines + new_lines
@@ -143,7 +157,7 @@ for url, filename in SITES.items():
         print()
         print("本次获取：")
 
-        for ip in ipv6_list:
+        for ip in ip_list:
             print(f"{today_str} {ip}")
 
         print()
